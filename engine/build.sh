@@ -10,7 +10,7 @@ cppFilenames=$(find . -type f -name "*.cpp")
 # echo "Files:" $cppFilenames
 
 assembly="engine"
-compilerFlags="-g -shared -fdeclspec -fPIC -std=c++17"
+compilerFlags="-g -shared -fdeclspec -fPIC -std=c++20"
 # -fms-extensions
 # -Wall -Werror
 
