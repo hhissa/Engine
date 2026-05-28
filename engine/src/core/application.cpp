@@ -1,7 +1,13 @@
 #include "application.h"
 #include "../game_types.h"
+#include "event.h"
 #include "hmemory.h"
+#include "input.h"
 #include "logger.h"
+static EventSystem &event_system() {
+  static EventSystem instance;
+  return instance;
+}
 
 Application::Application(Game *game)
     : game(game),
@@ -11,6 +17,13 @@ Application::Application(Game *game)
       width(game->app_config.start_width),
       height(game->app_config.start_height) {
   Logger::initialize_logging();
+  EventSystem &events = event_system();
+  if (!events.initialize()) {
+    // already initialized, or some other failure
+    KFATAL("failed to initalize event system");
+  }
+
+  input::initialize(events);
   KINFO("Application created: {} ({}x{})", game->app_config.name, width,
         height);
 
@@ -53,8 +66,11 @@ b8 Application::application_start() {
         is_running = false;
         break;
       }
+      input::update(0);
     }
   }
+  input::shutdown();
+  event_system().shutdown();
 
   return true;
 }
