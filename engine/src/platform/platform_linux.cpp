@@ -1,8 +1,11 @@
 // platform_linux.cpp
 #include "platform.h"
+#include <xcb/xproto.h>
 
 #if KPLATFORM_LINUX
 
+#include "../core/event.h"
+#include "../core/input.h"
 #include "../core/logger.h"
 
 #include <X11/XKBlib.h>
@@ -11,6 +14,14 @@
 #include <X11/keysym.h>
 #include <sys/time.h>
 #include <xcb/xcb.h>
+
+#undef None // get rid of X11's macro
+#undef Bool // and these while you're at it
+#undef Status
+#undef True
+#undef False
+#undef Success
+#undef Always
 
 #include <array>
 #include <chrono>
@@ -21,6 +32,11 @@
 #include <string_view>
 #include <thread>
 
+#define VK_USE_PLATFORM_XCB_KHR
+#include "../renderer/vulkan/vulkan_types.inl"
+#include <vulkan/vulkan.h>
+
+input::Key translate_keycode(u32 x_keycode);
 // ─── Per-window state, hidden inside the .cpp ──────────────────────────────
 struct linux_state {
   Display *display;
@@ -125,16 +141,49 @@ b8 PlatformLayer::platform_pump_messages() {
     switch (event->response_type & ~0x80) {
     case XCB_KEY_PRESS:
     case XCB_KEY_RELEASE: {
-      // TODO: key handling
+      xcb_key_press_event_t *kb_event = (xcb_key_press_event_t *)event;
+      b8 pressed = event->response_type == XCB_KEY_PRESS;
+      xcb_keycode_t code = kb_event->detail;
+      KeySym key_sym = XkbKeycodeToKeysym(state->display,
+                                          (KeyCode)code, // event.xkey.keycode,
+                                          0, code & ShiftMask ? 1 : 0);
+
+      input::Key key = translate_keycode(key_sym);
+
+      // Pass to the input subsystem for processing.
+      input::process_key(key, pressed);
       break;
     }
     case XCB_BUTTON_PRESS:
     case XCB_BUTTON_RELEASE: {
-      // TODO: mouse buttons
+      xcb_button_press_event_t *mouse_event = (xcb_button_press_event_t *)event;
+      b8 pressed = event->response_type == XCB_BUTTON_PRESS;
+      input::Button mouse_button = input::Button::Count;
+      switch (mouse_event->detail) {
+      case XCB_BUTTON_INDEX_1:
+        mouse_button = input::Button::Left;
+        break;
+      case XCB_BUTTON_INDEX_2:
+        mouse_button = input::Button::Middle;
+        break;
+      case XCB_BUTTON_INDEX_3:
+        mouse_button = input::Button::Right;
+        break;
+      }
+
+      // Pass over to the input subsystem.
+      if (mouse_button != input::Button::Count) {
+        input::process_button(mouse_button, pressed);
+      }
       break;
     }
     case XCB_MOTION_NOTIFY: {
       // TODO: mouse movement
+      xcb_motion_notify_event_t *move_event =
+          (xcb_motion_notify_event_t *)event;
+
+      // Pass over to the input subsystem.
+      input::process_mouse_move(move_event->event_x, move_event->event_y);
       break;
     }
     case XCB_CONFIGURE_NOTIFY: {
@@ -155,6 +204,28 @@ b8 PlatformLayer::platform_pump_messages() {
   }
 
   return !quit_flagged;
+}
+
+void PlatformLayer::get_required_extension_names(
+    std::vector<const char *> &names) const {
+  names.push_back("VK_KHR_xcb_surface"); // VK_KHR_xlib_surface?
+}
+
+b8 PlatformLayer::create_vulkan_surface(VulkanContext &context) {
+  auto *state = static_cast<linux_state *>(internal_state);
+
+  VkXcbSurfaceCreateInfoKHR create_info{
+      VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR};
+  create_info.connection = state->connection;
+  create_info.window = state->window;
+
+  VkResult result = vkCreateXcbSurfaceKHR(context.instance, &create_info,
+                                          context.allocator, &context.surface);
+  if (result != VK_SUCCESS) {
+    KFATAL("Vulkan surface creation failed.");
+    return FALSE;
+  }
+  return TRUE;
 }
 
 // ─── Platform namespace: stateless OS utilities ────────────────────────────
@@ -210,5 +281,272 @@ void sleep(u64 ms) {
 }
 
 } // namespace Platform
+input::Key translate_keycode(u32 x_keycode) {
+  using input::Key;
 
+  switch (x_keycode) {
+  case XK_BackSpace:
+    return Key::Backspace;
+  case XK_Return:
+    return Key::Enter;
+  case XK_Tab:
+    return Key::Tab;
+    // case XK_Shift:    return Key::Shift;
+    // case XK_Control:  return Key::Control;
+
+  case XK_Pause:
+    return Key::Pause;
+  case XK_Caps_Lock:
+    return Key::Capital;
+
+  case XK_Escape:
+    return Key::Escape;
+
+    // Not supported
+    // case : return Key::Convert;
+    // case : return Key::NonConvert;
+    // case : return Key::Accept;
+
+  case XK_Mode_switch:
+    return Key::ModeChange;
+
+  case XK_space:
+    return Key::Space;
+  case XK_Prior:
+    return Key::Prior;
+  case XK_Next:
+    return Key::Next;
+  case XK_End:
+    return Key::End;
+  case XK_Home:
+    return Key::Home;
+  case XK_Left:
+    return Key::Left;
+  case XK_Up:
+    return Key::Up;
+  case XK_Right:
+    return Key::Right;
+  case XK_Down:
+    return Key::Down;
+  case XK_Select:
+    return Key::Select;
+  case XK_Print:
+    return Key::Print;
+  case XK_Execute:
+    return Key::Execute;
+  // case XK_snapshot: return Key::Snapshot;  // not supported
+  case XK_Insert:
+    return Key::Insert;
+  case XK_Delete:
+    return Key::Delete;
+  case XK_Help:
+    return Key::Help;
+
+  case XK_Meta_L:
+    return Key::LWin; // TODO: not sure this is right
+  case XK_Meta_R:
+    return Key::RWin;
+    // case XK_apps:    return Key::Apps;   // not supported
+    // case XK_sleep:   return Key::Sleep;  // not supported
+
+  case XK_KP_0:
+    return Key::Numpad0;
+  case XK_KP_1:
+    return Key::Numpad1;
+  case XK_KP_2:
+    return Key::Numpad2;
+  case XK_KP_3:
+    return Key::Numpad3;
+  case XK_KP_4:
+    return Key::Numpad4;
+  case XK_KP_5:
+    return Key::Numpad5;
+  case XK_KP_6:
+    return Key::Numpad6;
+  case XK_KP_7:
+    return Key::Numpad7;
+  case XK_KP_8:
+    return Key::Numpad8;
+  case XK_KP_9:
+    return Key::Numpad9;
+  case XK_multiply:
+    return Key::Multiply;
+  case XK_KP_Add:
+    return Key::Add;
+  case XK_KP_Separator:
+    return Key::Separator;
+  case XK_KP_Subtract:
+    return Key::Subtract;
+  case XK_KP_Decimal:
+    return Key::Decimal;
+  case XK_KP_Divide:
+    return Key::Divide;
+
+  case XK_F1:
+    return Key::F1;
+  case XK_F2:
+    return Key::F2;
+  case XK_F3:
+    return Key::F3;
+  case XK_F4:
+    return Key::F4;
+  case XK_F5:
+    return Key::F5;
+  case XK_F6:
+    return Key::F6;
+  case XK_F7:
+    return Key::F7;
+  case XK_F8:
+    return Key::F8;
+  case XK_F9:
+    return Key::F9;
+  case XK_F10:
+    return Key::F10;
+  case XK_F11:
+    return Key::F11;
+  case XK_F12:
+    return Key::F12;
+  case XK_F13:
+    return Key::F13;
+  case XK_F14:
+    return Key::F14;
+  case XK_F15:
+    return Key::F15;
+  case XK_F16:
+    return Key::F16;
+  case XK_F17:
+    return Key::F17;
+  case XK_F18:
+    return Key::F18;
+  case XK_F19:
+    return Key::F19;
+  case XK_F20:
+    return Key::F20;
+  case XK_F21:
+    return Key::F21;
+  case XK_F22:
+    return Key::F22;
+  case XK_F23:
+    return Key::F23;
+  case XK_F24:
+    return Key::F24;
+
+  case XK_Num_Lock:
+    return Key::NumLock;
+  case XK_Scroll_Lock:
+    return Key::Scroll;
+
+  case XK_KP_Equal:
+    return Key::NumpadEqual;
+
+  case XK_Shift_L:
+    return Key::LShift;
+  case XK_Shift_R:
+    return Key::RShift;
+  case XK_Control_L:
+    return Key::LControl;
+  case XK_Control_R:
+    return Key::RControl;
+  // case XK_Menu:    return Key::LMenu;
+  case XK_Menu:
+    return Key::RMenu;
+
+  case XK_semicolon:
+    return Key::Semicolon;
+  case XK_plus:
+    return Key::Plus;
+  case XK_comma:
+    return Key::Comma;
+  case XK_minus:
+    return Key::Minus;
+  case XK_period:
+    return Key::Period;
+  case XK_slash:
+    return Key::Slash;
+  case XK_grave:
+    return Key::Grave;
+
+  case XK_a:
+  case XK_A:
+    return Key::A;
+  case XK_b:
+  case XK_B:
+    return Key::B;
+  case XK_c:
+  case XK_C:
+    return Key::C;
+  case XK_d:
+  case XK_D:
+    return Key::D;
+  case XK_e:
+  case XK_E:
+    return Key::E;
+  case XK_f:
+  case XK_F:
+    return Key::F;
+  case XK_g:
+  case XK_G:
+    return Key::G;
+  case XK_h:
+  case XK_H:
+    return Key::H;
+  case XK_i:
+  case XK_I:
+    return Key::I;
+  case XK_j:
+  case XK_J:
+    return Key::J;
+  case XK_k:
+  case XK_K:
+    return Key::K;
+  case XK_l:
+  case XK_L:
+    return Key::L;
+  case XK_m:
+  case XK_M:
+    return Key::M;
+  case XK_n:
+  case XK_N:
+    return Key::N;
+  case XK_o:
+  case XK_O:
+    return Key::O;
+  case XK_p:
+  case XK_P:
+    return Key::P;
+  case XK_q:
+  case XK_Q:
+    return Key::Q;
+  case XK_r:
+  case XK_R:
+    return Key::R;
+  case XK_s:
+  case XK_S:
+    return Key::S;
+  case XK_t:
+  case XK_T:
+    return Key::T;
+  case XK_u:
+  case XK_U:
+    return Key::U;
+  case XK_v:
+  case XK_V:
+    return Key::V;
+  case XK_w:
+  case XK_W:
+    return Key::W;
+  case XK_x:
+  case XK_X:
+    return Key::X;
+  case XK_y:
+  case XK_Y:
+    return Key::Y;
+  case XK_z:
+  case XK_Z:
+    return Key::Z;
+
+  default:
+    return Key::None;
+  }
+}
 #endif // KPLATFORM_LINUX

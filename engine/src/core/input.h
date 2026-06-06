@@ -11,6 +11,7 @@ namespace input {
 enum class Button : std::uint8_t { Left, Right, Middle, Count };
 
 enum class Key : std::uint16_t {
+  None = 0,
   Backspace = 0x08,
   Tab = 0x09,
   Enter = 0x0D,

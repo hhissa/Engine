@@ -2,6 +2,8 @@
 #pragma once
 #include "../defines.h"
 #include "../platform/platform.h"
+#include "clock.h"
+#include "event.h"
 #include <memory>
 #include <string>
 
@@ -34,4 +36,14 @@ private:
   i16 width;
   i16 height;
   f64 last_time = 0.0;
+  Clock clock;
+  // Handlers
+  bool on_key(EventCode code, void *sender, const EventContext &ctx);
+  bool on_quit(const EventContext &ctx);
+
+  // RAII subscriptions — auto-unregister when Application is destroyed.
+  // Declared AFTER any members the handlers touch, so they tear down first.
+  EventSubscription quit_sub_;
+  EventSubscription key_pressed_sub_;
+  EventSubscription key_released_sub_;
 };

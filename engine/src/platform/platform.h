@@ -2,7 +2,9 @@
 #include "../defines.h"
 #include <string>
 #include <string_view>
+#include <vector>
 
+struct VulkanContext;
 // OS-level utility functions — don't need a PlatformLayer instance.
 namespace Platform {
 KAPI void *allocate(u64 size, b8 aligned);
@@ -29,6 +31,8 @@ public:
   PlatformLayer &operator=(const PlatformLayer &) = delete;
 
   b8 platform_pump_messages();
+  void get_required_extension_names(std::vector<const char *> &names) const;
+  b8 create_vulkan_surface(VulkanContext &context);
 
 private:
   std::string application_name;
