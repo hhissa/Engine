@@ -1,6 +1,8 @@
 
+#include "application.h"
 #include "../game_types.h"
 #include "../renderer/renderer_frontend.h"
+#include "asserts.h"
 #include "event.h"
 #include "hmemory.h"
 #include "input.h"
@@ -11,6 +13,11 @@ static EventSystem &event_system() {
   return instance;
 }
 
+// There's only ever one Application (enforced by the deleted copy/assign
+// above), so renderer code that doesn't hold a reference to it can still
+// reach it through this pointer via application_get_framebuffer_size().
+static Application *g_app_instance = nullptr;
+
 Application::Application(Game *game)
     : game(game),
       platform(game->app_config.name, game->app_config.start_pos_x,
@@ -18,6 +25,7 @@ Application::Application(Game *game)
                game->app_config.start_height),
       width(game->app_config.start_width),
       height(game->app_config.start_height) {
+  g_app_instance = this;
   Logger::initialize_logging();
   EventSystem &events = event_system();
   if (!events.initialize()) {
@@ -63,6 +71,7 @@ Application::Application(Game *game)
 Application::~Application() {
   KINFO("Application shutting down.");
   // PlatformLayer destructor runs automatically.
+  g_app_instance = nullptr;
 }
 
 b8 Application::application_start() {
@@ -160,4 +169,14 @@ bool Application::on_key(EventCode code, void * /*sender*/,
     }
   }
   return false;
+}
+
+void Application::application_get_framebuffer_size(u32 *width, u32 *height) {
+  *width = this->width;
+  *height = this->height;
+}
+
+void application_get_framebuffer_size(u32 *width, u32 *height) {
+  KASSERT_MSG(g_app_instance, "application_get_framebuffer_size called before Application exists");
+  g_app_instance->application_get_framebuffer_size(width, height);
 }

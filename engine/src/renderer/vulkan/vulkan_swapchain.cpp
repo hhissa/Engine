@@ -68,6 +68,9 @@ void vulkan_swapchain_present(VulkanContext *context,
   } else if (result != VK_SUCCESS) {
     KFATAL("Failed to present swap chain image!");
   }
+  // at the end of vulkan_swapchain_present(), after the present result check:
+  context->current_frame =
+      (context->current_frame + 1) % swapchain->max_frames_in_flight;
 }
 
 static void create(VulkanContext *context, u32 width, u32 height,

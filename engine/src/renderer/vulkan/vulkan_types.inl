@@ -2,6 +2,7 @@
 #include "../../core/asserts.h"
 #include "../../defines.h"
 
+#include <memory>
 #include <vector>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
@@ -30,6 +31,8 @@ struct VulkanDevice {
   VkQueue present_queue;
   VkQueue transfer_queue;
 
+  VkCommandPool graphics_command_pool;
+
   VkPhysicalDeviceProperties properties{};
   VkPhysicalDeviceFeatures features{};
   VkPhysicalDeviceMemoryProperties memory{};
@@ -44,6 +47,10 @@ struct VulkanImage {
   u32 width;
   u32 height;
 };
+
+class VulkanRenderpass;
+
+class VulkanCommandBuffer;
 
 struct VulkanSwapchain {
   VkSurfaceFormatKHR image_format;
@@ -71,11 +78,22 @@ struct VulkanContext {
   VulkanDevice device;
 
   VulkanSwapchain swapchain;
+  std::unique_ptr<VulkanRenderpass> main_renderpass;
+
+  std::vector<std::unique_ptr<VulkanCommandBuffer>> graphics_command_buffers;
+
+  // VkSemaphore is an opaque handle (not a class), so vector<VkSemaphore>
+  // has no incomplete-type issue and can live here.
+  std::vector<VkSemaphore> image_available_semaphores;
+  std::vector<VkSemaphore> queue_complete_semaphores;
+
   u32 image_index;
   u32 current_frame;
 
   b8 recreating_swapchain;
 
-  i32 (*find_memory_index)(VulkanContext context, u32 type_filter,
+  i32 (*find_memory_index)(VulkanContext &context, u32 type_filter,
                            u32 property_flags);
+
+  ~VulkanContext();
 };

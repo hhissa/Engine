@@ -27,6 +27,7 @@ public:
   Application &operator=(const Application &) = delete;
 
   b8 application_start();
+  void application_get_framebuffer_size(u32 *width, u32 *height);
 
 private:
   Game *game;
@@ -47,3 +48,7 @@ private:
   EventSubscription key_pressed_sub_;
   EventSubscription key_released_sub_;
 };
+
+// Free-function accessor for the live Application instance, so renderer code
+// (which doesn't hold an Application reference) can query framebuffer size.
+void application_get_framebuffer_size(u32 *width, u32 *height);

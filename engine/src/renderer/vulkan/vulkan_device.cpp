@@ -1,9 +1,7 @@
 #include "vulkan_device.h"
 #include "../../core/logger.h"
 
-#include <cstddef>
 #include <cstring>
-#include <string>
 #include <vector>
 
 struct VulkanPhysicalDeviceRequirements {
@@ -178,6 +176,14 @@ b8 vulkan_device_create(VulkanContext &context) {
                    context.device.transfer_queue_index, 0,
                    &context.device.transfer_queue);
 
+  VkCommandPoolCreateInfo pool_create_info{
+      VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+  pool_create_info.queueFamilyIndex = context.device.graphics_queue_index;
+  pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  VK_CHECK(vkCreateCommandPool(context.device.logical_device, &pool_create_info,
+                               context.allocator,
+                               &context.device.graphics_command_pool));
+  KINFO("Graphics command pool created.");
   KINFO("Queues obtained.");
   return TRUE;
 }
@@ -192,6 +198,11 @@ void vulkan_device_destroy(VulkanContext &context) {
     context.device.logical_device = 0;
   }
   context.device.physical_device = VK_NULL_HANDLE;
+
+  // vulkan_device.cpp, in vulkan_device_destroy()
+  KINFO("Destroying command pools...");
+  vkDestroyCommandPool(context.device.logical_device,
+                       context.device.graphics_command_pool, context.allocator);
 }
 
 void vulkan_device_query_swapchain_support(

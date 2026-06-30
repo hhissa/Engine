@@ -2,11 +2,12 @@
 #include "../../core/logger.h"
 
 #include "../../platform/platform.h"
+#include "vulkan_commandbuffer.h"
 #include "vulkan_device.h"
+#include "vulkan_renderpass.h"
 #include "vulkan_swapchain.h"
 #include <vulkan/vulkan.h>
 
-#include <string>
 #include <string_view>
 #include <vector>
 
@@ -15,10 +16,13 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_callback(
     VkDebugUtilsMessageTypeFlagsEXT message_types,
     const VkDebugUtilsMessengerCallbackDataEXT *callback_data, void *user_data);
 
-i32 find_memory_index(VulkanContext context, u32 type_filter,
+i32 find_memory_index(VulkanContext &context, u32 type_filter,
                       u32 property_flags);
+
 VulkanRendererBackend::VulkanRendererBackend(PlatformLayer &plat_state)
     : plat_state_(&plat_state) {}
+
+VulkanRendererBackend::~VulkanRendererBackend() = default;
 
 b8 VulkanRendererBackend::initialize(std::string_view application_name,
                                      PlatformLayer &plat_state) {
@@ -26,6 +30,15 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
 
   // TODO: custom allocator.
   context_.allocator = nullptr;
+
+  application_get_framebuffer_size(&cached_framebuffer_width_,
+                                   &cached_framebuffer_height_);
+  context_.framebuffer_width =
+      (cached_framebuffer_width_ != 0) ? cached_framebuffer_width_ : 800;
+  context_.framebuffer_height =
+      (cached_framebuffer_height_ != 0) ? cached_framebuffer_height_ : 600;
+  cached_framebuffer_width_ = 0;
+  cached_framebuffer_height_ = 0;
 
   VkApplicationInfo app_info{VK_STRUCTURE_TYPE_APPLICATION_INFO};
   app_info.apiVersion = VK_API_VERSION_1_2;
@@ -138,11 +151,70 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
   KINFO("Vulkan renderer initialized successfully.");
   vulkan_swapchain_create(&context_, context_.framebuffer_width,
                           context_.framebuffer_height, &context_.swapchain);
+  context_.main_renderpass = std::make_unique<VulkanRenderpass>(
+      context_, 0.0f, 0.0f, static_cast<f32>(context_.framebuffer_width),
+      static_cast<f32>(context_.framebuffer_height), 0.0f, 0.0f, 0.2f, 1.0f,
+      1.0f, 0);
+  regenerate_framebuffers();
+  create_commandbuffer();
+
+  // Sync objects — one semaphore pair and one fence per frame in flight.
+  context_.image_available_semaphores.resize(
+      context_.swapchain.max_frames_in_flight);
+  context_.queue_complete_semaphores.resize(
+      context_.swapchain.max_frames_in_flight);
+  in_flight_fences_.reserve(context_.swapchain.max_frames_in_flight);
+
+  for (u8 i = 0; i < context_.swapchain.max_frames_in_flight; ++i) {
+    VkSemaphoreCreateInfo semaphore_create_info{
+        VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    vkCreateSemaphore(context_.device.logical_device, &semaphore_create_info,
+                      context_.allocator,
+                      &context_.image_available_semaphores[i]);
+    vkCreateSemaphore(context_.device.logical_device, &semaphore_create_info,
+                      context_.allocator,
+                      &context_.queue_complete_semaphores[i]);
+
+    // Created signaled so the first frame doesn't wait indefinitely for a
+    // "previous" frame that never existed.
+    in_flight_fences_.emplace_back(context_, TRUE);
+  }
+
+  // images_in_flight are non-owning pointers — null means the image is
+  // not currently held by any in-flight frame.
+  images_in_flight_.assign(context_.swapchain.image_count, nullptr);
+
+  KINFO("Vulkan renderer initialized successfully.");
   return TRUE;
 }
 
 void VulkanRendererBackend::shutdown() {
-  // Destroy in reverse order of creation.
+  vkDeviceWaitIdle(context_.device.logical_device);
+
+  // Sync objects — destroying VulkanFence runs vkDestroyFence automatically.
+  for (u8 i = 0; i < context_.swapchain.max_frames_in_flight; ++i) {
+    if (context_.image_available_semaphores[i]) {
+      vkDestroySemaphore(context_.device.logical_device,
+                         context_.image_available_semaphores[i],
+                         context_.allocator);
+    }
+    if (context_.queue_complete_semaphores[i]) {
+      vkDestroySemaphore(context_.device.logical_device,
+                         context_.queue_complete_semaphores[i],
+                         context_.allocator);
+    }
+  }
+  context_.image_available_semaphores.clear();
+  context_.queue_complete_semaphores.clear();
+  in_flight_fences_.clear();
+  images_in_flight_.clear();
+
+  framebuffers_.clear(); // Destroy in reverse order of creation.
+  context_.graphics_command_buffers.clear();
+  context_.main_renderpass.reset();
+
+  KDEBUG("Destroying Vulkan swapchain...");
+  vulkan_swapchain_destroy(&context_, &context_.swapchain);
 
   KDEBUG("Destroying Vulkan device...");
   vulkan_device_destroy(context_);
@@ -197,7 +269,7 @@ vk_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
   return VK_FALSE;
 }
 
-i32 find_memory_index(VulkanContext context, u32 type_filter,
+i32 find_memory_index(VulkanContext &context, u32 type_filter,
                       u32 property_flags) {
   VkPhysicalDeviceMemoryProperties memory_properties;
   vkGetPhysicalDeviceMemoryProperties(context.device.physical_device,
@@ -214,4 +286,43 @@ i32 find_memory_index(VulkanContext context, u32 type_filter,
 
   KWARN("Unable to find suitable memory type!");
   return -1;
+}
+
+void VulkanRendererBackend::create_commandbuffer() {
+  // A vector naturally replaces the darray's lazy-reserve check
+  // (`if (!context.graphics_command_buffers)`): .empty() instead of a
+  // null-pointer check, .resize() instead of darray_reserve.
+  if (context_.graphics_command_buffers.empty()) {
+    context_.graphics_command_buffers.resize(context_.swapchain.image_count);
+  }
+
+  // Rebuild for the current image count — same logic as the C version:
+  // free anything already allocated, then allocate fresh. Resetting each
+  // unique_ptr runs the old VulkanCommandBuffer's destructor (the free)
+  // before the new one is constructed (the allocate), so this is the same
+  // two-step free-then-allocate, just expressed through ownership transfer
+  // instead of an explicit free() call followed by a separate allocate() call.
+  for (u32 i = 0; i < context_.swapchain.image_count; ++i) {
+    context_.graphics_command_buffers[i].reset();
+    context_.graphics_command_buffers[i] =
+        std::make_unique<VulkanCommandBuffer>(
+            context_, context_.device.graphics_command_pool, TRUE);
+  }
+
+  KDEBUG("Vulkan command buffers created.");
+}
+
+void VulkanRendererBackend::regenerate_framebuffers() {
+  framebuffers_.clear();
+  framebuffers_.reserve(context_.swapchain.image_count);
+
+  for (u32 i = 0; i < context_.swapchain.image_count; ++i) {
+    // TODO: make attachment list dynamic based on configured attachments
+    std::vector<VkImageView> attachments = {
+        context_.swapchain.views[i], context_.swapchain.depth_attachment.view};
+
+    framebuffers_.emplace_back(
+        context_, *context_.main_renderpass, context_.framebuffer_width,
+        context_.framebuffer_height, std::move(attachments));
+  }
 }
