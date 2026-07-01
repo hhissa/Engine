@@ -141,7 +141,10 @@ static void create(VulkanContext *context, u32 width, u32 height,
   swapchain_create_info.imageColorSpace = swapchain->image_format.colorSpace;
   swapchain_create_info.imageExtent = swapchain_extent;
   swapchain_create_info.imageArrayLayers = 1;
-  swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  // TRANSFER_DST is needed so compute-shader output (e.g. the raymarch
+  // shader's storage image) can be copied directly into the swapchain image.
+  swapchain_create_info.imageUsage =
+      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
   if (context->device.graphics_queue_index !=
       context->device.present_queue_index) {

@@ -13,6 +13,14 @@ echo "assets/shaders/Builtin.ObjectShader.frag.glsl -> bin/assets/shaders/Builti
 %VULKAN_SDK%\bin\glslc.exe -fshader-stage=frag assets/shaders/Builtin.ObjectShader.frag.glsl -o bin/assets/shaders/Builtin.ObjectShader.frag.spv
 IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
 
+echo "assets/shaders/Builtin.RaymarchVoxelize.comp.glsl -> bin/assets/shaders/Builtin.RaymarchVoxelize.comp.spv"
+%VULKAN_SDK%\bin\glslc.exe -fshader-stage=compute assets/shaders/Builtin.RaymarchVoxelize.comp.glsl -o bin/assets/shaders/Builtin.RaymarchVoxelize.comp.spv
+IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
+
+echo "assets/shaders/Builtin.RaymarchShader.comp.glsl -> bin/assets/shaders/Builtin.RaymarchShader.comp.spv"
+%VULKAN_SDK%\bin\glslc.exe -fshader-stage=compute assets/shaders/Builtin.RaymarchShader.comp.glsl -o bin/assets/shaders/Builtin.RaymarchShader.comp.spv
+IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
+
 echo "Copying assets..."
 echo xcopy "assets" "bin\assets" /h /i /c /k /e /r /y
 xcopy "assets" "bin\assets" /h /i /c /k /e /r /y

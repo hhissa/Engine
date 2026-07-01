@@ -50,6 +50,14 @@ void renderer_on_resized(u16 width, u16 height) {
   }
 }
 
+void renderer_set_camera(const Camera &camera) {
+  if (backend) {
+    backend->set_camera(camera);
+  } else {
+    KWARN("renderer backend does not exist to accept a camera.");
+  }
+}
+
 b8 renderer_draw_frame(render_packet *packet) {
   // If the begin frame returned successfully, mid-frame operations may
   // continue.

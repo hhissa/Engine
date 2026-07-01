@@ -1,6 +1,7 @@
 #pragma once
 #include <defines.h>
 #include <game_types.h>
+#include <renderer/camera.h>
 
 class TestbedGame : public Game {
 public:
@@ -14,4 +15,5 @@ public:
 
 private:
   f32 delta_time = 0.0f;
+  Camera camera_;
 };

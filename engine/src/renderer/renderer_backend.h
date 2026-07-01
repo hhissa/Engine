@@ -1,5 +1,6 @@
 #pragma once
 
+#include "camera.h"
 #include "renderer_types.inl"
 #include <memory>
 class PlatformLayer;
@@ -13,6 +14,7 @@ public:
   virtual void shutdown() = 0;
   virtual void on_resized(u16 width, u16 height) = 0;
   virtual b8 begin_frame(f32 delta_time) = 0;
+  virtual void set_camera(const Camera &camera) = 0;
   virtual b8 end_frame(f32 delta_time) = 0;
 
   u64 frame_number = 0;

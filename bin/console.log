@@ -1,0 +1,109 @@
+[INFO]:  Input subsystem initialized.
+[INFO]:  Application created: Bingus Engine Testbed (1280x720)
+[FATAL]: A test message: 3.14
+[ERROR]: A test message: 3.14
+[WARN]:  A test message: 3.14
+[INFO]:  A test message: 3.14
+[DEBUG]: A test message: 3.14
+[TRACE]: A test message: 3.14
+[DEBUG]: Required extensions:
+[DEBUG]: VK_KHR_surface
+[DEBUG]: VK_KHR_xcb_surface
+[DEBUG]: VK_EXT_debug_utils
+[INFO]:  Validation layers enabled. Enumerating...
+[INFO]:  Searching for layer: VK_LAYER_KHRONOS_validation...
+[INFO]:  Found.
+[INFO]:  All required validation layers are present.
+[INFO]:  Vulkan Instance created.
+[DEBUG]: Creating Vulkan debugger...
+[DEBUG]: Vulkan debugger created.
+[DEBUG]: Creating Vulkan surface...
+[DEBUG]: Vulkan surface created.
+[INFO]:  linux_read_sorted_physical_devices:
+[INFO]:       Original order:
+[INFO]:             [0] NVIDIA GeForce RTX 3060
+[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
+[INFO]:       Sorted order:
+[INFO]:             [0] NVIDIA GeForce RTX 3060  
+[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
+[INFO]:  linux_read_sorted_physical_devices:
+[INFO]:       Original order:
+[INFO]:             [0] NVIDIA GeForce RTX 3060
+[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
+[INFO]:       Sorted order:
+[INFO]:             [0] NVIDIA GeForce RTX 3060  
+[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
+[INFO]:  linux_read_sorted_physical_devices:
+[INFO]:       Original order:
+[INFO]:             [0] NVIDIA GeForce RTX 3060
+[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
+[INFO]:       Sorted order:
+[INFO]:             [0] NVIDIA GeForce RTX 3060  
+[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
+[INFO]:  linux_read_sorted_physical_devices:
+[INFO]:       Original order:
+[INFO]:             [0] NVIDIA GeForce RTX 3060
+[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
+[INFO]:       Sorted order:
+[INFO]:             [0] NVIDIA GeForce RTX 3060  
+[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
+[INFO]:  Selected device: 'NVIDIA GeForce RTX 3060'.
+[INFO]:  GPU type is Discrete.
+[INFO]:  Physical device selected.
+[INFO]:  Creating logical device...
+[INFO]:  Inserted device layer "VK_LAYER_KHRONOS_validation" (libVkLayer_khronos_validation.so)
+[INFO]:  Failed to find vkGetDeviceProcAddr in layer "libVkLayer_MESA_device_select.so"
+[INFO]:  vkCreateDevice layer callstack setup to:
+[INFO]:     <Application>
+[INFO]:       ||
+[INFO]:     <Loader>
+[INFO]:       ||
+[INFO]:     VK_LAYER_KHRONOS_validation
+[INFO]:             Type: Explicit
+[INFO]:             Manifest: /usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+[INFO]:             Library:  libVkLayer_khronos_validation.so
+[INFO]:       ||
+[INFO]:     <Device>
+[INFO]:         Using "NVIDIA GeForce RTX 3060" with driver: "libGLX_nvidia.so.0"
+[INFO]:  Logical device created.
+[INFO]:  Graphics command pool created.
+[INFO]:  Queues obtained.
+[INFO]:  Vulkan renderer initialized successfully.
+[INFO]:  Swapchain created successfully.
+[DEBUG]: Vulkan command buffers created.
+[DEBUG]: Compute pipeline created!
+[DEBUG]: Compute pipeline created!
+[INFO]:  Vulkan renderer initialized successfully.
+[DEBUG]: TestbedGame::initialize() called!
+[DEBUG]: Resized to 1280x720
+[INFO]:  System memory use (tagged):
+  UNKNOWN    : 0.00B
+  ARRAY      : 0.00B
+  LINEAR_ALLC: 0.00B
+  DARRAY     : 0.00B
+  DICT       : 0.00B
+  RING_QUEUE : 0.00B
+  BST        : 0.00B
+  STRING     : 0.00B
+  APPLICATION: 0.00B
+  JOB        : 0.00B
+  TEXTURE    : 0.00B
+  MAT_INST   : 0.00B
+  RENDERER   : 64.00B
+  GAME       : 72.00B
+  TRANSFORM  : 0.00B
+  ENTITY     : 0.00B
+  ENTITY_NODE: 0.00B
+  SCENE      : 0.00B
+
+[DEBUG]: Destroying shaders...
+[DEBUG]: Destroying Vulkan swapchain...
+[D[DEBUG]: Destroying shaders...
+[DEBUG]: Destroying Vulkan swapchain...
+[DEBUG]: Destroying Vulkan device...
+[INFO]:  Destroying command pools...
+[INFO]:  Destroying logical device...
+[DEBUG]: Destroying Vulkan surface...
+[DEBUG]: Destroying Vulkan debugger...
+[DEBUG]: Destroying Vulkan instance...
+[INFO]:  Application shutting down.

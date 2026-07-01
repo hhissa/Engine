@@ -18,11 +18,16 @@ public:
   void shutdown() override;
   void on_resized(u16 width, u16 height) override;
   b8 begin_frame(f32 delta_time) override;
+  void set_camera(const Camera &camera) override;
   b8 end_frame(f32 delta_time) override;
 
 private:
   VulkanContext context_{};
   PlatformLayer *plat_state_ = nullptr;
+
+  // Set via set_camera() each frame (by the game, through the renderer
+  // frontend), consumed by end_frame() when it calls the raymarch shader.
+  Camera camera_;
 
   u32 cached_framebuffer_width_ = 0;
   u32 cached_framebuffer_height_ = 0;

@@ -54,8 +54,13 @@ class VulkanCommandBuffer;
 
 class VulkanObjectShader;
 
-// Not yet backed by a real lifecycle — populated once pipeline creation
-// lands in a later commit.
+class VulkanRaymarchShader;
+
+// Not yet backed by a real lifecycle — populated once graphics pipeline
+// creation is implemented (VulkanObjectShader currently only creates its
+// shader modules). VulkanComputePipeline, used by VulkanRaymarchShader, is
+// a separate, already-implemented RAII class since compute and graphics
+// pipelines are created/bound differently.
 struct VulkanPipeline {
   VkPipeline handle = VK_NULL_HANDLE;
   VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
@@ -104,6 +109,7 @@ struct VulkanContext {
   b8 recreating_swapchain;
 
   std::unique_ptr<VulkanObjectShader> object_shader;
+  std::unique_ptr<VulkanRaymarchShader> raymarch_shader;
 
   i32 (*find_memory_index)(VulkanContext &context, u32 type_filter,
                            u32 property_flags);

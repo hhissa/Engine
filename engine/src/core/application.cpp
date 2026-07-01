@@ -26,7 +26,9 @@ Application::Application(Game *game)
       width(game->app_config.start_width),
       height(game->app_config.start_height) {
   g_app_instance = this;
-  Logger::initialize_logging();
+  if (!Logger::initialize_logging()) {
+    KFATAL("Failed to initialize logging system; shutting down.");
+  }
   EventSystem &events = event_system();
   if (!events.initialize()) {
     // already initialized, or some other failure

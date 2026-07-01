@@ -8,6 +8,7 @@
 #include "vulkan_swapchain.h"
 #include "vulkan_utils.h"
 #include "shaders/vulkan_object_shader.h"
+#include "shaders/vulkan_raymarch_shader.h"
 #include <vulkan/vulkan.h>
 
 #include <string_view>
@@ -193,6 +194,12 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
     return FALSE;
   }
 
+  context_.raymarch_shader = std::make_unique<VulkanRaymarchShader>(context_);
+  if (!context_.raymarch_shader->is_valid()) {
+    KERROR("Error loading built-in raymarch shader.");
+    return FALSE;
+  }
+
   KINFO("Vulkan renderer initialized successfully.");
   return TRUE;
 }
@@ -219,6 +226,7 @@ void VulkanRendererBackend::shutdown() {
   images_in_flight_.clear();
 
   KDEBUG("Destroying shaders...");
+  context_.raymarch_shader.reset();
   context_.object_shader.reset();
 
   framebuffers_.clear(); // Destroy in reverse order of creation.
@@ -354,12 +362,24 @@ b8 VulkanRendererBackend::begin_frame(f32 delta_time) {
   return TRUE;
 }
 
+void VulkanRendererBackend::set_camera(const Camera &camera) {
+  camera_ = camera;
+}
+
 b8 VulkanRendererBackend::end_frame(f32 delta_time) {
   VulkanCommandBuffer *command_buffer =
       context_.graphics_command_buffers[context_.image_index].get();
 
   // End renderpass
   context_.main_renderpass->end(*command_buffer);
+
+  // Raymarch the sphere into the swapchain image. Must happen outside the
+  // render pass instance that just ended (barriers/dispatch aren't valid
+  // inside one).
+  context_.raymarch_shader->render_to(
+      *command_buffer, context_.swapchain.images[context_.image_index],
+      context_.framebuffer_width, context_.framebuffer_height, delta_time,
+      camera_);
 
   command_buffer->end();
 
@@ -558,6 +578,13 @@ b8 VulkanRendererBackend::recreate_swapchain() {
 
   regenerate_framebuffers();
   create_commandbuffer();
+
+  // The raymarch shader's output image is sized to match the framebuffer,
+  // so it needs recreating too -- unlike the sparse voxel field, which
+  // represents world-space scene geometry and doesn't depend on screen
+  // resolution at all.
+  context_.raymarch_shader->on_resized(context_.framebuffer_width,
+                                      context_.framebuffer_height);
 
   // Clear the recreating flag.
   context_.recreating_swapchain = FALSE;
