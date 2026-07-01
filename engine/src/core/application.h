@@ -41,12 +41,14 @@ private:
   // Handlers
   bool on_key(EventCode code, void *sender, const EventContext &ctx);
   bool on_quit(const EventContext &ctx);
+  bool on_resized(EventCode code, void *sender, const EventContext &ctx);
 
   // RAII subscriptions — auto-unregister when Application is destroyed.
   // Declared AFTER any members the handlers touch, so they tear down first.
   EventSubscription quit_sub_;
   EventSubscription key_pressed_sub_;
   EventSubscription key_released_sub_;
+  EventSubscription resized_sub_;
 };
 
 // Free-function accessor for the live Application instance, so renderer code

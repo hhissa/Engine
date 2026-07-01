@@ -9,8 +9,9 @@
 
 namespace {
 constexpr std::array<std::string_view, static_cast<size_t>(MemoryTag::MaxTags)>
-    TAG_NAMES = {"UNKNOWN    ", "ARRAY      ", "DARRAY     ", "DICT       ",
-                 "RING_QUEUE ", "BST        ", "STRING     ", "APPLICATION",
+    TAG_NAMES = {"UNKNOWN    ", "ARRAY      ", "LINEAR_ALLC", "DARRAY     ",
+                 "DICT       ", "RING_QUEUE ", "BST        ", "STRING     ",
+                 "APPLICATION",
                  "JOB        ", "TEXTURE    ", "MAT_INST   ", "RENDERER   ",
                  "GAME       ", "TRANSFORM  ", "ENTITY     ", "ENTITY_NODE",
                  "SCENE      "};

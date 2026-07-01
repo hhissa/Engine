@@ -1,6 +1,7 @@
 #include "vulkan_device.h"
 #include "../../core/logger.h"
 
+#include <array>
 #include <cstring>
 #include <vector>
 
@@ -127,7 +128,10 @@ b8 vulkan_device_create(VulkanContext &context) {
     indices[index_count++] = context.device.transfer_queue_index;
   }
 
-  VkDeviceQueueCreateInfo queue_create_infos[index_count];
+  // Sized to match `indices` (max 3 distinct queue families) rather than a
+  // variable-length array on `index_count`, which clang only accepts as a
+  // non-standard C++ extension.
+  std::array<VkDeviceQueueCreateInfo, 3> queue_create_infos{};
   for (u32 i = 0; i < index_count; ++i) {
     queue_create_infos[i].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queue_create_infos[i].queueFamilyIndex = indices[i];
@@ -147,7 +151,7 @@ b8 vulkan_device_create(VulkanContext &context) {
   VkDeviceCreateInfo device_create_info = {
       VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   device_create_info.queueCreateInfoCount = index_count;
-  device_create_info.pQueueCreateInfos = queue_create_infos;
+  device_create_info.pQueueCreateInfos = queue_create_infos.data();
   device_create_info.pEnabledFeatures = &device_features;
   device_create_info.enabledExtensionCount = 1;
   const char *extension_names = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
@@ -192,17 +196,19 @@ void vulkan_device_destroy(VulkanContext &context) {
   context.device.graphics_queue = 0;
   context.device.present_queue = 0;
   context.device.transfer_queue = 0;
+
+  // Command pools are owned by the device, so they must be destroyed while
+  // the logical device handle is still valid.
+  KINFO("Destroying command pools...");
+  vkDestroyCommandPool(context.device.logical_device,
+                       context.device.graphics_command_pool, context.allocator);
+
   KINFO("Destroying logical device...");
   if (context.device.logical_device) {
     vkDestroyDevice(context.device.logical_device, context.allocator);
     context.device.logical_device = 0;
   }
   context.device.physical_device = VK_NULL_HANDLE;
-
-  // vulkan_device.cpp, in vulkan_device_destroy()
-  KINFO("Destroying command pools...");
-  vkDestroyCommandPool(context.device.logical_device,
-                       context.device.graphics_command_pool, context.allocator);
 }
 
 void vulkan_device_query_swapchain_support(

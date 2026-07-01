@@ -41,6 +41,15 @@ void renderer_shutdown() {
   backend.reset(); // replaces kfree + renderer_backend_destroy
 }
 
+void renderer_on_resized(u16 width, u16 height) {
+  if (backend) {
+    backend->on_resized(width, height);
+  } else {
+    KWARN("renderer backend does not exist to accept resize: {} {}", width,
+         height);
+  }
+}
+
 b8 renderer_draw_frame(render_packet *packet) {
   // If the begin frame returned successfully, mid-frame operations may
   // continue.

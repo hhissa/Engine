@@ -52,6 +52,15 @@ class VulkanRenderpass;
 
 class VulkanCommandBuffer;
 
+class VulkanObjectShader;
+
+// Not yet backed by a real lifecycle — populated once pipeline creation
+// lands in a later commit.
+struct VulkanPipeline {
+  VkPipeline handle = VK_NULL_HANDLE;
+  VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+};
+
 struct VulkanSwapchain {
   VkSurfaceFormatKHR image_format;
   u8 max_frames_in_flight;
@@ -70,6 +79,8 @@ struct VulkanContext {
 
   u32 framebuffer_width;
   u32 framebuffer_height;
+  u64 framebuffer_size_generation;
+  u64 framebuffer_size_last_generation;
 
 #if defined(_DEBUG)
   VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
@@ -91,6 +102,8 @@ struct VulkanContext {
   u32 current_frame;
 
   b8 recreating_swapchain;
+
+  std::unique_ptr<VulkanObjectShader> object_shader;
 
   i32 (*find_memory_index)(VulkanContext &context, u32 type_filter,
                            u32 property_flags);

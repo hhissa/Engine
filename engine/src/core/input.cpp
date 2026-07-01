@@ -102,6 +102,13 @@ void process_mouse_wheel(i8 z_delta) {
   g_events->fire(EventCode::EVENT_CODE_MOUSE_WHEEL, nullptr, context);
 }
 
+void process_resize(u16 width, u16 height) {
+  EventContext context{};
+  context.data.u16[0] = width;
+  context.data.u16[1] = height;
+  g_events->fire(EventCode::EVENT_CODE_RESIZED, nullptr, context);
+}
+
 // --- Keyboard queries -------------------------------------------------------
 
 bool is_key_down(Key key) {

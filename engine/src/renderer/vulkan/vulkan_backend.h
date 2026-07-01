@@ -39,4 +39,5 @@ private:
 
   void create_commandbuffer();
   void regenerate_framebuffers();
+  b8 recreate_swapchain();
 };

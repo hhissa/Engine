@@ -58,6 +58,12 @@ Application::Application(Game *game)
   key_released_sub_ =
       events.subscribe(EventCode::EVENT_CODE_KEY_RELEASED, key_cb);
 
+  resized_sub_ =
+      events.subscribe(EventCode::EVENT_CODE_RESIZED,
+                       [this](EventCode c, void *s, const EventContext &ctx) {
+                         return on_resized(c, s, ctx);
+                       });
+
   if (!renderer_initialize(game->app_config.name, platform)) {
     KFATAL("Failed to initialize renderer. Aborting application.");
   }
@@ -168,6 +174,39 @@ bool Application::on_key(EventCode code, void * /*sender*/,
       KDEBUG("'{}' key released in window.", ch);
     }
   }
+  return false;
+}
+
+bool Application::on_resized(EventCode code, void * /*sender*/,
+                             const EventContext &ctx) {
+  if (code == EventCode::EVENT_CODE_RESIZED) {
+    u16 new_width = ctx.data.u16[0];
+    u16 new_height = ctx.data.u16[1];
+
+    // Check if different. If so, trigger a resize event.
+    if (new_width != width || new_height != height) {
+      width = static_cast<i16>(new_width);
+      height = static_cast<i16>(new_height);
+
+      KDEBUG("Window resize: {}, {}", new_width, new_height);
+
+      // Handle minimization.
+      if (new_width == 0 || new_height == 0) {
+        KINFO("Window minimized, suspending application.");
+        is_suspended = true;
+        return true;
+      }
+
+      if (is_suspended) {
+        KINFO("Window restored, resuming application.");
+        is_suspended = false;
+      }
+      game->on_resize(new_width, new_height);
+      renderer_on_resized(new_width, new_height);
+    }
+  }
+
+  // Event purposely not handled to allow other listeners to get this.
   return false;
 }
 

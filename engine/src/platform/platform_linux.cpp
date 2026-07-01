@@ -187,7 +187,14 @@ b8 PlatformLayer::platform_pump_messages() {
       break;
     }
     case XCB_CONFIGURE_NOTIFY: {
-      // TODO: resize
+      // Resizing - note that this is also triggered by moving the window,
+      // but should be passed anyway since a change in the x/y could mean an
+      // upper-left resize. The application layer can decide what to do
+      // with this.
+      xcb_configure_notify_event_t *configure_event =
+          (xcb_configure_notify_event_t *)event;
+
+      input::process_resize(configure_event->width, configure_event->height);
       break;
     }
     case XCB_CLIENT_MESSAGE: {
@@ -447,9 +454,10 @@ input::Key translate_keycode(u32 x_keycode) {
     return Key::LControl;
   case XK_Control_R:
     return Key::RControl;
-  // case XK_Menu:    return Key::LMenu;
-  case XK_Menu:
-    return Key::RMenu;
+  case XK_Alt_L:
+    return Key::LAlt;
+  case XK_Alt_R:
+    return Key::RAlt;
 
   case XK_semicolon:
     return Key::Semicolon;

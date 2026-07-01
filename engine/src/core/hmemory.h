@@ -5,6 +5,7 @@
 enum class MemoryTag : u8 {
   Unknown,
   Array,
+  LinearAllocator,
   DArray,
   Dict,
   RingQueue,

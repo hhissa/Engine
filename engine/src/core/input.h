@@ -126,8 +126,8 @@ enum class Key : std::uint16_t {
   RShift = 0xA1,
   LControl = 0xA2,
   RControl = 0xA3,
-  LMenu = 0xA4,
-  RMenu = 0xA5,
+  LAlt = 0xA4,
+  RAlt = 0xA5,
 
   Semicolon = 0xBA,
   Plus = 0xBB,
@@ -167,5 +167,6 @@ KAPI MousePosition previous_mouse_position();
 void process_button(Button button, bool pressed);
 void process_mouse_move(i16 x, i16 y);
 void process_mouse_wheel(i8 z_delta);
+void process_resize(u16 width, u16 height);
 
 } // namespace input
