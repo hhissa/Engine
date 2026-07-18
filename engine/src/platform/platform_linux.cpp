@@ -45,6 +45,10 @@ struct linux_state {
   xcb_screen_t *screen;
   xcb_atom_t wm_protocols;
   xcb_atom_t wm_delete_win;
+  // False when constructed from a BorrowedWindowHandle -- display/screen/
+  // wm_* are unused (left zero-initialized) in that case, and the
+  // destructor must not destroy a window/connection/display it doesn't own.
+  b8 owns_window;
 };
 
 // ─── PlatformLayer: owns the X window ──────────────────────────────────────
@@ -119,14 +123,29 @@ PlatformLayer::PlatformLayer(std::string_view application_name, i32 x, i32 y,
   if (i32 stream_result = xcb_flush(state->connection); stream_result <= 0) {
     KFATAL("An error occurred when flushing the stream: {}", stream_result);
   }
+
+  state->owns_window = true;
+}
+
+// ─── PlatformLayer: wraps a window owned by something else ────────────────
+PlatformLayer::PlatformLayer(BorrowedWindowHandle handle, i32 width,
+                             i32 height)
+    : application_name(), x(0), y(0), width(width), height(height),
+      internal_state(new linux_state{}) {
+  auto *state = static_cast<linux_state *>(internal_state);
+  state->connection = static_cast<xcb_connection_t *>(handle.connection);
+  state->window = static_cast<xcb_window_t>(handle.window);
+  state->owns_window = false;
 }
 
 PlatformLayer::~PlatformLayer() {
   auto *state = static_cast<linux_state *>(internal_state);
 
-  XAutoRepeatOn(state->display);
-  xcb_destroy_window(state->connection, state->window);
-  XCloseDisplay(state->display);
+  if (state->owns_window) {
+    XAutoRepeatOn(state->display);
+    xcb_destroy_window(state->connection, state->window);
+    XCloseDisplay(state->display);
+  }
 
   delete state;
   internal_state = nullptr;
@@ -134,6 +153,16 @@ PlatformLayer::~PlatformLayer() {
 
 b8 PlatformLayer::platform_pump_messages() {
   auto *state = static_cast<linux_state *>(internal_state);
+
+  // Borrowed windows are pumped by whatever owns their event loop (e.g.
+  // Qt's XCB platform plugin, already reading from this exact connection)
+  // -- polling it again here would race on the same socket, and the
+  // key-translation path below dereferences state->display, which is null
+  // in this mode.
+  if (!state->owns_window) {
+    return TRUE;
+  }
+
   b8 quit_flagged = false;
 
   xcb_generic_event_t *event = nullptr;
@@ -144,9 +173,14 @@ b8 PlatformLayer::platform_pump_messages() {
       xcb_key_press_event_t *kb_event = (xcb_key_press_event_t *)event;
       b8 pressed = event->response_type == XCB_KEY_PRESS;
       xcb_keycode_t code = kb_event->detail;
-      KeySym key_sym = XkbKeycodeToKeysym(state->display,
-                                          (KeyCode)code, // event.xkey.keycode,
-                                          0, code & ShiftMask ? 1 : 0);
+      // Column 1 is the *shifted* keysym -- select it from the event's
+      // modifier state, not the keycode. Testing the keycode's low bit
+      // (`code & ShiftMask`) picked the shifted symbol for every
+      // odd-keycoded key: Tab (keycode 23) became XK_ISO_Left_Tab, which
+      // translate_keycode didn't recognise, so Tab never registered.
+      b8 shifted = (kb_event->state & XCB_MOD_MASK_SHIFT) != 0;
+      KeySym key_sym = XkbKeycodeToKeysym(state->display, (KeyCode)code, 0,
+                                          shifted ? 1 : 0);
 
       input::Key key = translate_keycode(key_sym);
 
@@ -297,6 +331,7 @@ input::Key translate_keycode(u32 x_keycode) {
   case XK_Return:
     return Key::Enter;
   case XK_Tab:
+  case XK_ISO_Left_Tab: // Shift+Tab produces this keysym instead of XK_Tab
     return Key::Tab;
     // case XK_Shift:    return Key::Shift;
     // case XK_Control:  return Key::Control;
@@ -458,6 +493,27 @@ input::Key translate_keycode(u32 x_keycode) {
     return Key::LAlt;
   case XK_Alt_R:
     return Key::RAlt;
+
+  case XK_0:
+    return Key::Zero;
+  case XK_1:
+    return Key::One;
+  case XK_2:
+    return Key::Two;
+  case XK_3:
+    return Key::Three;
+  case XK_4:
+    return Key::Four;
+  case XK_5:
+    return Key::Five;
+  case XK_6:
+    return Key::Six;
+  case XK_7:
+    return Key::Seven;
+  case XK_8:
+    return Key::Eight;
+  case XK_9:
+    return Key::Nine;
 
   case XK_semicolon:
     return Key::Semicolon;

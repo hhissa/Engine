@@ -21,6 +21,7 @@ enum class MemoryTag : u8 {
   Entity,
   EntityNode,
   Scene,
+  Shader,
   MaxTags
 };
 

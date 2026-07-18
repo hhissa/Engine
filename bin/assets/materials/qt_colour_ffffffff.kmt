@@ -1,0 +1,5 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff
+diffuse_colour=1 1 1 1

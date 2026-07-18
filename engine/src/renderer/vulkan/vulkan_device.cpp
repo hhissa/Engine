@@ -1,5 +1,6 @@
 #include "vulkan_device.h"
 #include "../../core/logger.h"
+#include "vulkan_utils.h"
 
 #include <array>
 #include <cstring>
@@ -211,32 +212,62 @@ void vulkan_device_destroy(VulkanContext &context) {
   context.device.physical_device = VK_NULL_HANDLE;
 }
 
-void vulkan_device_query_swapchain_support(
+b8 vulkan_device_query_swapchain_support(
     VkPhysicalDevice physical_device, VkSurfaceKHR surface,
     VulkanSwapchainSupportInfo &out_support_info) {
 
-  VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
-      physical_device, surface, &out_support_info.capabilities));
+  // These queries can fail at runtime with VK_ERROR_SURFACE_LOST_KHR (e.g.
+  // during aggressive resizing or window teardown), so report failure to
+  // the caller instead of asserting the process down.
+  VkResult result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+      physical_device, surface, &out_support_info.capabilities);
+  if (result != VK_SUCCESS) {
+    KERROR("vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: '{}'",
+           vulkan_result_string(result, TRUE));
+    return FALSE;
+  }
 
   u32 format_count = 0;
-  VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface,
-                                                &format_count, nullptr));
+  result = vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface,
+                                                &format_count, nullptr);
+  if (result != VK_SUCCESS) {
+    KERROR("vkGetPhysicalDeviceSurfaceFormatsKHR failed: '{}'",
+           vulkan_result_string(result, TRUE));
+    return FALSE;
+  }
   if (format_count != 0) {
     out_support_info.formats.resize(format_count);
-    VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(
+    result = vkGetPhysicalDeviceSurfaceFormatsKHR(
         physical_device, surface, &format_count,
-        out_support_info.formats.data()));
+        out_support_info.formats.data());
+    if (result != VK_SUCCESS) {
+      KERROR("vkGetPhysicalDeviceSurfaceFormatsKHR failed: '{}'",
+             vulkan_result_string(result, TRUE));
+      return FALSE;
+    }
   }
 
   u32 present_mode_count = 0;
-  VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(
-      physical_device, surface, &present_mode_count, nullptr));
+  result = vkGetPhysicalDeviceSurfacePresentModesKHR(
+      physical_device, surface, &present_mode_count, nullptr);
+  if (result != VK_SUCCESS) {
+    KERROR("vkGetPhysicalDeviceSurfacePresentModesKHR failed: '{}'",
+           vulkan_result_string(result, TRUE));
+    return FALSE;
+  }
   if (present_mode_count != 0) {
     out_support_info.present_modes.resize(present_mode_count);
-    VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(
+    result = vkGetPhysicalDeviceSurfacePresentModesKHR(
         physical_device, surface, &present_mode_count,
-        out_support_info.present_modes.data()));
+        out_support_info.present_modes.data());
+    if (result != VK_SUCCESS) {
+      KERROR("vkGetPhysicalDeviceSurfacePresentModesKHR failed: '{}'",
+             vulkan_result_string(result, TRUE));
+      return FALSE;
+    }
   }
+
+  return TRUE;
 }
 
 static b8 physical_device_meets_requirements(
@@ -296,8 +327,11 @@ static b8 physical_device_meets_requirements(
       (!requirements.transfer ||
        out_queue_info.transfer_family_index != static_cast<u32>(-1))) {
 
-    vulkan_device_query_swapchain_support(device, surface,
-                                          out_swapchain_support);
+    if (!vulkan_device_query_swapchain_support(device, surface,
+                                               out_swapchain_support)) {
+      KINFO("Unable to query swapchain support, skipping device.");
+      return FALSE;
+    }
 
     if (out_swapchain_support.formats.empty() ||
         out_swapchain_support.present_modes.empty()) {

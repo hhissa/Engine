@@ -1,0 +1,6 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_scar_texture_diffuse
+diffuse_colour=1 1 1 1
+diffuse_map_name=scar_texture_diffuse

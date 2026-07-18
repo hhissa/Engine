@@ -14,7 +14,7 @@ constexpr std::array<std::string_view, static_cast<size_t>(MemoryTag::MaxTags)>
                  "APPLICATION",
                  "JOB        ", "TEXTURE    ", "MAT_INST   ", "RENDERER   ",
                  "GAME       ", "TRANSFORM  ", "ENTITY     ", "ENTITY_NODE",
-                 "SCENE      "};
+                 "SCENE      ", "SHADER     "};
 
 struct MemoryStats {
   u64 total_allocated = 0;

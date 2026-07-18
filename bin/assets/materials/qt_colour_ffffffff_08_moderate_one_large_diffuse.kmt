@@ -1,0 +1,6 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_08_moderate_one_large_diffuse
+diffuse_colour=1 1 1 1
+diffuse_map_name=08_moderate_one_large_diffuse

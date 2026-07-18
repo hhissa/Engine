@@ -52,15 +52,25 @@ class VulkanRenderpass;
 
 class VulkanCommandBuffer;
 
-class VulkanObjectShader;
-
 class VulkanRaymarchShader;
 
-// Not yet backed by a real lifecycle — populated once graphics pipeline
-// creation is implemented (VulkanObjectShader currently only creates its
-// shader modules). VulkanComputePipeline, used by VulkanRaymarchShader, is
-// a separate, already-implemented RAII class since compute and graphics
-// pipelines are created/bound differently.
+class TextureSystem;
+
+class ShaderSystem;
+
+class MaterialSystem;
+
+class GeometrySystem;
+
+class VulkanUIShader;
+
+class VulkanTextShader;
+
+class VulkanLineShader;
+
+// VulkanComputePipeline, used by VulkanRaymarchShader, is a separate,
+// already-implemented RAII class since compute and graphics pipelines are
+// created/bound differently.
 struct VulkanPipeline {
   VkPipeline handle = VK_NULL_HANDLE;
   VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
@@ -95,6 +105,12 @@ struct VulkanContext {
 
   VulkanSwapchain swapchain;
   std::unique_ptr<VulkanRenderpass> main_renderpass;
+  // Runs after main_renderpass, drawing on top of it via LOAD_OP_LOAD (see
+  // VulkanRenderpass's has_prev_pass) instead of clearing -- this is what
+  // lets VulkanUIShader's quad appear over the raymarched scene rather
+  // than replacing it. See VulkanRendererBackend::end_frame() for the
+  // exact per-frame sequencing between the two.
+  std::unique_ptr<VulkanRenderpass> ui_renderpass;
 
   std::vector<std::unique_ptr<VulkanCommandBuffer>> graphics_command_buffers;
 
@@ -107,9 +123,22 @@ struct VulkanContext {
   u32 current_frame;
 
   b8 recreating_swapchain;
+  // Set when acquire/present reports VK_ERROR_OUT_OF_DATE_KHR (or
+  // suboptimal). The swapchain must NOT be recreated in place at that
+  // point: the backend's framebuffers still reference the old image views
+  // (VUID-vkDestroyImageView-imageView-01026). Instead this flag routes
+  // the recreation through VulkanRendererBackend::recreate_swapchain(),
+  // which tears framebuffers/command buffers down first.
+  b8 swapchain_out_of_date = FALSE;
 
-  std::unique_ptr<VulkanObjectShader> object_shader;
+  std::unique_ptr<TextureSystem> texture_system;
+  std::unique_ptr<ShaderSystem> shader_system;
+  std::unique_ptr<MaterialSystem> material_system;
+  std::unique_ptr<GeometrySystem> geometry_system;
   std::unique_ptr<VulkanRaymarchShader> raymarch_shader;
+  std::unique_ptr<VulkanUIShader> ui_shader;
+  std::unique_ptr<VulkanTextShader> text_shader;
+  std::unique_ptr<VulkanLineShader> line_shader;
 
   i32 (*find_memory_index)(VulkanContext &context, u32 type_filter,
                            u32 property_flags);

@@ -1,11 +1,11 @@
 #pragma once
 #include "vulkan_types.inl"
 
-void vulkan_swapchain_create(VulkanContext *context, u32 width, u32 height,
-                             VulkanSwapchain *out_swapchain);
+b8 vulkan_swapchain_create(VulkanContext *context, u32 width, u32 height,
+                           VulkanSwapchain *out_swapchain);
 
-void vulkan_swapchain_recreate(VulkanContext *context, u32 width, u32 height,
-                               VulkanSwapchain *swapchain);
+b8 vulkan_swapchain_recreate(VulkanContext *context, u32 width, u32 height,
+                             VulkanSwapchain *swapchain);
 
 void vulkan_swapchain_destroy(VulkanContext *context,
                               VulkanSwapchain *swapchain);

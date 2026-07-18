@@ -20,11 +20,29 @@ KAPI f64 get_absolute_time();
 KAPI void sleep(u64 ms);
 } // namespace Platform
 
+// An already-existing native window handle to render into, rather than one
+// PlatformLayer creates and owns itself -- for embedding the renderer in a
+// window owned by something else (e.g. a Qt QWindow). Opaque void*/u64
+// rather than the real XCB types, so this header stays platform-agnostic
+// (it's included transitively wherever PlatformLayer is, on every
+// platform). On Linux: connection is an xcb_connection_t*, window is an
+// xcb_window_t.
+struct BorrowedWindowHandle {
+  void *connection;
+  u64 window;
+};
+
 // Windowing — needs state, so it's a class.
 class KAPI PlatformLayer {
 public:
   PlatformLayer(std::string_view application_name, i32 x, i32 y, i32 width,
                 i32 height);
+  // Wraps an already-existing window (see BorrowedWindowHandle) instead of
+  // creating/owning one -- the destructor will not destroy it, and
+  // platform_pump_messages() is a no-op (whatever owns the window's event
+  // loop, e.g. Qt, is assumed to be pumping it already; polling the same
+  // connection from two places races on the same socket).
+  PlatformLayer(BorrowedWindowHandle handle, i32 width, i32 height);
   ~PlatformLayer();
 
   PlatformLayer(const PlatformLayer &) = delete;

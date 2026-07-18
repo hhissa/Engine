@@ -15,29 +15,37 @@ void vk_check(VkResult result, const char *what) {
 
 VulkanRenderpass::VulkanRenderpass(VulkanContext &context, f32 x, f32 y, f32 w,
                                    f32 h, f32 r, f32 g, f32 b, f32 a, f32 depth,
-                                   u32 stencil)
+                                   u32 stencil, u8 clear_flags,
+                                   bool has_prev_pass, bool has_next_pass)
     : context_(&context), x_(x), y_(y), w_(w), h_(h), r_(r), g_(g), b_(b),
-      a_(a), depth_(depth), stencil_(stencil) {
+      a_(a), depth_(depth), stencil_(stencil), clear_flags_(clear_flags) {
 
   VkSubpassDescription subpass{};
   subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
-  constexpr u32 attachment_description_count = 2;
-  std::array<VkAttachmentDescription, attachment_description_count>
-      attachment_descriptions{};
+  u32 attachment_description_count = 0;
+  std::array<VkAttachmentDescription, 2> attachment_descriptions{};
 
   // Color attachment
+  bool do_clear_colour =
+      (clear_flags_ & RenderpassClearFlags::kColourBuffer) != 0;
   VkAttachmentDescription color_attachment{};
   color_attachment.format = context_->swapchain.image_format.format;
   color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color_attachment.loadOp = do_clear_colour ? VK_ATTACHMENT_LOAD_OP_CLEAR
+                                            : VK_ATTACHMENT_LOAD_OP_LOAD;
   color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  color_attachment.initialLayout = has_prev_pass
+                                       ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                                       : VK_IMAGE_LAYOUT_UNDEFINED;
+  color_attachment.finalLayout = has_next_pass
+                                     ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                                     : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
   color_attachment.flags = 0;
-  attachment_descriptions[0] = color_attachment;
+  attachment_descriptions[attachment_description_count] = color_attachment;
+  ++attachment_description_count;
 
   VkAttachmentReference color_attachment_reference{};
   color_attachment_reference.attachment = 0;
@@ -46,26 +54,36 @@ VulkanRenderpass::VulkanRenderpass(VulkanContext &context, f32 x, f32 y, f32 w,
   subpass.colorAttachmentCount = 1;
   subpass.pColorAttachments = &color_attachment_reference;
 
-  // Depth attachment
-  VkAttachmentDescription depth_attachment{};
-  depth_attachment.format = context_->device.depth_format;
-  depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  depth_attachment.finalLayout =
-      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-  attachment_descriptions[1] = depth_attachment;
-
+  // Depth attachment -- only present at all if this pass clears depth (see
+  // the header comment: a pass with nothing depth-related to draw, like a
+  // 2D UI pass, has no depth attachment rather than loading a stale one).
+  bool do_clear_depth = (clear_flags_ & RenderpassClearFlags::kDepthBuffer) != 0;
   VkAttachmentReference depth_attachment_reference{};
-  depth_attachment_reference.attachment = 1;
-  depth_attachment_reference.layout =
-      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  if (do_clear_depth) {
+    VkAttachmentDescription depth_attachment{};
+    depth_attachment.format = context_->device.depth_format;
+    depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_attachment.finalLayout =
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    depth_attachment_reference.attachment = attachment_description_count;
+    depth_attachment_reference.layout =
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    attachment_descriptions[attachment_description_count] = depth_attachment;
+    ++attachment_description_count;
+
+    subpass.pDepthStencilAttachment = &depth_attachment_reference;
+  } else {
+    subpass.pDepthStencilAttachment = nullptr;
+  }
 
   // TODO: other attachment types (input, resolve, preserve)
-  subpass.pDepthStencilAttachment = &depth_attachment_reference;
   subpass.inputAttachmentCount = 0;
   subpass.pInputAttachments = nullptr;
   subpass.pResolveAttachments = nullptr;
@@ -85,8 +103,7 @@ VulkanRenderpass::VulkanRenderpass(VulkanContext &context, f32 x, f32 y, f32 w,
 
   VkRenderPassCreateInfo render_pass_create_info{
       VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-  render_pass_create_info.attachmentCount =
-      static_cast<u32>(attachment_descriptions.size());
+  render_pass_create_info.attachmentCount = attachment_description_count;
   render_pass_create_info.pAttachments = attachment_descriptions.data();
   render_pass_create_info.subpassCount = 1;
   render_pass_create_info.pSubpasses = &subpass;
@@ -115,7 +132,8 @@ VulkanRenderpass::VulkanRenderpass(VulkanRenderpass &&other) noexcept
     : context_(other.context_), handle_(other.handle_), x_(other.x_),
       y_(other.y_), w_(other.w_), h_(other.h_), r_(other.r_), g_(other.g_),
       b_(other.b_), a_(other.a_), depth_(other.depth_),
-      stencil_(other.stencil_), state_(other.state_) {
+      stencil_(other.stencil_), clear_flags_(other.clear_flags_),
+      state_(other.state_) {
   other.handle_ = VK_NULL_HANDLE;
   other.state_ = VulkanRenderPassState::NotAllocated;
 }
@@ -139,6 +157,7 @@ VulkanRenderpass::operator=(VulkanRenderpass &&other) noexcept {
     a_ = other.a_;
     depth_ = other.depth_;
     stencil_ = other.stencil_;
+    clear_flags_ = other.clear_flags_;
     state_ = other.state_;
 
     other.handle_ = VK_NULL_HANDLE;
@@ -158,15 +177,30 @@ void VulkanRenderpass::begin(VulkanCommandBuffer &command_buffer,
   begin_info.renderArea.extent.height = static_cast<u32>(h_);
 
   std::array<VkClearValue, 2> clear_values{};
-  clear_values[0].color.float32[0] = r_;
-  clear_values[0].color.float32[1] = g_;
-  clear_values[0].color.float32[2] = b_;
-  clear_values[0].color.float32[3] = a_;
-  clear_values[1].depthStencil.depth = depth_;
-  clear_values[1].depthStencil.stencil = stencil_;
+  u32 clear_value_count = 0;
 
-  begin_info.clearValueCount = static_cast<u32>(clear_values.size());
-  begin_info.pClearValues = clear_values.data();
+  bool do_clear_colour =
+      (clear_flags_ & RenderpassClearFlags::kColourBuffer) != 0;
+  if (do_clear_colour) {
+    clear_values[clear_value_count].color.float32[0] = r_;
+    clear_values[clear_value_count].color.float32[1] = g_;
+    clear_values[clear_value_count].color.float32[2] = b_;
+    clear_values[clear_value_count].color.float32[3] = a_;
+    ++clear_value_count;
+  }
+
+  bool do_clear_depth = (clear_flags_ & RenderpassClearFlags::kDepthBuffer) != 0;
+  if (do_clear_depth) {
+    clear_values[clear_value_count].depthStencil.depth = depth_;
+    bool do_clear_stencil =
+        (clear_flags_ & RenderpassClearFlags::kStencilBuffer) != 0;
+    clear_values[clear_value_count].depthStencil.stencil =
+        do_clear_stencil ? stencil_ : 0;
+    ++clear_value_count;
+  }
+
+  begin_info.clearValueCount = clear_value_count;
+  begin_info.pClearValues = clear_value_count > 0 ? clear_values.data() : nullptr;
 
   vkCmdBeginRenderPass(command_buffer.handle(), &begin_info,
                        VK_SUBPASS_CONTENTS_INLINE);

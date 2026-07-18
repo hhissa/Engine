@@ -17,6 +17,10 @@ echo "assets/shaders/Builtin.RaymarchVoxelize.comp.glsl -> bin/assets/shaders/Bu
 %VULKAN_SDK%\bin\glslc.exe -fshader-stage=compute assets/shaders/Builtin.RaymarchVoxelize.comp.glsl -o bin/assets/shaders/Builtin.RaymarchVoxelize.comp.spv
 IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
 
+echo "assets/shaders/Builtin.ProbeBake.comp.glsl -> bin/assets/shaders/Builtin.ProbeBake.comp.spv"
+%VULKAN_SDK%\bin\glslc.exe -fshader-stage=compute assets/shaders/Builtin.ProbeBake.comp.glsl -o bin/assets/shaders/Builtin.ProbeBake.comp.spv
+IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
+
 echo "assets/shaders/Builtin.RaymarchShader.comp.glsl -> bin/assets/shaders/Builtin.RaymarchShader.comp.spv"
 %VULKAN_SDK%\bin\glslc.exe -fshader-stage=compute assets/shaders/Builtin.RaymarchShader.comp.glsl -o bin/assets/shaders/Builtin.RaymarchShader.comp.spv
 IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)

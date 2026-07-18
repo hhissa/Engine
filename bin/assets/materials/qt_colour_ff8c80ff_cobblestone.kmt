@@ -1,0 +1,6 @@
+#material file
+
+version=0.1
+name=qt_colour_ff8c80ff_cobblestone
+diffuse_colour=1 0.549996 0.500008 1
+diffuse_map_name=cobblestone

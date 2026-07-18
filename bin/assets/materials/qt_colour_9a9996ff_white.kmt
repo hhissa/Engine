@@ -1,0 +1,6 @@
+#material file
+
+version=0.1
+name=qt_colour_9a9996ff_white
+diffuse_colour=0.603922 0.6 0.588235 1
+diffuse_map_name=white

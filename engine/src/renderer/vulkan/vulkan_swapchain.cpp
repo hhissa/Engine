@@ -4,19 +4,19 @@
 #include "vulkan_device.h"
 #include "vulkan_image.h"
 
-static void create(VulkanContext *context, u32 width, u32 height,
-                   VulkanSwapchain *swapchain);
+static b8 create(VulkanContext *context, u32 width, u32 height,
+                 VulkanSwapchain *swapchain);
 static void destroy(VulkanContext *context, VulkanSwapchain *swapchain);
 
-void vulkan_swapchain_create(VulkanContext *context, u32 width, u32 height,
-                             VulkanSwapchain *out_swapchain) {
-  create(context, width, height, out_swapchain);
+b8 vulkan_swapchain_create(VulkanContext *context, u32 width, u32 height,
+                           VulkanSwapchain *out_swapchain) {
+  return create(context, width, height, out_swapchain);
 }
 
-void vulkan_swapchain_recreate(VulkanContext *context, u32 width, u32 height,
-                               VulkanSwapchain *swapchain) {
+b8 vulkan_swapchain_recreate(VulkanContext *context, u32 width, u32 height,
+                             VulkanSwapchain *swapchain) {
   destroy(context, swapchain);
-  create(context, width, height, swapchain);
+  return create(context, width, height, swapchain);
 }
 
 void vulkan_swapchain_destroy(VulkanContext *context,
@@ -34,9 +34,13 @@ b8 vulkan_swapchain_acquire_next_image_index(
       image_available_semaphore, fence, out_image_index);
 
   if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-    // Trigger swapchain recreation, then boot out of the render loop.
-    vulkan_swapchain_recreate(context, context->framebuffer_width,
-                              context->framebuffer_height, swapchain);
+    // Do NOT recreate the swapchain here: the backend's framebuffers still
+    // reference this swapchain's image views, so destroying them in place
+    // trips VUID-vkDestroyImageView-imageView-01026 and leaves the
+    // framebuffers dangling. Flag it and boot out of the render loop; the
+    // backend's begin_frame picks the flag up and does a full recreate
+    // (framebuffers and command buffers included).
+    context->swapchain_out_of_date = TRUE;
     return FALSE;
   } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
     KFATAL("Failed to acquire swapchain image!");
@@ -62,9 +66,11 @@ void vulkan_swapchain_present(VulkanContext *context,
 
   VkResult result = vkQueuePresentKHR(present_queue, &present_info);
   if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-    // Out of date / suboptimal / resize: recreate.
-    vulkan_swapchain_recreate(context, context->framebuffer_width,
-                              context->framebuffer_height, swapchain);
+    // Out of date / suboptimal / resize: flag for a full recreate by the
+    // backend next frame (see the matching comment in acquire above —
+    // recreating in place here would destroy image views the backend's
+    // framebuffers still use).
+    context->swapchain_out_of_date = TRUE;
   } else if (result != VK_SUCCESS) {
     KFATAL("Failed to present swap chain image!");
   }
@@ -73,9 +79,20 @@ void vulkan_swapchain_present(VulkanContext *context,
       (context->current_frame + 1) % swapchain->max_frames_in_flight;
 }
 
-static void create(VulkanContext *context, u32 width, u32 height,
-                   VulkanSwapchain *swapchain) {
+static b8 create(VulkanContext *context, u32 width, u32 height,
+                 VulkanSwapchain *swapchain) {
   VkExtent2D swapchain_extent = {width, height};
+
+  // Requery support first, since capabilities/formats can change (e.g. on
+  // resize) — the format/present-mode choices below must read fresh data.
+  // This can legitimately fail (VK_ERROR_SURFACE_LOST_KHR during a resize
+  // storm or window teardown), so it must not hard-assert.
+  if (!vulkan_device_query_swapchain_support(context->device.physical_device,
+                                             context->surface,
+                                             context->device.swapchain_support)) {
+    KERROR("Swapchain creation failed: unable to query surface support.");
+    return FALSE;
+  }
 
   // Choose a swap surface format, preferring 32-bit BGRA SRGB.
   b8 found = FALSE;
@@ -103,11 +120,6 @@ static void create(VulkanContext *context, u32 width, u32 height,
     }
   }
 
-  // Requery support, since capabilities can change (e.g. on resize).
-  vulkan_device_query_swapchain_support(context->device.physical_device,
-                                        context->surface,
-                                        context->device.swapchain_support);
-
   if (context->device.swapchain_support.capabilities.currentExtent.width !=
       UINT32_MAX) {
     swapchain_extent =
@@ -122,6 +134,15 @@ static void create(VulkanContext *context, u32 width, u32 height,
   swapchain_extent.width = KCLAMP(swapchain_extent.width, min.width, max.width);
   swapchain_extent.height =
       KCLAMP(swapchain_extent.height, min.height, max.height);
+
+  // Adopt the extent actually chosen (currentExtent / clamped) as the
+  // engine's framebuffer size -- it can differ from what was requested
+  // (e.g. the WM hasn't applied the requested window size yet at startup),
+  // and framebuffers/viewports built from a stale requested size trip
+  // VUID-VkFramebufferCreateInfo-flags-04533 against the smaller swapchain
+  // images.
+  context->framebuffer_width = swapchain_extent.width;
+  context->framebuffer_height = swapchain_extent.height;
 
   u32 image_count =
       context->device.swapchain_support.capabilities.minImageCount + 1;
@@ -210,6 +231,7 @@ static void create(VulkanContext *context, u32 width, u32 height,
   if (!vulkan_device_detect_depth_format(&context->device)) {
     context->device.depth_format = VK_FORMAT_UNDEFINED;
     KFATAL("Failed to find a supported depth format!");
+    return FALSE;
   }
   vulkan_image_create(context, VK_IMAGE_TYPE_2D, swapchain_extent.width,
                       swapchain_extent.height, context->device.depth_format,
@@ -219,6 +241,7 @@ static void create(VulkanContext *context, u32 width, u32 height,
                       VK_IMAGE_ASPECT_DEPTH_BIT, &swapchain->depth_attachment);
 
   KINFO("Swapchain created successfully.");
+  return TRUE;
 }
 
 static void destroy(VulkanContext *context, VulkanSwapchain *swapchain) {
@@ -228,13 +251,18 @@ static void destroy(VulkanContext *context, VulkanSwapchain *swapchain) {
   vulkan_image_destroy(context, &swapchain->depth_attachment);
 
   // Destroy the views (not the images — those are owned by the swapchain).
-  for (u32 i = 0; i < swapchain->image_count; ++i) {
-    vkDestroyImageView(context->device.logical_device, swapchain->views[i],
-                       context->allocator);
+  if (swapchain->views) {
+    for (u32 i = 0; i < swapchain->image_count; ++i) {
+      vkDestroyImageView(context->device.logical_device, swapchain->views[i],
+                         context->allocator);
+    }
   }
 
-  vkDestroySwapchainKHR(context->device.logical_device, swapchain->handle,
-                        context->allocator);
+  if (swapchain->handle) {
+    vkDestroySwapchainKHR(context->device.logical_device, swapchain->handle,
+                          context->allocator);
+    swapchain->handle = 0;
+  }
 
   // Free the host-side arrays so a later create() reallocates cleanly,
   // and so a final destroy() doesn't leak them.
@@ -248,4 +276,5 @@ static void destroy(VulkanContext *context, VulkanSwapchain *swapchain) {
                  MemoryTag::Renderer);
     swapchain->views = 0;
   }
+  swapchain->image_count = 0;
 }

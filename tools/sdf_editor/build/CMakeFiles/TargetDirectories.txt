@@ -1,0 +1,5 @@
+/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles/sdf_editor.dir
+/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles/edit_cache.dir
+/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles/rebuild_cache.dir
+/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles/sdf_editor_autogen_timestamp_deps.dir
+/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles/sdf_editor_autogen.dir

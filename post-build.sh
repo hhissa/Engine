@@ -35,8 +35,64 @@ then
 echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
 fi
 
+echo "assets/shaders/Builtin.ProbeBake.comp.glsl -> bin/assets/shaders/Builtin.ProbeBake.comp.spv"
+$GLSLC -fshader-stage=compute assets/shaders/Builtin.ProbeBake.comp.glsl -o bin/assets/shaders/Builtin.ProbeBake.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
 echo "assets/shaders/Builtin.RaymarchShader.comp.glsl -> bin/assets/shaders/Builtin.RaymarchShader.comp.spv"
 $GLSLC -fshader-stage=compute assets/shaders/Builtin.RaymarchShader.comp.glsl -o bin/assets/shaders/Builtin.RaymarchShader.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.UIShader.vert.glsl -> bin/assets/shaders/Builtin.UIShader.vert.spv"
+$GLSLC -fshader-stage=vert assets/shaders/Builtin.UIShader.vert.glsl -o bin/assets/shaders/Builtin.UIShader.vert.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.UIShader.frag.glsl -> bin/assets/shaders/Builtin.UIShader.frag.spv"
+$GLSLC -fshader-stage=frag assets/shaders/Builtin.UIShader.frag.glsl -o bin/assets/shaders/Builtin.UIShader.frag.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.TextShader.vert.glsl -> bin/assets/shaders/Builtin.TextShader.vert.spv"
+$GLSLC -fshader-stage=vert assets/shaders/Builtin.TextShader.vert.glsl -o bin/assets/shaders/Builtin.TextShader.vert.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.TextShader.frag.glsl -> bin/assets/shaders/Builtin.TextShader.frag.spv"
+$GLSLC -fshader-stage=frag assets/shaders/Builtin.TextShader.frag.glsl -o bin/assets/shaders/Builtin.TextShader.frag.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.LineShader.vert.glsl -> bin/assets/shaders/Builtin.LineShader.vert.spv"
+$GLSLC -fshader-stage=vert assets/shaders/Builtin.LineShader.vert.glsl -o bin/assets/shaders/Builtin.LineShader.vert.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.LineShader.frag.glsl -> bin/assets/shaders/Builtin.LineShader.frag.spv"
+$GLSLC -fshader-stage=frag assets/shaders/Builtin.LineShader.frag.glsl -o bin/assets/shaders/Builtin.LineShader.frag.spv
 ERRORLEVEL=$?
 if [ $ERRORLEVEL -ne 0 ]
 then

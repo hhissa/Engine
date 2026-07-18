@@ -1,0 +1,115 @@
+#sdf scene file
+version=0.1
+ambient=0.15
+
+light light1 {
+    type=directional
+    direction=1 0 0
+    colour=1 1 1
+    intensity=0.85
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer0_primitive {
+        type=capsule
+        position=-0.408587 1.40274 0
+        rotation=0 0 0.605022
+        params=0.1 0.8 0 0
+        material=qt_colour_ffffffff_white
+    }
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer1_primitive {
+        type=capsule
+        position=0 -1.17 0
+        rotation=0 0 0
+        params=0.1 2 0 0
+        material=qt_colour_3d3846ff_white
+    }
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer3_primitive {
+        type=capsule
+        position=0.081779 1.50017 0.466732
+        rotation=-0.754399 2.6369 -0.542448
+        params=0.1 0.8 0 0
+        material=qt_colour_ffffffff_white
+    }
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer5_primitive {
+        type=capsule
+        position=0.60957 1.50322 0.108182
+        rotation=-0.121127 4.17993 -0.542448
+        params=0.1 0.8 0 0
+        material=qt_colour_ffffffff_white
+    }
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer6_primitive {
+        type=capsule
+        position=0.162468 1.5 -0.670415
+        rotation=-2.39896 3.55702 -0.542448
+        params=0.1 0.8 0 0
+        material=qt_colour_ffffffff_white
+    }
+}
+
+layer layer7 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer7_primitive {
+        type=torus
+        position=0 -1.17 0
+        rotation=0 0 0
+        params=0.1 0.1 0 0
+        material=qt_colour_ffffffff_white
+    }
+}
+
+layer layer9 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer9_primitive {
+        type=hex_prism
+        position=-0.61 -3.15 0
+        rotation=0 0 -1.50657
+        params=0.8 0.7 0 0
+        param_expr=0 0.8 - 0.8* p.y
+        material=qt_colour_241f31ff_white
+    }
+}
+
+layer layer11 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer11_primitive {
+        type=round_cone
+        position=0.514395 -3.04106 0
+        rotation=0 0 -1.50657
+        params=0.4 0.3 0.4 0
+        material=qt_colour_241f31ff_white
+    }
+}

@@ -8,8 +8,8 @@
 //
 // Deliberately stage-agnostic: a compute shader is just one of these
 // constructed with VK_SHADER_STAGE_COMPUTE_BIT, no different from a vertex
-// or fragment stage. Higher-level shader objects (e.g. VulkanObjectShader)
-// combine one or more of these; a compute pipeline can hold a single one.
+// or fragment stage. Higher-level shader objects (e.g. VulkanShader) combine
+// one or more of these; a compute pipeline can hold a single one.
 class VulkanShaderModule {
 public:
   VulkanShaderModule(VulkanContext &context, std::string_view name,

@@ -217,7 +217,25 @@ void Application::application_get_framebuffer_size(u32 *width, u32 *height) {
   *height = this->height;
 }
 
+namespace {
+u32 g_override_width = 800;
+u32 g_override_height = 600;
+b8 g_has_override = false;
+} // namespace
+
+void application_set_framebuffer_size_override(u32 width, u32 height) {
+  g_override_width = width;
+  g_override_height = height;
+  g_has_override = true;
+}
+
 void application_get_framebuffer_size(u32 *width, u32 *height) {
-  KASSERT_MSG(g_app_instance, "application_get_framebuffer_size called before Application exists");
-  g_app_instance->application_get_framebuffer_size(width, height);
+  if (g_app_instance) {
+    g_app_instance->application_get_framebuffer_size(width, height);
+    return;
+  }
+  KASSERT_MSG(g_has_override, "application_get_framebuffer_size called before "
+                             "an Application exists or an override was set");
+  *width = g_override_width;
+  *height = g_override_height;
 }

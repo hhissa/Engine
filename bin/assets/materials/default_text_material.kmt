@@ -1,0 +1,5 @@
+#material file
+
+version=0.1
+name=default_text_material
+diffuse_colour=1.0 1.0 1.0 1.0

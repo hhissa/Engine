@@ -1,0 +1,6 @@
+#material file
+
+version=0.1
+name=test_material_tinted
+diffuse_colour=1.0 0.55 0.5 1.0
+diffuse_map_name=cobblestone

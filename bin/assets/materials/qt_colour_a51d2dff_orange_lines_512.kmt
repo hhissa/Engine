@@ -1,0 +1,6 @@
+#material file
+
+version=0.1
+name=qt_colour_a51d2dff_orange_lines_512
+diffuse_colour=0.647059 0.113725 0.176471 1
+diffuse_map_name=orange_lines_512

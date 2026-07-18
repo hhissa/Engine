@@ -1,0 +1,230 @@
+#sdf scene file
+version=0.1
+ambient=0.15
+
+light light0 {
+    type=directional
+    direction=0 0 -1
+    colour=1 1 1
+    intensity=0.85
+}
+
+light light1 {
+    type=directional
+    direction=0 0 1
+    colour=1 1 1
+    intensity=0.85
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive layer0_primitive {
+        type=sphere
+        position=0 -0.316153 0
+        rotation=0 0 0
+        radius=0.4
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0.2
+
+    primitive layer1_primitive {
+        type=ellipsoid
+        position=0 0.0350537 -0.09
+        rotation=-0.670555 0 0
+        params=0.3 0.3 0.2 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0.2
+
+    primitive layer2_primitive {
+        type=capsule
+        position=0 0.35 0.16
+        rotation=-0.00925024 0 0
+        params=0.15 0.3 0 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0.2
+
+    primitive layer3_primitive {
+        type=ellipsoid
+        position=0.4 0.63 0.16
+        rotation=-0.00925024 0 1.96105
+        params=0.15 0.3 0.2 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0.2
+
+    primitive layer4_primitive {
+        type=ellipsoid
+        position=-0.35 0.63 0.16
+        rotation=-0.00925024 0 1.1692
+        params=0.15 0.3 0.2 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0.75
+
+    primitive layer5_primitive {
+        type=ellipsoid
+        position=-0.41 1.11 0.16
+        rotation=-0.00925024 0 1.72491
+        params=0.3 0.2 0.3 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0.3
+
+    primitive layer6_primitive {
+        type=ellipsoid
+        position=-0.84 0.85 0.16
+        rotation=-0.00925024 0 1.96105
+        params=0.3 0.2 0.2 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer7 {
+    operation=union
+    smoothness=0.3
+
+    primitive layer7_primitive {
+        type=ellipsoid
+        position=0.639441 0.85 0.16
+        rotation=-0.00925024 0 1.22697
+        params=0.3 0.2 0.2 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer8 {
+    operation=union
+    smoothness=0.2
+
+    primitive layer8_primitive {
+        type=ellipsoid
+        position=0.86 0.85 0.16
+        rotation=-0.00925024 0 1.22697
+        params=0.3 0.2 0.2 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer9 {
+    operation=union
+    smoothness=0.75
+
+    primitive layer9_primitive {
+        type=ellipsoid
+        position=0.233449 1.0656 0.16
+        rotation=-0.00925024 0 1.22697
+        params=0.3 0.2 0.3 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer10 {
+    operation=union
+    smoothness=0.75
+
+    primitive layer10_primitive {
+        type=capsule
+        position=0.036514 1.99285 0.16
+        rotation=-0.00925024 0 1.58769
+        params=0.3 0.2 0 0
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer11 {
+    operation=union
+    smoothness=0
+
+    primitive layer11_primitive {
+        type=capsule
+        position=0.87 1.35675 0.32
+        rotation=0.226195 0 -0.0546288
+        params=0.2 0.3 0 0
+        param_expr=0 0.2 - 0.1*p.y
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer14 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer14_primitive {
+        type=capsule
+        position=0.91 2.21 0.107191
+        rotation=-0.522607 0 -0.0546288
+        params=0.1 0.5 0 0
+        param_expr=0 0.15 - 0.05 *p.y
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer15 {
+    operation=union
+    smoothness=0
+
+    primitive layer15_primitive {
+        type=capsule
+        position=-0.81078 1.36 0.32
+        rotation=0.226195 0 -0.0546288
+        params=0.2 0.3 0 0
+        param_expr=0 0.2 - 0.1*p.y
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer16 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer16_primitive {
+        type=capsule
+        position=-0.783492 2.21 0.11
+        rotation=-0.522552 0 -0.0546288
+        params=0.1 0.5 0 0
+        param_expr=0 0.15 - 0.05 *p.y
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}
+
+layer layer17 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer17_primitive {
+        type=ellipsoid
+        position=-0.374231 2.21 0.11
+        rotation=-0.522552 0 -0.0546288
+        params=0.1 0.5 0.2 0
+        param_expr=0 0.15 - 0.05 *p.y
+        material=qt_colour_ffffffff_orange_lines_512
+    }
+}

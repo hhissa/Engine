@@ -43,6 +43,19 @@ enum class Key : std::uint16_t {
   Delete = 0x2E,
   Help = 0x2F,
 
+  // Top-row digits (same codes as Windows VK_0..VK_9) -- distinct from
+  // Numpad0..Numpad9 below.
+  Zero = 0x30,
+  One,
+  Two,
+  Three,
+  Four,
+  Five,
+  Six,
+  Seven,
+  Eight,
+  Nine,
+
   A = 0x41,
   B,
   C,

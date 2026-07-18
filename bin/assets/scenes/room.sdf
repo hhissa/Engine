@@ -1,0 +1,159 @@
+#sdf scene file
+version=0.1
+ambient=0.69
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive layer0_primitive {
+        type=box
+        position=0 -1.24 0.11
+        rotation=0 0 0
+        half_extents=1.9 1.2 2.5
+        material=qt_colour_5e5c64ff_ts060_Poliigon_ConcreteWallCladding_7856_BaseColor
+    }
+}
+
+layer layer1 {
+    operation=subtraction
+    smoothness=0
+
+    primitive layer1_primitive {
+        type=box
+        position=0 -1.2 0.11
+        rotation=0 0 0
+        half_extents=1.8 1 2.4
+        material=qt_colour_5e5c64ff_ts060_Poliigon_ConcreteWallCladding_7856_BaseColor
+    }
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive layer2_primitive {
+        type=box
+        position=0 -0.75 1.05
+        rotation=0 0 0
+        half_extents=0.7 0.5 0.02
+        material=qt_colour_dedddaff_ts060_white
+    }
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0.15
+
+    primitive layer4_primitive {
+        type=box
+        position=0 -2.04 1.7
+        rotation=0 0 0
+        half_extents=1.6 0.1 1.6
+        material=qt_colour_c0bfbcff_white
+    }
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0.15
+
+    primitive layer5_primitive {
+        type=box
+        position=0 -0.14 0.33
+        rotation=0 0 0
+        half_extents=1.6 0.1 2.1
+        material=qt_colour_ffffffff_ts090_floor
+    }
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0.05
+
+    primitive layer6_primitive {
+        type=box
+        position=0 -0.28 0.75
+        rotation=0 0 0
+        half_extents=0.7 0.02 0.5
+        material=qt_colour_dedddaff_ts060_white
+    }
+}
+
+layer layer7 {
+    operation=union
+    smoothness=0
+
+    primitive layer7_primitive {
+        type=box_frame
+        position=0 -0.63 1.13
+        rotation=0 0 0
+        params=0.9 0.7 0.01 0.04
+        material=qt_colour_5e5c64ff_white
+    }
+}
+
+layer layer9 {
+    operation=union
+    smoothness=0
+
+    primitive layer9_primitive {
+        type=box
+        position=1.08 -0.787037 1.50172
+        rotation=0 -2.48564 0
+        half_extents=0.6 0.5 0.05
+        material=qt_colour_5e5c64ff_white
+    }
+}
+
+layer layer11 {
+    operation=union
+    smoothness=0
+
+    primitive layer11_primitive {
+        type=box
+        position=-1.17 -0.76 1.33
+        rotation=0 -0.950855 0
+        half_extents=0.6 0.5 0.05
+        material=qt_colour_5e5c64ff_white
+    }
+}
+
+layer layer12 {
+    operation=subtraction
+    smoothness=0
+
+    primitive layer12_primitive {
+        type=box
+        position=-1.17 -0.86 1.33
+        rotation=0 -0.950855 0
+        half_extents=0.2 0.2 0.1
+        material=qt_colour_5e5c64ff_white
+    }
+}
+
+layer layer13 {
+    operation=union
+    smoothness=0
+
+    primitive layer13_primitive {
+        type=box
+        position=1.19 -0.44 1.11
+        rotation=0.378038 -2.4857 0
+        half_extents=0.05 0.17 0.02
+        material=qt_colour_77767bff_woodpanel
+    }
+}
+
+layer layer14 {
+    operation=union
+    smoothness=0
+
+    primitive layer14_primitive {
+        type=box
+        position=1.09634 -0.44 1.23867
+        rotation=0.378038 -2.4857 0
+        half_extents=0.1 0.2 0.02
+        material=qt_colour_9a9996ff_woodpanel
+    }
+}

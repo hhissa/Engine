@@ -7,11 +7,20 @@
 #include "vulkan_renderpass.h"
 #include "vulkan_swapchain.h"
 #include "vulkan_utils.h"
-#include "shaders/vulkan_object_shader.h"
 #include "shaders/vulkan_raymarch_shader.h"
+#include "shaders/vulkan_ui_shader.h"
+#include "shaders/vulkan_text_shader.h"
+#include "shaders/vulkan_line_shader.h"
+#include "../../systems/texture_system.h"
+#include "../../systems/shader_system.h"
+#include "../../systems/material_system.h"
+#include "../../systems/geometry_system.h"
+#include "../../resources/sdf_scene.h"
+#include <glm/gtc/quaternion.hpp>
 #include <vulkan/vulkan.h>
 
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_callback(
@@ -152,12 +161,38 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
   }
 
   KINFO("Vulkan renderer initialized successfully.");
-  vulkan_swapchain_create(&context_, context_.framebuffer_width,
-                          context_.framebuffer_height, &context_.swapchain);
+  if (!vulkan_swapchain_create(&context_, context_.framebuffer_width,
+                               context_.framebuffer_height,
+                               &context_.swapchain)) {
+    KERROR("failed to create swapchain");
+    return FALSE;
+  }
+  // World render pass: clears colour/depth/stencil, and -- since the UI
+  // pass runs after it against the same swapchain image -- leaves its
+  // colour attachment in VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+  // (has_next_pass=true) instead of transitioning straight to
+  // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR.
   context_.main_renderpass = std::make_unique<VulkanRenderpass>(
       context_, 0.0f, 0.0f, static_cast<f32>(context_.framebuffer_width),
-      static_cast<f32>(context_.framebuffer_height), 1.0f, 0.0f, 0.2f, 1.0f,
-      1.0f, 0);
+      static_cast<f32>(context_.framebuffer_height), 0.0f, 0.0f, 0.2f, 1.0f,
+      1.0f, 0,
+      RenderpassClearFlags::kColourBuffer | RenderpassClearFlags::kDepthBuffer |
+          RenderpassClearFlags::kStencilBuffer,
+      /*has_prev_pass=*/false, /*has_next_pass=*/true);
+
+  // UI render pass: draws on top of whatever the world pass (and the
+  // raymarch shader's copy into the swapchain image, which runs between
+  // the two passes -- see end_frame()) already produced, so it clears
+  // nothing and expects the image already in
+  // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL (has_prev_pass=true). It's the
+  // last pass before present, so it transitions to
+  // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR (has_next_pass=false).
+  context_.ui_renderpass = std::make_unique<VulkanRenderpass>(
+      context_, 0.0f, 0.0f, static_cast<f32>(context_.framebuffer_width),
+      static_cast<f32>(context_.framebuffer_height), 0.0f, 0.0f, 0.0f, 0.0f,
+      1.0f, 0, RenderpassClearFlags::kNone,
+      /*has_prev_pass=*/true, /*has_next_pass=*/false);
+
   regenerate_framebuffers();
   create_commandbuffer();
 
@@ -188,15 +223,37 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
   images_in_flight_.assign(context_.swapchain.image_count, nullptr);
 
   // Create builtin shaders.
-  context_.object_shader = std::make_unique<VulkanObjectShader>(context_);
-  if (!context_.object_shader->is_valid()) {
-    KERROR("Error loading built-in object shader.");
-    return FALSE;
-  }
+  context_.texture_system = std::make_unique<TextureSystem>(context_);
+  context_.shader_system = std::make_unique<ShaderSystem>(context_);
+  context_.material_system =
+      std::make_unique<MaterialSystem>(*context_.texture_system);
+  context_.geometry_system =
+      std::make_unique<GeometrySystem>(*context_.material_system);
 
   context_.raymarch_shader = std::make_unique<VulkanRaymarchShader>(context_);
   if (!context_.raymarch_shader->is_valid()) {
     KERROR("Error loading built-in raymarch shader.");
+    return FALSE;
+  }
+
+  context_.ui_shader =
+      std::make_unique<VulkanUIShader>(context_, *context_.ui_renderpass);
+  if (!context_.ui_shader->is_valid()) {
+    KERROR("Error loading built-in UI shader.");
+    return FALSE;
+  }
+
+  context_.text_shader =
+      std::make_unique<VulkanTextShader>(context_, *context_.ui_renderpass);
+  if (!context_.text_shader->is_valid()) {
+    KERROR("Error loading built-in text shader.");
+    return FALSE;
+  }
+
+  context_.line_shader =
+      std::make_unique<VulkanLineShader>(context_, *context_.ui_renderpass);
+  if (!context_.line_shader->is_valid()) {
+    KERROR("Error loading built-in line shader.");
     return FALSE;
   }
 
@@ -207,7 +264,33 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
 void VulkanRendererBackend::shutdown() {
   vkDeviceWaitIdle(context_.device.logical_device);
 
-  // Sync objects — destroying VulkanFence runs vkDestroyFence automatically.
+  KDEBUG("Destroying shaders...");
+  context_.line_shader.reset();
+  context_.text_shader.reset();
+  context_.ui_shader.reset();
+  context_.raymarch_shader.reset();
+  context_.geometry_system.reset();
+  context_.material_system.reset();
+  context_.shader_system.reset();
+  context_.texture_system.reset();
+
+  ui_framebuffers_.clear();
+  framebuffers_.clear(); // Destroy in reverse order of creation.
+  context_.graphics_command_buffers.clear();
+  context_.ui_renderpass.reset();
+  context_.main_renderpass.reset();
+
+  KDEBUG("Destroying Vulkan swapchain...");
+  vulkan_swapchain_destroy(&context_, &context_.swapchain);
+
+  // Sync objects — destroyed *after* the swapchain, deliberately.
+  // vkDeviceWaitIdle() does not retire the presentation engine's use of
+  // the semaphores handed to vkQueuePresentKHR (that's the spec gap
+  // VK_EXT_swapchain_maintenance1 exists for), so destroying them while
+  // the last present still references them trips
+  // VUID-vkDestroySemaphore-semaphore-05149. Destroying the swapchain
+  // first retires those references. VulkanFence's destructor runs
+  // vkDestroyFence automatically.
   for (u8 i = 0; i < context_.swapchain.max_frames_in_flight; ++i) {
     if (context_.image_available_semaphores[i]) {
       vkDestroySemaphore(context_.device.logical_device,
@@ -224,17 +307,6 @@ void VulkanRendererBackend::shutdown() {
   context_.queue_complete_semaphores.clear();
   in_flight_fences_.clear();
   images_in_flight_.clear();
-
-  KDEBUG("Destroying shaders...");
-  context_.raymarch_shader.reset();
-  context_.object_shader.reset();
-
-  framebuffers_.clear(); // Destroy in reverse order of creation.
-  context_.graphics_command_buffers.clear();
-  context_.main_renderpass.reset();
-
-  KDEBUG("Destroying Vulkan swapchain...");
-  vulkan_swapchain_destroy(&context_, &context_.swapchain);
 
   KDEBUG("Destroying Vulkan device...");
   vulkan_device_destroy(context_);
@@ -287,10 +359,12 @@ b8 VulkanRendererBackend::begin_frame(f32 delta_time) {
     return FALSE;
   }
 
-  // Check if the framebuffer has been resized. If so, a new swapchain must
+  // Check if the framebuffer has been resized, or if acquire/present
+  // reported the swapchain out of date. Either way a new swapchain must
   // be created.
   if (context_.framebuffer_size_generation !=
-      context_.framebuffer_size_last_generation) {
+          context_.framebuffer_size_last_generation ||
+      context_.swapchain_out_of_date) {
     VkResult result = vkDeviceWaitIdle(device.logical_device);
     if (!vulkan_result_is_success(result)) {
       KERROR("vulkan_renderer_backend_begin_frame vkDeviceWaitIdle (2) "
@@ -366,6 +440,213 @@ void VulkanRendererBackend::set_camera(const Camera &camera) {
   camera_ = camera;
 }
 
+void VulkanRendererBackend::draw_text(std::string_view text,
+                                      glm::vec2 position, glm::vec4 colour) {
+  queued_text_draws_.push_back({std::string(text), position, colour});
+}
+
+void VulkanRendererBackend::draw_ui_quad(glm::vec2 position, glm::vec2 size) {
+  queued_ui_quad_draws_.push_back({position, size});
+}
+
+void VulkanRendererBackend::draw_line(glm::vec2 start, glm::vec2 end,
+                                      glm::vec4 colour) {
+  queued_line_draws_.push_back({start, end, colour});
+}
+
+SceneHandle VulkanRendererBackend::load_scene(std::string_view sdf_path) {
+  auto scene = load_sdf_scene(sdf_path);
+  if (!scene) {
+    // load_sdf_scene() already logged why (missing file).
+    return kInvalidSceneHandle;
+  }
+
+  // Namespace every registered name under this load's handle -- two .sdf
+  // files authored by the editor both contain "layer0/layer0_primitive"
+  // etc., and un-prefixed those would collide in GeometrySystem (see
+  // load_scene()'s name_prefix doc comment for what that corrupts).
+  SceneHandle handle = next_scene_handle_++;
+  std::string name_prefix = "scene" + std::to_string(handle) + "/";
+  LoadedSceneNames names = context_.geometry_system->load_scene(
+      *scene, /*auto_release=*/true, name_prefix);
+
+  loaded_scenes_.emplace(handle, std::move(names));
+
+  context_.raymarch_shader->rebake();
+  return handle;
+}
+
+void VulkanRendererBackend::translate_scene(SceneHandle handle,
+                                            glm::vec3 delta) {
+  auto it = loaded_scenes_.find(handle);
+  if (it == loaded_scenes_.end()) {
+    KWARN("VulkanRendererBackend::translate_scene called with a handle that "
+         "isn't currently loaded: {}.",
+         handle);
+    return;
+  }
+
+  for (const std::string &name : it->second.primitive_names) {
+    Geometry *geometry = context_.geometry_system->find(name);
+    if (!geometry) {
+      continue;
+    }
+    if (geometry->type == PrimitiveType::Plane) {
+      // A plane has no position -- it's always the horizontal y=height
+      // plane, with height in params.x -- so only vertical translation
+      // means anything for it.
+      geometry->params.x += delta.y;
+    } else {
+      geometry->position += delta;
+    }
+  }
+
+  context_.raymarch_shader->rebake();
+}
+
+void VulkanRendererBackend::rotate_scene(SceneHandle handle,
+                                         glm::vec3 euler_radians) {
+  auto it = loaded_scenes_.find(handle);
+  if (it == loaded_scenes_.end()) {
+    KWARN("VulkanRendererBackend::rotate_scene called with a handle that "
+         "isn't currently loaded: {}.",
+         handle);
+    return;
+  }
+
+  // Compose in quaternion space rather than adding Euler angles --
+  // glm::quat(vec3)/glm::eulerAngles() are exact inverses of each other,
+  // and glm::quat(vec3) is also exactly how rebuild_static_scene() turns
+  // Geometry::rotation into the quaternion the voxelize shader consumes,
+  // so the round-trip stays consistent with what the GPU sees.
+  glm::quat scene_rotation(euler_radians);
+
+  for (const std::string &name : it->second.primitive_names) {
+    Geometry *geometry = context_.geometry_system->find(name);
+    if (!geometry) {
+      continue;
+    }
+    if (geometry->type == PrimitiveType::Plane) {
+      KWARN("rotate_scene: plane '{}' skipped -- a plane is always the "
+           "horizontal y=height plane and can't tilt.",
+           name);
+      continue;
+    }
+    geometry->position = scene_rotation * geometry->position;
+    geometry->rotation =
+        glm::eulerAngles(scene_rotation * glm::quat(geometry->rotation));
+  }
+
+  context_.raymarch_shader->rebake();
+}
+
+void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
+  auto it = loaded_scenes_.find(handle);
+  if (it == loaded_scenes_.end()) {
+    KWARN("VulkanRendererBackend::scale_scene called with a handle that "
+         "isn't currently loaded: {}.",
+         handle);
+    return;
+  }
+  if (factor <= 0.0f) {
+    KWARN("scale_scene called with a non-positive factor ({}). Ignoring.",
+         factor);
+    return;
+  }
+
+  // Every layer this scene's primitives combine under also needs its
+  // smoothness (a blend-radius length, exactly like the shapes it blends)
+  // scaled in lockstep -- collected into a set first so a layer holding
+  // several of this scene's primitives only gets scaled once, not once per
+  // primitive (scale_layer_smoothness() isn't idempotent -- a second call
+  // would double-apply the factor).
+  std::unordered_set<u32> touched_layers;
+
+  for (const std::string &name : it->second.primitive_names) {
+    Geometry *geometry = context_.geometry_system->find(name);
+    if (!geometry) {
+      continue;
+    }
+    // Every primitive type's params slots are lengths (radii, half-extents,
+    // heights -- see SdfPrimitiveDef::params), as is extra_param (corner
+    // radius / edge thickness), so a uniform scale multiplies all of them.
+    // This also covers Plane: its height lives in params.x.
+    geometry->position *= factor;
+    geometry->params *= factor;
+    geometry->extra_param *= factor;
+    // Slots driven by a param_expression formula ignore the plain constant
+    // scaled above -- their scale accumulates here instead, applied GPU-side
+    // as s*f(p/s) (see Geometry::param_expr_scale). Without this, scaling a
+    // scene left every formula-driven length at its authored size while the
+    // rest of the model scaled -- visibly mangling anything authored with
+    // parametric attributes (e.g. man.sdf's tapered capsule limbs).
+    geometry->param_expr_scale *= factor;
+
+    touched_layers.insert(geometry->layer);
+  }
+
+  for (u32 layer_index : touched_layers) {
+    context_.geometry_system->scale_layer_smoothness(layer_index, factor);
+  }
+
+  context_.raymarch_shader->rebake();
+}
+
+void VulkanRendererBackend::remove_scene(SceneHandle handle) {
+  auto it = loaded_scenes_.find(handle);
+  if (it == loaded_scenes_.end()) {
+    KWARN("VulkanRendererBackend::remove_scene called with a handle that "
+         "isn't currently loaded: {}.",
+         handle);
+    return;
+  }
+
+  // Wait for the device to go idle *before* releasing anything below --
+  // release() can cascade into MaterialSystem/TextureSystem dropping a
+  // texture's refcount to zero and destroying its VkImage/VkSampler
+  // immediately (synchronously, no wait of its own). rebake()'s own
+  // device-idle wait happens too late for that: a still-in-flight (or
+  // even currently executing) dispatch could still be reading that exact
+  // sampler through the render descriptor set, which is exactly what
+  // produced VUID-vkDestroySampler-sampler-01082 here.
+  vkDeviceWaitIdle(context_.device.logical_device);
+
+  for (const std::string &name : it->second.primitive_names) {
+    context_.geometry_system->release(name);
+  }
+  for (const std::string &name : it->second.light_names) {
+    context_.geometry_system->release_light(name);
+  }
+  loaded_scenes_.erase(it);
+
+  context_.raymarch_shader->rebake();
+}
+
+void VulkanRendererBackend::clear_scenes() {
+  // See remove_scene()'s comment -- must happen before any release() below.
+  vkDeviceWaitIdle(context_.device.logical_device);
+
+  for (auto &[handle, names] : loaded_scenes_) {
+    for (const std::string &name : names.primitive_names) {
+      context_.geometry_system->release(name);
+    }
+    for (const std::string &name : names.light_names) {
+      context_.geometry_system->release_light(name);
+    }
+  }
+  loaded_scenes_.clear();
+
+  context_.raymarch_shader->rebake();
+}
+
+void VulkanRendererBackend::set_selected_primitive(i32 index) {
+  context_.raymarch_shader->set_selected_primitive(index);
+}
+
+void VulkanRendererBackend::set_grid_visible(b8 visible) {
+  context_.raymarch_shader->set_grid_visible(visible);
+}
+
 b8 VulkanRendererBackend::end_frame(f32 delta_time) {
   VulkanCommandBuffer *command_buffer =
       context_.graphics_command_buffers[context_.image_index].get();
@@ -375,11 +656,47 @@ b8 VulkanRendererBackend::end_frame(f32 delta_time) {
 
   // Raymarch the sphere into the swapchain image. Must happen outside the
   // render pass instance that just ended (barriers/dispatch aren't valid
-  // inside one).
+  // inside one). Leaves the swapchain image in
+  // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL rather than transitioning
+  // straight to present, since the UI pass below still needs to draw on
+  // top of it.
   context_.raymarch_shader->render_to(
       *command_buffer, context_.swapchain.images[context_.image_index],
       context_.framebuffer_width, context_.framebuffer_height, delta_time,
       camera_);
+
+  // UI pass: draws on top of the raymarched scene via LOAD_OP_LOAD (see
+  // ui_renderpass's construction) instead of clearing it away. What
+  // actually gets drawn is entirely up to the application -- see
+  // draw_text()/draw_ui_quad(), queued via the renderer frontend during
+  // the game's render() step -- the engine has no hardcoded UI content of
+  // its own.
+  context_.ui_renderpass->begin(
+      *command_buffer, ui_framebuffers_[context_.image_index].handle());
+  for (const UiQuadDrawRequest &request : queued_ui_quad_draws_) {
+    context_.ui_shader->render_to(*command_buffer, context_.framebuffer_width,
+                                  context_.framebuffer_height,
+                                  request.position, request.size);
+  }
+  context_.text_shader->begin_batch();
+  for (const TextDrawRequest &request : queued_text_draws_) {
+    context_.text_shader->render_to(
+        *command_buffer, context_.framebuffer_width,
+        context_.framebuffer_height, request.text, request.position,
+        request.colour);
+  }
+  // Drawn last, on top of quads/text -- matches its intended use as an
+  // always-visible overlay (e.g. tools/sdf_editor's move-gizmo).
+  for (const LineDrawRequest &request : queued_line_draws_) {
+    context_.line_shader->render_to(*command_buffer, context_.framebuffer_width,
+                                    context_.framebuffer_height, request.start,
+                                    request.end, request.colour);
+  }
+  context_.ui_renderpass->end(*command_buffer);
+
+  queued_ui_quad_draws_.clear();
+  queued_text_draws_.clear();
+  queued_line_draws_.clear();
 
   command_buffer->end();
 
@@ -514,6 +831,8 @@ void VulkanRendererBackend::create_commandbuffer() {
 void VulkanRendererBackend::regenerate_framebuffers() {
   framebuffers_.clear();
   framebuffers_.reserve(context_.swapchain.image_count);
+  ui_framebuffers_.clear();
+  ui_framebuffers_.reserve(context_.swapchain.image_count);
 
   for (u32 i = 0; i < context_.swapchain.image_count; ++i) {
     // TODO: make attachment list dynamic based on configured attachments
@@ -523,6 +842,13 @@ void VulkanRendererBackend::regenerate_framebuffers() {
     framebuffers_.emplace_back(
         context_, *context_.main_renderpass, context_.framebuffer_width,
         context_.framebuffer_height, std::move(attachments));
+
+    // ui_renderpass has no depth attachment (see its clear_flags), so its
+    // framebuffer only needs the swapchain colour view.
+    std::vector<VkImageView> ui_attachments = {context_.swapchain.views[i]};
+    ui_framebuffers_.emplace_back(
+        context_, *context_.ui_renderpass, context_.framebuffer_width,
+        context_.framebuffer_height, std::move(ui_attachments));
   }
 }
 
@@ -533,8 +859,18 @@ b8 VulkanRendererBackend::recreate_swapchain() {
     return FALSE;
   }
 
-  // Detect if the window is too small to be drawn to.
-  if (context_.framebuffer_width == 0 || context_.framebuffer_height == 0) {
+  // Figure out the target size. A recreate triggered purely by an
+  // out-of-date swapchain (acquire/present) has no pending resize event,
+  // so there is no cached size — keep the current dimensions then.
+  b8 resize_pending = context_.framebuffer_size_generation !=
+                      context_.framebuffer_size_last_generation;
+  u32 new_width =
+      resize_pending ? cached_framebuffer_width_ : context_.framebuffer_width;
+  u32 new_height =
+      resize_pending ? cached_framebuffer_height_ : context_.framebuffer_height;
+
+  // Detect if the window is too small to be drawn to (e.g. minimized).
+  if (new_width == 0 || new_height == 0) {
     KDEBUG("recreate_swapchain called when window is < 1 in a dimension. "
            "Booting.");
     return FALSE;
@@ -551,28 +887,46 @@ b8 VulkanRendererBackend::recreate_swapchain() {
     fence_ptr = nullptr;
   }
 
+  // Command buffers and framebuffers reference the old swapchain's image
+  // views, so they must be torn down (RAII, via clear()) *before*
+  // vulkan_swapchain_recreate() destroys those views — destroying a view a
+  // live framebuffer still references trips
+  // VUID-vkDestroyImageView-imageView-01026.
+  context_.graphics_command_buffers.clear();
+  framebuffers_.clear();
+  ui_framebuffers_.clear();
+
   // vulkan_swapchain_recreate() requeries swapchain support and depth
   // format internally as part of create().
-  vulkan_swapchain_recreate(&context_, cached_framebuffer_width_,
-                            cached_framebuffer_height_, &context_.swapchain);
+  if (!vulkan_swapchain_recreate(&context_, new_width, new_height,
+                                 &context_.swapchain)) {
+    // Leave the size generation un-synced and the out-of-date flag set so
+    // this is retried next frame — the surface may only be transiently
+    // unavailable (e.g. mid-resize).
+    KERROR("recreate_swapchain: swapchain recreation failed. Retrying next "
+           "frame.");
+    context_.recreating_swapchain = FALSE;
+    return FALSE;
+  }
 
-  // Sync the framebuffer size with the cached sizes.
-  context_.framebuffer_width = cached_framebuffer_width_;
-  context_.framebuffer_height = cached_framebuffer_height_;
+  // create() adopted the extent actually granted into
+  // context_.framebuffer_width/height (which can differ from the
+  // new_width/new_height request); just clear the cached request.
   cached_framebuffer_width_ = 0;
   cached_framebuffer_height_ = 0;
 
-  // Update framebuffer size generation.
+  // Update framebuffer size generation and clear the out-of-date flag.
   context_.framebuffer_size_last_generation =
       context_.framebuffer_size_generation;
+  context_.swapchain_out_of_date = FALSE;
 
-  // Command buffers and framebuffers are tied to the old swapchain images;
-  // destroying and recreating them runs through the same RAII teardown as
-  // shutdown(), via clear().
-  context_.graphics_command_buffers.clear();
-  framebuffers_.clear();
+  // The image count can change across a recreate.
+  images_in_flight_.assign(context_.swapchain.image_count, nullptr);
 
   context_.main_renderpass->set_render_area(
+      0.0f, 0.0f, static_cast<f32>(context_.framebuffer_width),
+      static_cast<f32>(context_.framebuffer_height));
+  context_.ui_renderpass->set_render_area(
       0.0f, 0.0f, static_cast<f32>(context_.framebuffer_width),
       static_cast<f32>(context_.framebuffer_height));
 

@@ -53,4 +53,14 @@ private:
 
 // Free-function accessor for the live Application instance, so renderer code
 // (which doesn't hold an Application reference) can query framebuffer size.
+// Falls back to whatever application_set_framebuffer_size_override() last
+// set if no Application currently exists (see that function).
 void application_get_framebuffer_size(u32 *width, u32 *height);
+
+// Lets a caller that never constructs an Application at all (e.g. an
+// embedded viewport driven by an external event loop/window, such as a Qt
+// QWindow -- see tools/sdf_editor) supply the framebuffer size
+// VulkanRendererBackend::initialize() reads via
+// application_get_framebuffer_size() above. A no-op once a real
+// Application exists -- that path always wins over this override.
+void application_set_framebuffer_size_override(u32 width, u32 height);
