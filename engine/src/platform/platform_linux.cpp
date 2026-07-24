@@ -203,6 +203,21 @@ b8 PlatformLayer::platform_pump_messages() {
       case XCB_BUTTON_INDEX_3:
         mouse_button = input::Button::Right;
         break;
+      // X11 reports the scroll wheel as button 4 (up/away) and button 5
+      // (down/toward), each delivered as an immediate press+release pair
+      // per detent -- process_mouse_wheel() only needs the press half, or
+      // every scroll tick would be double-counted (once from a press-half
+      // of +-1, then again from a spurious release-half also seen here).
+      case XCB_BUTTON_INDEX_4:
+        if (pressed) {
+          input::process_mouse_wheel(1);
+        }
+        break;
+      case XCB_BUTTON_INDEX_5:
+        if (pressed) {
+          input::process_mouse_wheel(-1);
+        }
+        break;
       }
 
       // Pass over to the input subsystem.

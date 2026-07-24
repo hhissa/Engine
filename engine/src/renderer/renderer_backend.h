@@ -48,6 +48,17 @@ public:
   // regardless of declared widget stacking order).
   virtual void draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour) = 0;
 
+  // Queues a solid-colour, axis-aligned rectangle (screen pixels) to be
+  // drawn this frame -- same per-frame queueing discipline as
+  // draw_text()/draw_ui_quad()/draw_line() above, and drawn last of all of
+  // them (see VulkanRendererBackend::end_frame()), so it's guaranteed to
+  // fully occlude whatever's beneath it. Added for games that need a flat
+  // UI box with an arbitrary colour (e.g. a censor bar) -- draw_ui_quad()
+  // always samples a fixed demo texture, and draw_line() only draws thin
+  // segments, neither of which fit that need.
+  virtual void draw_solid_quad(glm::vec2 position, glm::vec2 size,
+                              glm::vec4 colour) = 0;
+
   // Loads sdf_path (an .sdf scene file -- see sdf_scene.h for the format)
   // and registers every primitive it describes as a static SDF primitive,
   // then re-bakes the raymarch scene so the result becomes visible.
@@ -106,6 +117,33 @@ public:
   // so it takes effect the very next frame with no rebake. Hidden by
   // default -- editor tooling opts in, games never see it.
   virtual void set_grid_visible(b8 visible) = 0;
+
+  // Post-process toggles/params -- see VulkanRaymarchShader::
+  // set_bloom_enabled()/set_vignette_enabled()/set_pixelation_enabled()/
+  // set_pixelation_block_size() for exact semantics. All are just push
+  // constants read by Builtin.PostComposite.comp.glsl, so each takes
+  // effect the very next frame with no rebake.
+  virtual void set_bloom_enabled(b8 enabled) = 0;
+  virtual void set_vignette_enabled(b8 enabled) = 0;
+  virtual void set_pixelation_enabled(b8 enabled) = 0;
+  virtual void set_pixelation_block_size(u32 block_size) = 0;
+
+  // Rebakes the bitmap font every renderer_draw_text() call uses, from
+  // assets/fonts/<name>.ttf at pixel_height -- see VulkanTextShader::
+  // set_font() for exact semantics (not cheap -- a full re-bake + device-
+  // idle wait -- call it for a deliberate font/size change, not every
+  // frame).
+  virtual void set_font(std::string_view name, f32 pixel_height) = 0;
+
+  // Enables/disables an equirectangular skybox behind all scene geometry --
+  // see VulkanRaymarchShader::set_skybox()/disable_skybox() for exact
+  // semantics (texture_name resolves through TextureSystem, exactly like
+  // every other texture reference in this engine -- assets/textures/
+  // <texture_name>.png, not an arbitrary filesystem path). Not cheap (a
+  // device-idle wait to safely rewrite a descriptor binding), so call it
+  // for a deliberate skybox change, not every frame.
+  virtual void set_skybox(std::string_view texture_name) = 0;
+  virtual void disable_skybox() = 0;
 
   virtual b8 end_frame(f32 delta_time) = 0;
 

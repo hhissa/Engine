@@ -74,26 +74,20 @@
 [DEBUG]: Compute pipeline created!
 [DEBUG]: Compute pipeline created!
 [DEBUG]: Compute pipeline created!
+[DEBUG]: Compute pipeline created!
+[DEBUG]: Compute pipeline created!
 [DEBUG]: Graphics pipeline created!
 [TRACE]: Texture 'orange_lines_512' loaded, reference count now 1.
 [TRACE]: Material 'test_ui_material' loaded, reference count now 1.
 [DEBUG]: Graphics pipeline created!
 [TRACE]: Material 'default_text_material' loaded, reference count now 1.
 [DEBUG]: Graphics pipeline created!
+[DEBUG]: Graphics pipeline created!
 [INFO]:  Vulkan renderer initialized successfully.
 [DEBUG]: SHGame::initialize() called!
-[TRACE]: Texture 'Poliigon_ConcreteWallCladding_7856_BaseColor' loaded, reference count now 1.
-[TRACE]: Material 'qt_colour_5e5c64ff_ts060_Poliigon_ConcreteWallCladding_7856_BaseColor' loaded, reference count now 1.
-[TRACE]: Geometry 'scene1/layer0/layer0_primitive' registered.
-[TRACE]: Geometry 'scene1/layer1/layer1_primitive' registered.
 [TRACE]: Texture 'white' loaded, reference count now 1.
 [TRACE]: Material 'qt_colour_dedddaff_ts060_white' loaded, reference count now 1.
 [TRACE]: Geometry 'scene1/layer2/layer2_primitive' registered.
-[TRACE]: Material 'qt_colour_c0bfbcff_white' loaded, reference count now 1.
-[TRACE]: Geometry 'scene1/layer4/layer4_primitive' registered.
-[TRACE]: Texture 'floor' loaded, reference count now 1.
-[TRACE]: Material 'qt_colour_ffffffff_ts090_floor' loaded, reference count now 1.
-[TRACE]: Geometry 'scene1/layer5/layer5_primitive' registered.
 [TRACE]: Geometry 'scene1/layer6/layer6_primitive' registered.
 [TRACE]: Material 'qt_colour_5e5c64ff_white' loaded, reference count now 1.
 [TRACE]: Geometry 'scene1/layer7/layer7_primitive' registered.
@@ -105,9 +99,63 @@
 [TRACE]: Geometry 'scene1/layer13/layer13_primitive' registered.
 [TRACE]: Material 'qt_colour_9a9996ff_woodpanel' loaded, reference count now 1.
 [TRACE]: Geometry 'scene1/layer14/layer14_primitive' registered.
-[TRACE]: Material 'qt_colour_ffffffff_white' loaded, reference count now 1.
+[TRACE]: Texture 'oak_stretcher_1816_mm_architextures' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts215_oak_stretcher_1816_mm_architextures' loaded, reference count now 1.
+[TRACE]: Geometry 'scene1/layer16/layer16_primitive' registered.
+[TRACE]: Material 'qt_colour_dedddaff_ts215_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene1/layer18/layer18_primitive' registered.
+[TRACE]: Texture 'douglas_fir_staggered_1800_mm_architextures' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts215_douglas_fir_staggered_1800_mm_architextures' loaded, reference count now 1.
+[TRACE]: Geometry 'scene1/layer19/layer19_primitive' registered.
+[TRACE]: Geometry 'scene1/layer20/layer20_primitive' registered.
+[TRACE]: Geometry 'scene1/layer22/layer22_primitive' registered.
+[TRACE]: Geometry 'scene1/layer23/layer23_primitive' registered.
+[TRACE]: Geometry 'scene1/layer24/layer24_primitive' registered.
+[TRACE]: Material 'qt_colour_63452cff_ts215_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene1/layer25/layer25_primitive' registered.
+[TRACE]: Geometry 'scene1/layer26/layer26_primitive' registered.
+[TRACE]: Geometry 'scene1/layer27/layer27_primitive' registered.
+[TRACE]: Geometry 'scene1/layer28/layer28_primitive' registered.
+[TRACE]: Material 'qt_colour_ffffffff_ts060_woodpanel' loaded, reference count now 1.
+[TRACE]: Geometry 'scene1/layer29/layer29_primitive' registered.
+[TRACE]: Geometry 'scene1/layer30/layer30_primitive' registered.
+[TRACE]: Geometry 'scene1/layer31/layer31_primitive' registered.
+[TRACE]: Geometry 'scene1/layer33/layer33_primitive' registered.
+[TRACE]: Geometry 'scene1/layer34/layer34_primitive' registered.
+[TRACE]: Geometry 'scene1/layer35/layer35_primitive' registered.
+[TRACE]: Geometry 'scene1/layer36/layer36_primitive' registered.
+[TRACE]: Geometry 'scene1/layer37/layer37_primitive' registered.
+[TRACE]: Geometry 'scene1/layer38/layer38_primitive' registered.
+[TRACE]: Geometry 'scene1/layer39/layer39_primitive' registered.
+[TRACE]: Geometry 'scene1/layer40/layer40_primitive' registered.
+[TRACE]: Texture 'rusted_metal' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_5e5c64ff_ts060_rusted_metal' loaded, reference count now 1.
+[TRACE]: Geometry 'scene1/layer41/layer41_primitive' registered.
+[TRACE]: Texture 'Poliigon_ConcreteWallCladding_7856_BaseColor' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts215_Poliigon_ConcreteWallCladding_7856_BaseColor' loaded, reference count now 1.
+[TRACE]: Geometry 'scene1/layer42/layer42_primitive' registered.
+[TRACE]: Texture 'concrete_wall' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_9a9996ff_ts215_concrete_wall' loaded, reference count now 1.
+[TRACE]: Geometry 'scene1/layer43/layer43_primitive' registered.
+[TRACE]: Geometry 'scene1/layer44/layer44_primitive' registered.
+[TRACE]: Geometry 'scene1/layer45/layer45_primitive' registered.
+[TRACE]: Geometry 'scene1/layer46/layer46_primitive' registered.
+[TRACE]: Geometry 'scene1/layer47/layer47_primitive' registered.
+[TRACE]: Geometry 'scene1/layer48/layer48_primitive' registered.
+[TRACE]: Geometry 'scene1/layer49/layer49_primitive' registered.
+[TRACE]: Material 'qt_colour_ffffffff_ts215_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene1/layer50/layer50_primitive' registered.
+[TRACE]: Light 'scene1/light2' registered.
+[TRACE]: Light 'scene1/light3' registered.
+[TRACE]: Light 'scene1/light4' registered.
+[TRACE]: Texture 'Stripes' loaded, reference count now 1.
+[TRACE]: Material 'qt_vol_colour_f9f06bff_ts125_Stripes' loaded, reference count now 1.
+[TRACE]: Volumetric 'scene1/volumetric0' registered.
+[TRACE]: Volumetric 'scene1/volumetric1' registered.
+[TRACE]: Material 'qt_colour_ffffffff_ts060_white' loaded, reference count now 1.
 [TRACE]: Geometry 'scene2/layer0/layer0_primitive' registered.
 [TRACE]: Geometry 'scene2/layer1/layer1_primitive' registered.
+[TRACE]: Material 'qt_colour_ffffffff_white' loaded, reference count now 1.
 [TRACE]: Geometry 'scene2/layer2/layer2_primitive' registered.
 [TRACE]: Geometry 'scene2/layer3/layer3_primitive' registered.
 [TRACE]: Geometry 'scene2/layer4/layer4_primitive' registered.
@@ -124,7 +172,7 @@
 [TRACE]: Geometry 'scene2/layer18/layer18_primitive' registered.
 [TRACE]: Geometry 'scene2/layer19/layer19_primitive' registered.
 [TRACE]: Texture 'scar_texture_diffuse' loaded, reference count now 1.
-[TRACE]: Material 'qt_colour_ffffffff_scar_texture_diffuse' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts060_px_scar_texture_diffuse' loaded, reference count now 1.
 [TRACE]: Geometry 'scene2/layer20/layer20_primitive' registered.
 [TRACE]: Geometry 'scene2/layer22/layer22_primitive' registered.
 [TRACE]: Geometry 'scene2/layer26/layer26_primitive' registered.
@@ -138,7 +186,7 @@
 [TRACE]: Geometry 'scene2/layer39/layer39_primitive' registered.
 [TRACE]: Geometry 'scene2/layer41/layer41_primitive' registered.
 [TRACE]: Texture '20_severe_maximal_diffuse' loaded, reference count now 1.
-[TRACE]: Material 'qt_colour_ffffffff_20_severe_maximal_diffuse' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts080_px_20_severe_maximal_diffuse' loaded, reference count now 1.
 [TRACE]: Geometry 'scene2/layer42/layer42_primitive' registered.
 [TRACE]: Geometry 'scene2/layer43/layer43_primitive' registered.
 [TRACE]: Geometry 'scene2/layer44/layer44_primitive' registered.
@@ -152,7 +200,8 @@
 [TRACE]: Material 'qt_colour_241f31ff_white' loaded, reference count now 1.
 [TRACE]: Geometry 'scene3/layer9/layer9_primitive' registered.
 [TRACE]: Geometry 'scene3/layer11/layer11_primitive' registered.
-[TRACE]: Light 'scene3/light1' registered.
+[TRACE]: Material 'qt_colour_241f31ff_ts060_em0100f9f06b_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene3/layer12/layer12_primitive' registered.
 [TRACE]: Geometry 'scene4/layer0/layer0_primitive' registered.
 [TRACE]: Geometry 'scene4/layer1/layer1_primitive' registered.
 [TRACE]: Geometry 'scene4/layer3/layer3_primitive' registered.
@@ -161,7 +210,7 @@
 [TRACE]: Geometry 'scene4/layer7/layer7_primitive' registered.
 [TRACE]: Geometry 'scene4/layer9/layer9_primitive' registered.
 [TRACE]: Geometry 'scene4/layer11/layer11_primitive' registered.
-[TRACE]: Light 'scene4/light1' registered.
+[TRACE]: Geometry 'scene4/layer12/layer12_primitive' registered.
 [TRACE]: Geometry 'scene5/layer1/layer1_primitive' registered.
 [TRACE]: Geometry 'scene5/layer2/layer2_primitive' registered.
 [TRACE]: Geometry 'scene5/layer3/layer3_primitive' registered.
@@ -171,6 +220,8 @@
 [TRACE]: Geometry 'scene5/layer7/layer7_primitive' registered.
 [TRACE]: Geometry 'scene5/layer8/layer8_primitive' registered.
 [TRACE]: Geometry 'scene5/layer11/layer11_primitive' registered.
+[TRACE]: Texture 'skybox_to_equirect_2' loaded, reference count now 1.
+[DEBUG]: Loaded conversation 'assets/conversations/sh_dialogue.conversation' (4 top-level question(s)) as handle 1.
 [DEBUG]: Resized to 1280x720
 [INFO]:  System memory use (tagged):
   UNKNOWN    : 0.00B
@@ -186,61 +237,14 @@
   TEXTURE    : 0.00B
   MAT_INST   : 0.00B
   RENDERER   : 64.00B
-  GAME       : 192.00B
+  GAME       : 256.00B
   TRANSFORM  : 0.00B
   ENTITY     : 0.00B
   ENTITY_NODE: 0.00B
   SCENE      : 0.00B
   SHADER     : 0.00B
 
-[DEBUG]: Window resize: 1854, 1011
-[DEBUG]: Resized to 1854x1011
-[INFO]:  Vulkan renderer backend->resized: w/h/gen: 1854/1011/1
-[INFO]:  Swapchain created successfully.
-[DEBUG]: Vulkan command buffers created.
-[INFO]:  Resized, booting.
-[DEBUG]: 'Q' key pressed in window.
-[DEBUG]: 'Q' key released in window.
-[DEBUG]: '	' key pressed in window.
-[DEBUG]: '	' key released in window.
-[DEBUG]: '	' key pressed in window.
-[DEBUG]: '	' key released in window.
-[DEBUG]: '	' key pressed in window.
-[DEBUG]: '	' key released in window.
-[DEBUG]: '0' key pressed in window.
-[DEBUG]: '0' key released in window.
-[DEBUG]: 'Q' key pressed in window.
-[DEBUG]: 'S' key pressed in window.
-[DEBUG]: 'D' key pressed in window.
-[DEBUG]: 'D' key released in window.
-[DEBUG]: 'Q' key released in window.
-[DEBUG]: 'D' key pressed in window.
-[DEBUG]: 'S' key released in window.
-[DEBUG]: 'D' key released in window.
-[DEBUG]: 'S' key pressed in window.
-[DEBUG]: 'S' key released in window.
-[DEBUG]: 'Q' key pressed in window.
-[DEBUG]: 'Q' key released in window.
-[DEBUG]: Explicit - A key pressed!
-[DEBUG]: 'S' key pressed in window.
-[DEBUG]: 'S' key released in window.
-[DEBUG]: 'A' key released in window.
-[DEBUG]: 'D' key pressed in window.
-[DEBUG]: 'D' key released in window.
-[DEBUG]: 'S' key pressed in window.
-[DEBUG]: 'S' key released in window.
-[DEBUG]: 'D' key pressed in window.
-[DEBUG]: 'D' key released in window.
-[DEBUG]: 'S' key pressed in window.
-[DEBUG]: 'S' key released in window.
-[DEBUG]: 'S' key pressed in window.
-[DEBUG]: 'S' key released in window.
-[DEBUG]: 'W' key pressed in window.
-[DEBUG]: 'W' key released in window.
-[DEBUG]: 'Q' key pressed in window.
-[DEBUG]: 'Q' key released in window.
-[DEBUG]: 'E' key pressed in window.
-[DEBUG]: 'E' key released in window.
+[INFO]:  EVENT_CODE_APPLICATION_QUIT received, shutting down.
 [DEBUG]: Destroying shaders...
 [DEBUG]: Destroying Vulkan swapchain...
 [DEBUG]: Destroying Vulkan device...

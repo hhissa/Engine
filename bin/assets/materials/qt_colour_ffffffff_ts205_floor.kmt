@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts205_floor
+diffuse_colour=1 1 1 1
+texture_scale=2.05
+diffuse_map_name=floor

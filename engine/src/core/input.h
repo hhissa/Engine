@@ -177,6 +177,15 @@ struct MousePosition {
 KAPI MousePosition mouse_position();
 KAPI MousePosition previous_mouse_position();
 
+// Net mouse wheel movement accumulated since the last input::update() call
+// (i.e. during the current frame's platform_pump_messages() -- see
+// Application::application_start()'s loop order) -- positive = scrolled
+// up/away from the user, negative = down/toward. Unlike is_key_down() et
+// al. this has no "previous" counterpart to diff against: it's already a
+// per-frame delta, reset to 0 by input::update() once the frame that
+// accumulated it has had a chance to read it.
+KAPI i32 mouse_wheel_delta();
+
 void process_button(Button button, bool pressed);
 void process_mouse_move(i16 x, i16 y);
 void process_mouse_wheel(i8 z_delta);

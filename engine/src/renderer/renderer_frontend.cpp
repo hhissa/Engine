@@ -3,6 +3,8 @@
 
 #include "../core/logger.h"
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 
 namespace {
@@ -84,6 +86,92 @@ void renderer_draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour) {
   }
 }
 
+void renderer_draw_solid_quad(glm::vec2 position, glm::vec2 size,
+                             glm::vec4 colour) {
+  if (backend) {
+    backend->draw_solid_quad(position, size, colour);
+  } else {
+    KWARN("renderer backend does not exist to accept a solid quad draw "
+         "request.");
+  }
+}
+
+namespace {
+// Draws one viewfinder corner bracket (an "L" opening toward the rect's
+// center) at corner, with each arm reaching toward inward (a unit vector
+// pointing from that corner toward the rect's center) by arm_length.
+void draw_corner_bracket(glm::vec2 corner, glm::vec2 inward, f32 arm_length,
+                        glm::vec4 colour) {
+  glm::vec2 horizontal_end = corner + glm::vec2(inward.x * arm_length, 0.0f);
+  glm::vec2 vertical_end = corner + glm::vec2(0.0f, inward.y * arm_length);
+  renderer_draw_line(corner, horizontal_end, colour);
+  renderer_draw_line(corner, vertical_end, colour);
+}
+} // namespace
+
+void renderer_draw_camera_overlay(glm::vec2 position, glm::vec2 size,
+                                  f32 blink_time_seconds,
+                                  std::string_view caption) {
+  const glm::vec4 kHudColour(0.85f, 0.9f, 0.85f, 0.6f);
+  const glm::vec4 kRecColour(0.95f, 0.15f, 0.15f, 1.0f);
+
+  glm::vec2 top_left = position;
+  glm::vec2 bottom_right = position + size;
+
+  // Rule of thirds: 2 vertical + 2 horizontal lines, dim -- a compositing
+  // aid, not meant to dominate the frame.
+  const glm::vec4 kThirdsColour(kHudColour.r, kHudColour.g, kHudColour.b, 0.25f);
+  for (int i = 1; i <= 2; ++i) {
+    f32 x = position.x + size.x * (static_cast<f32>(i) / 3.0f);
+    renderer_draw_line(glm::vec2(x, top_left.y), glm::vec2(x, bottom_right.y),
+                       kThirdsColour);
+    f32 y = position.y + size.y * (static_cast<f32>(i) / 3.0f);
+    renderer_draw_line(glm::vec2(top_left.x, y), glm::vec2(bottom_right.x, y),
+                       kThirdsColour);
+  }
+
+  // Corner brackets -- the classic viewfinder framing cue. Arm length is a
+  // fraction of the rect's shorter side, so it scales sensibly across
+  // very wide or very tall viewports instead of always being a fixed
+  // pixel size.
+  f32 arm_length = std::min(size.x, size.y) * 0.06f;
+  draw_corner_bracket(top_left, glm::vec2(1.0f, 1.0f), arm_length, kHudColour);
+  draw_corner_bracket(glm::vec2(bottom_right.x, top_left.y),
+                     glm::vec2(-1.0f, 1.0f), arm_length, kHudColour);
+  draw_corner_bracket(glm::vec2(top_left.x, bottom_right.y),
+                     glm::vec2(1.0f, -1.0f), arm_length, kHudColour);
+  draw_corner_bracket(bottom_right, glm::vec2(-1.0f, -1.0f), arm_length,
+                     kHudColour);
+
+  // REC indicator: blinks once per second (solid for the first half-second
+  // of each cycle) -- built from a tiny cluster of short line segments
+  // radiating from a center point, since draw_line() has no dedicated
+  // "filled circle" primitive; at this size (a few pixels) it reads as a
+  // small solid dot, not individual strokes.
+  f32 blink_phase = std::fmod(std::max(blink_time_seconds, 0.0f), 1.0f);
+  if (blink_phase < 0.5f) {
+    // Placed just inside the top-left corner bracket -- positive offsets
+    // in both axes, since screen space has its origin at the top-left
+    // with y increasing downward.
+    glm::vec2 dot_center = top_left + glm::vec2(arm_length * 1.8f, arm_length * 1.8f);
+    constexpr f32 kDotRadius = 4.0f;
+    constexpr int kDotSpokes = 8;
+    for (int i = 0; i < kDotSpokes; ++i) {
+      f32 angle = (static_cast<f32>(i) / static_cast<f32>(kDotSpokes)) * 6.2831853f;
+      glm::vec2 spoke_end =
+          dot_center + glm::vec2(std::cos(angle), std::sin(angle)) * kDotRadius;
+      renderer_draw_line(dot_center, spoke_end, kRecColour);
+    }
+    renderer_draw_text("REC", dot_center + glm::vec2(10.0f, -8.0f), kRecColour);
+  }
+
+  if (!caption.empty()) {
+    renderer_draw_text(caption, glm::vec2(top_left.x + arm_length * 1.4f,
+                                         bottom_right.y - 20.0f),
+                       kHudColour);
+  }
+}
+
 SceneRef renderer_load_scene(std::string_view sdf_path) {
   if (!backend) {
     KWARN("renderer backend does not exist to accept a scene load request.");
@@ -152,6 +240,66 @@ void renderer_set_grid_visible(b8 visible) {
   } else {
     KWARN("renderer backend does not exist to accept a grid-visibility "
          "request.");
+  }
+}
+
+void renderer_set_bloom_enabled(b8 enabled) {
+  if (backend) {
+    backend->set_bloom_enabled(enabled);
+  } else {
+    KWARN("renderer backend does not exist to accept a bloom-enabled "
+         "request.");
+  }
+}
+
+void renderer_set_vignette_enabled(b8 enabled) {
+  if (backend) {
+    backend->set_vignette_enabled(enabled);
+  } else {
+    KWARN("renderer backend does not exist to accept a vignette-enabled "
+         "request.");
+  }
+}
+
+void renderer_set_pixelation_enabled(b8 enabled) {
+  if (backend) {
+    backend->set_pixelation_enabled(enabled);
+  } else {
+    KWARN("renderer backend does not exist to accept a pixelation-enabled "
+         "request.");
+  }
+}
+
+void renderer_set_pixelation_block_size(u32 block_size) {
+  if (backend) {
+    backend->set_pixelation_block_size(block_size);
+  } else {
+    KWARN("renderer backend does not exist to accept a pixelation-block-"
+         "size request.");
+  }
+}
+
+void renderer_set_font(std::string_view name, f32 pixel_height) {
+  if (backend) {
+    backend->set_font(name, pixel_height);
+  } else {
+    KWARN("renderer backend does not exist to accept a font request.");
+  }
+}
+
+void renderer_enable_sky_box(std::string_view texture_name) {
+  if (backend) {
+    backend->set_skybox(texture_name);
+  } else {
+    KWARN("renderer backend does not exist to accept a skybox request.");
+  }
+}
+
+void renderer_disable_sky_box() {
+  if (backend) {
+    backend->disable_skybox();
+  } else {
+    KWARN("renderer backend does not exist to accept a skybox request.");
   }
 }
 

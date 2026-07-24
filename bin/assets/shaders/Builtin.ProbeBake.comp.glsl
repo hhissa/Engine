@@ -55,6 +55,19 @@ const float MAX_DIST = 48.0; // comfortably covers the BOUNDS cube's diagonal fr
 const float SURF_DIST = 0.01;
 const int GATHER_MAX_STEPS = 128;
 
+// Shadow ray tuning for direct_diffuse_at() below -- see shadow_march() in
+// Builtin.BakedFieldCommon.inc.glsl (included below) and the matching
+// constants' comment in Builtin.RaymarchShader.comp.glsl. Kept modest
+// (unlike the render pass's own SHADOW_MAX_STEPS=256): this bake already
+// only needs a coarse spatial approximation of GI (see SURF_DIST=0.01 above
+// vs. the render pass's 0.001), and a shadow ray runs per light per gather-
+// ray hit -- PROBE_DIM^3 * PROBE_GATHER_SAMPLES of those per bounce, so
+// keeping this cheap matters more here than in the once-per-pixel render
+// pass.
+const float SHADOW_NORMAL_BIAS = 0.05;
+const float SHADOW_SOFTNESS = 16.0;
+const int SHADOW_MAX_STEPS = 64;
+
 #define BAKED_FIELD_INDIRECTION_BINDING 0
 #define BAKED_FIELD_BRICKPOOL_BINDING 1
 #define BAKED_FIELD_BRICKPRIMITIVE_BINDING 2
@@ -72,10 +85,15 @@ layout(binding = 3) readonly buffer ScenePrimitiveColours {
 };
 
 // Mirrors the `Light` struct in Builtin.RaymarchShader.comp.glsl exactly
-// (must match its GpuLight layout engine-side).
+// (must match its GpuLight layout engine-side). source_primitive.x is the
+// primitives[] index this Point light was synthesized from (an emissive
+// primitive), or -1 if it has no associated primitive -- see
+// shadow_march()'s exclude_material parameter (Builtin.BakedFieldCommon.
+// inc.glsl) for why this matters.
 struct Light {
     vec4 vector_type;
     vec4 colour_intensity;
+    vec4 source_primitive;
 };
 
 layout(binding = 4) readonly buffer LightBuffer {
@@ -172,6 +190,43 @@ vec3 calc_static_normal(vec3 p) {
     return normalize(vec3(dx1 - dx0, dy1 - dy0, dz1 - dz0));
 }
 
+// A probe's nominal grid position can land right up against -- or even
+// inside -- geometry purely by chance of where the fixed PROBE_DIM grid
+// happens to fall, especially for an object smaller than the grid's own
+// spacing (e.g. a small light-fixture ornament). Gathering from exactly
+// that point produces an unrepresentatively dark sample (most gather
+// rays immediately hit the nearby/enclosing surface instead of reaching
+// the open room beyond it), and unlike a probe genuinely deep inside a
+// large solid (whose "surrounded by wall" colour is at least plausible),
+// this is a probe that's actually in open space, just unluckily crowded
+// by one small thing right next to it -- so its bad sample then bleeds
+// across several world units of otherwise well-lit open space once the
+// render pass trilinearly interpolates it with its (correctly bright)
+// neighbours, as a visible soft dark smudge floating near the object.
+//
+// Fixes this at the source rather than patching the symptom: if the
+// static field is closer than PROBE_SAFE_DISTANCE to this probe's
+// nominal position, push the gather origin outward along the field's own
+// gradient (the surface normal) until it clears that margin, before any
+// gathering happens. A finite-difference gradient of a signed distance
+// field always points away from the nearest surface toward increasing
+// distance, so this pushes a probe resting against a surface *and* one
+// embedded inside a thin object equally correctly outward, toward the
+// open space the probe should actually be representing.
+const float PROBE_SAFE_DISTANCE = 0.3; // world units
+
+vec3 relax_probe_origin(vec3 origin) {
+    float dist, skip_dist;
+    int material;
+    sample_field(origin, vec3(0.0, 0.0, 1.0), dist, skip_dist, material);
+    bool valid = (skip_dist == 0.0);
+    if (valid && dist < PROBE_SAFE_DISTANCE) {
+        vec3 normal = calc_static_normal(origin);
+        origin += normal * (PROBE_SAFE_DISTANCE - dist);
+    }
+    return origin;
+}
+
 // Marches from origin along dir against the baked field, coarser and
 // shorter-ranged than the primary camera ray's raymarch() (see the
 // SURF_DIST/MAX_DIST/GATHER_MAX_STEPS comments above) since GI gathering
@@ -201,13 +256,14 @@ float gather_raymarch(vec3 origin, vec3 dir, out int hit_material) {
     return travelled;
 }
 
-// Direct diffuse lighting at a gather ray's hit point, tinted by albedo --
-// no shadow rays (this engine's direct lighting has never cast shadows,
-// on the primary ray or here; kept consistent between the two rather than
-// introducing a discrepancy). This is deliberately the *only* light
-// source term evaluated fresh per gather ray -- indirect/bounced light
-// comes from sample_prev_probes() instead (see gather_hit_radiance()
-// below), not from re-summing direct light recursively.
+// Direct diffuse lighting at a gather ray's hit point, tinted by albedo,
+// with shadow rays (see shadow_march() in Builtin.BakedFieldCommon.inc.
+// glsl) -- so a probe near a wall correctly finds less direct light behind
+// something that blocks it, instead of bouncing light that wouldn't
+// actually reach that point. This is deliberately the *only* light source
+// term evaluated fresh per gather ray -- indirect/bounced light comes from
+// sample_prev_probes() instead (see gather_hit_radiance() below), not from
+// re-summing direct light recursively.
 vec3 direct_diffuse_at(vec3 p, vec3 normal, vec3 albedo) {
     vec3 result = vec3(0.0);
     for (int i = 0; i < push.light_count; ++i) {
@@ -218,17 +274,27 @@ vec3 direct_diffuse_at(vec3 p, vec3 normal, vec3 albedo) {
 
         vec3 light_dir;
         float attenuation;
+        float shadow_max_dist;
         if (light_type == 1) {
             vec3 to_light = light.vector_type.xyz - p;
             float dist = length(to_light);
             light_dir = to_light / max(dist, 0.0001);
             attenuation = intensity / max(dist * dist, 0.0001);
+            shadow_max_dist = dist;
         } else {
             light_dir = normalize(light.vector_type.xyz);
             attenuation = intensity;
+            shadow_max_dist = MAX_DIST;
         }
 
         float diffuse = max(dot(normal, light_dir), 0.0);
+        if (diffuse > 0.0) {
+            float shadow = shadow_march(p + normal * SHADOW_NORMAL_BIAS,
+                                       light_dir, shadow_max_dist,
+                                       SHADOW_SOFTNESS, SHADOW_MAX_STEPS,
+                                       int(light.source_primitive.x));
+            diffuse *= shadow;
+        }
         result += light_colour * diffuse * attenuation;
     }
     return result * albedo;
@@ -283,7 +349,7 @@ void main() {
     }
     int probe_index = index.x + index.y * PROBE_DIM + index.z * PROBE_DIM * PROBE_DIM;
 
-    vec3 origin = probe_world_position(index);
+    vec3 origin = relax_probe_origin(probe_world_position(index));
 
     vec3 accum = vec3(0.0);
     for (int s = 0; s < PROBE_GATHER_SAMPLES; ++s) {

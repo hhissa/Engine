@@ -25,6 +25,22 @@ echo "assets/shaders/Builtin.RaymarchShader.comp.glsl -> bin/assets/shaders/Buil
 %VULKAN_SDK%\bin\glslc.exe -fshader-stage=compute assets/shaders/Builtin.RaymarchShader.comp.glsl -o bin/assets/shaders/Builtin.RaymarchShader.comp.spv
 IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
 
+echo "assets/shaders/Builtin.BloomBlurH.comp.glsl -> bin/assets/shaders/Builtin.BloomBlurH.comp.spv"
+%VULKAN_SDK%\bin\glslc.exe -fshader-stage=compute assets/shaders/Builtin.BloomBlurH.comp.glsl -o bin/assets/shaders/Builtin.BloomBlurH.comp.spv
+IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
+
+echo "assets/shaders/Builtin.PostComposite.comp.glsl -> bin/assets/shaders/Builtin.PostComposite.comp.spv"
+%VULKAN_SDK%\bin\glslc.exe -fshader-stage=compute assets/shaders/Builtin.PostComposite.comp.glsl -o bin/assets/shaders/Builtin.PostComposite.comp.spv
+IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
+
+echo "assets/shaders/Builtin.SolidQuadShader.vert.glsl -> bin/assets/shaders/Builtin.SolidQuadShader.vert.spv"
+%VULKAN_SDK%\bin\glslc.exe -fshader-stage=vert assets/shaders/Builtin.SolidQuadShader.vert.glsl -o bin/assets/shaders/Builtin.SolidQuadShader.vert.spv
+IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
+
+echo "assets/shaders/Builtin.SolidQuadShader.frag.glsl -> bin/assets/shaders/Builtin.SolidQuadShader.frag.spv"
+%VULKAN_SDK%\bin\glslc.exe -fshader-stage=frag assets/shaders/Builtin.SolidQuadShader.frag.glsl -o bin/assets/shaders/Builtin.SolidQuadShader.frag.spv
+IF %ERRORLEVEL% NEQ 0 (echo Error: %ERRORLEVEL% && exit /b %ERRORLEVEL%)
+
 echo "Copying assets..."
 echo xcopy "assets" "bin\assets" /h /i /c /k /e /r /y
 xcopy "assets" "bin\assets" /h /i /c /k /e /r /y

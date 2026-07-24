@@ -2,12 +2,14 @@
 #include "../../../core/logger.h"
 #include "../../../resources/expression.h"
 #include "../../../systems/geometry_system.h"
+#include "../../../systems/texture_system.h"
 #include "../vulkan_commandbuffer.h"
 #include "../vulkan_image.h"
 
 #include <algorithm>
 #include <cmath>
 #include <glm/gtc/quaternion.hpp>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -18,6 +20,10 @@ constexpr std::string_view BUILTIN_SHADER_NAME_PROBE_BAKE =
     "Builtin.ProbeBake";
 constexpr std::string_view BUILTIN_SHADER_NAME_RAYMARCH =
     "Builtin.RaymarchShader";
+constexpr std::string_view BUILTIN_SHADER_NAME_BLOOM_BLUR_H =
+    "Builtin.BloomBlurH";
+constexpr std::string_view BUILTIN_SHADER_NAME_POST_COMPOSITE =
+    "Builtin.PostComposite";
 
 // Matches the `push_constant` block in Builtin.RaymarchShader.comp.glsl.
 // std430 (push constants use the same rules as std430, not std140) still
@@ -46,8 +52,24 @@ struct PushConstants {
                   // per-pixel material re-evaluation folds (see scene_map()
                   // in Builtin.SdfSceneCommon.inc.glsl) -- same value the
                   // voxelize pass baked with, set by rebuild_static_scene().
+  i32 volumetric_start; // First index (into primitives[]/scene_textures/
+                       // scene_diffuse_colours) of the tail range
+                       // rebuild_static_scene() appended GeometrySystem's
+                       // registered volumetrics at -- see
+                       // accumulate_volumetrics() in Builtin.RaymarchShader.
+                       // comp.glsl. Meaningless if volumetric_count is 0.
+  i32 volumetric_count; // How many contiguous entries starting there are
+                       // volumetrics, not opaque primitives.
+  f32 time; // Seconds since this shader was constructed -- drives
+           // accumulate_volumetrics()'s scrolling texture animation (a
+           // static shaft would look like a fixed decal rather than a
+           // drifting light shaft). Accumulated in render_to(), never reset.
+  i32 skybox_enabled; // Nonzero to sample skybox_texture for the background
+                     // (a primary ray miss) instead of the flat two-colour
+                     // gradient -- see set_skybox()/apply_skybox() in
+                     // Builtin.RaymarchShader.comp.glsl.
 };
-// 4 vec4s + 5 scalars = 84 bytes -- comfortably within Vulkan's guaranteed
+// 4 vec4s + 9 scalars = 100 bytes -- comfortably within Vulkan's guaranteed
 // minimum push constant size of 128 bytes, so no device limit query is
 // needed here.
 
@@ -72,6 +94,36 @@ struct ProbeBakePushConstants {
   i32 light_count;
   f32 ambient;
 };
+
+// Matches Builtin.BloomBlurH.comp.glsl's push constant block.
+struct BloomBlurHPushConstants {
+  i32 full_width;
+  i32 full_height;
+  f32 bloom_threshold;
+};
+
+// Matches Builtin.PostComposite.comp.glsl's push constant block.
+struct PostCompositePushConstants {
+  i32 full_width;
+  i32 full_height;
+  f32 bloom_intensity;
+  f32 vignette_strength;
+  f32 vignette_radius;
+  i32 pixelation_enabled;
+  i32 pixelation_block_size;
+};
+
+// Fixed tuning constants for the post-process chain -- not exposed as
+// engine-side setters (unlike the on/off toggles in vulkan_raymarch_
+// shader.h), since these are visual-tuning knobs more than behavioural
+// ones; edit here if the look needs adjusting. Bloom's threshold/
+// intensity are deliberately mild -- "subtle," matching what was asked
+// for -- a much lower threshold or higher intensity turns this into a
+// heavy glow instead.
+constexpr f32 kBloomThreshold = 0.85f;
+constexpr f32 kBloomIntensity = 0.35f;
+constexpr f32 kVignetteStrength = 0.35f;
+constexpr f32 kVignetteRadius = 0.55f;
 
 // GI probe grid dimensions. Must match PROBE_DIM in both
 // Builtin.ProbeBake.comp.glsl and Builtin.RaymarchShader.comp.glsl exactly.
@@ -194,6 +246,20 @@ struct GpuLight {
   f32 vector_type[4]; // xyz = Light::vector (direction or position -- see
                      // LightType's comment), w = LightType as float.
   f32 colour_intensity[4]; // rgb = Light::colour, a = Light::intensity.
+  // x = the index (into primitives[]/scene_textures/scene_diffuse_colours)
+  // of the emissive primitive this Point light was synthesized from (see
+  // rebuild_static_scene()'s emissive-primitive loop), or -1 for a light
+  // with no associated primitive (every authored SdfLightDef light, plus
+  // the hardcoded fallback). shadow_march() (Builtin.BakedFieldCommon.inc.
+  // glsl) needs this: a synthesized light sits at its own primitive's
+  // position, so a shadow ray toward it would otherwise always find that
+  // same primitive's own shell in the way first (any point outside a
+  // convex shape has to cross its surface to reach its interior/center) --
+  // this tells the shadow march which primitive to treat as see-through
+  // for that one light's rays, rather than a real occluder. yzw unused
+  // padding, kept as a full vec4 so the std430 layout stays a whole number
+  // of vec4s on both sides, matching every other GPU-side struct here.
+  f32 source_primitive[4];
 };
 
 // A single compiled "parametric attribute" expression -- matches the
@@ -219,15 +285,43 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       probe_bake_stage_(context, BUILTIN_SHADER_NAME_PROBE_BAKE, "comp",
                        VK_SHADER_STAGE_COMPUTE_BIT),
       render_stage_(context, BUILTIN_SHADER_NAME_RAYMARCH, "comp",
-                   VK_SHADER_STAGE_COMPUTE_BIT) {
+                   VK_SHADER_STAGE_COMPUTE_BIT),
+      bloom_blur_h_stage_(context, BUILTIN_SHADER_NAME_BLOOM_BLUR_H, "comp",
+                        VK_SHADER_STAGE_COMPUTE_BIT),
+      post_composite_stage_(context, BUILTIN_SHADER_NAME_POST_COMPOSITE, "comp",
+                           VK_SHADER_STAGE_COMPUTE_BIT) {
   if (!voxelize_stage_.is_valid() || !probe_bake_stage_.is_valid() ||
-      !render_stage_.is_valid()) {
+      !render_stage_.is_valid() || !bloom_blur_h_stage_.is_valid() ||
+      !post_composite_stage_.is_valid()) {
     KERROR("Unable to create shader module(s) for the raymarch field "
           "pipeline.");
     return;
   }
 
-  // Output storage image that pass 2 writes into.
+  // Output storage image that pass 3 (render) writes into. Only STORAGE
+  // now, not TRANSFER_SRC -- the post-process passes (4a/4b) read it via
+  // imageLoad, and it's post_process_image_ below that gets copied to the
+  // swapchain now, not this one directly.
+  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, context_->framebuffer_width,
+                      context_->framebuffer_height,
+                      context_->swapchain.image_format.format,
+                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
+                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
+                      VK_IMAGE_ASPECT_COLOR_BIT, &output_image_);
+
+  // Half-resolution scratch buffer for the bloom blur's horizontal pass
+  // (pass 4a) -- see bloom_temp_image_'s header comment for why half-res.
+  vulkan_image_create(context_, VK_IMAGE_TYPE_2D,
+                      (context_->framebuffer_width + 1) / 2,
+                      (context_->framebuffer_height + 1) / 2,
+                      context_->swapchain.image_format.format,
+                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
+                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
+                      VK_IMAGE_ASPECT_COLOR_BIT, &bloom_temp_image_);
+
+  // Final frame, written by pass 4b and copied to the swapchain in place
+  // of output_image_ (see render_to()) -- TRANSFER_SRC for that copy, like
+  // output_image_ used to be.
   vulkan_image_create(context_, VK_IMAGE_TYPE_2D, context_->framebuffer_width,
                       context_->framebuffer_height,
                       context_->swapchain.image_format.format,
@@ -235,7 +329,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                       VK_IMAGE_USAGE_STORAGE_BIT |
                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
-                      VK_IMAGE_ASPECT_COLOR_BIT, &output_image_);
+                      VK_IMAGE_ASPECT_COLOR_BIT, &post_process_image_);
 
   // Sparse voxel field storage.
   const u64 indirection_size =
@@ -312,12 +406,19 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       *context_, param_expr_buffer_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
+  // One float (0.0/1.0) per primitive -- see Material::pixelation_exempt.
+  const u64 pixelation_exempt_buffer_size =
+      static_cast<u64>(kMaxScenePrimitives) * sizeof(f32);
+  pixelation_exempt_buffer_.emplace(
+      *context_, pixelation_exempt_buffer_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
   if (!indirection_buffer_->is_valid() || !brick_pool_buffer_->is_valid() ||
       !brick_counter_buffer_->is_valid() || !primitive_buffer_->is_valid() ||
       !primitive_colour_buffer_->is_valid() || !layer_buffer_->is_valid() ||
       !brick_primitive_buffer_->is_valid() || !light_buffer_->is_valid() ||
       !param_expr_buffer_->is_valid() || !probe_buffer_a_->is_valid() ||
-      !probe_buffer_b_->is_valid()) {
+      !probe_buffer_b_->is_valid() || !pixelation_exempt_buffer_->is_valid()) {
     KERROR("Failed to create sparse voxel field buffers.");
     return;
   }
@@ -359,11 +460,16 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // analytic-scene buffers the voxelize set binds at 3/5/6, re-bound here
   // for the render pass's per-pixel material re-evaluation (see the
   // Builtin.SdfSceneCommon.inc.glsl include in
-  // Builtin.RaymarchShader.comp.glsl) -- and 10 = the baked GI probe grid
+  // Builtin.RaymarchShader.comp.glsl) -- 10 = the baked GI probe grid
   // (see ProbeBuffer in the same shader), read-only here just like every
-  // other baked-field binding.
-  VkDescriptorSetLayoutBinding render_bindings[11]{};
-  for (u32 i = 0; i < 11; ++i) {
+  // other baked-field binding -- 11 = per-primitive pixelation-exempt
+  // flags (see PixelationExemptBuffer in the same shader), written into
+  // out_image's alpha channel for the post-process pass to read -- and
+  // 12 = the optional skybox texture (see set_skybox()), a single combined
+  // image sampler rather than a fixed-size array like binding 6 since
+  // there's only ever one at a time.
+  VkDescriptorSetLayoutBinding render_bindings[13]{};
+  for (u32 i = 0; i < 13; ++i) {
     render_bindings[i].binding = i;
     render_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     render_bindings[i].descriptorCount = 1;
@@ -372,10 +478,11 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   render_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   render_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   render_bindings[6].descriptorCount = kMaxScenePrimitives;
+  render_bindings[12].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 
   VkDescriptorSetLayoutCreateInfo render_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  render_layout_info.bindingCount = 11;
+  render_layout_info.bindingCount = 13;
   render_layout_info.pBindings = render_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &render_layout_info, context_->allocator,
@@ -405,36 +512,79 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        context_->allocator,
                                        &probe_bake_set_layout_));
 
-  // One pool backing all three sets.
+  // Descriptor set layout for pass 4a (bloom blur, horizontal): reads
+  // output_image_, writes bloom_temp_image_ -- see Builtin.BloomBlurH.
+  // comp.glsl.
+  VkDescriptorSetLayoutBinding bloom_blur_h_bindings[2]{};
+  bloom_blur_h_bindings[0].binding = 0;
+  bloom_blur_h_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  bloom_blur_h_bindings[0].descriptorCount = 1;
+  bloom_blur_h_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  bloom_blur_h_bindings[1] = bloom_blur_h_bindings[0];
+  bloom_blur_h_bindings[1].binding = 1;
+
+  VkDescriptorSetLayoutCreateInfo bloom_blur_h_layout_info{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  bloom_blur_h_layout_info.bindingCount = 2;
+  bloom_blur_h_layout_info.pBindings = bloom_blur_h_bindings;
+  VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
+                                       &bloom_blur_h_layout_info,
+                                       context_->allocator,
+                                       &bloom_blur_h_set_layout_));
+
+  // Descriptor set layout for pass 4b (post-composite): reads
+  // output_image_ and bloom_temp_image_, writes post_process_image_ -- see
+  // Builtin.PostComposite.comp.glsl.
+  VkDescriptorSetLayoutBinding post_composite_bindings[3]{};
+  for (u32 i = 0; i < 3; ++i) {
+    post_composite_bindings[i].binding = i;
+    post_composite_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    post_composite_bindings[i].descriptorCount = 1;
+    post_composite_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+
+  VkDescriptorSetLayoutCreateInfo post_composite_layout_info{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  post_composite_layout_info.bindingCount = 3;
+  post_composite_layout_info.pBindings = post_composite_bindings;
+  VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
+                                       &post_composite_layout_info,
+                                       context_->allocator,
+                                       &post_composite_set_layout_));
+
+  // One pool backing all five sets.
   VkDescriptorPoolSize pool_sizes[3]{};
   pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  pool_sizes[0].descriptorCount = 23; // voxelize's 7 + render's 9 + probe bake's 7
+  pool_sizes[0].descriptorCount = 24; // voxelize's 7 + render's 10 + probe bake's 7
   pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  pool_sizes[1].descriptorCount = 1;
+  pool_sizes[1].descriptorCount = 6; // render's 1 + bloom blur h's 2 + post composite's 3
   pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  pool_sizes[2].descriptorCount = kMaxScenePrimitives; // scene_textures
+  pool_sizes[2].descriptorCount = kMaxScenePrimitives + 1; // scene_textures + skybox_texture
 
   VkDescriptorPoolCreateInfo pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   pool_info.poolSizeCount = 3;
   pool_info.pPoolSizes = pool_sizes;
-  pool_info.maxSets = 3;
+  pool_info.maxSets = 5;
   VK_CHECK(vkCreateDescriptorPool(context_->device.logical_device, &pool_info,
                                   context_->allocator, &descriptor_pool_));
 
-  VkDescriptorSetLayout layouts[3] = {voxelize_set_layout_, render_set_layout_,
-                                      probe_bake_set_layout_};
-  VkDescriptorSet sets[3];
+  VkDescriptorSetLayout layouts[5] = {
+      voxelize_set_layout_, render_set_layout_, probe_bake_set_layout_,
+      bloom_blur_h_set_layout_, post_composite_set_layout_};
+  VkDescriptorSet sets[5];
   VkDescriptorSetAllocateInfo alloc_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   alloc_info.descriptorPool = descriptor_pool_;
-  alloc_info.descriptorSetCount = 3;
+  alloc_info.descriptorSetCount = 5;
   alloc_info.pSetLayouts = layouts;
   VK_CHECK(vkAllocateDescriptorSets(context_->device.logical_device,
                                     &alloc_info, sets));
   voxelize_set_ = sets[0];
   render_set_ = sets[1];
   probe_bake_set_ = sets[2];
+  bloom_blur_h_set_ = sets[3];
+  post_composite_set_ = sets[4];
 
   // Populate voxelize_set_: {indirection, brick_pool, brick_counter,
   // primitive_buffer, brick_primitive_buffer, layer_buffer, param_expr_buffer}.
@@ -472,14 +622,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // Buffer bindings, in binding order (binding 0 is the image, 6 the
   // texture array -- both written separately below/by
   // rebuild_static_scene()): 1..5 as before, 7/8/9 = the analytic-scene
-  // buffers the per-pixel material re-evaluation reads, and 10 = whichever
+  // buffers the per-pixel material re-evaluation reads, 10 = whichever
   // probe buffer holds the final bounce's result (see
   // kProbeFinalInBufferB) -- fixed at construction, since which physical
-  // buffer is "final" never changes once kProbeBounceCount is compiled in.
+  // buffer is "final" never changes once kProbeBounceCount is compiled in
+  // -- and 11 = per-primitive pixelation-exempt flags.
   struct RenderBufferBinding {
     u32 binding;
     VkBuffer buffer;
-  } render_buffer_bindings[9] = {
+  } render_buffer_bindings[10] = {
       {1, indirection_buffer_->handle()},
       {2, brick_pool_buffer_->handle()},
       {3, light_buffer_->handle()},
@@ -490,10 +641,11 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       {9, param_expr_buffer_->handle()},
       {10, kProbeFinalInBufferB ? probe_buffer_b_->handle()
                                : probe_buffer_a_->handle()},
+      {11, pixelation_exempt_buffer_->handle()},
   };
 
-  VkDescriptorBufferInfo render_buffer_infos[9];
-  VkWriteDescriptorSet render_writes[10]{};
+  VkDescriptorBufferInfo render_buffer_infos[10];
+  VkWriteDescriptorSet render_writes[11]{};
   render_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   render_writes[0].dstSet = render_set_;
   render_writes[0].dstBinding = 0;
@@ -501,7 +653,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   render_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   render_writes[0].pImageInfo = &render_image_info;
 
-  for (u32 i = 0; i < 9; ++i) {
+  for (u32 i = 0; i < 10; ++i) {
     render_buffer_infos[i] = {render_buffer_bindings[i].buffer, 0,
                               VK_WHOLE_SIZE};
     render_writes[i + 1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -512,8 +664,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     render_writes[i + 1].pBufferInfo = &render_buffer_infos[i];
   }
 
-  vkUpdateDescriptorSets(context_->device.logical_device, 10, render_writes,
+  vkUpdateDescriptorSets(context_->device.logical_device, 11, render_writes,
                         0, nullptr);
+
+  // Binding 12 (skybox_texture) starts pointed at the filler texture --
+  // skybox_enabled_ starts false, so Builtin.RaymarchShader.comp.glsl never
+  // actually samples it, but Vulkan still requires every combined-image-
+  // sampler binding to reference a real image regardless (same reasoning as
+  // scene_textures' unused slots -- see rebuild_static_scene()).
+  write_skybox_binding(context_->texture_system->default_texture());
 
   // Populate probe_bake_set_'s static bindings (0=indirection,
   // 1=brick_pool, 2=brick_primitive -- the baked field a gather ray
@@ -549,6 +708,45 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   vkUpdateDescriptorSets(context_->device.logical_device, 5, probe_bake_writes,
                         0, nullptr);
 
+  // Populate bloom_blur_h_set_: 0 = output_image_ (read), 1 =
+  // bloom_temp_image_ (write). Both fixed for the object's lifetime --
+  // only on_resized() ever needs to repoint these (the images themselves
+  // get recreated then).
+  VkDescriptorImageInfo bloom_blur_h_image_infos[2] = {
+      {VK_NULL_HANDLE, output_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, bloom_temp_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+  };
+  VkWriteDescriptorSet bloom_blur_h_writes[2]{};
+  for (u32 i = 0; i < 2; ++i) {
+    bloom_blur_h_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    bloom_blur_h_writes[i].dstSet = bloom_blur_h_set_;
+    bloom_blur_h_writes[i].dstBinding = i;
+    bloom_blur_h_writes[i].descriptorCount = 1;
+    bloom_blur_h_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    bloom_blur_h_writes[i].pImageInfo = &bloom_blur_h_image_infos[i];
+  }
+  vkUpdateDescriptorSets(context_->device.logical_device, 2, bloom_blur_h_writes,
+                        0, nullptr);
+
+  // Populate post_composite_set_: 0 = output_image_ (read), 1 =
+  // bloom_temp_image_ (read), 2 = post_process_image_ (write).
+  VkDescriptorImageInfo post_composite_image_infos[3] = {
+      {VK_NULL_HANDLE, output_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, bloom_temp_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, post_process_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+  };
+  VkWriteDescriptorSet post_composite_writes[3]{};
+  for (u32 i = 0; i < 3; ++i) {
+    post_composite_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    post_composite_writes[i].dstSet = post_composite_set_;
+    post_composite_writes[i].dstBinding = i;
+    post_composite_writes[i].descriptorCount = 1;
+    post_composite_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    post_composite_writes[i].pImageInfo = &post_composite_image_infos[i];
+  }
+  vkUpdateDescriptorSets(context_->device.logical_device, 3,
+                        post_composite_writes, 0, nullptr);
+
   voxelize_pipeline_.emplace(
       *context_, voxelize_stage_,
       std::vector<VkDescriptorSetLayout>{voxelize_set_layout_},
@@ -560,9 +758,18 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   render_pipeline_.emplace(*context_, render_stage_,
                            std::vector<VkDescriptorSetLayout>{render_set_layout_},
                            sizeof(PushConstants));
+  bloom_blur_h_pipeline_.emplace(
+      *context_, bloom_blur_h_stage_,
+      std::vector<VkDescriptorSetLayout>{bloom_blur_h_set_layout_},
+      sizeof(BloomBlurHPushConstants));
+  post_composite_pipeline_.emplace(
+      *context_, post_composite_stage_,
+      std::vector<VkDescriptorSetLayout>{post_composite_set_layout_},
+      sizeof(PostCompositePushConstants));
 
   if (!voxelize_pipeline_->is_valid() || !probe_bake_pipeline_->is_valid() ||
-      !render_pipeline_->is_valid()) {
+      !render_pipeline_->is_valid() || !bloom_blur_h_pipeline_->is_valid() ||
+      !post_composite_pipeline_->is_valid()) {
     KERROR("Failed to create compute pipeline(s) for the raymarch field.");
     return;
   }
@@ -575,8 +782,18 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
 }
 
 VulkanRaymarchShader::~VulkanRaymarchShader() {
+  // Release the skybox's texture reference (if any) -- every acquire()
+  // needs exactly one matching release() (see TextureSystem's contract).
+  // Safe to do unconditionally before device/descriptor teardown below:
+  // VulkanRendererBackend destroys raymarch_shader before texture_system.
+  if (skybox_enabled_) {
+    context_->texture_system->release(skybox_texture_name_);
+  }
+
   // Destroy pipelines before the descriptor set layouts they were created
   // with.
+  post_composite_pipeline_.reset();
+  bloom_blur_h_pipeline_.reset();
   render_pipeline_.reset();
   probe_bake_pipeline_.reset();
   voxelize_pipeline_.reset();
@@ -585,6 +802,17 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
     vkDestroyDescriptorPool(context_->device.logical_device, descriptor_pool_,
                             context_->allocator);
     descriptor_pool_ = VK_NULL_HANDLE;
+  }
+  if (post_composite_set_layout_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(context_->device.logical_device,
+                                 post_composite_set_layout_,
+                                 context_->allocator);
+    post_composite_set_layout_ = VK_NULL_HANDLE;
+  }
+  if (bloom_blur_h_set_layout_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(context_->device.logical_device,
+                                 bloom_blur_h_set_layout_, context_->allocator);
+    bloom_blur_h_set_layout_ = VK_NULL_HANDLE;
   }
   if (render_set_layout_ != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(context_->device.logical_device,
@@ -605,6 +833,7 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   layer_buffer_.reset();
   light_buffer_.reset();
   param_expr_buffer_.reset();
+  pixelation_exempt_buffer_.reset();
   primitive_colour_buffer_.reset();
   brick_primitive_buffer_.reset();
   primitive_buffer_.reset();
@@ -616,6 +845,8 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   brick_pool_buffer_.reset();
   indirection_buffer_.reset();
 
+  vulkan_image_destroy(context_, &post_process_image_);
+  vulkan_image_destroy(context_, &bloom_temp_image_);
   vulkan_image_destroy(context_, &output_image_);
 }
 
@@ -627,29 +858,72 @@ void VulkanRaymarchShader::on_resized(u32 width, u32 height) {
   vulkan_image_destroy(context_, &output_image_);
   vulkan_image_create(context_, VK_IMAGE_TYPE_2D, width, height,
                       context_->swapchain.image_format.format,
+                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
+                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
+                      VK_IMAGE_ASPECT_COLOR_BIT, &output_image_);
+
+  vulkan_image_destroy(context_, &bloom_temp_image_);
+  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, (width + 1) / 2,
+                      (height + 1) / 2, context_->swapchain.image_format.format,
+                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
+                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
+                      VK_IMAGE_ASPECT_COLOR_BIT, &bloom_temp_image_);
+
+  vulkan_image_destroy(context_, &post_process_image_);
+  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, width, height,
+                      context_->swapchain.image_format.format,
                       VK_IMAGE_TILING_OPTIMAL,
                       VK_IMAGE_USAGE_STORAGE_BIT |
                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
-                      VK_IMAGE_ASPECT_COLOR_BIT, &output_image_);
+                      VK_IMAGE_ASPECT_COLOR_BIT, &post_process_image_);
 
-  // Re-point the render descriptor set's storage-image binding at the new
-  // image view -- the old view no longer exists (vulkan_image_destroy just
-  // destroyed it), so the descriptor set would otherwise reference a
-  // dangling handle.
-  VkDescriptorImageInfo image_info{};
-  image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  image_info.imageView = output_image_.view;
-
-  VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  write.dstSet = render_set_;
-  write.dstBinding = 0;
-  write.descriptorCount = 1;
-  write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  write.pImageInfo = &image_info;
-
-  vkUpdateDescriptorSets(context_->device.logical_device, 1, &write, 0,
+  // Re-point every descriptor binding that referenced one of the images
+  // just destroyed/recreated above -- their old views no longer exist, so
+  // the descriptor sets would otherwise reference dangling handles.
+  VkDescriptorImageInfo render_image_info{VK_NULL_HANDLE, output_image_.view,
+                                          VK_IMAGE_LAYOUT_GENERAL};
+  VkWriteDescriptorSet render_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  render_write.dstSet = render_set_;
+  render_write.dstBinding = 0;
+  render_write.descriptorCount = 1;
+  render_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  render_write.pImageInfo = &render_image_info;
+  vkUpdateDescriptorSets(context_->device.logical_device, 1, &render_write, 0,
                         nullptr);
+
+  VkDescriptorImageInfo bloom_blur_h_image_infos[2] = {
+      {VK_NULL_HANDLE, output_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, bloom_temp_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+  };
+  VkWriteDescriptorSet bloom_blur_h_writes[2]{};
+  for (u32 i = 0; i < 2; ++i) {
+    bloom_blur_h_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    bloom_blur_h_writes[i].dstSet = bloom_blur_h_set_;
+    bloom_blur_h_writes[i].dstBinding = i;
+    bloom_blur_h_writes[i].descriptorCount = 1;
+    bloom_blur_h_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    bloom_blur_h_writes[i].pImageInfo = &bloom_blur_h_image_infos[i];
+  }
+  vkUpdateDescriptorSets(context_->device.logical_device, 2, bloom_blur_h_writes,
+                        0, nullptr);
+
+  VkDescriptorImageInfo post_composite_image_infos[3] = {
+      {VK_NULL_HANDLE, output_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, bloom_temp_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, post_process_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+  };
+  VkWriteDescriptorSet post_composite_writes[3]{};
+  for (u32 i = 0; i < 3; ++i) {
+    post_composite_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    post_composite_writes[i].dstSet = post_composite_set_;
+    post_composite_writes[i].dstBinding = i;
+    post_composite_writes[i].descriptorCount = 1;
+    post_composite_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    post_composite_writes[i].pImageInfo = &post_composite_image_infos[i];
+  }
+  vkUpdateDescriptorSets(context_->device.logical_device, 3,
+                        post_composite_writes, 0, nullptr);
 }
 
 void VulkanRaymarchShader::rebake() {
@@ -669,6 +943,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   std::vector<GpuPrimitive> gpu_primitives(kMaxScenePrimitives, GpuPrimitive{});
   std::vector<f32> gpu_colours(static_cast<size_t>(kMaxScenePrimitives) * 4,
                               1.0f);
+  std::vector<f32> gpu_pixelation_exempt(kMaxScenePrimitives, 0.0f);
   std::vector<VkDescriptorImageInfo> texture_infos(kMaxScenePrimitives);
   std::vector<GpuLayer> gpu_layers(kMaxLayers, GpuLayer{});
   std::vector<GpuParamExpr> gpu_param_exprs(static_cast<size_t>(kMaxScenePrimitives) * 4,
@@ -683,6 +958,12 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     info.imageView = filler_texture.view();
     info.sampler = filler_texture.sampler();
   }
+
+  // geometry.name -> its uploaded index in gpu_primitives, filled in as the
+  // loop below assigns each one -- read back afterward by the emissive-
+  // light loop (see GpuLight::source_primitive's comment) to record which
+  // primitive a synthesized light came from.
+  std::unordered_map<std::string, u32> primitive_index_by_name;
 
   // Primitives must land in primitive_buffer_ grouped contiguously by
   // layer (so each GpuLayer's start/count can slice a contiguous range),
@@ -723,6 +1004,17 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       prim.rotation[3] = rotation.w;
 
       prim.expr_scale[0] = geometry.param_expr_scale;
+      // Pre-multiplied emissive radiance (see Material::emissive_colour/
+      // emissive_intensity and expr_scale's struct comment in
+      // Builtin.SdfSceneCommon.inc.glsl) -- (0,0,0) for a non-emissive
+      // material, since both fields default to a state that multiplies to
+      // zero.
+      prim.expr_scale[1] = geometry.material->emissive_colour.r *
+                          geometry.material->emissive_intensity;
+      prim.expr_scale[2] = geometry.material->emissive_colour.g *
+                          geometry.material->emissive_intensity;
+      prim.expr_scale[3] = geometry.material->emissive_colour.b *
+                          geometry.material->emissive_intensity;
 
       // Compile each slot's "parametric attribute" formula, if it has one
       // -- an empty string (the default) or a compile failure both just
@@ -751,17 +1043,27 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       gpu_colours[index * 4 + 0] = colour.r;
       gpu_colours[index * 4 + 1] = colour.g;
       gpu_colours[index * 4 + 2] = colour.b;
-      // The alpha slot carries the material's texture_scale (world units
-      // per texture tile), not colour opacity -- nothing ever read the
-      // opacity, and packing the scale here spares a whole extra buffer +
-      // binding. See ScenePrimitiveColours in
-      // Builtin.RaymarchShader.comp.glsl, the only reader.
-      gpu_colours[index * 4 + 3] = geometry.material->texture_scale;
+      // The alpha slot carries this primitive's *effective* texture_scale
+      // (world units per texture tile), not colour opacity -- nothing ever
+      // read the opacity, and packing the scale here spares a whole extra
+      // buffer + binding. See ScenePrimitiveColours in
+      // Builtin.RaymarchShader.comp.glsl, the only reader. Multiplied by
+      // texture_scale_factor (see its comment on Geometry) rather than
+      // uploading material->texture_scale directly, so a scaled scene's
+      // texture tiling scales right along with it instead of staying at
+      // its authored-size frequency.
+      gpu_colours[index * 4 + 3] =
+          geometry.material->texture_scale * geometry.texture_scale_factor;
+
+      gpu_pixelation_exempt[index] =
+          geometry.material->pixelation_exempt ? 1.0f : 0.0f;
 
       texture_infos[index].imageView =
           geometry.material->diffuse_texture->view();
       texture_infos[index].sampler =
           geometry.material->diffuse_texture->sampler();
+
+      primitive_index_by_name[geometry.name] = index;
 
       ++index;
     }
@@ -774,6 +1076,69 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     gpu_layer.range[1] = static_cast<i32>(index - layer_start);
   }
 
+  // Volumetric "light shaft" primitives -- appended directly after every
+  // opaque primitive, in their own tail range of primitive_buffer_/
+  // scene_diffuse_colours/scene_textures that no GpuLayer's range covers, so
+  // scene_map() (the voxelize pass, and the render pass's per-pixel material
+  // re-evaluation) never iterates them: they're not part of the opaque
+  // scene at all. accumulate_volumetrics() in Builtin.RaymarchShader.comp.
+  // glsl instead marches through exactly this range directly via
+  // primitive_sdf(), which is why the upload below mirrors the opaque loop
+  // above closely (same GpuPrimitive/colour/texture layout).
+  volumetric_start_ = static_cast<i32>(index);
+  std::vector<Volumetric> volumetrics =
+      context_->geometry_system->volumetric_snapshot();
+  for (const Volumetric &volumetric : volumetrics) {
+    if (index >= kMaxScenePrimitives) {
+      KWARN("GeometrySystem has more volumetrics than this shader supports "
+           "(combined with opaque primitives, cap is {}); '{}' will not be "
+           "rendered.",
+           kMaxScenePrimitives, volumetric.name);
+      continue;
+    }
+
+    GpuPrimitive &prim = gpu_primitives[index];
+    prim.position_type[0] = volumetric.position.x;
+    prim.position_type[1] = volumetric.position.y;
+    prim.position_type[2] = volumetric.position.z;
+    prim.position_type[3] =
+        static_cast<f32>(static_cast<u32>(volumetric.type));
+    prim.params[0] = volumetric.params.x;
+    prim.params[1] = volumetric.params.y;
+    prim.params[2] = volumetric.params.z;
+    prim.params[3] = volumetric.extra_param;
+
+    glm::quat rotation(volumetric.rotation);
+    prim.rotation[0] = rotation.x;
+    prim.rotation[1] = rotation.y;
+    prim.rotation[2] = rotation.z;
+    prim.rotation[3] = rotation.w;
+
+    // expr_scale.x is param_expr_scale for an opaque primitive's formula-
+    // driven params (see resolve_params() in Builtin.SdfSceneCommon.inc.
+    // glsl) -- volumetrics never carry a param_expressions formula (every
+    // ParamExpr entry at this index is left at instruction_count == 0
+    // below), so that value is otherwise dead for an index in this range,
+    // and is repurposed here to carry density instead -- the only reader
+    // for a volumetric index is accumulate_volumetrics(). yzw stay zero: a
+    // volumetric isn't emissive.
+    prim.expr_scale[0] = volumetric.density;
+
+    const glm::vec4 &colour = volumetric.material->diffuse_colour;
+    gpu_colours[index * 4 + 0] = colour.r;
+    gpu_colours[index * 4 + 1] = colour.g;
+    gpu_colours[index * 4 + 2] = colour.b;
+    gpu_colours[index * 4 + 3] = volumetric.material->texture_scale;
+
+    texture_infos[index].imageView =
+        volumetric.material->diffuse_texture->view();
+    texture_infos[index].sampler =
+        volumetric.material->diffuse_texture->sampler();
+
+    ++index;
+  }
+  volumetric_count_ = static_cast<i32>(index) - volumetric_start_;
+
   // The render pass re-evaluates the analytic scene per hit pixel for
   // material provenance and needs the same layer count the voxelize pass
   // bakes with -- sent as a push constant every render_to() call, like
@@ -784,6 +1149,9 @@ void VulkanRaymarchShader::rebuild_static_scene() {
                                0, gpu_primitives.data());
   primitive_colour_buffer_->load_data(0, gpu_colours.size() * sizeof(f32), 0,
                                       gpu_colours.data());
+  pixelation_exempt_buffer_->load_data(
+      0, gpu_pixelation_exempt.size() * sizeof(f32), 0,
+      gpu_pixelation_exempt.data());
   layer_buffer_->load_data(0, gpu_layers.size() * sizeof(GpuLayer), 0,
                            gpu_layers.data());
   param_expr_buffer_->load_data(0, gpu_param_exprs.size() * sizeof(GpuParamExpr),
@@ -804,6 +1172,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     light.colour_intensity[1] = kDefaultLightColour.g;
     light.colour_intensity[2] = kDefaultLightColour.b;
     light.colour_intensity[3] = kDefaultLightIntensity;
+    light.source_primitive[0] = -1.0f; // no associated primitive
     light_count_ = 1;
   } else {
     light_count_ = static_cast<i32>(
@@ -824,8 +1193,62 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       dst.colour_intensity[1] = src.colour.g;
       dst.colour_intensity[2] = src.colour.b;
       dst.colour_intensity[3] = src.intensity;
+      dst.source_primitive[0] = -1.0f; // no associated primitive
     }
   }
+
+  // Emissive primitives (Material::emissive_intensity > 0) also act as
+  // light sources -- append one synthesized point light per emissive
+  // primitive, positioned at the primitive itself, on top of whatever
+  // real Light registrations/fallback populated above. This is what lets
+  // an authored "glowing bulb"/"light panel" primitive actually
+  // illuminate the rest of the scene (and, since it lands in the same
+  // buffer, the GI probe bake too), not just look bright on its own -- see
+  // the emissive term in Builtin.RaymarchShader.comp.glsl for the visual
+  // half of this.
+  for (const Geometry &geometry : all) {
+    if (!geometry.material || geometry.material->emissive_intensity <= 0.0f) {
+      continue;
+    }
+    if (static_cast<u32>(light_count_) >= kMaxLights) {
+      KWARN("GeometrySystem has more lights (including emissive primitives) "
+           "than this shader supports ({}); '{}' will glow but won't "
+           "illuminate the rest of the scene.",
+           kMaxLights, geometry.name);
+      continue;
+    }
+
+    // A Plane's own position is always (0,0,0) (see GeometryConfig::
+    // plane()/add_plane()) -- only its height (params.x) means anything,
+    // so its effective world position for a light is (0, height, 0),
+    // mirroring the SDF editor's gizmo_effective_position() convention.
+    glm::vec3 position = geometry.type == PrimitiveType::Plane
+                             ? glm::vec3(0.0f, geometry.params.x, 0.0f)
+                             : geometry.position;
+
+    GpuLight &dst = gpu_lights[static_cast<size_t>(light_count_)];
+    dst.vector_type[0] = position.x;
+    dst.vector_type[1] = position.y;
+    dst.vector_type[2] = position.z;
+    dst.vector_type[3] = static_cast<f32>(static_cast<u32>(LightType::Point));
+    dst.colour_intensity[0] = geometry.material->emissive_colour.r;
+    dst.colour_intensity[1] = geometry.material->emissive_colour.g;
+    dst.colour_intensity[2] = geometry.material->emissive_colour.b;
+    dst.colour_intensity[3] = geometry.material->emissive_intensity;
+
+    // See GpuLight::source_primitive's comment -- shadow_march() needs
+    // this to avoid an emissive primitive's own shell always self-
+    // occluding the light it casts. Falls back to -1 (no exclusion) only
+    // if this geometry somehow never got uploaded above (e.g. it exceeded
+    // kMaxScenePrimitives) -- shouldn't happen in practice since the same
+    // cap applies to both loops.
+    auto it = primitive_index_by_name.find(geometry.name);
+    dst.source_primitive[0] =
+        it != primitive_index_by_name.end() ? static_cast<f32>(it->second) : -1.0f;
+
+    ++light_count_;
+  }
+
   ambient_ = context_->geometry_system->ambient();
   light_buffer_->load_data(0, gpu_lights.size() * sizeof(GpuLight), 0,
                           gpu_lights.data());
@@ -845,6 +1268,58 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   // -- and light_count_/ambient_ (just set above) to shade what those
   // rays hit.
   bake_probes(static_cast<u32>(light_count_));
+}
+
+void VulkanRaymarchShader::write_skybox_binding(VulkanTexture &texture) {
+  VkDescriptorImageInfo image_info{};
+  image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  image_info.imageView = texture.view();
+  image_info.sampler = texture.sampler();
+
+  VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  write.dstSet = render_set_;
+  write.dstBinding = 12;
+  write.descriptorCount = 1;
+  write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  write.pImageInfo = &image_info;
+  vkUpdateDescriptorSets(context_->device.logical_device, 1, &write, 0, nullptr);
+}
+
+void VulkanRaymarchShader::set_skybox(std::string_view texture_name) {
+  // Waits for the device to go idle first, like rebake()/remove_scene() --
+  // about to rewrite render_set_'s skybox binding directly (and possibly
+  // release() the previous texture's last reference, destroying its
+  // VkImageView/VkSampler), either of which a still-in-flight render_to()
+  // dispatch could be reading through.
+  vkDeviceWaitIdle(context_->device.logical_device);
+
+  if (skybox_enabled_) {
+    context_->texture_system->release(skybox_texture_name_);
+  }
+
+  VulkanTexture &texture =
+      context_->texture_system->acquire(texture_name, /*auto_release=*/true);
+  skybox_texture_name_ = std::string(texture_name);
+  skybox_enabled_ = true;
+
+  write_skybox_binding(texture);
+}
+
+void VulkanRaymarchShader::disable_skybox() {
+  if (!skybox_enabled_) {
+    return;
+  }
+  vkDeviceWaitIdle(context_->device.logical_device); // see set_skybox()'s comment
+
+  context_->texture_system->release(skybox_texture_name_);
+  skybox_texture_name_.clear();
+  skybox_enabled_ = false;
+
+  // Re-point the binding at the filler texture rather than leaving it
+  // referencing whatever set_skybox() last acquired (now possibly
+  // destroyed, if this was its only reference) -- see the constructor's own
+  // initial write_skybox_binding() call for the same reasoning.
+  write_skybox_binding(context_->texture_system->default_texture());
 }
 
 void VulkanRaymarchShader::voxelize(u32 layer_count) {
@@ -1049,16 +1524,30 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
   push_constants.selected_primitive_index = selected_primitive_index_;
   push_constants.grid_enabled = grid_visible_ ? 1 : 0;
   push_constants.layer_count = layer_count_;
+  push_constants.volumetric_start = volumetric_start_;
+  push_constants.volumetric_count = volumetric_count_;
+  elapsed_time_ += delta_time;
+  push_constants.time = elapsed_time_;
+  push_constants.skybox_enabled = skybox_enabled_ ? 1 : 0;
 
   VkCommandBuffer cmd = command_buffer.handle();
 
+  constexpr u32 local_size = 16; // must match local_size_x/y in every pass 3/4 shader
+  u32 group_x = (width + local_size - 1) / local_size;
+  u32 group_y = (height + local_size - 1) / local_size;
+
+  // --- Pass 3: render the scene into output_image_ (rgb=colour,
+  // a=pixelation-exempt flag). ---
   // Storage image -> GENERAL for the compute shader to write into. Old
   // layout is claimed UNDEFINED (discard) since every pixel gets
-  // overwritten unconditionally each frame; src stage/access still wait on
-  // any in-flight transfer read from the previous frame's copy below.
+  // overwritten unconditionally each frame; src stage/access wait on the
+  // post-process passes' compute-shader reads of it from the previous
+  // frame -- output_image_ is read by compute now (pass 4a/4b below), not
+  // copied via transfer directly, so that's what this write must wait on.
   transition_image(cmd, output_image_.handle, VK_IMAGE_LAYOUT_UNDEFINED,
-                   VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_TRANSFER_READ_BIT,
-                   VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                   VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_READ_BIT,
+                   VK_ACCESS_SHADER_WRITE_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
   render_pipeline_->bind(command_buffer);
@@ -1068,14 +1557,73 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
   vkCmdPushConstants(cmd, render_pipeline_->layout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants),
                     &push_constants);
-
-  constexpr u32 local_size = 16; // must match local_size_x/y in the shader
-  u32 group_x = (width + local_size - 1) / local_size;
-  u32 group_y = (height + local_size - 1) / local_size;
   vkCmdDispatch(cmd, group_x, group_y, 1);
 
-  // Storage image -> transfer source.
+  // --- Pass 4a: bloom bright-pass + horizontal blur, into
+  // bloom_temp_image_ (half-resolution). ---
+  // output_image_ stays in GENERAL (no layout change, just a memory
+  // barrier): pass 4a reads it via imageLoad right after pass 3 wrote it,
+  // so that write must be visible before this read.
   transition_image(cmd, output_image_.handle, VK_IMAGE_LAYOUT_GENERAL,
+                   VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_WRITE_BIT,
+                   VK_ACCESS_SHADER_READ_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+  // bloom_temp_image_ -> GENERAL to write into; discard (every half-res
+  // pixel is overwritten unconditionally), waiting on the previous
+  // frame's read of it by pass 4b.
+  transition_image(cmd, bloom_temp_image_.handle, VK_IMAGE_LAYOUT_UNDEFINED,
+                   VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_READ_BIT,
+                   VK_ACCESS_SHADER_WRITE_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+  BloomBlurHPushConstants bloom_blur_h_push{
+      static_cast<i32>(width), static_cast<i32>(height), kBloomThreshold};
+  bloom_blur_h_pipeline_->bind(command_buffer);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                         bloom_blur_h_pipeline_->layout(), 0, 1,
+                         &bloom_blur_h_set_, 0, nullptr);
+  vkCmdPushConstants(cmd, bloom_blur_h_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                    sizeof(BloomBlurHPushConstants), &bloom_blur_h_push);
+  u32 half_group_x = ((width + 1) / 2 + local_size - 1) / local_size;
+  u32 half_group_y = ((height + 1) / 2 + local_size - 1) / local_size;
+  vkCmdDispatch(cmd, half_group_x, half_group_y, 1);
+
+  // --- Pass 4b: finish the bloom blur vertically, composite bloom +
+  // vignette + pixelation, write the final frame into
+  // post_process_image_. ---
+  transition_image(cmd, bloom_temp_image_.handle, VK_IMAGE_LAYOUT_GENERAL,
+                   VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_WRITE_BIT,
+                   VK_ACCESS_SHADER_READ_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+  transition_image(cmd, post_process_image_.handle, VK_IMAGE_LAYOUT_UNDEFINED,
+                   VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_TRANSFER_READ_BIT,
+                   VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+
+  PostCompositePushConstants post_composite_push{
+      static_cast<i32>(width),
+      static_cast<i32>(height),
+      bloom_enabled_ ? kBloomIntensity : 0.0f,
+      vignette_enabled_ ? kVignetteStrength : 0.0f,
+      kVignetteRadius,
+      pixelation_enabled_ ? 1 : 0,
+      static_cast<i32>(pixelation_block_size_),
+  };
+  post_composite_pipeline_->bind(command_buffer);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                         post_composite_pipeline_->layout(), 0, 1,
+                         &post_composite_set_, 0, nullptr);
+  vkCmdPushConstants(cmd, post_composite_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                    sizeof(PostCompositePushConstants), &post_composite_push);
+  vkCmdDispatch(cmd, group_x, group_y, 1);
+
+  // Final frame -> transfer source.
+  transition_image(cmd, post_process_image_.handle, VK_IMAGE_LAYOUT_GENERAL,
                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -1100,7 +1648,9 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
   region.dstSubresource.layerCount = 1;
   region.extent = {width, height, 1};
 
-  vkCmdCopyImage(cmd, output_image_.handle,
+  // Copies from post_process_image_ now, not output_image_ directly -- the
+  // post-process chain's final result.
+  vkCmdCopyImage(cmd, post_process_image_.handle,
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 

@@ -1,0 +1,37 @@
+#conversation file
+version=0.1
+
+question "Who are you?" {
+    answer=...
+    answer=I don't remember.
+    answer=I've been here a long time.
+
+    question "Do you have a name?" {
+        answer=Not one I remember.
+    }
+
+    question "How long is a long time?" {
+        answer=Long enough to forget the question.
+    }
+}
+
+question "Where is this place?" {
+    answer=Somewhere between.
+    answer=It doesn't have a name anymore.
+
+    question "Between what?" {
+        answer=...
+    }
+}
+
+question "What is the light?" {
+    answer=Don't look at it too long.
+
+    question "What happens if I look?" {
+        answer=You'll understand why I said not to.
+    }
+}
+
+question "Can I leave?" {
+    answer=...
+}

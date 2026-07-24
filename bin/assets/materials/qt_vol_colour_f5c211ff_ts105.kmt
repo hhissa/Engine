@@ -1,0 +1,6 @@
+#material file
+
+version=0.1
+name=qt_vol_colour_f5c211ff_ts105
+diffuse_colour=0.960784 0.760784 0.0666667 1
+texture_scale=1.05

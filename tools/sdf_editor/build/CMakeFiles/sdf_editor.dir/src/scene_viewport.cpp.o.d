@@ -294,11 +294,6 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: \
   /usr/include/glm/detail/type_half.inl /usr/include/glm/geometric.hpp \
   /usr/include/glm/matrix.hpp /usr/include/glm/vector_relational.hpp \
   /usr/include/glm/integer.hpp /usr/include/glm/detail/func_integer.inl \
-  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/resources/sdf_scene.h \
-  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/resources/../defines.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/array \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/initializer_list \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/range_access.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/optional \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/exception \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/exception_ptr.h \
@@ -306,9 +301,14 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/typeinfo \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/hash_bytes.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/nested_exception.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/initializer_list \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/enable_special_members.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/functional_hash.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/invoke.h \
+  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/resources/sdf_scene.h \
+  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/resources/../defines.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/array \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/range_access.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/string \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stringfwd.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/memoryfwd.h \

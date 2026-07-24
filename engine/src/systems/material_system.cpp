@@ -93,6 +93,30 @@ Material &MaterialSystem::acquire(std::string_view name, bool auto_release) {
           } else {
             material.texture_scale = scale;
           }
+        } else if (var_name == "emissive_colour" || var_name == "emissive_color") {
+          std::istringstream iss(value);
+          glm::vec3 colour(1.0f);
+          iss >> colour.x >> colour.y >> colour.z;
+          if (iss.fail()) {
+            KWARN("Error parsing emissive_colour in file '{}'. Using "
+                 "default of white instead.",
+                 name);
+            colour = glm::vec3(1.0f);
+          }
+          material.emissive_colour = colour;
+        } else if (var_name == "emissive_intensity") {
+          std::istringstream iss(value);
+          f32 intensity = 0.0f;
+          iss >> intensity;
+          if (iss.fail() || intensity < 0.0f) {
+            KWARN("Error parsing emissive_intensity in file '{}'. Using the "
+                 "default of {} instead.",
+                 name, material.emissive_intensity);
+          } else {
+            material.emissive_intensity = intensity;
+          }
+        } else if (var_name == "pixelation_exempt") {
+          material.pixelation_exempt = (value == "true" || value == "1");
         }
         // "version" is intentionally ignored -- nothing yet depends on it.
       }

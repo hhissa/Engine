@@ -2,13 +2,6 @@
 version=0.1
 ambient=0.15
 
-light light1 {
-    type=directional
-    direction=1 0 0
-    colour=1 1 1
-    intensity=0.85
-}
-
 layer layer0 {
     operation=union
     smoothness=0.1
@@ -111,5 +104,19 @@ layer layer11 {
         rotation=0 0 -1.50657
         params=0.4 0.3 0.4 0
         material=qt_colour_241f31ff_white
+    }
+}
+
+layer layer12 {
+    operation=union
+    smoothness=0.1
+
+    primitive layer12_primitive {
+        type=hex_prism
+        position=-0.67604 -3.15 0
+        rotation=0 0 -1.50657
+        params=0.8 0.7 0 0
+        param_expr=0 0.6 - 0.8* p.y
+        material=qt_colour_241f31ff_ts060_em0100f9f06b_white
     }
 }

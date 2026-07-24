@@ -28,6 +28,8 @@ public:
                 glm::vec4 colour) override;
   void draw_ui_quad(glm::vec2 position, glm::vec2 size) override;
   void draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour) override;
+  void draw_solid_quad(glm::vec2 position, glm::vec2 size,
+                      glm::vec4 colour) override;
   SceneHandle load_scene(std::string_view sdf_path) override;
   void translate_scene(SceneHandle handle, glm::vec3 delta) override;
   void rotate_scene(SceneHandle handle, glm::vec3 euler_radians) override;
@@ -36,6 +38,13 @@ public:
   void clear_scenes() override;
   void set_selected_primitive(i32 index) override;
   void set_grid_visible(b8 visible) override;
+  void set_bloom_enabled(b8 enabled) override;
+  void set_vignette_enabled(b8 enabled) override;
+  void set_pixelation_enabled(b8 enabled) override;
+  void set_pixelation_block_size(u32 block_size) override;
+  void set_font(std::string_view name, f32 pixel_height) override;
+  void set_skybox(std::string_view texture_name) override;
+  void disable_skybox() override;
   b8 end_frame(f32 delta_time) override;
 
 private:
@@ -53,6 +62,11 @@ private:
     glm::vec2 end;
     glm::vec4 colour;
   };
+  struct SolidQuadDrawRequest {
+    glm::vec2 position;
+    glm::vec2 size;
+    glm::vec4 colour;
+  };
 
   VulkanContext context_{};
   PlatformLayer *plat_state_ = nullptr;
@@ -68,6 +82,7 @@ private:
   std::vector<TextDrawRequest> queued_text_draws_;
   std::vector<UiQuadDrawRequest> queued_ui_quad_draws_;
   std::vector<LineDrawRequest> queued_line_draws_;
+  std::vector<SolidQuadDrawRequest> queued_solid_quad_draws_;
 
   // Tracks every currently loaded scene (see load_scene()): each handle
   // maps to the names of exactly the primitives/lights that load_scene()

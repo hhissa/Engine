@@ -144,6 +144,20 @@ bool save_scene(std::string_view path, const SdfScene &scene) {
     file << "}\n";
   }
 
+  for (const SdfVolumetricDef &volumetric : scene.volumetrics) {
+    file << "\nvolumetric " << volumetric.name << " {\n";
+    file << "    type=" << to_string(volumetric.type) << "\n";
+    file << "    position=";
+    write_vec3(file, volumetric.position);
+    file << "\n    rotation=";
+    write_vec3(file, volumetric.rotation);
+    file << "\n    params=" << volumetric.params.x << ' ' << volumetric.params.y
+        << ' ' << volumetric.params.z << ' ' << volumetric.extra_param << "\n";
+    file << "    density=" << volumetric.density << "\n";
+    file << "    material=" << volumetric.material_name << "\n";
+    file << "}\n";
+  }
+
   return true;
 }
 
@@ -237,4 +251,22 @@ SdfLightDef &add_point_light(SdfScene &scene, std::string name,
   light.intensity = intensity;
   scene.lights.push_back(std::move(light));
   return scene.lights.back();
+}
+
+SdfVolumetricDef &add_volumetric(SdfScene &scene, std::string name,
+                                 SdfPrimitiveType type, glm::vec3 position,
+                                 glm::vec3 rotation, glm::vec3 params,
+                                 f32 extra_param, f32 density,
+                                 std::string material_name) {
+  SdfVolumetricDef volumetric;
+  volumetric.name = std::move(name);
+  volumetric.type = type;
+  volumetric.position = position;
+  volumetric.rotation = rotation;
+  volumetric.params = params;
+  volumetric.extra_param = extra_param;
+  volumetric.density = density;
+  volumetric.material_name = std::move(material_name);
+  scene.volumetrics.push_back(std::move(volumetric));
+  return scene.volumetrics.back();
 }

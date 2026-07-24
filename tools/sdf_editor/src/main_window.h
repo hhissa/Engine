@@ -10,6 +10,7 @@ class QDoubleSpinBox;
 class QLineEdit;
 class QPushButton;
 class QLabel;
+class QCheckBox;
 class SceneViewport;
 
 // A small Qt front-end over testbed/src/sdf_authoring.h's read/write/
@@ -41,6 +42,10 @@ private slots:
   void on_add_clicked();
   void on_remove_clicked();
   void on_pick_colour_clicked();
+  // Connected to emissive_colour_button_'s clicked -- mirrors
+  // on_pick_colour_clicked() for the emissive colour swatch (see
+  // emissive_colour_/ensure_material()).
+  void on_pick_emissive_colour_clicked();
   void on_pick_texture_clicked();
   void on_clear_texture_clicked();
   void on_save_clicked();
@@ -102,6 +107,24 @@ private slots:
   // check.
   void on_ambient_changed();
 
+  // Mirrors on_type_selection_changed()/on_add_clicked()/on_remove_clicked()/
+  // on_contents_list_selection_changed()/on_live_edit_changed() above, for
+  // the Volumetrics tab instead of Primitives -- see
+  // populate_volumetric_fields_from_selection()/apply_fields_to_volumetric().
+  // Much closer to the Primitives tab than the Lights tab (a volumetric has
+  // a full shape/material, not just colour+intensity), minus operation/
+  // smoothness (a volumetric never joins a layer) and emissive/pixelation
+  // (meaningless for something that's never a solid opaque surface), plus a
+  // density field.
+  void on_volumetric_type_changed();
+  void on_add_volumetric_clicked();
+  void on_remove_volumetric_clicked();
+  void on_pick_volumetric_colour_clicked();
+  void on_pick_volumetric_texture_clicked();
+  void on_clear_volumetric_texture_clicked();
+  void on_volumetrics_list_selection_changed();
+  void on_volumetric_field_changed();
+
 private:
   // Regenerates the "scene contents" list from scene_ (called after every
   // add/remove/load) and updates the window title's unsaved-changes marker.
@@ -153,9 +176,33 @@ private:
   void populate_light_fields_from_selection(int light_index);
   void apply_fields_to_light(int light_index);
 
+  // Regenerates the "Volumetrics" list from scene_.volumetrics -- mirrors
+  // refresh_contents_list().
+  void refresh_volumetrics_list();
+  // Updates volumetric_param_spin_/volumetric_param_label_'s enabled/visible
+  // state for the currently selected type in volumetric_type_list_ --
+  // mirrors update_field_enablement() (no formula fields here, though: a
+  // volumetric's params are always plain constants).
+  void update_volumetric_field_enablement();
+  // Mirrors populate_fields_from_selection()/apply_fields_to_primitive() for
+  // a volumetric instead of an opaque primitive.
+  void populate_volumetric_fields_from_selection(int volumetric_index);
+  void apply_fields_to_volumetric(int volumetric_index);
+  // Mirrors ensure_material() -- writes/reuses assets/materials/<name>.kmt
+  // for volumetric_colour_(+volumetric_texture_name_) and returns its name.
+  // A separate helper (rather than reusing ensure_material()) since a
+  // volumetric's material never has emissive/pixelation-exempt settings,
+  // and uses its own independent colour_/texture_name_-equivalent state --
+  // the Primitives tab's current selections shouldn't leak into whatever
+  // volumetric is being added/edited alongside it.
+  std::string ensure_volumetric_material() const;
+
   SdfScene scene_;
   QColor colour_ = Qt::white;
   std::string texture_name_; // empty => no diffuse map, colour_ only.
+  // See Material::emissive_colour -- only takes effect once
+  // emissive_intensity_spin_'s value is above 0 (the "off" default).
+  QColor emissive_colour_ = Qt::white;
 
   // Monotonic sources for "layerN"/"lightN" names in on_add_clicked()/
   // on_add_light_clicked() -- never decremented, unlike scene_.layers.size()/
@@ -169,6 +216,7 @@ private:
   // which is what made a freshly-added shape appear to not render at all.
   u64 next_layer_id_ = 0;
   u64 next_light_id_ = 0;
+  u64 next_volumetric_id_ = 0;
 
   // Guards populate_fields_from_selection()'s setValue() calls against
   // re-entering on_live_edit_changed() -- without this, populating the
@@ -213,6 +261,9 @@ private:
   // see Material::texture_scale engine-side). Applies to the default
   // checkerboard too, so it stays enabled even with no texture chosen.
   QDoubleSpinBox *texture_scale_spin_ = nullptr;
+  QPushButton *emissive_colour_button_ = nullptr;
+  QDoubleSpinBox *emissive_intensity_spin_ = nullptr; // 0 = not emissive
+  QCheckBox *pixelation_exempt_check_ = nullptr; // see Material::pixelation_exempt
   QPushButton *move_mode_button_ = nullptr;
   QPushButton *rotate_mode_button_ = nullptr;
   QPushButton *grid_button_ = nullptr; // see on_show_grid_toggled()
@@ -229,4 +280,33 @@ private:
   QPushButton *light_colour_button_ = nullptr;
   QDoubleSpinBox *light_intensity_spin_ = nullptr;
   QDoubleSpinBox *ambient_spin_ = nullptr;
+
+  // Volumetrics tab -- see the Volumetrics slot group above. Mirrors the
+  // Primitives tab's own fields (type_list_/pos_*/rot_*/param_spin_/
+  // param_label_/colour_button_/texture_button_/...), separately, since a
+  // volumetric's "currently staged" values must be independent of whatever
+  // opaque primitive the Primitives tab has staged/selected at the same
+  // time.
+  QListWidget *volumetric_type_list_ = nullptr;
+  QListWidget *volumetrics_list_ = nullptr;
+  QDoubleSpinBox *volumetric_pos_x_ = nullptr;
+  QDoubleSpinBox *volumetric_pos_y_ = nullptr;
+  QDoubleSpinBox *volumetric_pos_z_ = nullptr;
+  QDoubleSpinBox *volumetric_rot_x_ = nullptr;
+  QDoubleSpinBox *volumetric_rot_y_ = nullptr;
+  QDoubleSpinBox *volumetric_rot_z_ = nullptr;
+  QDoubleSpinBox *volumetric_param_spin_[4] = {nullptr, nullptr, nullptr, nullptr};
+  QLabel *volumetric_param_label_[4] = {nullptr, nullptr, nullptr, nullptr};
+  QColor volumetric_colour_ = Qt::white;
+  QPushButton *volumetric_colour_button_ = nullptr;
+  std::string volumetric_texture_name_; // empty => no diffuse map
+  QPushButton *volumetric_texture_button_ = nullptr;
+  QPushButton *volumetric_texture_clear_button_ = nullptr;
+  QLabel *volumetric_texture_label_ = nullptr;
+  QDoubleSpinBox *volumetric_texture_scale_spin_ = nullptr;
+  // See SdfVolumetricDef::density.
+  QDoubleSpinBox *volumetric_density_spin_ = nullptr;
+  // Mirrors populating_fields_, for populate_volumetric_fields_from_
+  // selection()/on_volumetric_field_changed().
+  bool populating_volumetric_fields_ = false;
 };

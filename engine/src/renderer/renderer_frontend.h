@@ -35,6 +35,34 @@ void renderer_draw_ui_quad(glm::vec2 position, glm::vec2 size);
 // above.
 void renderer_draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour);
 
+// Queues a solid-colour, axis-aligned rectangle (screen pixels, (0,0) at
+// the top-left) to be drawn this frame -- see RendererBackend::
+// draw_solid_quad() for exactly why this exists (a flat UI box in an
+// arbitrary colour, e.g. a censor bar) and why it's guaranteed to draw on
+// top of everything else queued this frame. Same per-frame queueing
+// discipline as renderer_draw_text()/renderer_draw_ui_quad()/
+// renderer_draw_line() above -- call it every frame you want the box
+// visible, from the game's render().
+void renderer_draw_solid_quad(glm::vec2 position, glm::vec2 size,
+                             glm::vec4 colour);
+
+// Queues a "looking through a camera" viewfinder-style HUD overlay within
+// the given screen rect (position/size in screen pixels, matching
+// renderer_draw_ui_quad()'s convention): rule-of-thirds grid lines, corner
+// brackets, a small blinking REC indicator, and an optional caption line
+// (e.g. an exposure-style readout) near the bottom-left corner. Built
+// entirely from renderer_draw_line()/renderer_draw_text() above -- no new
+// shader or pipeline -- so it's just a convenience for games that want
+// that look without hand-rolling the same handful of lines/text
+// themselves. Same per-frame queueing discipline as every other
+// renderer_draw_*() call: queue it every frame from the game's render(),
+// not once at startup. blink_time_seconds drives the REC dot's blink (feed
+// it a running clock, e.g. accumulated delta_time -- the dot is solid for
+// the first half of each 1-second cycle and hidden for the second half).
+void renderer_draw_camera_overlay(glm::vec2 position, glm::vec2 size,
+                                  f32 blink_time_seconds,
+                                  std::string_view caption = {});
+
 // Thin chainable wrapper around a SceneHandle, returned by
 // renderer_load_scene() below. Implicitly converts to SceneHandle, so
 // existing code that stores the handle keeps working unchanged. The
@@ -113,5 +141,57 @@ void renderer_set_selected_primitive(i32 index);
 // immediate (a push constant, not a rebake), so it can be toggled every
 // frame if needed.
 void renderer_set_grid_visible(b8 visible);
+
+// Enables/disables the bloom post-process -- a soft glow bloomed off
+// bright/emissive surfaces (see Material::emissive_intensity), added back
+// on top of the scene. On by default, subtly; call with false to disable
+// entirely (e.g. for a performance-constrained target, or a game whose
+// look doesn't want it).
+void renderer_set_bloom_enabled(b8 enabled);
+
+// Enables/disables the vignette post-process -- a smooth radial darkening
+// toward the screen edges. On by default, subtly.
+void renderer_set_vignette_enabled(b8 enabled);
+
+// Enables/disables the pixelation post-process -- quantizes the screen
+// into flat-coloured blocks (the classic "pixel art" mosaic look), except
+// for any primitive whose material opted out via Material::
+// pixelation_exempt (see the .kmt format), which stays crisp/full-
+// resolution regardless. Off by default -- it's a deliberate stylistic
+// choice, not something every game using this engine would want without
+// asking.
+void renderer_set_pixelation_enabled(b8 enabled);
+
+// Sets the pixelation block size (edge length, in full-resolution screen
+// pixels) -- larger blocks read as chunkier/lower-fidelity. Has no visible
+// effect unless pixelation is also enabled (see
+// renderer_set_pixelation_enabled() above). Defaults to 6.
+void renderer_set_pixelation_block_size(u32 block_size);
+
+// Rebakes the bitmap font every renderer_draw_text() call uses (SH's Q&A
+// list, HUD text, the debug camera hint, etc.), from
+// assets/fonts/<name>.ttf at pixel_height -- e.g.
+// renderer_set_font("DejaVuSans", 20.0f) for a smaller size using the
+// engine's built-in font, or point name at any other .ttf dropped into
+// assets/fonts/. Not cheap (a full atlas re-bake plus a device-idle wait,
+// same cost class as a scene rebake) -- call it for a deliberate font/
+// size change (e.g. once at startup, or from a settings screen), not
+// every frame. Leaves the current font in place (logging an error) if
+// name.ttf can't be baked.
+void renderer_set_font(std::string_view name, f32 pixel_height);
+
+// Enables an equirectangular (lat/long, NOT a 6-face cubemap) skybox behind
+// all scene geometry, replacing the flat two-colour background gradient
+// this engine uses when none is set -- e.g.
+// renderer_enable_sky_box("sunset_sky") to use assets/textures/
+// sunset_sky.png. texture_name resolves through TextureSystem exactly like
+// every other texture reference in this engine (Material::diffuse_map_name,
+// etc.) -- a name, not an arbitrary filesystem path. Not cheap (a device-
+// idle wait to safely rewrite a descriptor binding), so call it for a
+// deliberate skybox change (e.g. once per level/scene), not every frame.
+void renderer_enable_sky_box(std::string_view texture_name);
+
+// Disables the skybox, falling back to the flat gradient background.
+void renderer_disable_sky_box();
 
 b8 renderer_draw_frame(struct render_packet *packet);

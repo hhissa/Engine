@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_9a9996ff_ts215_concrete_wall
+diffuse_colour=0.603922 0.6 0.588235 1
+texture_scale=2.15
+diffuse_map_name=concrete_wall

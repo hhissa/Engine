@@ -19,7 +19,15 @@ struct CameraPose {
 // mouse-driven pan that is clamped to the pose's max_pan -- moving the
 // mouse toward a screen edge looks at most max_pan radians away from the
 // pose's base facing, so every station is a constrained angle, not a full
-// look-around.
+// look-around -- plus a scroll-driven zoom: the mouse wheel dollies the
+// camera along the pose's *base* facing direction (not the panned one, so
+// zooming doesn't jitter with mouse position), clamped to
+// [kMinZoomOffset, kMaxZoomOffset] world units. Scrolling up/away zooms in
+// (dollies forward, matching the common map/3D-viewer convention).
+// Resets to the pose's authored distance every time the station changes
+// (see cycle()) -- each station is meant to be a specific, intentional
+// framing, so zoom is a temporary adjustment to the current one, not a
+// setting that follows you between stations.
 //
 // The exception is the debug camera (toggle_debug(), wired to the 0 key in
 // SHGame::update() -- Escape is taken, it quits the application
@@ -53,6 +61,15 @@ public:
   // purely positional).
   void update(u32 screen_width, u32 screen_height, f32 delta_time);
 
+  // The exact Camera this frame's update() submitted via
+  // renderer_set_camera() -- for a caller that needs to project a 3D point
+  // to screen space itself (e.g. pinning a renderer_draw_solid_quad() censor
+  // box to a body part so it tracks correctly across every camera station,
+  // pan, zoom, and the free-fly debug camera alike -- see Camera::
+  // project_to_screen()). Call after update() has run this frame; stale
+  // (last frame's) otherwise.
+  const Camera &current_camera() const noexcept { return current_camera_; }
+
 private:
   // The per-frame free-fly input handling behind debug mode -- see
   // toggle_debug()/the class comment.
@@ -61,6 +78,15 @@ private:
   std::vector<CameraPose> poses_;
   size_t current_ = 0;
 
+  // See the class comment's zoom paragraph. World units, dollied along the
+  // current pose's base forward direction.
+  f32 zoom_offset_ = 0.0f;
+
   bool debug_active_ = false;
   Camera debug_camera_; // persists across toggles within a run
+
+  // See current_camera() above -- set at the end of every update() call
+  // (both the posed and debug_active_ branches), always the exact Camera
+  // just submitted to renderer_set_camera().
+  Camera current_camera_;
 };

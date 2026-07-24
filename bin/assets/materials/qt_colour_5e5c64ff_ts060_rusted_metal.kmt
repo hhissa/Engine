@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_5e5c64ff_ts060_rusted_metal
+diffuse_colour=0.368627 0.360784 0.392157 1
+texture_scale=0.6
+diffuse_map_name=rusted_metal

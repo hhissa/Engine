@@ -34,4 +34,9 @@ private:
   SceneHandle overheadLights_ = kInvalidSceneHandle;
 
   SceneHandle room = kInvalidSceneHandle;
+
+  // The dialogue tree loaded via qa_.load_conversation() in initialize() --
+  // kept around so it (or a future conversation swapped in for a different
+  // room/act) can be torn down again with qa_.unload_conversation().
+  ConversationHandle dialogue_ = kInvalidConversationHandle;
 };

@@ -60,11 +60,12 @@ VulkanTextShader::VulkanTextShader(VulkanContext &context,
   projection_uniform_ = shader_->uniform_index("projection");
   view_uniform_ = shader_->uniform_index("view");
 
-  font_.emplace(*context_, kFontName, kFontPixelHeight);
+  font_ = std::make_unique<BitmapFont>(*context_, kFontName, kFontPixelHeight);
   if (!font_->is_valid()) {
     KERROR("Failed to bake bitmap font '{}'.", kFontName);
     return;
   }
+  font_pixel_height_ = kFontPixelHeight;
 
   // Acquire a trivial material purely as the vehicle for this shader's
   // instance resources, then point it at the baked font atlas instead of
@@ -108,6 +109,30 @@ VulkanTextShader::~VulkanTextShader() {
 
 void VulkanTextShader::begin_batch() {
   batched_characters_ = 0;
+}
+
+void VulkanTextShader::set_font(std::string_view name, f32 pixel_height) {
+  if (!valid_) {
+    KWARN("VulkanTextShader::set_font called on an invalid shader.");
+    return;
+  }
+
+  // The old atlas texture (and material_'s descriptor binding pointing at
+  // it) could still be read by an in-flight frame's command buffer --
+  // same hazard VulkanRaymarchShader::rebake() guards against.
+  vkDeviceWaitIdle(context_->device.logical_device);
+
+  auto new_font = std::make_unique<BitmapFont>(*context_, name, pixel_height);
+  if (!new_font->is_valid()) {
+    KERROR("Failed to bake bitmap font '{}' at size {}; keeping the "
+          "current font.",
+          name, pixel_height);
+    return; // new_font destructs here -- font_ (the working font) is untouched
+  }
+
+  font_ = std::move(new_font); // old font destructs here, only now that the new one is confirmed good
+  font_pixel_height_ = pixel_height;
+  context_->material_system->set_diffuse_texture(*material_, font_->atlas());
 }
 
 void VulkanTextShader::render_to(VulkanCommandBuffer &command_buffer,

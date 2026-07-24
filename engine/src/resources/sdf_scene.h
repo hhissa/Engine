@@ -48,6 +48,17 @@
 // with no light blocks at all still renders lit -- see
 // VulkanRaymarchShader::rebuild_static_scene()'s fallback default light.
 //
+// Top-level "volumetric NAME { ... }" blocks (also siblings of "layer"
+// blocks) describe SdfVolumetricDef entries: a shape (any SdfPrimitiveType,
+// same type=/position=/rotation=/params= keys a primitive block uses),
+// plus density= and material=. Unlike a primitive, a volumetric is never
+// baked into the opaque voxel field -- rays pass straight through it -- so
+// it renders as a transparent, textured glow (its material's diffuse
+// colour/texture) instead of a solid surface, the shape and texture giving
+// it a "god ray"/light-shaft look. See GeometrySystem::acquire_volumetric()
+// and accumulate_volumetrics() in Builtin.RaymarchShader.comp.glsl for how
+// it's actually evaluated.
+//
 // A rotatable primitive (anything but Plane) may also carry a
 // "rotation=x y z" line (Euler angles in radians, XYZ order); omitted means
 // the identity rotation.
@@ -192,11 +203,35 @@ struct SdfLayerDef {
   std::vector<SdfPrimitiveDef> primitives;
 };
 
+// A transparent, textured "volumetric light" shape -- e.g. a cone or
+// capped-cylinder standing in for a visible light shaft/god ray. Shares
+// SdfPrimitiveType/position/rotation/params/extra_param with SdfPrimitiveDef
+// (the same shape catalogue applies), but is never combined into a layer:
+// it has no operation/smoothness, and GeometrySystem never bakes it into
+// the opaque voxel field -- see the file header comment above.
+struct SdfVolumetricDef {
+  std::string name;
+  SdfPrimitiveType type = SdfPrimitiveType::Box;
+  glm::vec3 position{0.0f};
+  glm::vec3 rotation{0.0f};
+  glm::vec3 params{1.0f};
+  f32 extra_param = 0.0f;
+  // How strongly this shape accumulates its material's tinted/textured
+  // glow per world unit the primary ray travels through it -- see
+  // accumulate_volumetrics() in Builtin.RaymarchShader.comp.glsl. Higher
+  // reads as a denser/brighter shaft; 0 would be fully invisible.
+  f32 density = 1.0f;
+  std::string material_name;
+};
+
 struct SdfScene {
   std::vector<SdfLayerDef> layers; // In file order -- this is also
                                   // evaluation order (see above).
   std::vector<SdfLightDef> lights; // Order doesn't matter -- lighting sums
                                    // every light's contribution equally.
+  std::vector<SdfVolumetricDef> volumetrics; // Order doesn't matter -- each
+                                             // renders independently (see
+                                             // SdfVolumetricDef above).
   // Scene-wide ambient factor (added once, not per-light) -- 0 means fully
   // unlit surfaces facing away from every light are pure black; matches the
   // old hardcoded default this replaces.

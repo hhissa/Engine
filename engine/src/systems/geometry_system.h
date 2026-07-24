@@ -118,6 +118,23 @@ struct Geometry {
   // resolve_params() in Builtin.SdfSceneCommon.inc.glsl). 1 = unscaled;
   // ignored for slots with no formula.
   f32 param_expr_scale = 1.0f;
+  // Accumulated uniform scale applied to this primitive's *effective*
+  // texture_scale (world units per texture tile -- see Material::
+  // texture_scale) at upload time: effective = material->texture_scale *
+  // texture_scale_factor. A separate per-Geometry factor rather than
+  // scaling material->texture_scale directly, because Material is a
+  // shared, reference-counted resource (MaterialSystem::acquire() caches
+  // by name) -- multiple primitives, even across different loaded scenes,
+  // can point at the exact same Material instance, so mutating it in
+  // scale_scene() would incorrectly rescale every OTHER primitive using
+  // that material too, not just the one scene actually being scaled. Like
+  // param_expr_scale above, this is a length-ish quantity (how big the
+  // texture pattern looks on the surface) that must shrink/grow in
+  // lockstep with the primitive itself -- left alone, scaling the model
+  // down leaves the texture tiling at its old (relatively now much
+  // larger) frequency, same failure mode smoothness had before it got the
+  // same treatment. 1 = unscaled.
+  f32 texture_scale_factor = 1.0f;
   std::string material_name; // Key MaterialSystem was acquired with --
                             // needed again at release time.
   Material *material = nullptr; // Non-owning -- owned by MaterialSystem.
@@ -161,16 +178,58 @@ struct Light {
   f32 intensity = 1.0f;
 };
 
+// Describes one volumetric "light shaft" shape to register -- mirrors
+// GeometryConfig's role for opaque primitives (same shape/transform vocabulary,
+// and a material resolved the same way through MaterialSystem), but this one
+// is never folded into a SceneLayer or baked into the opaque voxel field: it
+// has no `layer`, and VulkanRaymarchShader uploads it into a separate tail
+// range of primitive_buffer_ that scene_map()/the voxelize pass never
+// iterate (see rebuild_static_scene()). The render pass instead marches
+// through it as a transparent, textured volume -- see density below and
+// accumulate_volumetrics() in Builtin.RaymarchShader.comp.glsl.
+struct VolumetricConfig {
+  std::string name;
+  PrimitiveType type = PrimitiveType::Box;
+  glm::vec3 position{0.0f};
+  glm::vec3 rotation{0.0f};
+  glm::vec3 params{1.0f};
+  f32 extra_param = 0.0f;
+  // How strongly this shape accumulates its material's tinted/textured glow
+  // per world unit the primary ray travels through it -- see
+  // accumulate_volumetrics() in Builtin.RaymarchShader.comp.glsl. Higher
+  // reads as a denser/brighter shaft.
+  f32 density = 1.0f;
+  std::string material_name;
+};
+
+// One registered volumetric primitive. VulkanRaymarchShader reads every
+// currently-registered one (see GeometrySystem::volumetric_snapshot()) each
+// time it rebakes, uploading it alongside the opaque primitives but outside
+// any layer's range -- see VolumetricConfig's comment.
+struct Volumetric {
+  std::string name;
+  PrimitiveType type = PrimitiveType::Box;
+  glm::vec3 position{0.0f};
+  glm::vec3 rotation{0.0f};
+  glm::vec3 params{1.0f};
+  f32 extra_param = 0.0f;
+  f32 density = 1.0f;
+  std::string material_name;
+  Material *material = nullptr; // Non-owning -- owned by MaterialSystem.
+};
+
 struct SdfScene;
 
 // Returned by GeometrySystem::load_scene(): the names of everything that
-// call registered (primitives *and* lights are named+refcounted, but in
-// separate maps -- see release()/release_light()), so the caller
-// (VulkanRendererBackend::load_scene(), see its loaded_scenes_) knows what
-// to release later via remove_scene()/clear_scenes().
+// call registered (primitives, lights, and volumetrics are named+refcounted,
+// but in separate maps -- see release()/release_light()/
+// release_volumetric()), so the caller (VulkanRendererBackend::load_scene(),
+// see its loaded_scenes_) knows what to release later via
+// remove_scene()/clear_scenes().
 struct LoadedSceneNames {
   std::vector<std::string> primitive_names;
   std::vector<std::string> light_names;
+  std::vector<std::string> volumetric_names;
 };
 
 class GeometrySystem {
@@ -212,17 +271,32 @@ public:
   void release_light(std::string_view name);
   std::vector<Light> light_snapshot() const;
 
-  // Registers every primitive in every layer of `scene`, and every light
-  // (see sdf_scene.h -- this is how an externally-authored SDF file, e.g.
-  // from a modelling tool, actually gets turned into rendered geometry/
-  // lights), primitives each under a freshly appended SceneLayer so layer
-  // indices from multiple loaded scenes never collide with each other or
-  // with the default layer 0. Also overwrites ambient() with scene.ambient
-  // -- like the baked voxel field itself, there's only one merged scene
-  // regardless of how many SceneHandles are concurrently loaded, so the
-  // most-recently-loaded scene's ambient wins. Returns the generated name
-  // of each registered primitive/light -- callers own releasing each of
-  // these later via release()/release_light() respectively (see
+  // Mirrors acquire()/release()/snapshot() above, for volumetric "light
+  // shaft" primitives instead -- a separate map, so a volumetric can share a
+  // name with a primitive/light with no collision. Deliberately excluded
+  // from snapshot(): volumetrics never belong to a layer and must never be
+  // baked into the opaque voxel field (see VolumetricConfig's comment).
+  Volumetric &acquire_volumetric(const VolumetricConfig &config,
+                                 bool auto_release);
+  void release_volumetric(std::string_view name);
+  std::vector<Volumetric> volumetric_snapshot() const;
+  // Same stability guarantee as find() above, for a volumetric -- needed by
+  // VulkanRendererBackend::translate_scene()/rotate_scene()/scale_scene() to
+  // move a loaded scene's volumetrics in lockstep with its opaque geometry.
+  Volumetric *find_volumetric(std::string_view name);
+
+  // Registers every primitive in every layer of `scene`, every light, and
+  // every volumetric (see sdf_scene.h -- this is how an externally-authored
+  // SDF file, e.g. from a modelling tool, actually gets turned into
+  // rendered geometry/lights/volumetrics), primitives each under a freshly
+  // appended SceneLayer so layer indices from multiple loaded scenes never
+  // collide with each other or with the default layer 0. Also overwrites
+  // ambient() with scene.ambient -- like the baked voxel field itself,
+  // there's only one merged scene regardless of how many SceneHandles are
+  // concurrently loaded, so the most-recently-loaded scene's ambient wins.
+  // Returns the generated name of each registered primitive/light/volumetric
+  // -- callers own releasing each of these later via release()/
+  // release_light()/release_volumetric() respectively (see
   // LoadedSceneNames).
   //
   // name_prefix is prepended to every generated primitive/light name.
@@ -271,10 +345,16 @@ private:
     u32 reference_count = 0;
     bool auto_release = false;
   };
+  struct VolumetricEntry {
+    Volumetric volumetric;
+    u32 reference_count = 0;
+    bool auto_release = false;
+  };
 
   MaterialSystem *material_system_;
   std::unordered_map<std::string, Entry> geometries_;
   std::unordered_map<std::string, LightEntry> lights_;
+  std::unordered_map<std::string, VolumetricEntry> volumetrics_;
   std::vector<SceneLayer> layers_{SceneLayer{}};
   // Parallel to layers_: how many currently-registered geometries reference
   // each layer index. Index 0 (the default layer) is never touched by

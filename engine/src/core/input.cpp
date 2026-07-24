@@ -28,6 +28,7 @@ struct InputState {
   KeyboardState keyboard_previous;
   MouseState mouse_current;
   MouseState mouse_previous;
+  i32 wheel_delta_accum{0}; // see mouse_wheel_delta()
 };
 
 bool g_initialized = false;
@@ -54,6 +55,10 @@ void update(double /*delta_time*/) {
   }
   g_state.keyboard_previous = g_state.keyboard_current;
   g_state.mouse_previous = g_state.mouse_current;
+  // Cleared here, at the end of this frame's iteration (Application's loop
+  // calls this after game->update()/render() -- see mouse_wheel_delta()'s
+  // comment) -- ready to accumulate fresh events for the next frame.
+  g_state.wheel_delta_accum = 0;
 }
 
 void process_key(Key key, bool pressed) {
@@ -97,6 +102,8 @@ void process_mouse_move(i16 x, i16 y) {
 }
 
 void process_mouse_wheel(i8 z_delta) {
+  g_state.wheel_delta_accum += z_delta;
+
   EventContext context{};
   context.data.u8[0] = static_cast<u8>(z_delta);
   g_events->fire(EventCode::EVENT_CODE_MOUSE_WHEEL, nullptr, context);
@@ -157,6 +164,13 @@ MousePosition previous_mouse_position() {
     return {0, 0};
   }
   return {g_state.mouse_previous.x, g_state.mouse_previous.y};
+}
+
+i32 mouse_wheel_delta() {
+  if (!g_initialized) {
+    return 0;
+  }
+  return g_state.wheel_delta_accum;
 }
 
 } // namespace input

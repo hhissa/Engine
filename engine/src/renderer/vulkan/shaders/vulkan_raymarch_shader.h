@@ -5,11 +5,13 @@
 #include "../vulkan_shader_module.h"
 #include "../vulkan_types.inl"
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
 
 class VulkanCommandBuffer;
+class VulkanTexture;
 struct Geometry;
 
 // Three-pass sparse-voxel raymarching with baked indirect lighting:
@@ -39,7 +41,30 @@ struct Geometry;
 //  bricked cells it trilinearly samples the fine distance values. Indirect
 //  lighting at a hit comes from trilinearly sampling pass 2's baked probe
 //  grid, not a re-evaluation -- like the voxel field itself, GI is baked,
-//  not recomputed every frame.
+//  not recomputed every frame. Writes its result (rgb=colour, a=whether the
+//  hit primitive is pixelation-exempt) to output_image_, not straight to
+//  the swapchain -- pass 4 below reads it first.
+//
+//  Pass 4 ("post-process", repeating): screen-space effects applied after
+//  the scene itself is fully shaded --
+//    - Bloom: Builtin.BloomBlurH.comp.glsl extracts a bright-pass from
+//      output_image_ and blurs it horizontally into a half-resolution
+//      buffer; Builtin.PostComposite.comp.glsl finishes the blur
+//      vertically and adds it back on top (a standard separable-blur
+//      split, so a wide blur radius costs O(2N) samples instead of
+//      O(N^2)).
+//    - Vignette: a smooth radial darkening from screen center, in
+//      Builtin.PostComposite.comp.glsl.
+//    - Pixelation: also in Builtin.PostComposite.comp.glsl -- quantizes
+//      non-exempt pixels to their containing block's representative
+//      colour (the classic flat-block "pixelation" look), skipping any
+//      pixel whose hit primitive opted out via Material::
+//      pixelation_exempt (see output_image_'s alpha channel above), so a
+//      marked primitive stays crisp while its surroundings pixelate.
+//  Bloom and vignette default on (subtly); pixelation defaults off, since
+//  it's a deliberate stylistic choice rather than something every game
+//  using this engine would want turned on unasked. See set_bloom_enabled()/
+//  set_vignette_enabled()/set_pixelation_enabled() below.
 class VulkanRaymarchShader {
 public:
   explicit VulkanRaymarchShader(VulkanContext &context);
@@ -108,7 +133,58 @@ public:
   // never see it unless they opt in; tools/sdf_editor turns it on.
   void set_grid_visible(b8 visible) noexcept { grid_visible_ = visible; }
 
+  // Enables/disables the bloom post-process (see the class comment's pass
+  // 4 section). Just a push constant read by Builtin.PostComposite.
+  // comp.glsl -- takes effect the very next render_to() call, no rebake
+  // needed. On by default, subtly.
+  void set_bloom_enabled(b8 enabled) noexcept { bloom_enabled_ = enabled; }
+
+  // Enables/disables the vignette post-process. Same mechanics as
+  // set_bloom_enabled() above. On by default, subtly.
+  void set_vignette_enabled(b8 enabled) noexcept {
+    vignette_enabled_ = enabled;
+  }
+
+  // Enables/disables the pixelation post-process. Same mechanics as
+  // set_bloom_enabled() above. Off by default -- see the class comment for
+  // why.
+  void set_pixelation_enabled(b8 enabled) noexcept {
+    pixelation_enabled_ = enabled;
+  }
+
+  // Sets the pixelation block size (edge length, in full-resolution
+  // screen pixels) -- larger blocks read as a chunkier/lower-fidelity
+  // pixelation. Has no visible effect unless pixelation is also enabled.
+  // Clamped to at least 1 (a block size of 0 would divide by zero in the
+  // shader).
+  void set_pixelation_block_size(u32 block_size) noexcept {
+    pixelation_block_size_ = std::max(block_size, 1u);
+  }
+
+  // Enables a skybox: an equirectangular (lat/long, NOT 6-face cubemap)
+  // texture sampled by ray direction and shown wherever the primary ray
+  // doesn't hit anything, replacing the flat two-colour background
+  // gradient this shader used before any skybox existed -- see
+  // apply_skybox() in Builtin.RaymarchShader.comp.glsl. texture_name is a
+  // TextureSystem name, exactly like every other texture reference in this
+  // engine (Material::diffuse_map_name, etc.) -- it resolves to
+  // assets/textures/<texture_name>.png, not an arbitrary filesystem path.
+  // Waits for the device to go idle first (like rebake()/remove_scene()):
+  // this rewrites render_set_'s skybox binding directly, which a still-
+  // in-flight render_to() dispatch could be reading through.
+  void set_skybox(std::string_view texture_name);
+
+  // Disables the skybox (falls back to the flat gradient background) and
+  // releases the texture reference set_skybox() acquired. No-op if no
+  // skybox is currently enabled.
+  void disable_skybox();
+
 private:
+  // Common to set_skybox()/disable_skybox()/the constructor's initial
+  // binding -- (re-)points render_set_'s skybox binding (12) at texture.
+  // Doesn't itself wait for device idle -- callers do that first.
+  void write_skybox_binding(VulkanTexture &texture);
+
   // Reads every currently-registered Geometry from GeometrySystem, uploads
   // it to primitive_buffer_/primitive_colour_buffer_ and the render set's
   // scene_textures array, then calls voxelize() to bake it. Called once
@@ -219,16 +295,53 @@ private:
   VkDescriptorSet render_set_ = VK_NULL_HANDLE;
   std::optional<VulkanComputePipeline> render_pipeline_;
 
-  // Backs both descriptor sets above.
+  // Each static primitive's Material::pixelation_exempt, parallel to
+  // primitive_colour_buffer_ -- read by the render pass and written into
+  // output_image_'s alpha channel (see rebuild_static_scene()) for the
+  // post-process pass's pixelation step to read.
+  std::optional<VulkanBuffer> pixelation_exempt_buffer_;
+
+  // Pass 4a: bright-pass + horizontal half of the bloom blur (see the
+  // class comment). Reads output_image_, writes bloom_temp_image_ below.
+  VulkanShaderModule bloom_blur_h_stage_;
+  VkDescriptorSetLayout bloom_blur_h_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet bloom_blur_h_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> bloom_blur_h_pipeline_;
+
+  // Pass 4b: finishes the bloom blur vertically, then composites bloom +
+  // vignette + pixelation and writes the final frame. Reads output_image_
+  // and bloom_temp_image_, writes post_process_image_ below.
+  VulkanShaderModule post_composite_stage_;
+  VkDescriptorSetLayout post_composite_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet post_composite_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> post_composite_pipeline_;
+
+  // Backs every descriptor set above.
   VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
 
   VulkanImage output_image_{};
+  // Half-resolution (both dimensions) -- bloom is a soft, low-frequency
+  // effect, so blurring/storing it at quarter the pixel count of
+  // output_image_ is imperceptible in the final (upsampled-via-bilinear-
+  // like-taps) composite and a quarter the cost. Recreated alongside
+  // output_image_ on resize (see on_resized()).
+  VulkanImage bloom_temp_image_{};
+  // Full-resolution -- the actual final frame, copied to the swapchain
+  // image in place of output_image_ (see render_to()).
+  VulkanImage post_process_image_{};
 
   // See set_selected_primitive() above.
   i32 selected_primitive_index_ = -1;
 
   // See set_grid_visible() above.
   b8 grid_visible_ = false;
+
+  // See set_bloom_enabled()/set_vignette_enabled()/
+  // set_pixelation_enabled()/set_pixelation_block_size() above.
+  b8 bloom_enabled_ = true;
+  b8 vignette_enabled_ = true;
+  b8 pixelation_enabled_ = false;
+  u32 pixelation_block_size_ = 6;
 
   // How many of light_buffer_'s kMaxLights slots are actually populated,
   // and the scene-wide ambient factor -- both set by rebuild_static_scene()
@@ -242,6 +355,26 @@ private:
   // Builtin.SdfSceneCommon.inc.glsl) folds exactly this many LayerBuffer
   // entries, matching what the voxelize pass baked.
   i32 layer_count_ = 0;
+
+  // The [volumetric_start_, volumetric_start_ + volumetric_count_) range
+  // rebuild_static_scene() last appended GeometrySystem's registered
+  // volumetrics at, in primitive_buffer_/scene_diffuse_colours/
+  // scene_textures -- outside every GpuLayer's range, so the opaque scene
+  // never sees them. Sent as push constants every render_to() call for
+  // accumulate_volumetrics() in Builtin.RaymarchShader.comp.glsl to iterate.
+  i32 volumetric_start_ = 0;
+  i32 volumetric_count_ = 0;
+
+  // Seconds since construction, accumulated every render_to() call -- see
+  // PushConstants::time in vulkan_raymarch_shader.cpp, which drives
+  // accumulate_volumetrics()'s scrolling texture animation.
+  f32 elapsed_time_ = 0.0f;
+
+  // See set_skybox()/disable_skybox() above. skybox_texture_name_ is only
+  // meaningful while skybox_enabled_ is true -- it's what disable_skybox()
+  // releases through TextureSystem.
+  bool skybox_enabled_ = false;
+  std::string skybox_texture_name_;
 
   bool valid_ = false;
 };

@@ -5,6 +5,7 @@
 #include "../vulkan_types.inl"
 
 #include <glm/glm.hpp>
+#include <memory>
 #include <optional>
 #include <string_view>
 
@@ -44,6 +45,23 @@ public:
   // was uploaded last by the time the GPU actually executes.
   void begin_batch();
 
+  // Rebakes the bitmap font atlas from assets/fonts/<name>.ttf at
+  // pixel_height and points every subsequent render_to() call at it,
+  // replacing whatever font this shader started with (see kFontName/
+  // kFontPixelHeight in the .cpp). Waits for the device to go idle first
+  // -- the old atlas texture (and the descriptor binding pointing at it)
+  // could still be read by an in-flight frame's command buffer, the same
+  // hazard VulkanRaymarchShader::rebake() guards against. Not cheap (a
+  // full re-bake + device-idle wait), so call it for a deliberate font/
+  // size change, not every frame. Logs an error and leaves the current
+  // font in place if name.ttf can't be baked (e.g. missing file).
+  void set_font(std::string_view name, f32 pixel_height);
+
+  // The pixel height set_font() (or the constructor) last baked -- for a
+  // caller that wants to query the current size rather than track its own
+  // copy (e.g. to step it up/down by a relative amount).
+  f32 font_pixel_height() const noexcept { return font_pixel_height_; }
+
   // Draws text at origin (screen pixels -- see BitmapFont::layout() for
   // the exact baseline convention) in colour. command_buffer must
   // currently be inside the UI renderpass. Text past the shared
@@ -58,7 +76,16 @@ private:
 
   VulkanContext *context_;
 
-  std::optional<BitmapFont> font_;
+  // unique_ptr rather than std::optional: BitmapFont holds a VulkanTexture,
+  // which has both its copy and move constructors deleted, so it can't be
+  // moved into an optional's storage in place. set_font() below needs to
+  // bake the *new* font, confirm it succeeded, and only then discard the
+  // old one -- a pointer swap does that trivially, where re-emplacing an
+  // optional in place would destroy the working font before the
+  // replacement's success is even known.
+  std::unique_ptr<BitmapFont> font_;
+  // See font_pixel_height() above.
+  f32 font_pixel_height_ = 0.0f;
 
   // Non-owning -- registered with and owned by ShaderSystem.
   VulkanShader *shader_ = nullptr;

@@ -1,0 +1,20 @@
+#conversation file
+version=0.1
+
+question "Alright, lets get started!" {
+
+    question "Where do you cut?" {
+    }
+
+    question "Do you feel confident?" {
+    }
+
+    question "When did you first start cutting?" {
+    }
+
+    question "What's your favourite scar?" {
+    }
+
+    question "When was the last time you cut?" {
+    }
+}

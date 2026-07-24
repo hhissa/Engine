@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_5e5c64ff_ts025_Poliigon_ConcreteWallCladding_7856_BaseColor
+diffuse_colour=0.368627 0.360784 0.392157 1
+texture_scale=0.25
+diffuse_map_name=Poliigon_ConcreteWallCladding_7856_BaseColor

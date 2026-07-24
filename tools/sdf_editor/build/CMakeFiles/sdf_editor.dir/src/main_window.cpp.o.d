@@ -638,6 +638,9 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: \
   /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../testbed/src/sdf_authoring.h \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QButtonGroup \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qbuttongroup.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QCheckBox \
+  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qcheckbox.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qabstractbutton.h \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QColorDialog \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qcolordialog.h \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qdialog.h \
@@ -707,7 +710,6 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qmessagebox.h \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QPushButton \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qpushbutton.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qabstractbutton.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/QSignalBlocker \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QTabWidget \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QVBoxLayout \

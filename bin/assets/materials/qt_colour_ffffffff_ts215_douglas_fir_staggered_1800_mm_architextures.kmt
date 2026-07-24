@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts215_douglas_fir_staggered_1800_mm_architextures
+diffuse_colour=1 1 1 1
+texture_scale=2.15
+diffuse_map_name=douglas_fir_staggered_1800_mm_architextures

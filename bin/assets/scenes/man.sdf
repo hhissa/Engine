@@ -11,7 +11,7 @@ layer layer0 {
         position=0 -0.32 0
         rotation=0 0 0
         radius=0.4
-        material=qt_colour_ffffffff_white
+        material=qt_colour_ffffffff_ts060_white
     }
 }
 
@@ -24,7 +24,7 @@ layer layer1 {
         position=0 0.04 -0.09
         rotation=-0.670555 0 0
         params=0.3 0.3 0.2 0
-        material=qt_colour_ffffffff_white
+        material=qt_colour_ffffffff_ts060_white
     }
 }
 
@@ -238,7 +238,7 @@ layer layer20 {
         rotation=0 0 0
         params=0.2 0.7 0 0
         param_expr=0 0.25- 0.05*p.y
-        material=qt_colour_ffffffff_scar_texture_diffuse
+        material=qt_colour_ffffffff_ts060_px_scar_texture_diffuse
     }
 }
 
@@ -383,7 +383,7 @@ layer layer42 {
         rotation=0 0 0
         params=0.2 0.7 0 0
         param_expr=0 0.25- 0.05*p.y
-        material=qt_colour_ffffffff_20_severe_maximal_diffuse
+        material=qt_colour_ffffffff_ts080_px_20_severe_maximal_diffuse
     }
 }
 

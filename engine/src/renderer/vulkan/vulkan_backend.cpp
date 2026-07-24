@@ -11,6 +11,7 @@
 #include "shaders/vulkan_ui_shader.h"
 #include "shaders/vulkan_text_shader.h"
 #include "shaders/vulkan_line_shader.h"
+#include "shaders/vulkan_solid_quad_shader.h"
 #include "../../systems/texture_system.h"
 #include "../../systems/shader_system.h"
 #include "../../systems/material_system.h"
@@ -257,6 +258,13 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
     return FALSE;
   }
 
+  context_.solid_quad_shader = std::make_unique<VulkanSolidQuadShader>(
+      context_, *context_.ui_renderpass);
+  if (!context_.solid_quad_shader->is_valid()) {
+    KERROR("Error loading built-in solid quad shader.");
+    return FALSE;
+  }
+
   KINFO("Vulkan renderer initialized successfully.");
   return TRUE;
 }
@@ -265,6 +273,7 @@ void VulkanRendererBackend::shutdown() {
   vkDeviceWaitIdle(context_.device.logical_device);
 
   KDEBUG("Destroying shaders...");
+  context_.solid_quad_shader.reset();
   context_.line_shader.reset();
   context_.text_shader.reset();
   context_.ui_shader.reset();
@@ -454,6 +463,11 @@ void VulkanRendererBackend::draw_line(glm::vec2 start, glm::vec2 end,
   queued_line_draws_.push_back({start, end, colour});
 }
 
+void VulkanRendererBackend::draw_solid_quad(glm::vec2 position, glm::vec2 size,
+                                           glm::vec4 colour) {
+  queued_solid_quad_draws_.push_back({position, size, colour});
+}
+
 SceneHandle VulkanRendererBackend::load_scene(std::string_view sdf_path) {
   auto scene = load_sdf_scene(sdf_path);
   if (!scene) {
@@ -500,6 +514,13 @@ void VulkanRendererBackend::translate_scene(SceneHandle handle,
       geometry->position += delta;
     }
   }
+  for (const std::string &name : it->second.volumetric_names) {
+    Volumetric *volumetric = context_.geometry_system->find_volumetric(name);
+    if (!volumetric) {
+      continue;
+    }
+    volumetric->position += delta;
+  }
 
   context_.raymarch_shader->rebake();
 }
@@ -535,6 +556,15 @@ void VulkanRendererBackend::rotate_scene(SceneHandle handle,
     geometry->position = scene_rotation * geometry->position;
     geometry->rotation =
         glm::eulerAngles(scene_rotation * glm::quat(geometry->rotation));
+  }
+  for (const std::string &name : it->second.volumetric_names) {
+    Volumetric *volumetric = context_.geometry_system->find_volumetric(name);
+    if (!volumetric) {
+      continue;
+    }
+    volumetric->position = scene_rotation * volumetric->position;
+    volumetric->rotation =
+        glm::eulerAngles(scene_rotation * glm::quat(volumetric->rotation));
   }
 
   context_.raymarch_shader->rebake();
@@ -581,8 +611,30 @@ void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
     // rest of the model scaled -- visibly mangling anything authored with
     // parametric attributes (e.g. man.sdf's tapered capsule limbs).
     geometry->param_expr_scale *= factor;
+    // The texture's own world-space tiling frequency is a length too, and
+    // needs to shrink/grow with the primitive the same way -- accumulated
+    // per-Geometry rather than scaling geometry->material->texture_scale
+    // directly, since Material is shared/reference-counted (see
+    // Geometry::texture_scale_factor's comment for why mutating it here
+    // would leak into every other primitive using that same material).
+    geometry->texture_scale_factor *= factor;
 
     touched_layers.insert(geometry->layer);
+  }
+  for (const std::string &name : it->second.volumetric_names) {
+    Volumetric *volumetric = context_.geometry_system->find_volumetric(name);
+    if (!volumetric) {
+      continue;
+    }
+    // Same reasoning as the opaque primitives above -- position/params/
+    // extra_param are all lengths. density is a per-world-unit accumulation
+    // rate, not a length, so it's deliberately left alone: a bigger shaft
+    // reads brighter simply because the ray now travels further through it
+    // at the same density, exactly like a thicker fog bank looks denser
+    // without its extinction coefficient changing.
+    volumetric->position *= factor;
+    volumetric->params *= factor;
+    volumetric->extra_param *= factor;
   }
 
   for (u32 layer_index : touched_layers) {
@@ -617,6 +669,9 @@ void VulkanRendererBackend::remove_scene(SceneHandle handle) {
   for (const std::string &name : it->second.light_names) {
     context_.geometry_system->release_light(name);
   }
+  for (const std::string &name : it->second.volumetric_names) {
+    context_.geometry_system->release_volumetric(name);
+  }
   loaded_scenes_.erase(it);
 
   context_.raymarch_shader->rebake();
@@ -633,6 +688,9 @@ void VulkanRendererBackend::clear_scenes() {
     for (const std::string &name : names.light_names) {
       context_.geometry_system->release_light(name);
     }
+    for (const std::string &name : names.volumetric_names) {
+      context_.geometry_system->release_volumetric(name);
+    }
   }
   loaded_scenes_.clear();
 
@@ -645,6 +703,34 @@ void VulkanRendererBackend::set_selected_primitive(i32 index) {
 
 void VulkanRendererBackend::set_grid_visible(b8 visible) {
   context_.raymarch_shader->set_grid_visible(visible);
+}
+
+void VulkanRendererBackend::set_bloom_enabled(b8 enabled) {
+  context_.raymarch_shader->set_bloom_enabled(enabled);
+}
+
+void VulkanRendererBackend::set_vignette_enabled(b8 enabled) {
+  context_.raymarch_shader->set_vignette_enabled(enabled);
+}
+
+void VulkanRendererBackend::set_pixelation_enabled(b8 enabled) {
+  context_.raymarch_shader->set_pixelation_enabled(enabled);
+}
+
+void VulkanRendererBackend::set_pixelation_block_size(u32 block_size) {
+  context_.raymarch_shader->set_pixelation_block_size(block_size);
+}
+
+void VulkanRendererBackend::set_font(std::string_view name, f32 pixel_height) {
+  context_.text_shader->set_font(name, pixel_height);
+}
+
+void VulkanRendererBackend::set_skybox(std::string_view texture_name) {
+  context_.raymarch_shader->set_skybox(texture_name);
+}
+
+void VulkanRendererBackend::disable_skybox() {
+  context_.raymarch_shader->disable_skybox();
 }
 
 b8 VulkanRendererBackend::end_frame(f32 delta_time) {
@@ -685,18 +771,28 @@ b8 VulkanRendererBackend::end_frame(f32 delta_time) {
         context_.framebuffer_height, request.text, request.position,
         request.colour);
   }
-  // Drawn last, on top of quads/text -- matches its intended use as an
+  // Drawn on top of quads/text -- matches its intended use as an
   // always-visible overlay (e.g. tools/sdf_editor's move-gizmo).
   for (const LineDrawRequest &request : queued_line_draws_) {
     context_.line_shader->render_to(*command_buffer, context_.framebuffer_width,
                                     context_.framebuffer_height, request.start,
                                     request.end, request.colour);
   }
+  // Drawn last of all: a solid quad is meant to fully occlude whatever's
+  // beneath it (e.g. a censor box), so nothing else queued this frame --
+  // including lines -- should be able to show through it.
+  for (const SolidQuadDrawRequest &request : queued_solid_quad_draws_) {
+    context_.solid_quad_shader->render_to(
+        *command_buffer, context_.framebuffer_width,
+        context_.framebuffer_height, request.position, request.size,
+        request.colour);
+  }
   context_.ui_renderpass->end(*command_buffer);
 
   queued_ui_quad_draws_.clear();
   queued_text_draws_.clear();
   queued_line_draws_.clear();
+  queued_solid_quad_draws_.clear();
 
   command_buffer->end();
 

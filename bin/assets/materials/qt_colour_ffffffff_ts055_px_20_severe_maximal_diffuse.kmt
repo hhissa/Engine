@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts055_px_20_severe_maximal_diffuse
+diffuse_colour=1 1 1 1
+texture_scale=0.55
+pixelation_exempt=true
+diffuse_map_name=20_severe_maximal_diffuse

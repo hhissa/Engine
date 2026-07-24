@@ -4,6 +4,7 @@
 #include <sdf_authoring.h>
 
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDir>
@@ -51,6 +52,10 @@ struct ParsedMaterial {
   QColor colour = Qt::white;
   std::string texture_name;
   double texture_scale = 0.6; // engine-side Material::texture_scale default
+  QColor emissive_colour = Qt::white;
+  double emissive_intensity = 0.0; // engine-side Material::emissive_intensity
+                                  // "off" default
+  bool pixelation_exempt = false; // engine-side Material::pixelation_exempt default
 };
 
 ParsedMaterial parse_material_file(const std::string &material_name) {
@@ -78,6 +83,20 @@ ParsedMaterial parse_material_file(const std::string &material_name) {
       if (iss >> scale && scale > 0.0) {
         result.texture_scale = scale;
       }
+    } else if (key == "emissive_colour" || key == "emissive_color") {
+      std::istringstream iss(value);
+      float r, g, b;
+      if (iss >> r >> g >> b) {
+        result.emissive_colour = QColor::fromRgbF(r, g, b);
+      }
+    } else if (key == "emissive_intensity") {
+      std::istringstream iss(value);
+      double intensity = 0.0;
+      if (iss >> intensity && intensity >= 0.0) {
+        result.emissive_intensity = intensity;
+      }
+    } else if (key == "pixelation_exempt") {
+      result.pixelation_exempt = (value == "true" || value == "1");
     }
   }
   return result;
@@ -402,6 +421,39 @@ SdfEditorWindow::SdfEditorWindow() {
          &SdfEditorWindow::on_live_edit_changed);
   form->addRow("Texture Scale:", texture_scale_spin_);
 
+  emissive_colour_button_ = new QPushButton("Choose...");
+  emissive_colour_button_->setStyleSheet(
+      QString("background-color: %1;").arg(emissive_colour_.name()));
+  connect(emissive_colour_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_pick_emissive_colour_clicked);
+  form->addRow("Emissive Colour:", emissive_colour_button_);
+
+  emissive_intensity_spin_ = new QDoubleSpinBox();
+  emissive_intensity_spin_->setRange(0.0, 100.0);
+  emissive_intensity_spin_->setSingleStep(0.5);
+  emissive_intensity_spin_->setValue(0.0); // matches Material::
+                                          // emissive_intensity's
+                                          // engine-side "off" default
+  emissive_intensity_spin_->setToolTip(
+      "0 = not emissive (a plain surface). Above 0, this primitive glows "
+      "at that brightness regardless of scene lighting AND becomes a real "
+      "point light source that illuminates everything else -- e.g. a "
+      "light bulb or glowing panel. Meant for one deliberate light-shaped "
+      "primitive, not every surface in the scene.");
+  connect(emissive_intensity_spin_,
+         QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Emissive Intensity:", emissive_intensity_spin_);
+
+  pixelation_exempt_check_ = new QCheckBox("Pixelation Exempt");
+  pixelation_exempt_check_->setToolTip(
+      "If the game enables the pixelation post-process, this primitive "
+      "stays crisp/full-resolution instead of pixelating along with "
+      "everything else.");
+  connect(pixelation_exempt_check_, &QCheckBox::toggled, this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("", pixelation_exempt_check_);
+
   auto *primitives_tab = new QWidget();
   auto *primitives_layout = new QVBoxLayout(primitives_tab);
   primitives_layout->addWidget(form_group);
@@ -502,9 +554,152 @@ SdfEditorWindow::SdfEditorWindow() {
          &SdfEditorWindow::on_remove_light_clicked);
   lights_layout->addWidget(remove_light_button);
 
+  // Volumetrics tab: mirrors the primitives tab's shape/transform/material
+  // fields (type list, position, rotation, per-type params, colour,
+  // texture, texture scale), minus operation/smoothness (a volumetric never
+  // joins a layer -- it's never combined into the opaque scene at all) and
+  // emissive/pixelation (meaningless for something that's never a solid
+  // surface), plus a density field controlling how strongly it accumulates
+  // glow per world unit a ray travels through it -- see
+  // populate_volumetric_fields_from_selection()/apply_fields_to_volumetric().
+  auto *volumetrics_tab = new QWidget();
+  auto *volumetrics_root_layout = new QHBoxLayout(volumetrics_tab);
+
+  auto *volumetric_type_panel = new QVBoxLayout();
+  volumetric_type_panel->addWidget(new QLabel("Shape"));
+  volumetric_type_list_ = new QListWidget();
+  for (u32 i = 0; i <= static_cast<u32>(SdfPrimitiveType::Ellipsoid); ++i) {
+    volumetric_type_list_->addItem(
+        primitive_type_label(static_cast<SdfPrimitiveType>(i)));
+  }
+  volumetric_type_list_->setCurrentRow(static_cast<int>(SdfPrimitiveType::CappedCone));
+  volumetric_type_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  connect(volumetric_type_list_, &QListWidget::currentItemChanged, this,
+         &SdfEditorWindow::on_volumetric_type_changed);
+  volumetric_type_panel->addWidget(volumetric_type_list_);
+  volumetrics_root_layout->addLayout(volumetric_type_panel, /*stretch=*/1);
+
+  auto *volumetric_right_panel = new QVBoxLayout();
+  auto *volumetric_form_group = new QGroupBox("New Volumetric");
+  auto *volumetric_form = new QFormLayout(volumetric_form_group);
+
+  volumetric_pos_x_ = new QDoubleSpinBox();
+  volumetric_pos_y_ = new QDoubleSpinBox();
+  volumetric_pos_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin :
+       {volumetric_pos_x_, volumetric_pos_y_, volumetric_pos_z_}) {
+    spin->setRange(-100.0, 100.0);
+    spin->setSingleStep(0.1);
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_volumetric_field_changed);
+  }
+  auto *volumetric_pos_row = new QHBoxLayout();
+  volumetric_pos_row->addWidget(volumetric_pos_x_);
+  volumetric_pos_row->addWidget(volumetric_pos_y_);
+  volumetric_pos_row->addWidget(volumetric_pos_z_);
+  volumetric_form->addRow("Position (x, y, z):", volumetric_pos_row);
+
+  volumetric_rot_x_ = new QDoubleSpinBox();
+  volumetric_rot_y_ = new QDoubleSpinBox();
+  volumetric_rot_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin :
+       {volumetric_rot_x_, volumetric_rot_y_, volumetric_rot_z_}) {
+    spin->setRange(-360.0, 360.0);
+    spin->setSingleStep(1.0);
+    spin->setSuffix(QStringLiteral("°"));
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_volumetric_field_changed);
+  }
+  auto *volumetric_rot_row = new QHBoxLayout();
+  volumetric_rot_row->addWidget(volumetric_rot_x_);
+  volumetric_rot_row->addWidget(volumetric_rot_y_);
+  volumetric_rot_row->addWidget(volumetric_rot_z_);
+  volumetric_form->addRow("Rotation (x, y, z):", volumetric_rot_row);
+
+  for (int i = 0; i < 4; ++i) {
+    volumetric_param_spin_[i] = new QDoubleSpinBox();
+    volumetric_param_spin_[i]->setRange(0.001, 100.0);
+    volumetric_param_spin_[i]->setSingleStep(0.1);
+    volumetric_param_spin_[i]->setValue(0.5);
+    connect(volumetric_param_spin_[i],
+           QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_volumetric_field_changed);
+
+    volumetric_param_label_[i] = new QLabel();
+    volumetric_form->addRow(volumetric_param_label_[i], volumetric_param_spin_[i]);
+  }
+
+  volumetric_colour_button_ = new QPushButton("Choose...");
+  volumetric_colour_button_->setStyleSheet(
+      QString("background-color: %1;").arg(volumetric_colour_.name()));
+  connect(volumetric_colour_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_pick_volumetric_colour_clicked);
+  volumetric_form->addRow("Colour:", volumetric_colour_button_);
+
+  volumetric_texture_button_ = new QPushButton("Choose...");
+  volumetric_texture_clear_button_ = new QPushButton("Clear");
+  volumetric_texture_label_ = new QLabel("(none)");
+  connect(volumetric_texture_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_pick_volumetric_texture_clicked);
+  connect(volumetric_texture_clear_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_clear_volumetric_texture_clicked);
+  auto *volumetric_texture_row = new QHBoxLayout();
+  volumetric_texture_row->addWidget(volumetric_texture_button_);
+  volumetric_texture_row->addWidget(volumetric_texture_clear_button_);
+  volumetric_texture_row->addWidget(volumetric_texture_label_, /*stretch=*/1);
+  volumetric_form->addRow("Texture:", volumetric_texture_row);
+
+  volumetric_texture_scale_spin_ = new QDoubleSpinBox();
+  volumetric_texture_scale_spin_->setRange(0.05, 50.0);
+  volumetric_texture_scale_spin_->setSingleStep(0.05);
+  volumetric_texture_scale_spin_->setValue(0.6);
+  volumetric_texture_scale_spin_->setToolTip(
+      "World units one full repeat of the texture spans across the shaft's "
+      "cross-section.");
+  connect(volumetric_texture_scale_spin_,
+         QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_volumetric_field_changed);
+  volumetric_form->addRow("Texture Scale:", volumetric_texture_scale_spin_);
+
+  volumetric_density_spin_ = new QDoubleSpinBox();
+  volumetric_density_spin_->setRange(0.0, 20.0);
+  volumetric_density_spin_->setSingleStep(0.1);
+  volumetric_density_spin_->setValue(1.0);
+  volumetric_density_spin_->setToolTip(
+      "How strongly this shape accumulates its colour/texture per world "
+      "unit a ray travels through it. It is never a solid surface -- rays "
+      "always pass straight through -- higher just reads as a "
+      "denser/brighter shaft.");
+  connect(volumetric_density_spin_,
+         QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_volumetric_field_changed);
+  volumetric_form->addRow("Density:", volumetric_density_spin_);
+
+  volumetric_right_panel->addWidget(volumetric_form_group);
+
+  auto *add_volumetric_button = new QPushButton("Add Volumetric");
+  connect(add_volumetric_button, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_add_volumetric_clicked);
+  volumetric_right_panel->addWidget(add_volumetric_button);
+
+  volumetric_right_panel->addWidget(new QLabel("Volumetrics"));
+  volumetrics_list_ = new QListWidget();
+  volumetrics_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  connect(volumetrics_list_, &QListWidget::currentItemChanged, this,
+         &SdfEditorWindow::on_volumetrics_list_selection_changed);
+  volumetric_right_panel->addWidget(volumetrics_list_, /*stretch=*/1);
+
+  auto *remove_volumetric_button = new QPushButton("Remove Selected");
+  connect(remove_volumetric_button, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_remove_volumetric_clicked);
+  volumetric_right_panel->addWidget(remove_volumetric_button);
+
+  volumetrics_root_layout->addLayout(volumetric_right_panel, /*stretch=*/2);
+
   auto *tabs = new QTabWidget();
   tabs->addTab(primitives_tab, "Primitives");
   tabs->addTab(lights_tab, "Lights");
+  tabs->addTab(volumetrics_tab, "Volumetrics");
   right_panel->addWidget(tabs, /*stretch=*/1);
 
   auto *ambient_row = new QHBoxLayout();
@@ -534,6 +729,7 @@ SdfEditorWindow::SdfEditorWindow() {
   setCentralWidget(central);
 
   update_field_enablement();
+  update_volumetric_field_enablement();
 }
 
 SdfEditorWindow::~SdfEditorWindow() {
@@ -585,23 +781,40 @@ std::string SdfEditorWindow::ensure_material() const {
   // written first.
   int scale_centi =
       static_cast<int>(std::lround(texture_scale_spin_->value() * 100.0));
-  char name_buf[96];
+  double emissive_intensity = emissive_intensity_spin_->value();
+  // Same reasoning as scale_centi above, but only appended when actually
+  // emissive -- keeps every pre-existing (non-emissive) material's name
+  // unchanged, so this feature can't retroactively fragment materials
+  // authored before it existed.
+  char emissive_suffix[48] = "";
+  if (emissive_intensity > 0.0) {
+    int intensity_centi = static_cast<int>(std::lround(emissive_intensity * 100.0));
+    std::snprintf(emissive_suffix, sizeof(emissive_suffix), "_em%04d%02x%02x%02x",
+                 intensity_centi, emissive_colour_.red(),
+                 emissive_colour_.green(), emissive_colour_.blue());
+  }
+  bool pixelation_exempt = pixelation_exempt_check_->isChecked();
+  const char *pixelation_suffix = pixelation_exempt ? "_px" : "";
+
+  char name_buf[168];
   if (texture_name_.empty()) {
     std::snprintf(name_buf, sizeof(name_buf),
-                 "qt_colour_%02x%02x%02x%02x_ts%03d", colour_.red(),
+                 "qt_colour_%02x%02x%02x%02x_ts%03d%s%s", colour_.red(),
                  colour_.green(), colour_.blue(), colour_.alpha(),
-                 scale_centi);
+                 scale_centi, emissive_suffix, pixelation_suffix);
   } else {
     std::snprintf(name_buf, sizeof(name_buf),
-                 "qt_colour_%02x%02x%02x%02x_ts%03d_%s", colour_.red(),
+                 "qt_colour_%02x%02x%02x%02x_ts%03d%s%s_%s", colour_.red(),
                  colour_.green(), colour_.blue(), colour_.alpha(),
-                 scale_centi, texture_name_.c_str());
+                 scale_centi, emissive_suffix, pixelation_suffix,
+                 texture_name_.c_str());
   }
   std::string name = name_buf;
 
-  // Deterministic from the colour's RGBA, texture scale and texture name,
-  // so picking the same combination again later just reuses this file
-  // instead of accumulating duplicates.
+  // Deterministic from the colour's RGBA, texture scale, emissive colour/
+  // intensity, pixelation-exempt flag, and texture name, so picking the
+  // same combination again later just reuses this file instead of
+  // accumulating duplicates.
   std::ofstream file("assets/materials/" + name + ".kmt");
   if (file.is_open()) {
     file << "#material file\n\n";
@@ -610,6 +823,18 @@ std::string SdfEditorWindow::ensure_material() const {
     file << "diffuse_colour=" << colour_.redF() << " " << colour_.greenF()
         << " " << colour_.blueF() << " " << colour_.alphaF() << "\n";
     file << "texture_scale=" << texture_scale_spin_->value() << "\n";
+    if (emissive_intensity > 0.0) {
+      file << "emissive_colour=" << emissive_colour_.redF() << " "
+          << emissive_colour_.greenF() << " " << emissive_colour_.blueF()
+          << "\n";
+      file << "emissive_intensity=" << emissive_intensity << "\n";
+    }
+    // Otherwise no emissive_intensity line -- MaterialSystem's default (0)
+    // means "not emissive", same convention every other optional field
+    // here uses.
+    if (pixelation_exempt) {
+      file << "pixelation_exempt=true\n";
+    }
     if (!texture_name_.empty()) {
       file << "diffuse_map_name=" << texture_name_ << "\n";
     }
@@ -710,6 +935,17 @@ void SdfEditorWindow::on_pick_colour_clicked() {
     colour_button_->setStyleSheet(
         QString("background-color: %1;").arg(colour_.name()));
     on_live_edit_changed(); // apply immediately if a primitive is selected
+  }
+}
+
+void SdfEditorWindow::on_pick_emissive_colour_clicked() {
+  QColor picked =
+      QColorDialog::getColor(emissive_colour_, this, "Select Emissive Colour");
+  if (picked.isValid()) {
+    emissive_colour_ = picked;
+    emissive_colour_button_->setStyleSheet(
+        QString("background-color: %1;").arg(emissive_colour_.name()));
+    on_live_edit_changed();
   }
 }
 
@@ -817,8 +1053,16 @@ void SdfEditorWindow::on_load_clicked() {
   }
   next_light_id_ = next_id_after("light", light_names);
 
+  std::vector<std::string> volumetric_names;
+  volumetric_names.reserve(scene_.volumetrics.size());
+  for (const SdfVolumetricDef &volumetric : scene_.volumetrics) {
+    volumetric_names.push_back(volumetric.name);
+  }
+  next_volumetric_id_ = next_id_after("volumetric", volumetric_names);
+
   refresh_contents_list();
   refresh_lights_list();
+  refresh_volumetrics_list();
   {
     const QSignalBlocker blocker(ambient_spin_);
     ambient_spin_->setValue(scene_.ambient);
@@ -935,6 +1179,11 @@ void SdfEditorWindow::populate_fields_from_selection(int layer_index) {
                               ? QStringLiteral("(none)")
                               : QString::fromStdString(texture_name_));
   texture_scale_spin_->setValue(material.texture_scale);
+  emissive_colour_ = material.emissive_colour;
+  emissive_colour_button_->setStyleSheet(
+      QString("background-color: %1;").arg(emissive_colour_.name()));
+  emissive_intensity_spin_->setValue(material.emissive_intensity);
+  pixelation_exempt_check_->setChecked(material.pixelation_exempt);
 
   populating_fields_ = false;
 
@@ -1155,5 +1404,284 @@ void SdfEditorWindow::refresh_contents_list() {
       auto *item = new QListWidgetItem(text, contents_list_);
       item->setData(Qt::UserRole, i);
     }
+  }
+}
+
+void SdfEditorWindow::on_volumetric_type_changed() {
+  update_volumetric_field_enablement();
+}
+
+void SdfEditorWindow::update_volumetric_field_enablement() {
+  int row = volumetric_type_list_->currentRow();
+  if (row < 0) {
+    return;
+  }
+  PrimitiveTypeSpec spec = type_spec_for(static_cast<SdfPrimitiveType>(row));
+
+  volumetric_pos_x_->setEnabled(spec.has_position);
+  volumetric_pos_y_->setEnabled(spec.has_position);
+  volumetric_pos_z_->setEnabled(spec.has_position);
+  volumetric_rot_x_->setEnabled(spec.has_rotation);
+  volumetric_rot_y_->setEnabled(spec.has_rotation);
+  volumetric_rot_z_->setEnabled(spec.has_rotation);
+
+  for (int i = 0; i < 4; ++i) {
+    bool used = static_cast<size_t>(i) < spec.param_labels.size();
+    volumetric_param_label_[i]->setVisible(used);
+    volumetric_param_spin_[i]->setVisible(used);
+    if (used) {
+      volumetric_param_label_[i]->setText(
+          QString::fromLatin1(spec.param_labels[i]) + ":");
+    }
+  }
+}
+
+std::string SdfEditorWindow::ensure_volumetric_material() const {
+  // Mirrors ensure_material()'s deterministic-name idiom, but simpler: a
+  // volumetric material never has emissive/pixelation-exempt settings, so
+  // there's no equivalent suffix to fold in here.
+  int scale_centi = static_cast<int>(
+      std::lround(volumetric_texture_scale_spin_->value() * 100.0));
+
+  char name_buf[168];
+  if (volumetric_texture_name_.empty()) {
+    std::snprintf(name_buf, sizeof(name_buf), "qt_vol_colour_%02x%02x%02x%02x_ts%03d",
+                 volumetric_colour_.red(), volumetric_colour_.green(),
+                 volumetric_colour_.blue(), volumetric_colour_.alpha(), scale_centi);
+  } else {
+    std::snprintf(name_buf, sizeof(name_buf),
+                 "qt_vol_colour_%02x%02x%02x%02x_ts%03d_%s",
+                 volumetric_colour_.red(), volumetric_colour_.green(),
+                 volumetric_colour_.blue(), volumetric_colour_.alpha(), scale_centi,
+                 volumetric_texture_name_.c_str());
+  }
+  std::string name = name_buf;
+
+  std::ofstream file("assets/materials/" + name + ".kmt");
+  if (file.is_open()) {
+    file << "#material file\n\n";
+    file << "version=0.1\n";
+    file << "name=" << name << "\n";
+    file << "diffuse_colour=" << volumetric_colour_.redF() << " "
+        << volumetric_colour_.greenF() << " " << volumetric_colour_.blueF()
+        << " " << volumetric_colour_.alphaF() << "\n";
+    file << "texture_scale=" << volumetric_texture_scale_spin_->value() << "\n";
+    if (!volumetric_texture_name_.empty()) {
+      file << "diffuse_map_name=" << volumetric_texture_name_ << "\n";
+    }
+  }
+  return name;
+}
+
+void SdfEditorWindow::on_add_volumetric_clicked() {
+  int row = volumetric_type_list_->currentRow();
+  if (row < 0) {
+    return;
+  }
+  SdfPrimitiveType type = static_cast<SdfPrimitiveType>(row);
+  PrimitiveTypeSpec spec = type_spec_for(type);
+
+  std::string material_name = ensure_volumetric_material();
+  std::string name = "volumetric" + std::to_string(next_volumetric_id_++);
+
+  glm::vec3 position =
+      spec.has_position
+          ? glm::vec3(static_cast<f32>(volumetric_pos_x_->value()),
+                     static_cast<f32>(volumetric_pos_y_->value()),
+                     static_cast<f32>(volumetric_pos_z_->value()))
+          : glm::vec3(0.0f);
+  glm::vec3 rotation =
+      spec.has_rotation
+          ? glm::radians(glm::vec3(static_cast<f32>(volumetric_rot_x_->value()),
+                                  static_cast<f32>(volumetric_rot_y_->value()),
+                                  static_cast<f32>(volumetric_rot_z_->value())))
+          : glm::vec3(0.0f);
+
+  f32 raw_params[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  for (size_t i = 0; i < spec.param_labels.size() && i < 4; ++i) {
+    raw_params[i] = static_cast<f32>(volumetric_param_spin_[i]->value());
+  }
+  glm::vec3 params(raw_params[0], raw_params[1], raw_params[2]);
+  f32 extra_param = raw_params[3];
+  f32 density = static_cast<f32>(volumetric_density_spin_->value());
+
+  add_volumetric(scene_, name, type, position, rotation, params, extra_param,
+                 density, material_name);
+
+  refresh_volumetrics_list();
+  sync_viewport_scene();
+}
+
+void SdfEditorWindow::on_remove_volumetric_clicked() {
+  QListWidgetItem *item = volumetrics_list_->currentItem();
+  if (!item) {
+    return;
+  }
+  int volumetric_index = item->data(Qt::UserRole).toInt();
+  if (volumetric_index >= 0 &&
+      volumetric_index < static_cast<int>(scene_.volumetrics.size())) {
+    scene_.volumetrics.erase(scene_.volumetrics.begin() + volumetric_index);
+  }
+  refresh_volumetrics_list();
+  sync_viewport_scene();
+}
+
+void SdfEditorWindow::on_pick_volumetric_colour_clicked() {
+  QColor picked = QColorDialog::getColor(volumetric_colour_, this,
+                                        "Select Colour",
+                                        QColorDialog::ShowAlphaChannel);
+  if (picked.isValid()) {
+    volumetric_colour_ = picked;
+    volumetric_colour_button_->setStyleSheet(
+        QString("background-color: %1;").arg(volumetric_colour_.name()));
+    on_volumetric_field_changed(); // apply immediately if selected
+  }
+}
+
+void SdfEditorWindow::on_pick_volumetric_texture_clicked() {
+  QString path = QFileDialog::getOpenFileName(
+      this, "Select Texture Image", QString(),
+      "Images (*.png *.jpg *.jpeg *.bmp *.tga)");
+  if (path.isEmpty()) {
+    return;
+  }
+
+  QImage image(path);
+  if (image.isNull()) {
+    QMessageBox::warning(this, "Texture Load Failed",
+                         "Could not read image: " + path);
+    return;
+  }
+
+  QDir().mkpath("assets/textures");
+  std::string base = sanitize_texture_name(
+      QFileInfo(path).completeBaseName().toStdString());
+  std::string dest = "assets/textures/" + base + ".png";
+  if (!image.save(QString::fromStdString(dest), "PNG")) {
+    QMessageBox::warning(this, "Texture Copy Failed",
+                         "Could not write " + QString::fromStdString(dest));
+    return;
+  }
+
+  volumetric_texture_name_ = base;
+  volumetric_texture_label_->setText(QString::fromStdString(volumetric_texture_name_));
+  on_volumetric_field_changed();
+}
+
+void SdfEditorWindow::on_clear_volumetric_texture_clicked() {
+  if (volumetric_texture_name_.empty()) {
+    return;
+  }
+  volumetric_texture_name_.clear();
+  volumetric_texture_label_->setText("(none)");
+  on_volumetric_field_changed();
+}
+
+void SdfEditorWindow::on_volumetrics_list_selection_changed() {
+  QListWidgetItem *item = volumetrics_list_->currentItem();
+  int volumetric_index = item ? item->data(Qt::UserRole).toInt() : -1;
+  if (volumetric_index >= 0) {
+    populate_volumetric_fields_from_selection(volumetric_index);
+  }
+}
+
+void SdfEditorWindow::populate_volumetric_fields_from_selection(int volumetric_index) {
+  if (volumetric_index < 0 ||
+      volumetric_index >= static_cast<int>(scene_.volumetrics.size())) {
+    return;
+  }
+  const SdfVolumetricDef &volumetric = scene_.volumetrics[volumetric_index];
+  PrimitiveTypeSpec spec = type_spec_for(volumetric.type);
+
+  populating_volumetric_fields_ = true;
+
+  volumetric_type_list_->setCurrentRow(static_cast<int>(volumetric.type));
+
+  volumetric_pos_x_->setValue(volumetric.position.x);
+  volumetric_pos_y_->setValue(volumetric.position.y);
+  volumetric_pos_z_->setValue(volumetric.position.z);
+
+  glm::vec3 rotation_degrees = glm::degrees(volumetric.rotation);
+  volumetric_rot_x_->setValue(rotation_degrees.x);
+  volumetric_rot_y_->setValue(rotation_degrees.y);
+  volumetric_rot_z_->setValue(rotation_degrees.z);
+
+  f32 raw_params[4] = {volumetric.params.x, volumetric.params.y,
+                       volumetric.params.z, volumetric.extra_param};
+  for (size_t i = 0; i < spec.param_labels.size() && i < 4; ++i) {
+    volumetric_param_spin_[i]->setValue(raw_params[i]);
+  }
+
+  ParsedMaterial material = parse_material_file(volumetric.material_name);
+  volumetric_colour_ = material.colour;
+  volumetric_texture_name_ = material.texture_name;
+  volumetric_colour_button_->setStyleSheet(
+      QString("background-color: %1;").arg(volumetric_colour_.name()));
+  volumetric_texture_label_->setText(
+      volumetric_texture_name_.empty()
+          ? QStringLiteral("(none)")
+          : QString::fromStdString(volumetric_texture_name_));
+  volumetric_texture_scale_spin_->setValue(material.texture_scale);
+  volumetric_density_spin_->setValue(volumetric.density);
+
+  populating_volumetric_fields_ = false;
+
+  update_volumetric_field_enablement();
+}
+
+void SdfEditorWindow::apply_fields_to_volumetric(int volumetric_index) {
+  SdfVolumetricDef &volumetric = scene_.volumetrics[volumetric_index];
+  PrimitiveTypeSpec spec = type_spec_for(volumetric.type);
+
+  if (spec.has_position) {
+    volumetric.position =
+        glm::vec3(static_cast<f32>(volumetric_pos_x_->value()),
+                 static_cast<f32>(volumetric_pos_y_->value()),
+                 static_cast<f32>(volumetric_pos_z_->value()));
+  }
+  if (spec.has_rotation) {
+    volumetric.rotation =
+        glm::radians(glm::vec3(static_cast<f32>(volumetric_rot_x_->value()),
+                              static_cast<f32>(volumetric_rot_y_->value()),
+                              static_cast<f32>(volumetric_rot_z_->value())));
+  }
+
+  f32 raw_params[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  for (size_t i = 0; i < spec.param_labels.size() && i < 4; ++i) {
+    raw_params[i] = static_cast<f32>(volumetric_param_spin_[i]->value());
+  }
+  volumetric.params = glm::vec3(raw_params[0], raw_params[1], raw_params[2]);
+  volumetric.extra_param = raw_params[3];
+  volumetric.density = static_cast<f32>(volumetric_density_spin_->value());
+
+  volumetric.material_name = ensure_volumetric_material();
+}
+
+void SdfEditorWindow::on_volumetric_field_changed() {
+  if (populating_volumetric_fields_ || !volumetrics_list_) {
+    return;
+  }
+  QListWidgetItem *item = volumetrics_list_->currentItem();
+  if (!item) {
+    return; // nothing selected -- fields are just staging values for Add
+  }
+  int volumetric_index = item->data(Qt::UserRole).toInt();
+  if (volumetric_index < 0 ||
+      volumetric_index >= static_cast<int>(scene_.volumetrics.size())) {
+    return;
+  }
+  apply_fields_to_volumetric(volumetric_index);
+  sync_viewport_scene();
+}
+
+void SdfEditorWindow::refresh_volumetrics_list() {
+  volumetrics_list_->clear();
+  for (int i = 0; i < static_cast<int>(scene_.volumetrics.size()); ++i) {
+    const SdfVolumetricDef &volumetric = scene_.volumetrics[i];
+    QString text = QString("%1 '%2'")
+                       .arg(primitive_type_label(volumetric.type))
+                       .arg(QString::fromStdString(volumetric.name));
+    auto *item = new QListWidgetItem(text, volumetrics_list_);
+    item->setData(Qt::UserRole, i);
   }
 }

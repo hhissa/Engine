@@ -5,6 +5,7 @@
 #include "shaders/vulkan_ui_shader.h"
 #include "shaders/vulkan_text_shader.h"
 #include "shaders/vulkan_line_shader.h"
+#include "shaders/vulkan_solid_quad_shader.h"
 #include "../../systems/texture_system.h"
 #include "../../systems/shader_system.h"
 #include "../../systems/material_system.h"

@@ -51,6 +51,22 @@ then
 echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
 fi
 
+echo "assets/shaders/Builtin.BloomBlurH.comp.glsl -> bin/assets/shaders/Builtin.BloomBlurH.comp.spv"
+$GLSLC -fshader-stage=compute assets/shaders/Builtin.BloomBlurH.comp.glsl -o bin/assets/shaders/Builtin.BloomBlurH.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.PostComposite.comp.glsl -> bin/assets/shaders/Builtin.PostComposite.comp.spv"
+$GLSLC -fshader-stage=compute assets/shaders/Builtin.PostComposite.comp.glsl -o bin/assets/shaders/Builtin.PostComposite.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
 echo "assets/shaders/Builtin.UIShader.vert.glsl -> bin/assets/shaders/Builtin.UIShader.vert.spv"
 $GLSLC -fshader-stage=vert assets/shaders/Builtin.UIShader.vert.glsl -o bin/assets/shaders/Builtin.UIShader.vert.spv
 ERRORLEVEL=$?
@@ -93,6 +109,22 @@ fi
 
 echo "assets/shaders/Builtin.LineShader.frag.glsl -> bin/assets/shaders/Builtin.LineShader.frag.spv"
 $GLSLC -fshader-stage=frag assets/shaders/Builtin.LineShader.frag.glsl -o bin/assets/shaders/Builtin.LineShader.frag.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.SolidQuadShader.vert.glsl -> bin/assets/shaders/Builtin.SolidQuadShader.vert.spv"
+$GLSLC -fshader-stage=vert assets/shaders/Builtin.SolidQuadShader.vert.glsl -o bin/assets/shaders/Builtin.SolidQuadShader.vert.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.SolidQuadShader.frag.glsl -> bin/assets/shaders/Builtin.SolidQuadShader.frag.spv"
+$GLSLC -fshader-stage=frag assets/shaders/Builtin.SolidQuadShader.frag.glsl -o bin/assets/shaders/Builtin.SolidQuadShader.frag.spv
 ERRORLEVEL=$?
 if [ $ERRORLEVEL -ne 0 ]
 then

@@ -72,3 +72,12 @@ SdfLightDef &add_directional_light(SdfScene &scene, std::string name,
 SdfLightDef &add_point_light(SdfScene &scene, std::string name,
                             glm::vec3 position, glm::vec3 colour,
                             f32 intensity);
+
+// Appends a transparent, textured "volumetric light" shape (see
+// SdfVolumetricDef's comment in sdf_scene.h) and returns a reference to it.
+// Same reallocation caveat as add_layer() applies to scene.volumetrics.
+SdfVolumetricDef &add_volumetric(SdfScene &scene, std::string name,
+                                 SdfPrimitiveType type, glm::vec3 position,
+                                 glm::vec3 rotation, glm::vec3 params,
+                                 f32 extra_param, f32 density,
+                                 std::string material_name);

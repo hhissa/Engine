@@ -1,147 +1,77 @@
 #sdf scene file
 version=0.1
-ambient=0.15
+ambient=0.69
 
-layer layer0 {
-    operation=union
-    smoothness=0
-
-    primitive layer0_primitive {
-        type=sphere
-        position=0 -0.32 0
-        rotation=0 0 0
-        radius=0.4
-        material=qt_colour_ffffffff_white
-    }
+light light2 {
+    type=directional
+    direction=0 1 0
+    colour=1 1 1
+    intensity=5.75
 }
 
-layer layer1 {
-    operation=union
-    smoothness=0.2
+light light3 {
+    type=directional
+    direction=0 0 -1
+    colour=1 1 1
+    intensity=2
+}
 
-    primitive layer1_primitive {
-        type=ellipsoid
-        position=0 0.04 -0.09
-        rotation=-0.670555 0 0
-        params=0.3 0.3 0.2 0
-        material=qt_colour_ffffffff_white
-    }
+light light4 {
+    type=directional
+    direction=0 0 -1
+    colour=1 1 1
+    intensity=5
 }
 
 layer layer2 {
     operation=union
-    smoothness=0.2
+    smoothness=0
 
     primitive layer2_primitive {
-        type=capsule
-        position=0 0.35 0.16
-        rotation=-0.00925024 0 0
-        params=0.15 0.3 0 0
-        material=qt_colour_ffffffff_white
-    }
-}
-
-layer layer3 {
-    operation=union
-    smoothness=0.2
-
-    primitive layer3_primitive {
-        type=ellipsoid
-        position=0.4 0.63 0.16
-        rotation=-0.00925024 0 1.96105
-        params=0.15 0.3 0.2 0
-        material=qt_colour_ffffffff_white
-    }
-}
-
-layer layer4 {
-    operation=union
-    smoothness=0.2
-
-    primitive layer4_primitive {
-        type=ellipsoid
-        position=-0.35 0.63 0.16
-        rotation=-0.00925024 0 1.1692
-        params=0.15 0.3 0.2 0
-        material=qt_colour_ffffffff_white
-    }
-}
-
-layer layer5 {
-    operation=union
-    smoothness=0.4
-
-    primitive layer5_primitive {
-        type=ellipsoid
-        position=-0.41 1.11 0.16
-        rotation=-0.00925024 0 1.72491
-        params=0.3 0.2 0.3 0
-        material=qt_colour_ffffffff_white
+        type=box
+        position=0 -0.75 1.05
+        rotation=0 0 0
+        half_extents=0.7 0.5 0.02
+        material=qt_colour_dedddaff_ts060_white
     }
 }
 
 layer layer6 {
     operation=union
-    smoothness=0.3
+    smoothness=0.05
 
     primitive layer6_primitive {
-        type=ellipsoid
-        position=-0.84 0.85 0.16
-        rotation=-0.00925024 0 1.96105
-        params=0.3 0.2 0.2 0
-        material=qt_colour_ffffffff_white
+        type=box
+        position=-0.00422634 -0.28 0.75
+        rotation=0 0 0
+        half_extents=0.7 0.02 0.5
+        material=qt_colour_dedddaff_ts060_white
     }
 }
 
 layer layer7 {
     operation=union
-    smoothness=0.3
+    smoothness=0
 
     primitive layer7_primitive {
-        type=ellipsoid
-        position=0.64 0.85 0.16
-        rotation=-0.00925024 0 1.22697
-        params=0.3 0.2 0.2 0
-        material=qt_colour_ffffffff_white
-    }
-}
-
-layer layer8 {
-    operation=union
-    smoothness=0.2
-
-    primitive layer8_primitive {
-        type=ellipsoid
-        position=0.86 0.85 0.16
-        rotation=-0.00925024 0 1.22697
-        params=0.3 0.2 0.2 0
-        material=qt_colour_ffffffff_white
+        type=box_frame
+        position=0 -0.63 1.13
+        rotation=0 0 0
+        params=0.9 0.7 0.01 0.04
+        material=qt_colour_5e5c64ff_white
     }
 }
 
 layer layer9 {
     operation=union
-    smoothness=0.6
+    smoothness=0
 
     primitive layer9_primitive {
-        type=ellipsoid
-        position=0.23 1.07 0.16
-        rotation=-0.00925024 0 1.22697
-        params=0.3 0.2 0.3 0
-        material=qt_colour_ffffffff_white
-    }
-}
-
-layer layer10 {
-    operation=union
-    smoothness=0.75
-
-    primitive layer10_primitive {
-        type=capsule
-        position=0.04 1.99 0.16
-        rotation=-0.00925024 0 1.58773
-        params=0.3 0.2 0 0
-        material=qt_colour_ffffffff_white
+        type=box
+        position=1.08 -0.787037 1.50172
+        rotation=0 -2.48564 0
+        half_extents=0.6 0.5 0.05
+        material=qt_colour_5e5c64ff_white
     }
 }
 
@@ -150,148 +80,232 @@ layer layer11 {
     smoothness=0
 
     primitive layer11_primitive {
-        type=capsule
-        position=0.86 1.36 0.26
-        rotation=0.226195 0 -0.0546288
-        params=0.2 0.3 0 0
-        param_expr=0 0.2 - 0.1*p.y
-        material=qt_colour_ffffffff_white
+        type=box
+        position=-1.17 -0.76 1.33
+        rotation=0 -0.950855 0
+        half_extents=0.6 0.5 0.05
+        material=qt_colour_5e5c64ff_white
+    }
+}
+
+layer layer12 {
+    operation=subtraction
+    smoothness=0
+
+    primitive layer12_primitive {
+        type=box
+        position=-1.17 -0.86 1.33
+        rotation=0 -0.950855 0
+        half_extents=0.2 0.2 0.1
+        material=qt_colour_5e5c64ff_white
+    }
+}
+
+layer layer13 {
+    operation=union
+    smoothness=0
+
+    primitive layer13_primitive {
+        type=box
+        position=1.19 -0.44 1.11
+        rotation=0.378038 -2.4857 0
+        half_extents=0.05 0.17 0.02
+        material=qt_colour_77767bff_woodpanel
     }
 }
 
 layer layer14 {
     operation=union
-    smoothness=0.1
-
-    primitive layer14_primitive {
-        type=capsule
-        position=0.91 2.21 0.11
-        rotation=-0.522552 0 -0.0546288
-        params=0.1 0.5 0 0
-        param_expr=0 0.15 - 0.05 *p.y
-        material=qt_colour_ffffffff_white
-    }
-}
-
-layer layer15 {
-    operation=union
     smoothness=0
 
-    primitive layer15_primitive {
-        type=capsule
-        position=-0.81 1.36 0.32
-        rotation=0.226195 0 -0.0546288
-        params=0.2 0.3 0 0
-        param_expr=0 0.2 - 0.1*p.y
-        material=qt_colour_ffffffff_white
+    primitive layer14_primitive {
+        type=box
+        position=1.09634 -0.44 1.23867
+        rotation=0.378038 -2.4857 0
+        half_extents=0.1 0.2 0.02
+        material=qt_colour_9a9996ff_woodpanel
     }
 }
 
 layer layer16 {
     operation=union
-    smoothness=0.1
+    smoothness=0.15
 
     primitive layer16_primitive {
-        type=capsule
-        position=-0.78 2.21 0.11
-        rotation=-0.522552 0 -0.0546288
-        params=0.1 0.5 0 0
-        param_expr=0 0.15 - 0.05 *p.y
-        material=qt_colour_ffffffff_white
+        type=box
+        position=0 -0.14 0.33
+        rotation=0 0 0
+        half_extents=3.2 0.1 2.1
+        material=qt_colour_ffffffff_ts215_oak_stretcher_1816_mm_architextures
     }
 }
 
 layer layer18 {
     operation=union
-    smoothness=0.1
+    smoothness=0
 
     primitive layer18_primitive {
-        type=ellipsoid
-        position=0.05 2.3 0.11
-        rotation=0 0 -1.5708
-        params=0.5 0.5 0.4 0
-        material=qt_colour_ffffffff_white
+        type=box
+        position=-3.1 -1.35 0.33
+        rotation=0 0 0
+        half_extents=0.1 1.7 2.1
+        material=qt_colour_dedddaff_ts215_white
     }
 }
 
 layer layer19 {
     operation=union
-    smoothness=0.1
+    smoothness=0.15
 
     primitive layer19_primitive {
-        type=capsule
-        position=0.36 4.55 0.11
-        rotation=0 0 0
-        params=0.2 0.5 0 0
-        param_expr=0 0.2- 0.05*p.y
-        material=qt_colour_ffffffff_white
+        type=box
+        position=0 -2.36 0.33
+        rotation=-0.335801 0 0
+        half_extents=3.2 0.1 2.1
+        material=qt_colour_ffffffff_ts215_douglas_fir_staggered_1800_mm_architextures
     }
 }
 
 layer layer20 {
     operation=union
-    smoothness=0
+    smoothness=0.05
 
     primitive layer20_primitive {
-        type=capsule
-        position=0.33 3.3 0.11
+        type=box
+        position=3.12 -1.35 0.33
         rotation=0 0 0
-        params=0.2 0.7 0 0
-        param_expr=0 0.25- 0.05*p.y
-        material=qt_colour_ffffffff_scar_texture_diffuse
+        half_extents=0.02 1.8 2.1
+        material=qt_colour_dedddaff_ts215_white
     }
 }
 
 layer layer22 {
-    operation=union
-    smoothness=0.1
+    operation=subtraction
+    smoothness=0
 
     primitive layer22_primitive {
-        type=capsule
-        position=-0.24 4.69 0.11
+        type=box
+        position=3.11 -0.89 0.95
         rotation=0 0 0
-        params=0.2 0.5 0 0
-        param_expr=0 0.2- 0.05*p.y
-        material=qt_colour_ffffffff_white
+        half_extents=0.1 0.6 0.4
+        material=qt_colour_dedddaff_ts215_white
+    }
+}
+
+layer layer23 {
+    operation=union
+    smoothness=0
+
+    primitive layer23_primitive {
+        type=box
+        position=3.08 -1.2 0.95
+        rotation=0 0 0
+        half_extents=0.02 0.01 0.4
+        material=qt_colour_dedddaff_ts215_white
+    }
+}
+
+layer layer24 {
+    operation=union
+    smoothness=0
+
+    primitive layer24_primitive {
+        type=box
+        position=3.08 -1.38 0.95
+        rotation=1.57586 0 0
+        half_extents=0.02 0.01 0.2
+        material=qt_colour_dedddaff_ts215_white
+    }
+}
+
+layer layer25 {
+    operation=union
+    smoothness=0
+
+    primitive layer25_primitive {
+        type=box
+        position=2.96 -0.73 0.38
+        rotation=0 0.785398 0
+        half_extents=0.03 0.5 0.2
+        material=qt_colour_63452cff_ts215_white
     }
 }
 
 layer layer26 {
     operation=union
-    smoothness=0.05
+    smoothness=0
 
     primitive layer26_primitive {
-        type=ellipsoid
-        position=-0.27 0.93 -0.09
-        rotation=0 -0.349066 -1.5708
-        params=0.3 0.5 0.1 0
-        material=qt_colour_ffffffff_white
+        type=box
+        position=2.96 -0.73 1.45
+        rotation=0 -0.785398 0
+        half_extents=0.03 0.5 0.2
+        material=qt_colour_63452cff_ts215_white
     }
 }
 
 layer layer27 {
-    operation=union
-    smoothness=0.1
-
-    primitive layer27_primitive {
-        type=ellipsoid
-        position=0.3 0.93 -0.08
-        rotation=0 -0.349066 -1.5708
-        params=0.3 0.5 0.1 0
-        material=qt_colour_ffffffff_white
-    }
-}
-
-layer layer32 {
     operation=subtraction
     smoothness=0
 
-    primitive layer32_primitive {
-        type=sphere
-        position=-0.03 2.19 -0.19
-        rotation=0 0 0
-        radius=0.02
-        material=qt_colour_ffffffff_white
+    primitive layer27_primitive {
+        type=box
+        position=2.98 -0.97 0.38
+        rotation=0 0.785398 0
+        half_extents=0.03 0.2 0.15
+        material=qt_colour_63452cff_ts215_white
+    }
+}
+
+layer layer28 {
+    operation=subtraction
+    smoothness=0
+
+    primitive layer28_primitive {
+        type=box
+        position=2.98 -0.97 1.43
+        rotation=0 -0.785398 0
+        half_extents=0.05 0.2 0.15
+        material=qt_colour_63452cff_ts215_white
+    }
+}
+
+layer layer29 {
+    operation=union
+    smoothness=0
+
+    primitive layer29_primitive {
+        type=box
+        position=-2.78 -2.17 0.33
+        rotation=-0.335801 0 0
+        half_extents=0.1 0.1 1.9
+        material=qt_colour_ffffffff_ts060_woodpanel
+    }
+}
+
+layer layer30 {
+    operation=union
+    smoothness=0
+
+    primitive layer30_primitive {
+        type=box
+        position=3.09 -2.32 0
+        rotation=-0.335801 0 0
+        half_extents=0.1 0.1 1.9
+        material=qt_colour_ffffffff_ts060_woodpanel
+    }
+}
+
+layer layer31 {
+    operation=union
+    smoothness=0
+
+    primitive layer31_primitive {
+        type=box
+        position=-1.36 -2.32 0
+        rotation=-0.335801 0 0
+        half_extents=0.1 0.1 1.9
+        material=qt_colour_ffffffff_ts060_woodpanel
     }
 }
 
@@ -300,11 +314,11 @@ layer layer33 {
     smoothness=0
 
     primitive layer33_primitive {
-        type=ellipsoid
-        position=0.38 5.15 0
-        rotation=0 0 0
-        params=0.22 0.1 0.4 0
-        material=qt_colour_ffffffff_white
+        type=box
+        position=1.51 -2.32 0
+        rotation=-0.335801 0 0
+        half_extents=0.1 0.1 1.9
+        material=qt_colour_ffffffff_ts060_woodpanel
     }
 }
 
@@ -313,63 +327,102 @@ layer layer34 {
     smoothness=0
 
     primitive layer34_primitive {
-        type=ellipsoid
-        position=-0.23 5.17 -0.09
-        rotation=0 0 0
-        params=0.22 0.1 0.4 0
-        material=qt_colour_ffffffff_white
+        type=box
+        position=0 -2.32 0
+        rotation=-0.335801 0 0
+        half_extents=0.1 0.1 1.9
+        material=qt_colour_ffffffff_ts060_woodpanel
+    }
+}
+
+layer layer35 {
+    operation=union
+    smoothness=0
+
+    primitive layer35_primitive {
+        type=box
+        position=3.1 -1.9 0
+        rotation=-0.0174533 0 0
+        half_extents=0.1 0.1 1.9
+        material=qt_colour_ffffffff_ts060_woodpanel
     }
 }
 
 layer layer36 {
     operation=union
-    smoothness=0.05
+    smoothness=0
 
     primitive layer36_primitive {
-        type=ellipsoid
-        position=-0.93 1.36 0.41
-        rotation=0.241728 0 0
-        params=0.1 0.3 0.1 0
-        material=qt_colour_ffffffff_white
+        type=box
+        position=-1.37 -1.9 0
+        rotation=-0.0174533 0 0
+        half_extents=0.1 0.1 1.9
+        material=qt_colour_ffffffff_ts060_woodpanel
+    }
+}
+
+layer layer37 {
+    operation=union
+    smoothness=0
+
+    primitive layer37_primitive {
+        type=box
+        position=0 -1.9 0
+        rotation=-0.0174533 0 0
+        half_extents=0.1 0.1 1.9
+        material=qt_colour_ffffffff_ts060_woodpanel
     }
 }
 
 layer layer38 {
     operation=union
-    smoothness=0.05
+    smoothness=0
 
     primitive layer38_primitive {
-        type=ellipsoid
-        position=0.97 1.36 0.37
-        rotation=0.0973894 0 0
-        params=0.1 0.4 0.1 0
-        material=qt_colour_ffffffff_white
+        type=box
+        position=1.52 -1.9 0
+        rotation=-0.0174533 0 0
+        half_extents=0.1 0.1 1.9
+        material=qt_colour_ffffffff_ts060_woodpanel
     }
 }
 
 layer layer39 {
-    operation=subtraction
-    smoothness=0.3
+    operation=union
+    smoothness=0
 
     primitive layer39_primitive {
-        type=capped_cone
-        position=-0.01 1.22 -0.4
+        type=box
+        position=-1.38 -0.7 -0.71
         rotation=0 0 0
-        params=0.1 0.05 0.1 0
-        material=qt_colour_ffffffff
+        half_extents=0.1 1.2 0.1
+        material=qt_colour_ffffffff_ts060_woodpanel
+    }
+}
+
+layer layer40 {
+    operation=subtraction
+    smoothness=0
+
+    primitive layer40_primitive {
+        type=box
+        position=-3.1 -1.93 0.33
+        rotation=0 0 0
+        half_extents=0.1 1 1.5
+        material=qt_colour_dedddaff_ts215_white
     }
 }
 
 layer layer41 {
-    operation=subtraction
-    smoothness=0.1
+    operation=union
+    smoothness=0
 
     primitive layer41_primitive {
-        type=sphere
-        position=0 2.19 -0.37
+        type=box
+        position=-2.84185 -0.97 -0.01
         rotation=0 0 0
-        radius=0.15
-        material=qt_colour_ffffffff_white
+        half_extents=0.2 0.03 1.5
+        material=qt_colour_5e5c64ff_ts060_rusted_metal
     }
 }
 
@@ -379,11 +432,10 @@ layer layer42 {
 
     primitive layer42_primitive {
         type=capsule
-        position=-0.23 3.3 0.11
+        position=-2.28 -0.14 -1.27
         rotation=0 0 0
-        params=0.2 0.7 0 0
-        param_expr=0 0.25- 0.05*p.y
-        material=qt_colour_ffffffff_20_severe_maximal_diffuse
+        params=0.05 0.6 0 0
+        material=qt_colour_ffffffff_ts215_Poliigon_ConcreteWallCladding_7856_BaseColor
     }
 }
 
@@ -392,24 +444,119 @@ layer layer43 {
     smoothness=0
 
     primitive layer43_primitive {
-        type=capsule
-        position=0.33 3.3 0.11
+        type=ellipsoid
+        position=-2.26 -0.79 -0.690668
         rotation=0 0 0
-        params=0.2 0.7 0 0
-        param_expr=0 0.25- 0.05*p.y
-        material=qt_colour_ffffffff_white
+        params=0.2 0.02 0.2 0
+        material=qt_colour_9a9996ff_ts215_concrete_wall
     }
 }
 
 layer layer44 {
     operation=union
-    smoothness=0.1
+    smoothness=0
 
     primitive layer44_primitive {
-        type=ellipsoid
-        position=0.05 2.3 0.11
-        rotation=0 0 -1.5708
-        params=0.5 0.5 0.4 0
-        material=qt_colour_ffffffff_white
+        type=capsule
+        position=-2.28 -0.14 -0.0238271
+        rotation=0 0 0
+        params=0.05 0.6 0 0
+        material=qt_colour_ffffffff_ts215_Poliigon_ConcreteWallCladding_7856_BaseColor
     }
+}
+
+layer layer45 {
+    operation=union
+    smoothness=0
+
+    primitive layer45_primitive {
+        type=ellipsoid
+        position=-2.26 -0.79 -1.3
+        rotation=0 0 0
+        params=0.2 0.02 0.2 0
+        material=qt_colour_9a9996ff_ts215_concrete_wall
+    }
+}
+
+layer layer46 {
+    operation=union
+    smoothness=0
+
+    primitive layer46_primitive {
+        type=capsule
+        position=-2.28 -0.14 -0.7
+        rotation=0 0 0
+        params=0.05 0.6 0 0
+        material=qt_colour_ffffffff_ts215_Poliigon_ConcreteWallCladding_7856_BaseColor
+    }
+}
+
+layer layer47 {
+    operation=union
+    smoothness=0
+
+    primitive layer47_primitive {
+        type=ellipsoid
+        position=-2.26 -0.79 -0.0206566
+        rotation=0 0 0
+        params=0.2 0.02 0.2 0
+        material=qt_colour_9a9996ff_ts215_concrete_wall
+    }
+}
+
+layer layer48 {
+    operation=union
+    smoothness=0
+
+    primitive layer48_primitive {
+        type=capsule
+        position=-2.28 -0.14 0.72261
+        rotation=0 0 0
+        params=0.05 0.6 0 0
+        material=qt_colour_ffffffff_ts215_Poliigon_ConcreteWallCladding_7856_BaseColor
+    }
+}
+
+layer layer49 {
+    operation=union
+    smoothness=0
+
+    primitive layer49_primitive {
+        type=ellipsoid
+        position=-2.26 -0.79 0.728621
+        rotation=0 0 0
+        params=0.2 0.02 0.2 0
+        material=qt_colour_9a9996ff_ts215_concrete_wall
+    }
+}
+
+layer layer50 {
+    operation=union
+    smoothness=0.15
+
+    primitive layer50_primitive {
+        type=box
+        position=-0.07 -1.35 2.19
+        rotation=0 0 0
+        half_extents=3.2 1.1 0.05
+        material=qt_colour_ffffffff_ts215_white
+    }
+}
+
+volumetric volumetric0 {
+    type=box
+    position=3 -0.5 1.2
+    rotation=0.261799 0 0.785398
+    params=0.4 0.7 0.6 0
+    density=0.4
+    material=qt_vol_colour_f9f06bff_ts125_Stripes
+}
+
+volumetric volumetric1 {
+    type=box
+    position=-3.2 -0.8 0.3
+    rotation=0 0 -0.785398
+    params=1.2 2 1.7 0
+    density=0.2
+    material=qt_vol_colour_f9f06bff_ts125_Stripes
 }

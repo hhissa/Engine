@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_vol_colour_f9f06bff_ts125_Stripes
+diffuse_colour=0.976471 0.941176 0.419608 1
+texture_scale=1.25
+diffuse_map_name=Stripes

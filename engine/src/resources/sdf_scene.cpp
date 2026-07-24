@@ -15,7 +15,46 @@ std::string trim(const std::string &s) {
   return s.substr(start, end - start + 1);
 }
 
-enum class Context { TopLevel, Layer, Primitive, Light };
+enum class Context { TopLevel, Layer, Primitive, Light, Volumetric };
+
+// Shared by Primitive and Volumetric contexts below -- both blocks use the
+// exact same "type=" string set (see SdfPrimitiveType's comment).
+bool parse_primitive_type(const std::string &value, SdfPrimitiveType &out) {
+  if (value == "sphere") {
+    out = SdfPrimitiveType::Sphere;
+  } else if (value == "box") {
+    out = SdfPrimitiveType::Box;
+  } else if (value == "plane") {
+    out = SdfPrimitiveType::Plane;
+  } else if (value == "torus") {
+    out = SdfPrimitiveType::Torus;
+  } else if (value == "capped_cylinder") {
+    out = SdfPrimitiveType::CappedCylinder;
+  } else if (value == "capped_cone") {
+    out = SdfPrimitiveType::CappedCone;
+  } else if (value == "round_box") {
+    out = SdfPrimitiveType::RoundBox;
+  } else if (value == "box_frame") {
+    out = SdfPrimitiveType::BoxFrame;
+  } else if (value == "octahedron") {
+    out = SdfPrimitiveType::Octahedron;
+  } else if (value == "pyramid") {
+    out = SdfPrimitiveType::Pyramid;
+  } else if (value == "hex_prism") {
+    out = SdfPrimitiveType::HexPrism;
+  } else if (value == "round_cone") {
+    out = SdfPrimitiveType::RoundCone;
+  } else if (value == "capsule") {
+    out = SdfPrimitiveType::Capsule;
+  } else if (value == "link") {
+    out = SdfPrimitiveType::Link;
+  } else if (value == "ellipsoid") {
+    out = SdfPrimitiveType::Ellipsoid;
+  } else {
+    return false;
+  }
+  return true;
+}
 
 bool parse_vec3(const std::string &value, glm::vec3 &out) {
   std::istringstream iss(value);
@@ -54,6 +93,7 @@ std::optional<SdfScene> load_sdf_scene(std::string_view path) {
   SdfLayerDef current_layer;
   SdfPrimitiveDef current_primitive;
   SdfLightDef current_light;
+  SdfVolumetricDef current_volumetric;
 
   std::string line;
   int line_number = 0;
@@ -76,6 +116,10 @@ std::optional<SdfScene> load_sdf_scene(std::string_view path) {
       } else if (context == Context::Light) {
         scene.lights.push_back(std::move(current_light));
         current_light = SdfLightDef{};
+        context = Context::TopLevel;
+      } else if (context == Context::Volumetric) {
+        scene.volumetrics.push_back(std::move(current_volumetric));
+        current_volumetric = SdfVolumetricDef{};
         context = Context::TopLevel;
       } else {
         KWARN("'{}': unexpected '}}' at line {}.", path, line_number);
@@ -104,6 +148,10 @@ std::optional<SdfScene> load_sdf_scene(std::string_view path) {
         current_light = SdfLightDef{};
         current_light.name = name;
         context = Context::Light;
+      } else if (keyword == "volumetric" && context == Context::TopLevel) {
+        current_volumetric = SdfVolumetricDef{};
+        current_volumetric.name = name;
+        context = Context::Volumetric;
       } else {
         KWARN("'{}': unexpected block '{}' at line {}.", path, header,
              line_number);
@@ -139,37 +187,7 @@ std::optional<SdfScene> load_sdf_scene(std::string_view path) {
       }
     } else if (context == Context::Primitive) {
       if (key == "type") {
-        if (value == "sphere") {
-          current_primitive.type = SdfPrimitiveType::Sphere;
-        } else if (value == "box") {
-          current_primitive.type = SdfPrimitiveType::Box;
-        } else if (value == "plane") {
-          current_primitive.type = SdfPrimitiveType::Plane;
-        } else if (value == "torus") {
-          current_primitive.type = SdfPrimitiveType::Torus;
-        } else if (value == "capped_cylinder") {
-          current_primitive.type = SdfPrimitiveType::CappedCylinder;
-        } else if (value == "capped_cone") {
-          current_primitive.type = SdfPrimitiveType::CappedCone;
-        } else if (value == "round_box") {
-          current_primitive.type = SdfPrimitiveType::RoundBox;
-        } else if (value == "box_frame") {
-          current_primitive.type = SdfPrimitiveType::BoxFrame;
-        } else if (value == "octahedron") {
-          current_primitive.type = SdfPrimitiveType::Octahedron;
-        } else if (value == "pyramid") {
-          current_primitive.type = SdfPrimitiveType::Pyramid;
-        } else if (value == "hex_prism") {
-          current_primitive.type = SdfPrimitiveType::HexPrism;
-        } else if (value == "round_cone") {
-          current_primitive.type = SdfPrimitiveType::RoundCone;
-        } else if (value == "capsule") {
-          current_primitive.type = SdfPrimitiveType::Capsule;
-        } else if (value == "link") {
-          current_primitive.type = SdfPrimitiveType::Link;
-        } else if (value == "ellipsoid") {
-          current_primitive.type = SdfPrimitiveType::Ellipsoid;
-        } else {
+        if (!parse_primitive_type(value, current_primitive.type)) {
           KWARN("'{}': unknown primitive type '{}' at line {}.", path, value,
                line_number);
         }
@@ -271,6 +289,45 @@ std::optional<SdfScene> load_sdf_scene(std::string_view path) {
         current_light.intensity = std::stof(value);
       } else {
         KWARN("'{}': unknown light property '{}' at line {}.", path, key,
+             line_number);
+      }
+    } else if (context == Context::Volumetric) {
+      if (key == "type") {
+        if (!parse_primitive_type(value, current_volumetric.type)) {
+          KWARN("'{}': unknown volumetric type '{}' at line {}.", path, value,
+               line_number);
+        }
+      } else if (key == "position") {
+        glm::vec3 v;
+        if (parse_vec3(value, v)) {
+          current_volumetric.position = v;
+        } else {
+          KWARN("'{}': malformed position '{}' at line {}.", path, value,
+               line_number);
+        }
+      } else if (key == "rotation") {
+        glm::vec3 v;
+        if (parse_vec3(value, v)) {
+          current_volumetric.rotation = v;
+        } else {
+          KWARN("'{}': malformed rotation '{}' at line {}.", path, value,
+               line_number);
+        }
+      } else if (key == "params") {
+        glm::vec4 v;
+        if (parse_vec4(value, v)) {
+          current_volumetric.params = glm::vec3(v);
+          current_volumetric.extra_param = v.w;
+        } else {
+          KWARN("'{}': malformed params '{}' at line {}.", path, value,
+               line_number);
+        }
+      } else if (key == "density") {
+        current_volumetric.density = std::stof(value);
+      } else if (key == "material") {
+        current_volumetric.material_name = value;
+      } else {
+        KWARN("'{}': unknown volumetric property '{}' at line {}.", path, key,
              line_number);
       }
     } else if (key == "ambient") {

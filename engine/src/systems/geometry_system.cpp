@@ -206,6 +206,67 @@ std::vector<Light> GeometrySystem::light_snapshot() const {
   return result;
 }
 
+Volumetric &GeometrySystem::acquire_volumetric(const VolumetricConfig &config,
+                                               bool auto_release) {
+  VolumetricEntry &entry = volumetrics_.try_emplace(config.name).first->second;
+
+  if (entry.reference_count == 0) {
+    entry.auto_release = auto_release;
+
+    Volumetric volumetric;
+    volumetric.name = config.name;
+    volumetric.type = config.type;
+    volumetric.position = config.position;
+    volumetric.rotation = config.rotation;
+    volumetric.params = config.params;
+    volumetric.extra_param = config.extra_param;
+    volumetric.density = config.density;
+    volumetric.material_name = config.material_name;
+    volumetric.material = &material_system_->acquire(config.material_name, true);
+    entry.volumetric = std::move(volumetric);
+
+    KTRACE("Volumetric '{}' registered.", config.name);
+  }
+  ++entry.reference_count;
+
+  return entry.volumetric;
+}
+
+void GeometrySystem::release_volumetric(std::string_view name) {
+  std::string key(name);
+  auto it = volumetrics_.find(key);
+  if (it == volumetrics_.end() || it->second.reference_count == 0) {
+    KWARN("GeometrySystem::release_volumetric called for a volumetric with "
+         "no outstanding references: '{}'.",
+         name);
+    return;
+  }
+
+  VolumetricEntry &entry = it->second;
+  --entry.reference_count;
+  if (entry.reference_count == 0 && entry.auto_release) {
+    material_system_->release(entry.volumetric.material_name);
+    volumetrics_.erase(it);
+  }
+}
+
+std::vector<Volumetric> GeometrySystem::volumetric_snapshot() const {
+  std::vector<Volumetric> result;
+  result.reserve(volumetrics_.size());
+  for (const auto &[name, entry] : volumetrics_) {
+    result.push_back(entry.volumetric);
+  }
+  return result;
+}
+
+Volumetric *GeometrySystem::find_volumetric(std::string_view name) {
+  auto it = volumetrics_.find(std::string(name));
+  if (it == volumetrics_.end()) {
+    return nullptr;
+  }
+  return &it->second.volumetric;
+}
+
 LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
                                             bool auto_release,
                                             std::string_view name_prefix) {
@@ -277,6 +338,21 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
 
     acquire_light(config, auto_release);
     result.light_names.push_back(config.name);
+  }
+
+  for (const SdfVolumetricDef &volumetric_def : scene.volumetrics) {
+    VolumetricConfig config;
+    config.name = std::string(name_prefix) + volumetric_def.name;
+    config.type = to_primitive_type(volumetric_def.type);
+    config.position = volumetric_def.position;
+    config.rotation = volumetric_def.rotation;
+    config.params = volumetric_def.params;
+    config.extra_param = volumetric_def.extra_param;
+    config.density = volumetric_def.density;
+    config.material_name = volumetric_def.material_name;
+
+    acquire_volumetric(config, auto_release);
+    result.volumetric_names.push_back(config.name);
   }
 
   return result;

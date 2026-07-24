@@ -13,6 +13,7 @@ void CameraSystem::add_pose(const CameraPose &pose) {
 void CameraSystem::cycle() {
   if (!poses_.empty() && !debug_active_) {
     current_ = (current_ + 1) % poses_.size();
+    zoom_offset_ = 0.0f; // each station starts at its authored distance
   }
 }
 
@@ -76,6 +77,7 @@ void CameraSystem::update_debug(f32 delta_time) {
     debug_camera_.move(glm::normalize(move) * speed * delta_time);
   }
 
+  current_camera_ = debug_camera_;
   renderer_set_camera(debug_camera_);
 }
 
@@ -101,6 +103,19 @@ void CameraSystem::update(u32 screen_width, u32 screen_height, f32 delta_time) {
       static_cast<f32>(mouse.y) / static_cast<f32>(screen_height) * 2.0f - 1.0f,
       -1.0f, 1.0f);
 
+  // Scroll-to-zoom: dolly along wherever the camera is *currently* looking
+  // (base facing plus pan, computed below), so scrolling zooms in on
+  // whatever's actually under the view, not a fixed direction that ignores
+  // where the mouse has panned it. Scrolling up (a positive wheel delta)
+  // zooms in -- moves forward.
+  constexpr f32 kZoomStep = 0.15f;    // world units per wheel notch
+  constexpr f32 kMinZoomOffset = -1.5f; // furthest zoomed out (back away)
+  constexpr f32 kMaxZoomOffset = 3.0f;  // furthest zoomed in (move forward)
+  zoom_offset_ = std::clamp(
+      zoom_offset_ +
+          static_cast<f32>(input::mouse_wheel_delta()) * kZoomStep,
+      kMinZoomOffset, kMaxZoomOffset);
+
   // A fresh Camera starts at yaw = pitch = 0, so the relative yaw()/pitch()
   // calls below set absolute angles: base facing plus the clamped pan.
   Camera camera;
@@ -108,5 +123,11 @@ void CameraSystem::update(u32 screen_width, u32 screen_height, f32 delta_time) {
   camera.yaw(pose.yaw + nx * pose.max_pan);
   camera.pitch(pose.pitch + ny * pose.max_pan);
 
+  // Dolly along the camera's own forward() -- already the panned direction
+  // set just above -- so zooming moves toward exactly where you're looking
+  // right now.
+  camera.set_position(pose.position + camera.forward() * zoom_offset_);
+
+  current_camera_ = camera;
   renderer_set_camera(camera);
 }

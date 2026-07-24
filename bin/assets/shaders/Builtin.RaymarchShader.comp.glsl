@@ -33,9 +33,16 @@ const float COARSE_CELL_SIZE = (2.0 * BOUNDS) / float(COARSE_DIM);
 // each type is evaluated. Read push.light_count of these, not lights.length()
 // -- the buffer is sized to a fixed capacity (see kMaxLights engine-side),
 // not to how many are actually registered.
+// source_primitive.x is the primitives[]/scene_textures index this Point
+// light was synthesized from (an emissive primitive), or -1 if it has no
+// associated primitive (every authored/fallback light) -- see
+// GpuLight::source_primitive's comment engine-side, and shadow_march()'s
+// exclude_material parameter (Builtin.BakedFieldCommon.inc.glsl) for why
+// this matters. yzw unused padding.
 struct Light {
     vec4 vector_type;
     vec4 colour_intensity;
+    vec4 source_primitive;
 };
 
 layout(binding = 3) readonly buffer LightBuffer {
@@ -92,6 +99,18 @@ layout(push_constant) uniform PushConstants {
     int layer_count;              // How many LayerBuffer entries scene_map()
                                   // folds -- same value the voxelize pass
                                   // baked with.
+    int volumetric_start;         // First index (into primitives[]/
+                                  // scene_textures/scene_diffuse_colours) of
+                                  // the registered-volumetrics tail range --
+                                  // see accumulate_volumetrics() below.
+    int volumetric_count;         // How many contiguous entries starting
+                                  // there are volumetrics.
+    float time;                  // Seconds since the shader was constructed
+                                  // -- drives accumulate_volumetrics()'s
+                                  // scrolling texture animation.
+    int skybox_enabled;           // Nonzero to sample skybox_texture for the
+                                  // background instead of the flat two-
+                                  // colour gradient -- see apply_skybox().
 } push;
 
 // MAX_STEPS must be large enough to guarantee a ray can actually reach
@@ -107,6 +126,20 @@ layout(push_constant) uniform PushConstants {
 const int MAX_STEPS = 640;
 const float MAX_DIST = 128.0;
 const float SURF_DIST = 0.001;
+
+// Shadow ray tuning (see shadow_march() in Builtin.BakedFieldCommon.inc.
+// glsl, included below). SHADOW_NORMAL_BIAS offsets a shadow ray's origin
+// off the surface being shaded, along its normal, comfortably more than
+// one baked voxel's world size (COARSE_CELL_SIZE/BRICK_DIM here is
+// (2*16)/128/8 = 0.03125) so the ray's very first sample doesn't re-detect
+// that same surface as its own occluder. SHADOW_SOFTNESS is shadow_march()'s
+// k -- how hard-edged the penumbra reads. SHADOW_MAX_STEPS can stay modest
+// (unlike MAX_STEPS above): a shadow ray only ever needs to cross the
+// scene's own baked volume, never reach all the way out to a distant
+// camera.
+const float SHADOW_NORMAL_BIAS = 0.05;
+const float SHADOW_SOFTNESS = 16.0;
+const int SHADOW_MAX_STEPS = 256;
 
 // sample_field() (the baked-field query) plus its indirection/brick-pool/
 // brick-primitive bindings live in the shared include below -- also used
@@ -142,6 +175,25 @@ layout(binding = 10) readonly buffer ProbeBuffer {
     vec4 probes[]; // rgb = baked indirect irradiance at this probe; see
                    // Builtin.ProbeBake.comp.glsl for how it's computed.
 };
+
+// One entry per registered static primitive (parallel to
+// scene_diffuse_colours) -- 1.0 if that primitive's material is
+// pixelation-exempt (Material::pixelation_exempt), 0.0 otherwise. Written
+// into out_image's alpha channel below (see main()) for
+// Builtin.PostComposite.comp.glsl's pixelation pass to read; nothing else
+// in this shader uses it, so a plain float array is simpler than folding
+// it into an already-full vec4 buffer.
+layout(binding = 11) readonly buffer PixelationExemptBuffer {
+    float pixelation_exempt[];
+};
+
+// Optional skybox -- a single equirectangular (lat/long) image, sampled by
+// ray direction wherever the primary ray hits nothing at all (see
+// apply_skybox() below). Only valid to sample while push.skybox_enabled is
+// nonzero -- otherwise this is bound to TextureSystem's filler texture (see
+// VulkanRaymarchShader::disable_skybox()/the constructor), which is never
+// actually read then.
+layout(binding = 12) uniform sampler2D skybox_texture;
 
 // Trilinearly samples the baked probe grid at world point p -- the
 // render-time counterpart to the GI bake, reading exactly the regular
@@ -358,6 +410,22 @@ void apply_reference_grid(inout vec3 colour, vec3 ray_origin, vec3 ray_dir,
     colour = mix(colour, grid_colour, grid_alpha * fade);
 }
 
+// Samples skybox_texture by ray direction alone (no position -- an
+// infinitely distant background, exactly like a real sky) via the standard
+// equirectangular/lat-long projection: longitude (angle around the world Y
+// axis) maps to u, latitude (angle from the north pole down to the south
+// pole) maps to v. The one seam this projects along (dir.x >= 0, dir.z == 0,
+// i.e. straight behind the u=0/u=1 wraparound) falls on whatever the
+// authored image has there, same as any equirectangular skybox in any
+// engine -- not something this shader can avoid by itself.
+const float PI = 3.14159265359;
+
+vec3 sample_skybox(vec3 dir) {
+    vec2 uv = vec2(atan(dir.z, dir.x) / (2.0 * PI) + 0.5,
+                  acos(clamp(dir.y, -1.0, 1.0)) / PI);
+    return texture(skybox_texture, uv).rgb;
+}
+
 // Marches the ray against the baked static field. hit_material receives
 // the winning surface's material index once something is hit (always >=0
 // -- an index into scene_textures/scene_diffuse_colours).
@@ -387,6 +455,92 @@ float raymarch(vec3 ray_origin, vec3 ray_dir, out int hit_material) {
     return travelled;
 }
 
+// Cheap per-pixel pseudo-random value (interleaved-gradient-noise style) --
+// used below to dither accumulate_volumetrics()'s fixed step count, so
+// banding between samples turns into fine-grained noise instead of visible
+// stepped bands (the same problem, and the same fix, as any fixed-step
+// volumetric/fog march).
+float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+// How far past the primary ray's own hit (or MAX_DIST on a miss) a
+// volumetric shaft is still marched through -- keeps the fixed step count
+// below reasonably fine-grained without needing to cover the whole of
+// MAX_DIST, which no authored light-shaft primitive should ever need to
+// reach.
+const float VOLUMETRIC_MAX_DIST = 48.0;
+const int VOLUMETRIC_STEPS = 48;
+// World units per texture tile, and world units per second the texture
+// scrolls along a shaft's local Y (its height axis, matching every other
+// primitive type's local-space convention) -- the drifting-dust-in-a-
+// sunbeam look "textured to look like god rays" implies, rather than a
+// static decal. Independent of any one primitive's texture_scale (packed in
+// scene_diffuse_colours[idx].a, same as an opaque primitive's) which still
+// controls the pattern's overall tiling frequency.
+const float VOLUMETRIC_SCROLL_SPEED = 0.06;
+
+// Secondary analytic pass, run once per pixel after raymarch() has already
+// resolved the opaque hit: marches the *same* primary ray a second time,
+// but through GeometrySystem's registered volumetrics instead of the baked
+// field -- these were never baked into it (see rebuild_static_scene()), so
+// a primary ray always passes straight through one, exactly like a fog
+// volume rather than a solid surface. Reuses primitive_sdf() (shared with
+// the opaque scene, see Builtin.SdfSceneCommon.inc.glsl) directly against
+// primitives[push.volumetric_start + i] -- the full 15-type shape catalogue,
+// rotation, and per-type params all come for free from that reuse. Returns
+// an additive glow contribution (never subtracts/occludes -- a light shaft
+// brightens whatever is behind it, it doesn't block it), textured/tinted by
+// each shape's own material exactly like an opaque primitive's triplanar
+// shading, but projected as a single planar UV across the shape's local XZ
+// footprint (a light shaft has no meaningful "surface normal" to blend
+// triplanar sampling by, since a ray marching through it never actually
+// hits it) and scrolling along local Y over time for a drifting look.
+// max_march_dist is min(the primary ray's own travel distance, MAX_DIST) --
+// clamped again internally by VOLUMETRIC_MAX_DIST so this stays cheap even
+// on a total miss (background) ray.
+vec3 accumulate_volumetrics(vec3 ray_origin, vec3 ray_dir, float max_march_dist, float dither) {
+    vec3 accum = vec3(0.0);
+    if (push.volumetric_count <= 0) {
+        return accum;
+    }
+
+    float march_dist = min(max_march_dist, VOLUMETRIC_MAX_DIST);
+    if (march_dist <= 0.0) {
+        return accum;
+    }
+    float step_size = march_dist / float(VOLUMETRIC_STEPS);
+    float t = step_size * dither; // dithered start offset -- breaks banding
+
+    for (int s = 0; s < VOLUMETRIC_STEPS; ++s) {
+        vec3 p = ray_origin + ray_dir * t;
+
+        for (int i = 0; i < push.volumetric_count; ++i) {
+            int idx = push.volumetric_start + i;
+            if (primitive_sdf(idx, p) >= 0.0) {
+                continue; // outside this shaft -- no contribution here
+            }
+
+            vec3 local = primitive_local_space(idx, p);
+            float texture_scale = max(scene_diffuse_colours[idx].a, 0.01);
+            vec2 uv = local.xz / texture_scale +
+                     vec2(0.0, local.y / texture_scale - push.time * VOLUMETRIC_SCROLL_SPEED);
+
+            vec3 tex_colour = sample_scene_texture(idx, uv);
+            vec3 tint = scene_diffuse_colours[idx].rgb;
+            float density = max(primitives[idx].expr_scale.x, 0.0);
+
+            accum += tex_colour * tint * density * step_size;
+        }
+
+        t += step_size;
+    }
+
+    return accum;
+}
+
 void main() {
     ivec2 pixel_coord = ivec2(gl_GlobalInvocationID.xy);
     ivec2 image_size = imageSize(out_image);
@@ -413,8 +567,19 @@ void main() {
     int hit_material;
     float travelled = raymarch(ray_origin, ray_dir, hit_material);
 
-    // Background gradient.
-    vec3 colour = mix(vec3(0.02, 0.02, 0.05), vec3(0.05, 0.05, 0.12), uv.y + 0.5);
+    // Background: the skybox if one is enabled (see set_skybox()), else the
+    // flat two-colour gradient this shader always used before skyboxes
+    // existed. Sampled by ray direction alone, so it reads as infinitely
+    // distant -- geometry in front of it (any hit below) simply overwrites
+    // colour, the same as it always overwrote the flat gradient.
+    vec3 colour = push.skybox_enabled != 0
+        ? sample_skybox(ray_dir)
+        : mix(vec3(0.02, 0.02, 0.05), vec3(0.05, 0.05, 0.12), uv.y + 0.5);
+    // Whether Builtin.PostComposite.comp.glsl's pixelation pass should
+    // leave this pixel alone -- see out_image's alpha channel below. The
+    // background (a miss) is never exempt: it's not a primitive, so it
+    // pixelates along with everything else that doesn't opt out.
+    float exempt_flag = 0.0;
 
     if (travelled < MAX_DIST) {
         vec3 p = ray_origin + ray_dir * travelled;
@@ -432,6 +597,7 @@ void main() {
         if (analytic_material >= 0) {
             hit_material = analytic_material;
         }
+        exempt_flag = pixelation_exempt[hit_material];
 
         // World units per texture tile, from this hit's material (packed
         // in the colour's alpha slot -- see ScenePrimitiveColours above).
@@ -479,6 +645,7 @@ void main() {
 
             vec3 light_dir;
             float attenuation;
+            float shadow_max_dist;
             if (light_type == 1) {
                 // Point: direction from the surface to the light, with
                 // inverse-square falloff (intensity == brightness at 1
@@ -487,18 +654,44 @@ void main() {
                 float dist = length(to_light);
                 light_dir = to_light / max(dist, 0.0001);
                 attenuation = intensity / max(dist * dist, 0.0001);
+                shadow_max_dist = dist; // nothing to occlude past the light itself
             } else {
                 // Directional: shines uniformly from this direction, no
                 // falloff.
                 light_dir = normalize(light.vector_type.xyz);
                 attenuation = intensity;
+                shadow_max_dist = MAX_DIST; // no fixed distance to stop at
             }
 
             float diffuse = max(dot(normal, light_dir), 0.0);
+            if (diffuse > 0.0) {
+                // Only bother marching a shadow ray if this light would
+                // otherwise contribute anything at all -- a surface facing
+                // away from it is already at zero regardless of occlusion.
+                float shadow = shadow_march(p + normal * SHADOW_NORMAL_BIAS,
+                                           light_dir, shadow_max_dist,
+                                           SHADOW_SOFTNESS, SHADOW_MAX_STEPS,
+                                           int(light.source_primitive.x));
+                diffuse *= shadow;
+            }
             lighting += light_colour * diffuse * attenuation;
         }
 
         colour = tex_colour * tint * lighting;
+
+        // Self-illumination: added straight in, independent of every light/
+        // ambient/GI term above -- an emissive primitive (Material::
+        // emissive_colour/emissive_intensity, packed engine-side into this
+        // primitive's expr_scale.yzw) looks lit even in complete darkness,
+        // the way a real light bulb or glowing panel would. (0,0,0) for a
+        // non-emissive material, so this is a no-op for everything else.
+        // VulkanRaymarchShader::rebuild_static_scene() also registers a
+        // matching synthesized point light per emissive primitive, so it
+        // doesn't just look bright here -- it actually illuminates the
+        // rest of the scene too (see the direct-lighting loop above and
+        // Builtin.ProbeBake.comp.glsl, which both read the same light
+        // buffer).
+        colour += primitives[hit_material].expr_scale.yzw;
 
         // Selection outline: a rim-light glow, brightest where the surface
         // grazes away from the camera (silhouette edges) and fading toward
@@ -513,6 +706,16 @@ void main() {
         }
     }
 
+    // Volumetric light shafts -- see accumulate_volumetrics()'s comment.
+    // Additive, and unconditional on whether the primary ray hit anything:
+    // a shaft crossing empty space (in front of the background gradient)
+    // should glow just as much as one crossing in front of solid geometry.
+    // The dither offset is derived from pixel_coord (not a per-frame seed),
+    // so it's stable frame-to-frame -- the moving element is the texture
+    // scroll (push.time) below, not this noise pattern re-randomizing.
+    float dither = hash12(vec2(pixel_coord));
+    colour += accumulate_volumetrics(ray_origin, ray_dir, min(travelled, MAX_DIST), dither);
+
     if (push.grid_enabled != 0) {
         // travelled is >= MAX_DIST on a miss, which apply_reference_grid()
         // reads as "nothing occludes the plane". pixel_height matches the
@@ -522,5 +725,5 @@ void main() {
                              1.0 / float(image_size.y));
     }
 
-    imageStore(out_image, pixel_coord, vec4(colour, 1.0));
+    imageStore(out_image, pixel_coord, vec4(colour, exempt_flag));
 }

@@ -116,3 +116,72 @@ void sample_field(vec3 p, vec3 ray_dir, out float dist, out float skip_dist, out
 
     dist = mix(c0, c1, t.z);
 }
+
+// Soft shadow ray march against the baked field (Inigo Quilez's classic SDF
+// soft-shadow technique, https://iquilezles.org/articles/rmshadows/):
+// instead of a binary hit/miss test, tracks the smallest ratio of (distance
+// to the nearest surface : distance already travelled) seen along the way
+// -- a ray that passes close by an occluder without actually crossing it
+// produces a small ratio (a soft penumbra near the occluder's edge), while
+// one that stays clear the whole way keeps the ratio at its max (fully
+// lit). k controls how hard-edged the penumbra reads (higher = a sharper
+// cutoff, closer to a binary shadow; lower = a softer, wider penumbra).
+// max_steps lets each caller size its own budget (the primary render pass
+// can afford more than a GI bake's gather rays -- see its own MAX_STEPS/
+// GATHER_MAX_STEPS).
+//
+// origin should already be offset off the surface being shaded (along its
+// normal, by comfortably more than one baked voxel's world size) before
+// calling this -- otherwise the very first sample can register that same
+// surface as its own occluder ("shadow acne"). max_dist should stop at the
+// light itself for a Point light (nothing to occlude beyond it) or this
+// shader's own far bound for a Directional one (no fixed distance to stop
+// at).
+//
+// exclude_material handles a subtlety specific to this engine's emissive-
+// primitive lights (see GpuLight::source_primitive, engine-side): a light
+// synthesized from an emissive primitive sits at that primitive's own
+// position, so a shadow ray toward it would otherwise always find that
+// same primitive's own shell in the way first -- any point outside a
+// convex shape has to cross its surface to reach its interior/center, so
+// without this every emissive light would appear to illuminate nothing
+// but itself. Passing that primitive's index here makes a hit attributed
+// to it (via brick_primitive[]) transparent to this one shadow ray instead
+// of a real occluder -- pass -1 (no primitive can ever match) for a light
+// with no associated primitive, i.e. every authored/fallback light.
+float shadow_march(vec3 origin, vec3 dir, float max_dist, float k, int max_steps, int exclude_material) {
+    // Larger than SURF_DIST: how far shadow_march steps forward when it
+    // hits exclude_material's own shell, to actually make progress through
+    // its interior across a few iterations rather than crawling forward at
+    // SURF_DIST (near-zero, since the hit distance itself is near-zero)
+    // increments the whole way through it.
+    const float SELF_SKIP_STEP = 0.1;
+
+    float shadow = 1.0;
+    float travelled = 0.0;
+    for (int i = 0; i < max_steps; ++i) {
+        vec3 p = origin + dir * travelled;
+
+        float dist, skip_dist;
+        int material;
+        sample_field(p, dir, dist, skip_dist, material);
+        bool valid = (skip_dist == 0.0);
+
+        if (valid && abs(dist) < SURF_DIST) {
+            if (material == exclude_material) {
+                travelled += SELF_SKIP_STEP;
+                continue;
+            }
+            return 0.0; // fully occluded
+        }
+
+        float step = valid ? abs(dist) : skip_dist;
+        shadow = min(shadow, k * step / max(travelled, SURF_DIST));
+        travelled += max(step, SURF_DIST);
+
+        if (travelled > max_dist || shadow < 0.005) {
+            break;
+        }
+    }
+    return clamp(shadow, 0.0, 1.0);
+}

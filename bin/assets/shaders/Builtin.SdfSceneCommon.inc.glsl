@@ -31,7 +31,13 @@ struct Primitive {
     vec4 rotation;
     // x = the accumulated uniform scale for formula-driven param slots
     // (Geometry::param_expr_scale engine-side -- see resolve_params()
-    // below for how it's applied); yzw unused padding.
+    // below for how it's applied). yzw = this primitive's emissive
+    // radiance (Material::emissive_colour * emissive_intensity,
+    // pre-multiplied engine-side) -- (0,0,0) for a non-emissive material.
+    // Only Builtin.RaymarchShader.comp.glsl's render pass reads yzw (added
+    // straight into a hit's shaded colour, making the primitive glow
+    // regardless of incoming light -- see main() there); the voxelize
+    // pass never touches them, it only cares about shape.
     vec4 expr_scale;
 };
 
@@ -311,6 +317,25 @@ float ellipsoid_sdf(vec3 p, vec3 radii) {
 // Rotates v by unit quaternion q.
 vec3 rotate_by_quat(vec3 v, vec4 q) {
     return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+}
+
+// Transforms world point p into primitive index's own local space (world
+// position subtracted, then rotated by the inverse of its rotation, exactly
+// like primitive_sdf() below does internally before evaluating a shape
+// function) -- exposed separately for callers that need the local point
+// itself rather than just a distance, e.g. Builtin.RaymarchShader.comp.glsl's
+// accumulate_volumetrics(), which projects it onto a texture UV to give a
+// volumetric primitive's glow a shape-relative pattern instead of a flat
+// tint.
+vec3 primitive_local_space(int index, vec3 p) {
+    Primitive prim = primitives[index];
+    vec3 local = p - prim.position_type.xyz;
+    int type = int(prim.position_type.w);
+    if (type != 2) {
+        vec4 inverse_rotation = vec4(-prim.rotation.xyz, prim.rotation.w);
+        local = rotate_by_quat(local, inverse_rotation);
+    }
+    return local;
 }
 
 float primitive_sdf(int index, vec3 p) {

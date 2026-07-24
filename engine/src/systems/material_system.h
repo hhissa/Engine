@@ -40,6 +40,27 @@ struct Material {
   // Builtin.RaymarchShader.comp.glsl, so materials that don't set it look
   // exactly as they always did.
   f32 texture_scale = 0.6f;
+  // Self-illumination -- "emissive_colour="/"emissive_intensity=" in the
+  // .kmt. Any primitive using a material with emissive_intensity > 0
+  // becomes a visible light source: it renders at a brightness
+  // independent of the scene's actual lighting (see the emissive term in
+  // Builtin.RaymarchShader.comp.glsl -- added straight into the shaded
+  // colour, unlike diffuse/ambient which depend on incoming light), and
+  // VulkanRaymarchShader::rebuild_static_scene() automatically registers
+  // one synthesized point light per emissive primitive (positioned at the
+  // primitive itself) so it also actually illuminates everything else --
+  // an authored "glowing bulb"/"light panel" primitive that is genuinely
+  // its own light source, not just a bright-looking prop. Default
+  // intensity 0 (off) -- existing materials that don't set this glow
+  // exactly as they always did.
+  glm::vec3 emissive_colour{1.0f};
+  f32 emissive_intensity = 0.0f;
+  // "pixelation_exempt=true" in the .kmt -- excludes any primitive using
+  // this material from the screen-space pixelation post-process (see
+  // Builtin.PostComposite.comp.glsl), so it stays crisp/full-resolution
+  // even while everything else on screen pixelates. Off by default (this
+  // primitive pixelates normally, like everything else).
+  bool pixelation_exempt = false;
   VulkanTexture *diffuse_texture =
       nullptr; // Non-owning -- owned by TextureSystem.
 

@@ -68,6 +68,8 @@ class VulkanTextShader;
 
 class VulkanLineShader;
 
+class VulkanSolidQuadShader;
+
 // VulkanComputePipeline, used by VulkanRaymarchShader, is a separate,
 // already-implemented RAII class since compute and graphics pipelines are
 // created/bound differently.
@@ -139,6 +141,7 @@ struct VulkanContext {
   std::unique_ptr<VulkanUIShader> ui_shader;
   std::unique_ptr<VulkanTextShader> text_shader;
   std::unique_ptr<VulkanLineShader> line_shader;
+  std::unique_ptr<VulkanSolidQuadShader> solid_quad_shader;
 
   i32 (*find_memory_index)(VulkanContext &context, u32 type_filter,
                            u32 property_flags);
