@@ -279,6 +279,42 @@ void renderer_set_pixelation_block_size(u32 block_size) {
   }
 }
 
+void renderer_set_bloom_threshold(f32 threshold) {
+  if (backend) {
+    backend->set_bloom_threshold(threshold);
+  } else {
+    KWARN("renderer backend does not exist to accept a bloom-threshold "
+         "request.");
+  }
+}
+
+void renderer_set_bloom_intensity(f32 intensity) {
+  if (backend) {
+    backend->set_bloom_intensity(intensity);
+  } else {
+    KWARN("renderer backend does not exist to accept a bloom-intensity "
+         "request.");
+  }
+}
+
+void renderer_set_vignette_strength(f32 strength) {
+  if (backend) {
+    backend->set_vignette_strength(strength);
+  } else {
+    KWARN("renderer backend does not exist to accept a vignette-strength "
+         "request.");
+  }
+}
+
+void renderer_set_vignette_radius(f32 radius) {
+  if (backend) {
+    backend->set_vignette_radius(radius);
+  } else {
+    KWARN("renderer backend does not exist to accept a vignette-radius "
+         "request.");
+  }
+}
+
 void renderer_set_font(std::string_view name, f32 pixel_height) {
   if (backend) {
     backend->set_font(name, pixel_height);

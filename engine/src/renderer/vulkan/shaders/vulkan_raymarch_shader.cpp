@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <glm/gtc/quaternion.hpp>
+#include <initializer_list>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -112,18 +113,6 @@ struct PostCompositePushConstants {
   i32 pixelation_enabled;
   i32 pixelation_block_size;
 };
-
-// Fixed tuning constants for the post-process chain -- not exposed as
-// engine-side setters (unlike the on/off toggles in vulkan_raymarch_
-// shader.h), since these are visual-tuning knobs more than behavioural
-// ones; edit here if the look needs adjusting. Bloom's threshold/
-// intensity are deliberately mild -- "subtle," matching what was asked
-// for -- a much lower threshold or higher intensity turns this into a
-// heavy glow instead.
-constexpr f32 kBloomThreshold = 0.85f;
-constexpr f32 kBloomIntensity = 0.35f;
-constexpr f32 kVignetteStrength = 0.35f;
-constexpr f32 kVignetteRadius = 0.55f;
 
 // GI probe grid dimensions. Must match PROBE_DIM in both
 // Builtin.ProbeBake.comp.glsl and Builtin.RaymarchShader.comp.glsl exactly.
@@ -552,10 +541,12 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        context_->allocator,
                                        &post_composite_set_layout_));
 
-  // One pool backing all five sets.
+  // One pool backing all six sets.
   VkDescriptorPoolSize pool_sizes[3]{};
   pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  pool_sizes[0].descriptorCount = 24; // voxelize's 7 + render's 10 + probe bake's 7
+  // voxelize's 7 + render's 10 + probe bake's 7 x2 (probe_bake_set_ and
+  // probe_bake_set_odd_ -- see their declaration comment).
+  pool_sizes[0].descriptorCount = 31;
   pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   pool_sizes[1].descriptorCount = 6; // render's 1 + bloom blur h's 2 + post composite's 3
   pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -565,18 +556,19 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   pool_info.poolSizeCount = 3;
   pool_info.pPoolSizes = pool_sizes;
-  pool_info.maxSets = 5;
+  pool_info.maxSets = 6;
   VK_CHECK(vkCreateDescriptorPool(context_->device.logical_device, &pool_info,
                                   context_->allocator, &descriptor_pool_));
 
-  VkDescriptorSetLayout layouts[5] = {
-      voxelize_set_layout_, render_set_layout_, probe_bake_set_layout_,
-      bloom_blur_h_set_layout_, post_composite_set_layout_};
-  VkDescriptorSet sets[5];
+  VkDescriptorSetLayout layouts[6] = {
+      voxelize_set_layout_,     render_set_layout_,
+      probe_bake_set_layout_,   bloom_blur_h_set_layout_,
+      post_composite_set_layout_, probe_bake_set_layout_};
+  VkDescriptorSet sets[6];
   VkDescriptorSetAllocateInfo alloc_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   alloc_info.descriptorPool = descriptor_pool_;
-  alloc_info.descriptorSetCount = 5;
+  alloc_info.descriptorSetCount = 6;
   alloc_info.pSetLayouts = layouts;
   VK_CHECK(vkAllocateDescriptorSets(context_->device.logical_device,
                                     &alloc_info, sets));
@@ -585,6 +577,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   probe_bake_set_ = sets[2];
   bloom_blur_h_set_ = sets[3];
   post_composite_set_ = sets[4];
+  probe_bake_set_odd_ = sets[5];
 
   // Populate voxelize_set_: {indirection, brick_pool, brick_counter,
   // primitive_buffer, brick_primitive_buffer, layer_buffer, param_expr_buffer}.
@@ -674,39 +667,47 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // scene_textures' unused slots -- see rebuild_static_scene()).
   write_skybox_binding(context_->texture_system->default_texture());
 
-  // Populate probe_bake_set_'s static bindings (0=indirection,
+  // Populate both probe-bake sets' static bindings (0=indirection,
   // 1=brick_pool, 2=brick_primitive -- the baked field a gather ray
   // marches against, always the current bake's; 3=scene_diffuse_colours,
-  // 4=light_buffer -- a gather ray's hit shading). Bindings 5/6
-  // (Prev/CurrProbeBuffer) are deliberately left unwritten here --
-  // bake_probes() rewrites them before every bounce's dispatch, since
-  // which physical buffer is "previous" vs. "current" alternates each
-  // bounce.
+  // 4=light_buffer -- a gather ray's hit shading; identical in both sets),
+  // plus 5/6 (Prev/CurrProbeBuffer), fixed per set instead of rewritten
+  // per bounce -- see probe_bake_set_odd_'s declaration comment.
+  // probe_bake_set_ is bounce parity "write_to_b" (Prev=a_/Curr=b_);
+  // probe_bake_set_odd_ is the reverse.
   struct ProbeBakeBufferBinding {
     u32 binding;
     VkBuffer buffer;
-  } probe_bake_buffer_bindings[5] = {
-      {0, indirection_buffer_->handle()},
-      {1, brick_pool_buffer_->handle()},
-      {2, brick_primitive_buffer_->handle()},
-      {3, primitive_colour_buffer_->handle()},
-      {4, light_buffer_->handle()},
   };
-
-  VkDescriptorBufferInfo probe_bake_buffer_infos[5];
-  VkWriteDescriptorSet probe_bake_writes[5]{};
-  for (u32 i = 0; i < 5; ++i) {
-    probe_bake_buffer_infos[i] = {probe_bake_buffer_bindings[i].buffer, 0,
-                                  VK_WHOLE_SIZE};
-    probe_bake_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    probe_bake_writes[i].dstSet = probe_bake_set_;
-    probe_bake_writes[i].dstBinding = probe_bake_buffer_bindings[i].binding;
-    probe_bake_writes[i].descriptorCount = 1;
-    probe_bake_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    probe_bake_writes[i].pBufferInfo = &probe_bake_buffer_infos[i];
-  }
-  vkUpdateDescriptorSets(context_->device.logical_device, 5, probe_bake_writes,
-                        0, nullptr);
+  auto write_probe_bake_set = [&](VkDescriptorSet set, VkBuffer prev_buffer,
+                                  VkBuffer curr_buffer) {
+    ProbeBakeBufferBinding bindings[7] = {
+        {0, indirection_buffer_->handle()},
+        {1, brick_pool_buffer_->handle()},
+        {2, brick_primitive_buffer_->handle()},
+        {3, primitive_colour_buffer_->handle()},
+        {4, light_buffer_->handle()},
+        {5, prev_buffer},
+        {6, curr_buffer},
+    };
+    VkDescriptorBufferInfo buffer_infos[7];
+    VkWriteDescriptorSet writes[7]{};
+    for (u32 i = 0; i < 7; ++i) {
+      buffer_infos[i] = {bindings[i].buffer, 0, VK_WHOLE_SIZE};
+      writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      writes[i].dstSet = set;
+      writes[i].dstBinding = bindings[i].binding;
+      writes[i].descriptorCount = 1;
+      writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[i].pBufferInfo = &buffer_infos[i];
+    }
+    vkUpdateDescriptorSets(context_->device.logical_device, 7, writes, 0,
+                          nullptr);
+  };
+  write_probe_bake_set(probe_bake_set_, probe_buffer_a_->handle(),
+                       probe_buffer_b_->handle());
+  write_probe_bake_set(probe_bake_set_odd_, probe_buffer_b_->handle(),
+                       probe_buffer_a_->handle());
 
   // Populate bloom_blur_h_set_: 0 = output_image_ (read), 1 =
   // bloom_temp_image_ (write). Both fixed for the object's lifetime --
@@ -1262,12 +1263,22 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   vkUpdateDescriptorSets(context_->device.logical_device, 1, &texture_write, 0,
                         nullptr);
 
-  voxelize(layer_count);
-
-  // GI needs the field voxelize() just baked to march gather rays against
-  // -- and light_count_/ambient_ (just set above) to shade what those
-  // rays hit.
-  bake_probes(static_cast<u32>(light_count_));
+  // voxelize() and bake_probes() (GI needs the field voxelize() just
+  // baked to march gather rays against, and light_count_/ambient_ -- just
+  // set above -- to shade what those rays hit) share one command buffer
+  // and one submission/wait instead of one each (voxelize() + bake_probes()'s
+  // zero-fill + kProbeBounceCount bounces used to be 5 separate allocate+
+  // submit+vkQueueWaitIdle round trips per rebake() -- each one fixed
+  // overhead on top of its actual GPU work).
+  auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+  voxelize(*cmd, layer_count);
+  bake_probes(*cmd, static_cast<u32>(light_count_));
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(cmd),
+                                      context_->device.graphics_queue);
+  check_brick_overflow();
 }
 
 void VulkanRaymarchShader::write_skybox_binding(VulkanTexture &texture) {
@@ -1322,12 +1333,38 @@ void VulkanRaymarchShader::disable_skybox() {
   write_skybox_binding(context_->texture_system->default_texture());
 }
 
-void VulkanRaymarchShader::voxelize(u32 layer_count) {
-  auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
-      *context_, context_->device.graphics_command_pool);
+namespace {
+// Records one compute-to-compute buffer memory barrier per entry in
+// buffers -- shared by voxelize()/bake_probes() below, which each need
+// several (their prior write(s) visible to the next dispatch's reads)
+// without a full queue idle between every dispatch.
+void record_compute_buffer_barriers(VkCommandBuffer cmd,
+                                    VkAccessFlags src_access,
+                                    VkAccessFlags dst_access,
+                                    std::initializer_list<VkBuffer> buffers) {
+  std::vector<VkBufferMemoryBarrier> barriers;
+  barriers.reserve(buffers.size());
+  for (VkBuffer buffer : buffers) {
+    VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    barrier.srcAccessMask = src_access;
+    barrier.dstAccessMask = dst_access;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.buffer = buffer;
+    barrier.offset = 0;
+    barrier.size = VK_WHOLE_SIZE;
+    barriers.push_back(barrier);
+  }
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                      static_cast<u32>(barriers.size()), barriers.data(), 0,
+                      nullptr);
+}
+} // namespace
 
+void VulkanRaymarchShader::voxelize(VulkanCommandBuffer &cmd, u32 layer_count) {
   // Zero the brick allocation counter before the shader's atomicAdd calls.
-  vkCmdFillBuffer(cmd->handle(), brick_counter_buffer_->handle(), 0,
+  vkCmdFillBuffer(cmd.handle(), brick_counter_buffer_->handle(), 0,
                  sizeof(u32), 0);
 
   VkBufferMemoryBarrier fill_barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
@@ -1339,39 +1376,48 @@ void VulkanRaymarchShader::voxelize(u32 layer_count) {
   fill_barrier.buffer = brick_counter_buffer_->handle();
   fill_barrier.offset = 0;
   fill_barrier.size = VK_WHOLE_SIZE;
-  vkCmdPipelineBarrier(cmd->handle(), VK_PIPELINE_STAGE_TRANSFER_BIT,
+  vkCmdPipelineBarrier(cmd.handle(), VK_PIPELINE_STAGE_TRANSFER_BIT,
                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1,
                       &fill_barrier, 0, nullptr);
 
-  voxelize_pipeline_->bind(*cmd);
-  vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+  voxelize_pipeline_->bind(cmd);
+  vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
                          voxelize_pipeline_->layout(), 0, 1, &voxelize_set_, 0,
                          nullptr);
 
   VoxelizePushConstants push_constants{static_cast<i32>(layer_count)};
-  vkCmdPushConstants(cmd->handle(), voxelize_pipeline_->layout(),
+  vkCmdPushConstants(cmd.handle(), voxelize_pipeline_->layout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0,
                     sizeof(VoxelizePushConstants), &push_constants);
 
   constexpr u32 local_size = 4; // must match local_size_x/y/z in the shader
   u32 groups = (kCoarseDim + local_size - 1) / local_size;
-  vkCmdDispatch(cmd->handle(), groups, groups, groups);
+  vkCmdDispatch(cmd.handle(), groups, groups, groups);
 
-  // end_single_use submits and calls vkQueueWaitIdle, so once this returns
-  // the field is fully baked and visible — no extra barrier needed for a
-  // dependency that's about to be enforced by a full queue idle anyway.
-  VulkanCommandBuffer::end_single_use(*context_,
-                                      context_->device.graphics_command_pool,
-                                      std::move(cmd),
-                                      context_->device.graphics_queue);
+  // bake_probes() (recorded right after this into the same command buffer
+  // -- see rebuild_static_scene(), the only caller of either) marches
+  // gather rays against indirection_buffer_/brick_pool_buffer_ and reads
+  // brick_primitive_buffer_ for shading, all just written above -- make
+  // that visible explicitly. Previously implicit (voxelize() had its own
+  // command buffer, and end_single_use()'s vkQueueWaitIdle enforced this
+  // before bake_probes()'s first dispatch could even be submitted); now
+  // both share one command buffer with no queue idle between them.
+  record_compute_buffer_barriers(
+      cmd.handle(), VK_ACCESS_SHADER_WRITE_BIT,
+      VK_ACCESS_SHADER_READ_BIT,
+      {indirection_buffer_->handle(), brick_pool_buffer_->handle(),
+       brick_primitive_buffer_->handle()});
+}
 
+void VulkanRaymarchShader::check_brick_overflow() {
   // The counter counts *demand* (every cell that wanted a brick bumps it),
-  // not just successful allocations, so after the queue idle above it tells
-  // us whether the pool was big enough. Overflow doesn't crash -- the
-  // shader just leaves the losing cells brickless, in nondeterministic
-  // atomicAdd order -- but it renders as random missing/stray chunks of
-  // surface, so make it loud instead of leaving the next person to
-  // rediscover that from the artifacts alone.
+  // not just successful allocations, so once voxelize()'s dispatch has
+  // actually finished (the caller waited on the submission this was
+  // recorded into) this tells us whether the pool was big enough. Overflow
+  // doesn't crash -- the shader just leaves the losing cells brickless, in
+  // nondeterministic atomicAdd order -- but it renders as random missing/
+  // stray chunks of surface, so make it loud instead of leaving the next
+  // person to rediscover that from the artifacts alone.
   if (void *mapped = brick_counter_buffer_->lock(0, sizeof(u32), 0)) {
     u32 bricks_demanded = *static_cast<u32 *>(mapped);
     brick_counter_buffer_->unlock();
@@ -1385,90 +1431,66 @@ void VulkanRaymarchShader::voxelize(u32 layer_count) {
   }
 }
 
-void VulkanRaymarchShader::bake_probes(u32 light_count) {
+void VulkanRaymarchShader::bake_probes(VulkanCommandBuffer &cmd,
+                                       u32 light_count) {
   // Zero probe_buffer_a_ -- bounce 0's "previous bounce" input, which must
   // start at zero (see Builtin.ProbeBake.comp.glsl's file header comment:
   // this is what makes bounce 0 naturally gather direct light only, with
   // no special-casing needed in the shader). probe_buffer_b_ doesn't need
   // zeroing -- it's always a write target before it's ever read.
-  {
-    auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
-        *context_, context_->device.graphics_command_pool);
-    vkCmdFillBuffer(cmd->handle(), probe_buffer_a_->handle(), 0,
-                   VK_WHOLE_SIZE, 0);
+  vkCmdFillBuffer(cmd.handle(), probe_buffer_a_->handle(), 0, VK_WHOLE_SIZE,
+                 0);
 
-    VkBufferMemoryBarrier fill_barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-    fill_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    fill_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    fill_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    fill_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    fill_barrier.buffer = probe_buffer_a_->handle();
-    fill_barrier.offset = 0;
-    fill_barrier.size = VK_WHOLE_SIZE;
-    vkCmdPipelineBarrier(cmd->handle(), VK_PIPELINE_STAGE_TRANSFER_BIT,
-                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1,
-                        &fill_barrier, 0, nullptr);
-
-    VulkanCommandBuffer::end_single_use(*context_,
-                                        context_->device.graphics_command_pool,
-                                        std::move(cmd),
-                                        context_->device.graphics_queue);
-  }
+  VkBufferMemoryBarrier fill_barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  fill_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  fill_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  fill_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  fill_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  fill_barrier.buffer = probe_buffer_a_->handle();
+  fill_barrier.offset = 0;
+  fill_barrier.size = VK_WHOLE_SIZE;
+  vkCmdPipelineBarrier(cmd.handle(), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1,
+                      &fill_barrier, 0, nullptr);
 
   ProbeBakePushConstants push_constants{static_cast<i32>(light_count), ambient_};
   constexpr u32 local_size = 4; // must match local_size_x/y/z in the shader
   u32 groups = (kProbeDim + local_size - 1) / local_size;
 
+  // Same pipeline every bounce -- bound once rather than redundantly
+  // re-binding it each iteration.
+  probe_bake_pipeline_->bind(cmd);
+
   for (u32 bounce = 0; bounce < kProbeBounceCount; ++bounce) {
     // Bounce 0 reads probe_buffer_a_ (just zeroed above) and writes
     // probe_buffer_b_; each subsequent bounce swaps which buffer is which
     // -- see kProbeFinalInBufferB's comment for why this alternation
-    // determines which buffer holds the result after the loop.
+    // determines which buffer holds the result after the loop. Each
+    // direction has its own fixed descriptor set (probe_bake_set_ /
+    // probe_bake_set_odd_ -- see their declaration comment) instead of one
+    // set rewritten every bounce: all kProbeBounceCount dispatches are
+    // recorded into the same command buffer now, so a rewrite here would
+    // retroactively corrupt every earlier bounce's already-recorded bind
+    // once the GPU actually executes them.
     bool write_to_b = (bounce % 2) == 0;
-    VkBuffer prev = write_to_b ? probe_buffer_a_->handle() : probe_buffer_b_->handle();
+    VkDescriptorSet set = write_to_b ? probe_bake_set_ : probe_bake_set_odd_;
     VkBuffer curr = write_to_b ? probe_buffer_b_->handle() : probe_buffer_a_->handle();
 
-    VkDescriptorBufferInfo ping_pong_infos[2] = {
-        {prev, 0, VK_WHOLE_SIZE},
-        {curr, 0, VK_WHOLE_SIZE},
-    };
-    VkWriteDescriptorSet ping_pong_writes[2]{};
-    ping_pong_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    ping_pong_writes[0].dstSet = probe_bake_set_;
-    ping_pong_writes[0].dstBinding = 5; // PrevProbeBuffer
-    ping_pong_writes[0].descriptorCount = 1;
-    ping_pong_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    ping_pong_writes[0].pBufferInfo = &ping_pong_infos[0];
-    ping_pong_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    ping_pong_writes[1].dstSet = probe_bake_set_;
-    ping_pong_writes[1].dstBinding = 6; // CurrProbeBuffer
-    ping_pong_writes[1].descriptorCount = 1;
-    ping_pong_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    ping_pong_writes[1].pBufferInfo = &ping_pong_infos[1];
-    // Safe to rewrite unconditionally, no in-flight risk: the previous
-    // bounce's end_single_use() call (or, for bounce 0, the zero-fill
-    // above) already did a vkQueueWaitIdle before this point.
-    vkUpdateDescriptorSets(context_->device.logical_device, 2, ping_pong_writes,
-                          0, nullptr);
-
-    auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
-        *context_, context_->device.graphics_command_pool);
-
-    probe_bake_pipeline_->bind(*cmd);
-    vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
-                           probe_bake_pipeline_->layout(), 0, 1,
-                           &probe_bake_set_, 0, nullptr);
-    vkCmdPushConstants(cmd->handle(), probe_bake_pipeline_->layout(),
+    vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                           probe_bake_pipeline_->layout(), 0, 1, &set, 0,
+                           nullptr);
+    vkCmdPushConstants(cmd.handle(), probe_bake_pipeline_->layout(),
                       VK_SHADER_STAGE_COMPUTE_BIT, 0,
                       sizeof(ProbeBakePushConstants), &push_constants);
-    vkCmdDispatch(cmd->handle(), groups, groups, groups);
+    vkCmdDispatch(cmd.handle(), groups, groups, groups);
 
-    // Synchronous, like voxelize() -- the next bounce's descriptor rewrite
-    // above depends on this one having fully finished reading/writing.
-    VulkanCommandBuffer::end_single_use(*context_,
-                                        context_->device.graphics_command_pool,
-                                        std::move(cmd),
-                                        context_->device.graphics_queue);
+    // The next bounce (or, for the last bounce, render_set_'s ProbeBuffer
+    // binding once this rebake() completes) reads curr, so make this
+    // dispatch's write to it visible before moving on. prev was this
+    // bounce's read-only input, already fully written by an earlier
+    // barrier -- no need to re-barrier it.
+    record_compute_buffer_barriers(cmd.handle(), VK_ACCESS_SHADER_WRITE_BIT,
+                                   VK_ACCESS_SHADER_READ_BIT, {curr});
   }
 }
 
@@ -1579,7 +1601,7 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
   BloomBlurHPushConstants bloom_blur_h_push{
-      static_cast<i32>(width), static_cast<i32>(height), kBloomThreshold};
+      static_cast<i32>(width), static_cast<i32>(height), bloom_threshold_};
   bloom_blur_h_pipeline_->bind(command_buffer);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                          bloom_blur_h_pipeline_->layout(), 0, 1,
@@ -1607,9 +1629,9 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
   PostCompositePushConstants post_composite_push{
       static_cast<i32>(width),
       static_cast<i32>(height),
-      bloom_enabled_ ? kBloomIntensity : 0.0f,
-      vignette_enabled_ ? kVignetteStrength : 0.0f,
-      kVignetteRadius,
+      bloom_enabled_ ? bloom_intensity_ : 0.0f,
+      vignette_enabled_ ? vignette_strength_ : 0.0f,
+      vignette_radius_,
       pixelation_enabled_ ? 1 : 0,
       static_cast<i32>(pixelation_block_size_),
   };

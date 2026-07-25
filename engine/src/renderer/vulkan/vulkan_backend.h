@@ -42,6 +42,10 @@ public:
   void set_vignette_enabled(b8 enabled) override;
   void set_pixelation_enabled(b8 enabled) override;
   void set_pixelation_block_size(u32 block_size) override;
+  void set_bloom_threshold(f32 threshold) override;
+  void set_bloom_intensity(f32 intensity) override;
+  void set_vignette_strength(f32 strength) override;
+  void set_vignette_radius(f32 radius) override;
   void set_font(std::string_view name, f32 pixel_height) override;
   void set_skybox(std::string_view texture_name) override;
   void disable_skybox() override;
@@ -92,6 +96,16 @@ private:
   std::unordered_map<SceneHandle, LoadedSceneNames> loaded_scenes_;
   SceneHandle next_scene_handle_ = 1; // 0 is kInvalidSceneHandle
 
+  // Set by load_scene()/translate_scene()/rotate_scene()/scale_scene()/
+  // remove_scene()/clear_scenes() instead of rebaking immediately -- a
+  // single scene load is typically followed by several chained transform
+  // calls (see SceneRef's .translate()/.rotate()/.scale()), and rebake() is
+  // a full synchronous re-voxelize + GI probe bake, expensive enough that
+  // paying it once per mutation instead of once per batch made scene setup
+  // take an order of magnitude longer than necessary. begin_frame() checks
+  // this and rebakes at most once before the next frame actually draws.
+  b8 scene_dirty_ = false;
+
   u32 cached_framebuffer_width_ = 0;
   u32 cached_framebuffer_height_ = 0;
 
@@ -112,4 +126,12 @@ private:
   void create_commandbuffer();
   void regenerate_framebuffers();
   b8 recreate_swapchain();
+
+  // context_.queue_complete_semaphores must be sized/indexed by swapchain
+  // image (see its declaration comment in vulkan_types.inl), so both
+  // initialize() and recreate_swapchain() (image_count can change across a
+  // recreate) need to (re)build the whole array -- factored out here
+  // instead of duplicated at each call site.
+  void create_queue_complete_semaphores();
+  void destroy_queue_complete_semaphores();
 };

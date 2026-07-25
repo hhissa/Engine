@@ -197,10 +197,10 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
   regenerate_framebuffers();
   create_commandbuffer();
 
-  // Sync objects — one semaphore pair and one fence per frame in flight.
+  // Sync objects. image_available_semaphores and in_flight_fences_ are one
+  // per frame in flight; queue_complete_semaphores is sized/indexed
+  // differently -- see its declaration comment in vulkan_types.inl.
   context_.image_available_semaphores.resize(
-      context_.swapchain.max_frames_in_flight);
-  context_.queue_complete_semaphores.resize(
       context_.swapchain.max_frames_in_flight);
   in_flight_fences_.reserve(context_.swapchain.max_frames_in_flight);
 
@@ -210,14 +210,12 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
     vkCreateSemaphore(context_.device.logical_device, &semaphore_create_info,
                       context_.allocator,
                       &context_.image_available_semaphores[i]);
-    vkCreateSemaphore(context_.device.logical_device, &semaphore_create_info,
-                      context_.allocator,
-                      &context_.queue_complete_semaphores[i]);
 
     // Created signaled so the first frame doesn't wait indefinitely for a
     // "previous" frame that never existed.
     in_flight_fences_.emplace_back(context_, TRUE);
   }
+  create_queue_complete_semaphores();
 
   // images_in_flight are non-owning pointers — null means the image is
   // not currently held by any in-flight frame.
@@ -306,14 +304,9 @@ void VulkanRendererBackend::shutdown() {
                          context_.image_available_semaphores[i],
                          context_.allocator);
     }
-    if (context_.queue_complete_semaphores[i]) {
-      vkDestroySemaphore(context_.device.logical_device,
-                         context_.queue_complete_semaphores[i],
-                         context_.allocator);
-    }
   }
   context_.image_available_semaphores.clear();
-  context_.queue_complete_semaphores.clear();
+  destroy_queue_complete_semaphores();
   in_flight_fences_.clear();
   images_in_flight_.clear();
 
@@ -354,6 +347,14 @@ void VulkanRendererBackend::on_resized(u16 width, u16 height) {
 
 b8 VulkanRendererBackend::begin_frame(f32 delta_time) {
   VulkanDevice &device = context_.device;
+
+  // A batch of scene mutations (load_scene()/translate_scene()/etc. -- see
+  // scene_dirty_'s comment) may have piled up since the last frame; rebake
+  // at most once here rather than once per call.
+  if (scene_dirty_) {
+    context_.raymarch_shader->rebake();
+    scene_dirty_ = false;
+  }
 
   // Check if recreating swap chain and boot out.
   if (context_.recreating_swapchain) {
@@ -486,7 +487,8 @@ SceneHandle VulkanRendererBackend::load_scene(std::string_view sdf_path) {
 
   loaded_scenes_.emplace(handle, std::move(names));
 
-  context_.raymarch_shader->rebake();
+  // Deferred to begin_frame() -- see scene_dirty_'s comment.
+  scene_dirty_ = true;
   return handle;
 }
 
@@ -522,7 +524,8 @@ void VulkanRendererBackend::translate_scene(SceneHandle handle,
     volumetric->position += delta;
   }
 
-  context_.raymarch_shader->rebake();
+  // Deferred to begin_frame() -- see scene_dirty_'s comment.
+  scene_dirty_ = true;
 }
 
 void VulkanRendererBackend::rotate_scene(SceneHandle handle,
@@ -567,7 +570,8 @@ void VulkanRendererBackend::rotate_scene(SceneHandle handle,
         glm::eulerAngles(scene_rotation * glm::quat(volumetric->rotation));
   }
 
-  context_.raymarch_shader->rebake();
+  // Deferred to begin_frame() -- see scene_dirty_'s comment.
+  scene_dirty_ = true;
 }
 
 void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
@@ -641,7 +645,8 @@ void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
     context_.geometry_system->scale_layer_smoothness(layer_index, factor);
   }
 
-  context_.raymarch_shader->rebake();
+  // Deferred to begin_frame() -- see scene_dirty_'s comment.
+  scene_dirty_ = true;
 }
 
 void VulkanRendererBackend::remove_scene(SceneHandle handle) {
@@ -674,7 +679,11 @@ void VulkanRendererBackend::remove_scene(SceneHandle handle) {
   }
   loaded_scenes_.erase(it);
 
-  context_.raymarch_shader->rebake();
+  // Deferred to begin_frame() -- see scene_dirty_'s comment. The
+  // vkDeviceWaitIdle above already happened (required before release()),
+  // so this is only about not paying for the re-voxelize/GI-bake twice if
+  // more scene calls follow before the next frame.
+  scene_dirty_ = true;
 }
 
 void VulkanRendererBackend::clear_scenes() {
@@ -694,7 +703,8 @@ void VulkanRendererBackend::clear_scenes() {
   }
   loaded_scenes_.clear();
 
-  context_.raymarch_shader->rebake();
+  // Deferred to begin_frame() -- see scene_dirty_'s comment.
+  scene_dirty_ = true;
 }
 
 void VulkanRendererBackend::set_selected_primitive(i32 index) {
@@ -719,6 +729,22 @@ void VulkanRendererBackend::set_pixelation_enabled(b8 enabled) {
 
 void VulkanRendererBackend::set_pixelation_block_size(u32 block_size) {
   context_.raymarch_shader->set_pixelation_block_size(block_size);
+}
+
+void VulkanRendererBackend::set_bloom_threshold(f32 threshold) {
+  context_.raymarch_shader->set_bloom_threshold(threshold);
+}
+
+void VulkanRendererBackend::set_bloom_intensity(f32 intensity) {
+  context_.raymarch_shader->set_bloom_intensity(intensity);
+}
+
+void VulkanRendererBackend::set_vignette_strength(f32 strength) {
+  context_.raymarch_shader->set_vignette_strength(strength);
+}
+
+void VulkanRendererBackend::set_vignette_radius(f32 radius) {
+  context_.raymarch_shader->set_vignette_radius(radius);
 }
 
 void VulkanRendererBackend::set_font(std::string_view name, f32 pixel_height) {
@@ -817,10 +843,12 @@ b8 VulkanRendererBackend::end_frame(f32 delta_time) {
   submit_info.commandBufferCount = 1;
   submit_info.pCommandBuffers = &command_buffer_handle;
 
-  // The semaphore(s) to be signaled when the queue is complete.
+  // The semaphore(s) to be signaled when the queue is complete. Indexed by
+  // image_index, not current_frame -- see queue_complete_semaphores'
+  // declaration comment in vulkan_types.inl.
   submit_info.signalSemaphoreCount = 1;
   submit_info.pSignalSemaphores =
-      &context_.queue_complete_semaphores[context_.current_frame];
+      &context_.queue_complete_semaphores[context_.image_index];
 
   // Wait semaphore ensures that the operation cannot begin until the image
   // is available.
@@ -848,11 +876,12 @@ b8 VulkanRendererBackend::end_frame(f32 delta_time) {
   command_buffer->update_submitted();
   // End queue submission
 
-  // Give the image back to the swapchain.
+  // Give the image back to the swapchain. Same image_index-indexed
+  // semaphore signaled by the submit above.
   vulkan_swapchain_present(
       &context_, &context_.swapchain, context_.device.graphics_queue,
       context_.device.present_queue,
-      context_.queue_complete_semaphores[context_.current_frame],
+      context_.queue_complete_semaphores[context_.image_index],
       context_.image_index);
 
   return TRUE;
@@ -922,6 +951,30 @@ void VulkanRendererBackend::create_commandbuffer() {
   }
 
   KDEBUG("Vulkan command buffers created.");
+}
+
+void VulkanRendererBackend::create_queue_complete_semaphores() {
+  // See queue_complete_semaphores' declaration comment in vulkan_types.inl
+  // for why this is sized to image_count and indexed by image_index rather
+  // than mirroring image_available_semaphores' per-frame-in-flight sizing.
+  context_.queue_complete_semaphores.resize(context_.swapchain.image_count);
+  VkSemaphoreCreateInfo semaphore_create_info{
+      VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+  for (u32 i = 0; i < context_.swapchain.image_count; ++i) {
+    vkCreateSemaphore(context_.device.logical_device, &semaphore_create_info,
+                      context_.allocator,
+                      &context_.queue_complete_semaphores[i]);
+  }
+}
+
+void VulkanRendererBackend::destroy_queue_complete_semaphores() {
+  for (VkSemaphore semaphore : context_.queue_complete_semaphores) {
+    if (semaphore) {
+      vkDestroySemaphore(context_.device.logical_device, semaphore,
+                         context_.allocator);
+    }
+  }
+  context_.queue_complete_semaphores.clear();
 }
 
 void VulkanRendererBackend::regenerate_framebuffers() {
@@ -1018,6 +1071,14 @@ b8 VulkanRendererBackend::recreate_swapchain() {
 
   // The image count can change across a recreate.
   images_in_flight_.assign(context_.swapchain.image_count, nullptr);
+
+  // queue_complete_semaphores is sized to image_count too (see its
+  // declaration comment) and must be rebuilt to match. Safe to destroy the
+  // old ones now, the same reasoning as shutdown()'s: vulkan_swapchain_
+  // recreate() already destroyed the old VkSwapchainKHR above, which
+  // retires the presentation engine's references to them.
+  destroy_queue_complete_semaphores();
+  create_queue_complete_semaphores();
 
   context_.main_renderpass->set_render_area(
       0.0f, 0.0f, static_cast<f32>(context_.framebuffer_width),

@@ -106,7 +106,18 @@ b8 SHGame::initialize() {
       qa_.load_conversation("assets/conversations/sh_dialogue.conversation");
 
   renderer_set_pixelation_enabled(true);
-  renderer_set_pixelation_block_size(3);
+  renderer_set_pixelation_block_size(5);
+
+  // Stronger than the engine's subtle defaults -- this scene is a dim
+  // attic room lit mainly by one bright window, so the default bloom
+  // threshold/intensity and vignette strength/radius read as basically
+  // invisible against it.
+  renderer_set_bloom_enabled(true);
+  renderer_set_bloom_threshold(0.2f);
+  renderer_set_bloom_intensity(1.0f);
+  renderer_set_vignette_enabled(true);
+  renderer_set_vignette_strength(0.5f);
+  renderer_set_vignette_radius(0.5f);
 
   return true;
 }

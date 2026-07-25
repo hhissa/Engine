@@ -1,0 +1,2 @@
+set(__QT_DEPLOY_TARGET_conversation_editor_FILE /home/bumbandit/Projects/Engine/tools/conversation_editor/build/conversation_editor)
+set(__QT_DEPLOY_TARGET_conversation_editor_TYPE EXECUTABLE)

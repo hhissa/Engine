@@ -118,6 +118,24 @@ struct VulkanContext {
 
   // VkSemaphore is an opaque handle (not a class), so vector<VkSemaphore>
   // has no incomplete-type issue and can live here.
+  //
+  // image_available_semaphores is sized to max_frames_in_flight and indexed
+  // by current_frame -- it's only ever waited on/signaled queue-side
+  // (acquire signals it, the submit in end_frame() waits on it), and the
+  // in-flight fences already serialize reuse of a given frame-in-flight
+  // slot, so per-frame-in-flight sizing is sufficient.
+  //
+  // queue_complete_semaphores must instead be sized to swapchain.image_count
+  // and indexed by image_index, NOT current_frame -- it's handed to
+  // vkQueuePresentKHR, and the presentation engine's use of it isn't
+  // retired by the in-flight fence (that only tracks GPU queue completion,
+  // not presentation). image_count and max_frames_in_flight can differ
+  // (image_count == max_frames_in_flight + 1, see
+  // vulkan_swapchain.cpp's create()), so indexing this one by current_frame
+  // let a later frame resignal the same semaphore while an earlier
+  // present using a different image was still consuming it --
+  // VUID-vkQueueSubmit-pSignalSemaphores-00067. See
+  // VulkanRendererBackend::create_queue_complete_semaphores().
   std::vector<VkSemaphore> image_available_semaphores;
   std::vector<VkSemaphore> queue_complete_semaphores;
 

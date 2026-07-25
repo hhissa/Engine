@@ -128,6 +128,15 @@ public:
   virtual void set_pixelation_enabled(b8 enabled) = 0;
   virtual void set_pixelation_block_size(u32 block_size) = 0;
 
+  // Post-process tuning knobs -- see VulkanRaymarchShader::
+  // set_bloom_threshold()/set_bloom_intensity()/set_vignette_strength()/
+  // set_vignette_radius() for exact semantics/clamping. Same push-constant
+  // mechanics as the toggles above.
+  virtual void set_bloom_threshold(f32 threshold) = 0;
+  virtual void set_bloom_intensity(f32 intensity) = 0;
+  virtual void set_vignette_strength(f32 strength) = 0;
+  virtual void set_vignette_radius(f32 radius) = 0;
+
   // Rebakes the bitmap font every renderer_draw_text() call uses, from
   // assets/fonts/<name>.ttf at pixel_height -- see VulkanTextShader::
   // set_font() for exact semantics (not cheap -- a full re-bake + device-

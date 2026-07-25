@@ -21,38 +21,19 @@
 [DEBUG]: Vulkan surface created.
 [INFO]:  linux_read_sorted_physical_devices:
 [INFO]:       Original order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
+[INFO]:             [0] Quadro T2000 with Max-Q Design
 [INFO]:       Sorted order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060  
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
+[INFO]:             [0] Quadro T2000 with Max-Q Design  
 [INFO]:  linux_read_sorted_physical_devices:
 [INFO]:       Original order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
+[INFO]:             [0] Quadro T2000 with Max-Q Design
 [INFO]:       Sorted order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060  
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
-[INFO]:  linux_read_sorted_physical_devices:
-[INFO]:       Original order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
-[INFO]:       Sorted order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060  
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
-[INFO]:  linux_read_sorted_physical_devices:
-[INFO]:       Original order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
-[INFO]:       Sorted order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060  
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
-[INFO]:  Selected device: 'NVIDIA GeForce RTX 3060'.
+[INFO]:             [0] Quadro T2000 with Max-Q Design  
+[INFO]:  Selected device: 'Quadro T2000 with Max-Q Design'.
 [INFO]:  GPU type is Discrete.
 [INFO]:  Physical device selected.
 [INFO]:  Creating logical device...
-[INFO]:  Inserted device layer "VK_LAYER_KHRONOS_validation" (libVkLayer_khronos_validation.so)
-[INFO]:  Failed to find vkGetDeviceProcAddr in layer "libVkLayer_MESA_device_select.so"
+[INFO]:  Inserted device layer "VK_LAYER_KHRONOS_validation" (/usr/lib/libVkLayer_khronos_validation.so)
 [INFO]:  vkCreateDevice layer callstack setup to:
 [INFO]:     <Application>
 [INFO]:       ||
@@ -60,11 +41,12 @@
 [INFO]:       ||
 [INFO]:     VK_LAYER_KHRONOS_validation
 [INFO]:             Type: Explicit
+[INFO]:             Enabled By: By the Application
 [INFO]:             Manifest: /usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
-[INFO]:             Library:  libVkLayer_khronos_validation.so
+[INFO]:             Library:  /usr/lib/libVkLayer_khronos_validation.so
 [INFO]:       ||
 [INFO]:     <Device>
-[INFO]:         Using "NVIDIA GeForce RTX 3060" with driver: "libGLX_nvidia.so.0"
+[INFO]:         Using "Quadro T2000 with Max-Q Design" with driver: "/usr/lib/libGLX_nvidia.so.610.43.03"
 [INFO]:  Logical device created.
 [INFO]:  Graphics command pool created.
 [INFO]:  Queues obtained.
@@ -236,7 +218,7 @@
   JOB        : 0.00B
   TEXTURE    : 0.00B
   MAT_INST   : 0.00B
-  RENDERER   : 64.00B
+  RENDERER   : 48.00B
   GAME       : 256.00B
   TRANSFORM  : 0.00B
   ENTITY     : 0.00B
@@ -244,13 +226,56 @@
   SCENE      : 0.00B
   SHADER     : 0.00B
 
-[INFO]:  EVENT_CODE_APPLICATION_QUIT received, shutting down.
-[DEBUG]: Destroying shaders...
-[DEBUG]: Destroying Vulkan swapchain...
-[DEBUG]: Destroying Vulkan device...
-[INFO]:  Destroying command pools...
-[INFO]:  Destroying logical device...
-[DEBUG]: Destroying Vulkan surface...
-[DEBUG]: Destroying Vulkan debugger...
-[DEBUG]: Destroying Vulkan instance...
-[INFO]:  Application shutting down.
+[DEBUG]: Window resize: 474, 514
+[DEBUG]: Resized to 474x514
+[INFO]:  Vulkan renderer backend->resized: w/h/gen: 474/514/1
+[DEBUG]: Window resize: 470, 510
+[DEBUG]: Resized to 470x510
+[INFO]:  Vulkan renderer backend->resized: w/h/gen: 470/510/2
+[INFO]:  Swapchain created successfully.
+[DEBUG]: Vulkan command buffers created.
+[INFO]:  Resized, booting.
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x500000000050, Set 0, Binding 0, Index 0, variable "out_image"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1080000000108 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x520000000052, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1080000000108 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x520000000052, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x10b000000010b format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x530000000053, Set 0, Binding 2, Index 0, variable "post_process_out"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x10e000000010e format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x530000000053, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1080000000108 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x530000000053, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x10b000000010b format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x500000000050, Set 0, Binding 0, Index 0, variable "out_image"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1080000000108 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x520000000052, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1080000000108 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x520000000052, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x10b000000010b format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  (Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x530000000053, Set 0, Binding 2, Index 0, variable "post_process_out"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x10e000000010e format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[INFO]:  Swapchain created successfully.
+[DEBUG]: Vulkan command buffers created.
+[INFO]:  Resized, booting.

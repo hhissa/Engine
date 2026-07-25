@@ -168,6 +168,33 @@ void renderer_set_pixelation_enabled(b8 enabled);
 // renderer_set_pixelation_enabled() above). Defaults to 6.
 void renderer_set_pixelation_block_size(u32 block_size);
 
+// Luminance above which a pixel starts contributing to bloom -- lower
+// reads as "more of the scene blooms," not just the brightest highlights.
+// Has no visible effect while bloom is disabled (see
+// renderer_set_bloom_enabled() above). Clamped to non-negative. Defaults
+// to 0.85.
+void renderer_set_bloom_threshold(f32 threshold);
+
+// How strongly the blurred bright-pass adds back on top of the scene --
+// higher reads as a stronger glow. Same mechanics as
+// renderer_set_bloom_threshold() above. Clamped to non-negative. Defaults
+// to 0.35.
+void renderer_set_bloom_intensity(f32 intensity);
+
+// How much the vignette darkens the screen edges -- 0 = no visible effect
+// even while vignette is enabled, 1 = fully black at the furthest corner.
+// Same mechanics as renderer_set_bloom_threshold() above. Clamped to
+// [0, 1]. Defaults to 0.35.
+void renderer_set_vignette_strength(f32 strength);
+
+// Normalized distance from screen center (0 = center, 1 = a full-height/
+// width edge, sqrt(2) = the furthest corner) where the vignette's falloff
+// begins -- smaller pulls the darkening in toward the center, larger
+// pushes it out toward the corners. Same mechanics as
+// renderer_set_bloom_threshold() above. Clamped to [0, sqrt(2)]. Defaults
+// to 0.55.
+void renderer_set_vignette_radius(f32 radius);
+
 // Rebakes the bitmap font every renderer_draw_text() call uses (SH's Q&A
 // list, HUD text, the debug camera hint, etc.), from
 // assets/fonts/<name>.ttf at pixel_height -- e.g.

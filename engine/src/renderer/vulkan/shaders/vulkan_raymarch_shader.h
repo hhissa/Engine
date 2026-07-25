@@ -161,6 +161,47 @@ public:
     pixelation_block_size_ = std::max(block_size, 1u);
   }
 
+  // Luminance above which a pixel starts contributing to bloom (see
+  // Builtin.BloomBlurH.comp.glsl's bright_pass()) -- lower reads as "more
+  // of the scene blooms," not just the brightest highlights. Same push-
+  // constant mechanics as set_bloom_enabled(); has no visible effect while
+  // bloom is disabled. Clamped to non-negative (bright_pass() subtracts
+  // this from luminance, so a negative threshold would make every pixel
+  // bloom regardless of brightness).
+  void set_bloom_threshold(f32 threshold) noexcept {
+    bloom_threshold_ = std::max(threshold, 0.0f);
+  }
+
+  // How strongly the blurred bright-pass adds back on top of the scene
+  // (see Builtin.PostComposite.comp.glsl's `base_colour + bloom *
+  // bloom_intensity`) -- higher reads as a stronger glow. Same mechanics
+  // as set_bloom_threshold() above. Clamped to non-negative (a negative
+  // intensity would subtract the bloom instead of adding it).
+  void set_bloom_intensity(f32 intensity) noexcept {
+    bloom_intensity_ = std::max(intensity, 0.0f);
+  }
+
+  // How much the vignette darkens the screen edges -- 0 = no visible
+  // effect even while vignette is enabled, 1 = fully black at the
+  // furthest corner. Same mechanics as set_bloom_threshold() above.
+  // Clamped to [0, 1]: the shader computes `1 - strength * falloff`, so
+  // above 1 the darkened corners go negative -- past black, not just
+  // darker.
+  void set_vignette_strength(f32 strength) noexcept {
+    vignette_strength_ = std::clamp(strength, 0.0f, 1.0f);
+  }
+
+  // Normalized distance from screen center (0 = center, 1 = a full-height/
+  // width edge, sqrt(2) = the furthest corner) where the vignette's
+  // falloff begins -- smaller pulls the darkening in toward the center,
+  // larger pushes it out toward the corners. Same mechanics as
+  // set_bloom_threshold() above. Clamped to [0, sqrt(2)]: the shader feeds
+  // this straight into smoothstep(vignette_radius, sqrt(2), dist), which
+  // is only well-defined for edge0 <= edge1.
+  void set_vignette_radius(f32 radius) noexcept {
+    vignette_radius_ = std::clamp(radius, 0.0f, 1.41421356f);
+  }
+
   // Enables a skybox: an equirectangular (lat/long, NOT 6-face cubemap)
   // texture sampled by ray direction and shown wherever the primary ray
   // doesn't hit anything, replacing the flat two-colour background
@@ -192,20 +233,40 @@ private:
   // registered set changes after that.
   void rebuild_static_scene();
 
-  // Dispatches the voxelize (pass 1) compute shader once, via a one-time
-  // command buffer, and waits for it to complete before returning — so by
-  // the time it returns, the field is fully baked against the first
-  // layer_count entries currently in layer_buffer_ (see
-  // rebuild_static_scene(), the only caller).
-  void voxelize(u32 layer_count);
+  // Records the voxelize (pass 1) compute dispatch into cmd (does not
+  // allocate or submit it -- see rebuild_static_scene(), the only caller,
+  // which records this back-to-back with bake_probes() into a single
+  // command buffer/submission instead of a separate one per pass/bounce,
+  // since each one-time command buffer's allocate+submit+wait was paying
+  // fixed per-round-trip overhead on top of the actual GPU work, one for
+  // every rebake()). Ends with a barrier making indirection_buffer_/
+  // brick_pool_buffer_/brick_primitive_buffer_'s writes visible to
+  // bake_probes()'s reads -- previously implicit (a separate command
+  // buffer's own submit+vkQueueWaitIdle), now explicit since both share
+  // one command buffer with no queue idle between them.
+  void voxelize(VulkanCommandBuffer &cmd, u32 layer_count);
 
-  // Dispatches the probe-bake (pass 2) compute shader kProbeBounceCount
-  // times, one per light bounce, each via its own one-time command buffer
-  // (mirroring voxelize()'s synchronous-wait style) -- called right after
-  // voxelize() from rebuild_static_scene(), since gather rays need the
-  // field voxelize() just baked. See Builtin.ProbeBake.comp.glsl for the
-  // technique itself.
-  void bake_probes(u32 light_count);
+  // Reads back brick_counter_buffer_ (see voxelize()) and warns if the
+  // brick pool overflowed. Split out from voxelize() itself because the
+  // counter isn't valid to read until the command buffer voxelize() was
+  // recorded into has actually finished executing -- call once after that
+  // submission's wait, not from inside voxelize().
+  void check_brick_overflow();
+
+  // Records the probe-bake (pass 2) compute dispatches -- kProbeBounceCount
+  // of them, one per light bounce -- into cmd (does not allocate or submit
+  // it; see voxelize()'s comment above for why). Alternates between
+  // probe_bake_set_ and probe_bake_set_odd_ (each a fixed, never-rewritten
+  // ping-pong binding of Prev/CurrProbeBuffer -- see their declarations
+  // below) rather than rewriting one descriptor set's bindings between
+  // bounces: since every bounce now shares one command buffer/submission,
+  // rewriting a descriptor set already referenced by not-yet-submitted
+  // commands would make every earlier bind observe only the final
+  // rewrite once the GPU actually executes them, silently breaking the
+  // ping-pong. Uses a compute-to-compute buffer barrier between bounces
+  // instead (each bounce's write must be visible before the next reads
+  // it), same reasoning as voxelize()'s trailing barrier.
+  void bake_probes(VulkanCommandBuffer &cmd, u32 light_count);
 
   static void transition_image(VkCommandBuffer cmd, VkImage image,
                                VkImageLayout old_layout,
@@ -274,7 +335,14 @@ private:
   // e.g. indirection_buffer_, but the set/binding-index pairing differs).
   VulkanShaderModule probe_bake_stage_;
   VkDescriptorSetLayout probe_bake_set_layout_ = VK_NULL_HANDLE;
+  // Two fixed ping-pong bindings of the same layout, written once at
+  // construction and never rewritten -- see bake_probes()'s comment for
+  // why a single rewritten-per-bounce set stopped being safe once every
+  // bounce shares one command buffer. probe_bake_set_ binds
+  // Prev=probe_buffer_a_/Curr=probe_buffer_b_ (bounces 0, 2, 4, ...);
+  // probe_bake_set_odd_ binds the reverse (bounces 1, 3, 5, ...).
   VkDescriptorSet probe_bake_set_ = VK_NULL_HANDLE;
+  VkDescriptorSet probe_bake_set_odd_ = VK_NULL_HANDLE;
   std::optional<VulkanComputePipeline> probe_bake_pipeline_;
 
   // The baked probe grid, double-buffered so each bounce can read the
@@ -342,6 +410,14 @@ private:
   b8 vignette_enabled_ = true;
   b8 pixelation_enabled_ = false;
   u32 pixelation_block_size_ = 6;
+
+  // See set_bloom_threshold()/set_bloom_intensity()/set_vignette_strength()/
+  // set_vignette_radius() above. Defaults match kDefaultBloomThreshold etc.
+  // in vulkan_raymarch_shader.cpp (deliberately mild).
+  f32 bloom_threshold_ = 0.85f;
+  f32 bloom_intensity_ = 0.35f;
+  f32 vignette_strength_ = 0.35f;
+  f32 vignette_radius_ = 0.55f;
 
   // How many of light_buffer_'s kMaxLights slots are actually populated,
   // and the scene-wide ambient factor -- both set by rebuild_static_scene()

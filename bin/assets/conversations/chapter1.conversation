@@ -2,19 +2,44 @@
 version=0.1
 
 question "Alright, lets get started!" {
+    answer=...
 
     question "Where do you cut?" {
+        answer=My thighs... mainly.
+
+        question "Why your thighs?" {
+            answer=It's harder to see. 
+            answer=People don't notice that way.
+        }
+
+        question "Mainly?" {
+            answer=I have a small scar on my wrist.
+            answer=I don't want to talk about that right now.
+        }
     }
 
     question "Do you feel confident?" {
+        answer=Ha... yeah right
     }
 
     question "When did you first start cutting?" {
+        answer=A couple years ago now.
     }
 
-    question "What's your favourite scar?" {
+    question "Do you have a favourite scar?" {
+        answer=Kinda. Favourite isn't the right word.
     }
 
     question "When was the last time you cut?" {
+        answer=Three or so months ago.
+        answer=Maybe more, I'm bad with the passage of time.
+    }
+
+    question "Have you ever attempted suicide?" {
+        answer=That's a pretty blunt question.
+    }
+
+    question "Do you have a diagnosis?" {
+        answer=I do.
     }
 }
