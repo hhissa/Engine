@@ -57,6 +57,7 @@ QuestionNode *place(GraphScene &scene, const ConversationQuestion &question,
     lines << QString::fromStdString(line);
   }
   node->set_answer_lines(lines);
+  node->set_tag(question.tag ? QString::fromStdString(*question.tag) : QString());
 
   if (parent_node) {
     scene.connect_nodes(parent_node, QuestionNode::Side::Bottom, node,
@@ -84,6 +85,9 @@ ConversationQuestion to_question(const GraphScene &scene, QuestionNode *node) {
   question.text = node->question().toStdString();
   for (const QString &line : node->answer_lines()) {
     question.answer_lines.push_back(line.toStdString());
+  }
+  if (!node->tag().isEmpty()) {
+    question.tag = node->tag().toStdString();
   }
   // A node's follow-ups are exactly the nodes it has an outgoing
   // connection to -- collected in the scene's own node order for a

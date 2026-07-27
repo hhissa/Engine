@@ -185,10 +185,33 @@ void SceneViewport::tick() {
   renderer_draw_frame(&packet);
 }
 
-void SceneViewport::set_selected_layer(int layer_index) {
-  selected_layer_index_ = layer_index;
+void SceneViewport::set_selection(const std::vector<PrimitiveRef> &selection) {
+  selected_ = selection;
   update_gizmo();
-  renderer_set_selected_primitive(layer_index);
+  // The renderer's selection outline only highlights one primitive -- use
+  // the first entry (matches the old single-selection behaviour exactly
+  // when selection.size() == 1). -1 (no outline) if nothing is selected or
+  // that primitive isn't currently uploaded.
+  if (selected_.empty()) {
+    renderer_set_selected_primitive(-1);
+  } else {
+    const PrimitiveRef &first = selected_.front();
+    if (first.is_light()) {
+      renderer_set_selected_primitive(-1); // no outline concept for a light
+      return;
+    }
+    if (first.layer_index >= 0 &&
+        first.layer_index < static_cast<int>(scene_.layers.size())) {
+      const auto &primitives = scene_.layers[first.layer_index].primitives;
+      if (first.primitive_index >= 0 &&
+          first.primitive_index < static_cast<int>(primitives.size())) {
+        renderer_set_selected_primitive(renderer_get_primitive_gpu_index(
+            primitives[first.primitive_index].name));
+        return;
+      }
+    }
+    renderer_set_selected_primitive(-1);
+  }
 }
 
 void SceneViewport::set_grid_visible(bool visible) {
@@ -197,6 +220,18 @@ void SceneViewport::set_grid_visible(bool visible) {
   // ensure_engine_initialized() applies grid_visible_ once there is.
   if (initialized_) {
     renderer_set_grid_visible(visible ? TRUE : FALSE);
+  }
+}
+
+void SceneViewport::pause_rendering() {
+  if (tick_timer_) {
+    tick_timer_->stop();
+  }
+}
+
+void SceneViewport::resume_rendering() {
+  if (tick_timer_ && initialized_ && !shutdown_) {
+    tick_timer_->start(16); // ~60Hz -- matches ensure_engine_initialized()'s own start()
   }
 }
 
@@ -232,7 +267,8 @@ void SceneViewport::mouseReleaseEvent(QMouseEvent *event) {
     if (dragging_axis_ != GizmoAxis::None) {
       end_gizmo_drag();
     } else {
-      pick_at(event->position().toPoint());
+      pick_at(event->position().toPoint(),
+             event->modifiers().testFlag(Qt::ControlModifier));
     }
   }
 }
@@ -315,7 +351,7 @@ void SceneViewport::focusOutEvent(QFocusEvent *event) {
   QWindow::focusOutEvent(event);
 }
 
-void SceneViewport::pick_at(QPoint pos) {
+void SceneViewport::pick_at(QPoint pos, bool additive) {
   // Matches Builtin.RaymarchShader.comp.glsl's main() exactly: uv centered
   // on the image, scaled by height only (so it's undistorted regardless of
   // aspect ratio), then the ray direction is built from the camera's own
@@ -333,9 +369,28 @@ void SceneViewport::pick_at(QPoint pos) {
 
   std::optional<SceneRayHit> hit =
       raycast_scene(scene_, camera_.position(), ray_dir);
-  int layer_index = hit ? hit->layer_index : -1;
-  set_selected_layer(layer_index);
-  emit primitive_picked(layer_index);
+
+  std::vector<PrimitiveRef> new_selection = selected_;
+  if (hit) {
+    PrimitiveRef ref{hit->layer_index, hit->primitive_index};
+    if (additive) {
+      auto it = std::find(new_selection.begin(), new_selection.end(), ref);
+      if (it != new_selection.end()) {
+        new_selection.erase(it); // ctrl-click an already-selected primitive
+                                 // removes it from the selection
+      } else {
+        new_selection.push_back(ref);
+      }
+    } else {
+      new_selection = {ref};
+    }
+  } else if (!additive) {
+    new_selection.clear(); // plain click on empty space deselects everything
+  }
+  // A ctrl-click on empty space leaves the existing selection untouched.
+
+  set_selection(new_selection);
+  emit selection_changed(selected_);
 }
 
 std::optional<QPointF> SceneViewport::project_to_screen(glm::vec3 world_point) const {
@@ -420,39 +475,94 @@ std::vector<QPointF> SceneViewport::build_gizmo_ring(glm::vec3 origin_world,
   return points;
 }
 
-SdfPrimitiveDef *SceneViewport::selected_primitive() {
-  if (selected_layer_index_ < 0 ||
-      selected_layer_index_ >= static_cast<int>(scene_.layers.size())) {
-    return nullptr;
+std::vector<SdfPrimitiveDef *> SceneViewport::selected_primitives() {
+  std::vector<SdfPrimitiveDef *> result;
+  result.reserve(selected_.size());
+  for (const PrimitiveRef &ref : selected_) {
+    if (ref.is_light()) {
+      continue;
+    }
+    if (ref.layer_index < 0 ||
+        ref.layer_index >= static_cast<int>(scene_.layers.size())) {
+      continue;
+    }
+    auto &primitives = scene_.layers[ref.layer_index].primitives;
+    if (ref.primitive_index < 0 ||
+        ref.primitive_index >= static_cast<int>(primitives.size())) {
+      continue;
+    }
+    result.push_back(&primitives[ref.primitive_index]);
   }
-  auto &primitives = scene_.layers[selected_layer_index_].primitives;
-  if (primitives.empty()) {
-    return nullptr;
+  return result;
+}
+
+std::vector<SdfLightDef *> SceneViewport::selected_lights() {
+  std::vector<SdfLightDef *> result;
+  result.reserve(selected_.size());
+  for (const PrimitiveRef &ref : selected_) {
+    if (!ref.is_light()) {
+      continue;
+    }
+    if (ref.light_index >= static_cast<int>(scene_.lights.size())) {
+      continue;
+    }
+    result.push_back(&scene_.lights[ref.light_index]);
   }
-  return &primitives.front();
+  return result;
+}
+
+glm::vec3
+SceneViewport::selection_centroid(const std::vector<SdfPrimitiveDef *> &primitives,
+                                  const std::vector<SdfLightDef *> &lights) const {
+  glm::vec3 sum(0.0f);
+  for (const SdfPrimitiveDef *primitive : primitives) {
+    sum += gizmo_effective_position(*primitive);
+  }
+  for (const SdfLightDef *light : lights) {
+    sum += light->position;
+  }
+  size_t count = primitives.size() + lights.size();
+  return count == 0 ? sum : sum / static_cast<f32>(count);
 }
 
 void SceneViewport::update_gizmo() {
   gizmo_ring_x_.clear();
   gizmo_ring_y_.clear();
   gizmo_ring_z_.clear();
+  gizmo_light_marker_visible_ = false;
+  gizmo_light_marker_x_.clear();
+  gizmo_light_marker_y_.clear();
+  gizmo_light_marker_z_.clear();
 
-  SdfPrimitiveDef *primitive = selected_primitive();
-  if (!primitive) {
+  std::vector<SdfPrimitiveDef *> primitives = selected_primitives();
+  std::vector<SdfLightDef *> lights = selected_lights();
+  if (primitives.empty() && lights.empty()) {
     gizmo_visible_ = false;
     return;
   }
 
-  // Rotating an infinite horizontal plane is meaningless (see
-  // SdfPrimitiveDef::rotation) -- no rotate gizmo for one at all, matching
-  // how the translate gizmo below already restricts a plane to Y only.
-  bool is_plane = primitive->type == SdfPrimitiveType::Plane;
-  if (gizmo_mode_ == GizmoMode::Rotate && is_plane) {
+  // Rotating an infinite horizontal plane -- or a light, which has no
+  // orientation at all (see SdfLightDef) -- is meaningless (see
+  // SdfPrimitiveDef::rotation): no rotate gizmo shows at all unless at
+  // least one selected primitive can actually be rotated. For a mixed
+  // group, the rotate gizmo still shows as long as ANY selected primitive
+  // is rotatable (the non-rotatable members -- planes, lights -- just don't
+  // move during the drag; see update_gizmo_drag()).
+  bool all_planes = !primitives.empty() && lights.empty() &&
+                    std::all_of(primitives.begin(), primitives.end(),
+                                [](const SdfPrimitiveDef *p) {
+                                  return p->type == SdfPrimitiveType::Plane;
+                                });
+  bool any_rotatable = std::any_of(primitives.begin(), primitives.end(),
+                                   [](const SdfPrimitiveDef *p) {
+                                     return p->type != SdfPrimitiveType::Plane;
+                                   });
+  if (gizmo_mode_ == GizmoMode::Rotate && !any_rotatable) {
     gizmo_visible_ = false;
     return;
   }
 
-  glm::vec3 origin_world = gizmo_effective_position(*primitive);
+  glm::vec3 origin_world = selection_centroid(primitives, lights);
   f32 distance = glm::dot(origin_world - camera_.position(), camera_.forward());
   if (distance <= 0.01f) {
     gizmo_visible_ = false;
@@ -477,15 +587,15 @@ void SceneViewport::update_gizmo() {
   }
 
   std::optional<QPointF> x_screen =
-      is_plane ? std::nullopt
-              : project_to_screen(origin_world + glm::vec3(axis_length, 0, 0));
+      all_planes ? std::nullopt
+                : project_to_screen(origin_world + glm::vec3(axis_length, 0, 0));
   std::optional<QPointF> y_screen =
       project_to_screen(origin_world + glm::vec3(0, axis_length, 0));
   std::optional<QPointF> z_screen =
-      is_plane ? std::nullopt
-              : project_to_screen(origin_world + glm::vec3(0, 0, axis_length));
+      all_planes ? std::nullopt
+                : project_to_screen(origin_world + glm::vec3(0, 0, axis_length));
 
-  if (!y_screen || (!is_plane && (!x_screen || !z_screen))) {
+  if (!y_screen || (!all_planes && (!x_screen || !z_screen))) {
     gizmo_visible_ = false;
     return;
   }
@@ -495,6 +605,16 @@ void SceneViewport::update_gizmo() {
   gizmo_x_ = x_screen.value_or(*origin_screen);
   gizmo_y_ = *y_screen;
   gizmo_z_ = z_screen.value_or(*origin_screen);
+
+  if (!lights.empty()) {
+    f32 marker_radius = axis_length * 0.3f;
+    gizmo_light_marker_x_ = build_gizmo_ring(origin_world, GizmoAxis::X, marker_radius);
+    gizmo_light_marker_y_ = build_gizmo_ring(origin_world, GizmoAxis::Y, marker_radius);
+    gizmo_light_marker_z_ = build_gizmo_ring(origin_world, GizmoAxis::Z, marker_radius);
+    gizmo_light_marker_visible_ = gizmo_light_marker_x_.size() > 1 ||
+                                  gizmo_light_marker_y_.size() > 1 ||
+                                  gizmo_light_marker_z_.size() > 1;
+  }
 }
 
 void SceneViewport::draw_gizmo() const {
@@ -505,14 +625,14 @@ void SceneViewport::draw_gizmo() const {
   auto to_physical = [dpr](QPointF p) {
     return glm::vec2(static_cast<f32>(p.x()) * dpr, static_cast<f32>(p.y()) * dpr);
   };
+  auto draw_ring = [&](const std::vector<QPointF> &ring, glm::vec4 colour) {
+    for (size_t i = 1; i < ring.size(); ++i) {
+      renderer_draw_line(to_physical(ring[i - 1]), to_physical(ring[i]),
+                         colour);
+    }
+  };
 
   if (gizmo_mode_ == GizmoMode::Rotate) {
-    auto draw_ring = [&](const std::vector<QPointF> &ring, glm::vec4 colour) {
-      for (size_t i = 1; i < ring.size(); ++i) {
-        renderer_draw_line(to_physical(ring[i - 1]), to_physical(ring[i]),
-                           colour);
-      }
-    };
     draw_ring(gizmo_ring_x_, glm::vec4(0.9f, 0.24f, 0.24f, 1.0f));  // X = red
     draw_ring(gizmo_ring_y_, glm::vec4(0.24f, 0.78f, 0.35f, 1.0f)); // Y = green
     draw_ring(gizmo_ring_z_, glm::vec4(0.27f, 0.51f, 0.9f, 1.0f));  // Z = blue
@@ -531,6 +651,13 @@ void SceneViewport::draw_gizmo() const {
   if (gizmo_z_ != gizmo_origin_) {
     renderer_draw_line(origin, to_physical(gizmo_z_),
                        glm::vec4(0.27f, 0.51f, 0.9f, 1.0f)); // Z = blue
+  }
+
+  if (gizmo_light_marker_visible_) {
+    glm::vec4 bulb_colour(1.0f, 0.85f, 0.2f, 1.0f); // warm yellow, like a bulb
+    draw_ring(gizmo_light_marker_x_, bulb_colour);
+    draw_ring(gizmo_light_marker_y_, bulb_colour);
+    draw_ring(gizmo_light_marker_z_, bulb_colour);
   }
 }
 
@@ -628,12 +755,13 @@ GizmoAxis SceneViewport::hit_test_gizmo(QPointF pos) const {
 }
 
 void SceneViewport::begin_gizmo_drag(GizmoAxis axis, QPointF mouse_pos) {
-  SdfPrimitiveDef *primitive = selected_primitive();
-  if (!primitive) {
+  std::vector<SdfPrimitiveDef *> primitives = selected_primitives();
+  std::vector<SdfLightDef *> lights = selected_lights();
+  if (primitives.empty() && lights.empty()) {
     return;
   }
 
-  glm::vec3 origin_world = gizmo_effective_position(*primitive);
+  glm::vec3 origin_world = selection_centroid(primitives, lights);
   std::optional<QPointF> origin_screen = project_to_screen(origin_world);
   if (!origin_screen) {
     return; // degenerate (origin behind the camera)
@@ -648,7 +776,14 @@ void SceneViewport::begin_gizmo_drag(GizmoAxis axis, QPointF mouse_pos) {
     dragging_axis_ = axis;
     drag_mode_ = GizmoMode::Rotate;
     drag_start_mouse_ = mouse_pos;
-    drag_start_rotation_ = primitive->rotation;
+    drag_group_pivot_ = origin_world;
+    drag_start_positions_.clear();
+    drag_start_rotations_.clear();
+    drag_start_light_positions_.clear(); // unused in Rotate -- see update_gizmo_drag()
+    for (SdfPrimitiveDef *primitive : primitives) {
+      drag_start_positions_.push_back(primitive->position);
+      drag_start_rotations_.push_back(primitive->rotation);
+    }
     drag_start_angle_ = std::atan2(static_cast<f32>(to_mouse.y()),
                                    static_cast<f32>(to_mouse.x()));
     // Fixed for the whole drag -- see drag_radius_screen_'s comment for why
@@ -677,15 +812,34 @@ void SceneViewport::begin_gizmo_drag(GizmoAxis axis, QPointF mouse_pos) {
   dragging_axis_ = axis;
   drag_mode_ = GizmoMode::Translate;
   drag_start_mouse_ = mouse_pos;
-  drag_start_position_ = primitive->position;
-  drag_start_params_ = primitive->params;
+  drag_start_positions_.clear();
+  drag_start_params_.clear();
+  for (SdfPrimitiveDef *primitive : primitives) {
+    drag_start_positions_.push_back(primitive->position);
+    drag_start_params_.push_back(primitive->params);
+  }
+  drag_start_light_positions_.clear();
+  for (SdfLightDef *light : lights) {
+    drag_start_light_positions_.push_back(light->position);
+  }
   drag_screen_axis_dir_ = QPointF(screen_delta.x() / span, screen_delta.y() / span);
   drag_world_per_pixel_ = 1.0f / span;
 }
 
 void SceneViewport::update_gizmo_drag(QPointF mouse_pos) {
-  SdfPrimitiveDef *primitive = selected_primitive();
-  if (!primitive) {
+  std::vector<SdfPrimitiveDef *> primitives = selected_primitives();
+  std::vector<SdfLightDef *> lights = selected_lights();
+  if ((primitives.empty() && lights.empty()) ||
+      primitives.size() != drag_start_positions_.size()) {
+    dragging_axis_ = GizmoAxis::None;
+    return;
+  }
+  // drag_start_light_positions_ is only ever populated for a Translate drag
+  // (see begin_gizmo_drag() -- a light never rotates), so only check it
+  // against the live light selection in that mode; a Rotate drag never
+  // reads it at all.
+  if (drag_mode_ == GizmoMode::Translate &&
+      lights.size() != drag_start_light_positions_.size()) {
     dragging_axis_ = GizmoAxis::None;
     return;
   }
@@ -707,21 +861,29 @@ void SceneViewport::update_gizmo_drag(QPointF mouse_pos) {
     drag_accumulated_angle_ += tangential_pixels / drag_radius_screen_;
     drag_last_mouse_pos_ = mouse_pos;
 
-    glm::vec3 rotation = drag_start_rotation_;
-    switch (dragging_axis_) {
-    case GizmoAxis::X:
-      rotation.x += drag_accumulated_angle_;
-      break;
-    case GizmoAxis::Y:
-      rotation.y += drag_accumulated_angle_;
-      break;
-    case GizmoAxis::Z:
-      rotation.z += drag_accumulated_angle_;
-      break;
-    case GizmoAxis::None:
-      break;
+    // One delta rotation, shared by every selected primitive: each one's
+    // own orientation is composed with it, and its position orbits the
+    // group's pivot by the same amount -- mirrors
+    // VulkanRendererBackend::rotate_scene()'s own "orbit + compose"
+    // approach for rotating a set of primitives together. For a single-
+    // primitive selection this reduces to exactly the old behaviour: the
+    // pivot equals that primitive's own position, so orbiting it is a
+    // no-op and only its own rotation changes.
+    glm::quat delta_quat =
+        glm::angleAxis(drag_accumulated_angle_, axis_world_direction(dragging_axis_));
+
+    for (size_t i = 0; i < primitives.size(); ++i) {
+      SdfPrimitiveDef *primitive = primitives[i];
+      if (primitive->type == SdfPrimitiveType::Plane) {
+        continue; // an infinite plane has no orientation to rotate -- see
+                  // update_gizmo()'s all_planes handling
+      }
+      primitive->position =
+          drag_group_pivot_ +
+          delta_quat * (drag_start_positions_[i] - drag_group_pivot_);
+      primitive->rotation =
+          glm::eulerAngles(delta_quat * glm::quat(drag_start_rotations_[i]));
     }
-    primitive->rotation = rotation;
 
     drag_delta_degrees_ = glm::degrees(drag_accumulated_angle_);
     drag_indicator_pos_ = mouse_pos;
@@ -736,16 +898,24 @@ void SceneViewport::update_gizmo_drag(QPointF mouse_pos) {
       static_cast<f32>(delta.x()) * static_cast<f32>(drag_screen_axis_dir_.x()) +
       static_cast<f32>(delta.y()) * static_cast<f32>(drag_screen_axis_dir_.y());
   f32 world_delta = pixels_along * drag_world_per_pixel_;
+  glm::vec3 axis_dir = axis_world_direction(dragging_axis_);
 
-  if (primitive->type == SdfPrimitiveType::Plane) {
-    // Only Y is meaningful for a plane -- height lives in params.x, not
-    // position.y (see gizmo_effective_position()).
-    if (dragging_axis_ == GizmoAxis::Y) {
-      primitive->params.x = drag_start_params_.x + world_delta;
+  for (size_t i = 0; i < primitives.size(); ++i) {
+    SdfPrimitiveDef *primitive = primitives[i];
+    if (primitive->type == SdfPrimitiveType::Plane) {
+      // Only Y is meaningful for a plane -- height lives in params.x, not
+      // position.y (see gizmo_effective_position()).
+      if (dragging_axis_ == GizmoAxis::Y) {
+        primitive->params.x = drag_start_params_[i].x + world_delta;
+      }
+    } else {
+      primitive->position = drag_start_positions_[i] + axis_dir * world_delta;
     }
-  } else {
-    glm::vec3 axis_dir = axis_world_direction(dragging_axis_);
-    primitive->position = drag_start_position_ + axis_dir * world_delta;
+  }
+  for (size_t i = 0; i < lights.size(); ++i) {
+    // A point light's position is a plain vec3 -- no plane-style restriction
+    // to worry about, every axis applies.
+    lights[i]->position = drag_start_light_positions_[i] + axis_dir * world_delta;
   }
 
   update_gizmo(); // reflect the new position/height in the gizmo lines now,
@@ -758,9 +928,30 @@ void SceneViewport::end_gizmo_drag() {
   }
   dragging_axis_ = GizmoAxis::None;
 
-  SdfPrimitiveDef *primitive = selected_primitive();
-  if (primitive) {
-    emit primitive_transformed(selected_layer_index_, primitive->position,
-                               primitive->rotation, primitive->params);
+  std::vector<GizmoTransformResult> results;
+  for (const PrimitiveRef &ref : selected_) {
+    if (ref.is_light()) {
+      if (ref.light_index >= static_cast<int>(scene_.lights.size())) {
+        continue;
+      }
+      const SdfLightDef &light = scene_.lights[ref.light_index];
+      results.push_back(
+          GizmoTransformResult{ref, light.position, glm::vec3(0.0f), glm::vec3(0.0f)});
+      continue;
+    }
+    if (ref.layer_index < 0 || ref.layer_index >= static_cast<int>(scene_.layers.size())) {
+      continue;
+    }
+    const auto &layer_primitives = scene_.layers[ref.layer_index].primitives;
+    if (ref.primitive_index < 0 ||
+        ref.primitive_index >= static_cast<int>(layer_primitives.size())) {
+      continue;
+    }
+    const SdfPrimitiveDef &primitive = layer_primitives[ref.primitive_index];
+    results.push_back(
+        GizmoTransformResult{ref, primitive.position, primitive.rotation, primitive.params});
+  }
+  if (!results.empty()) {
+    emit primitives_transformed(results);
   }
 }

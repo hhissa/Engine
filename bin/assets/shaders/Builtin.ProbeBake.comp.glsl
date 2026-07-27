@@ -63,8 +63,10 @@ const int GATHER_MAX_STEPS = 128;
 // vs. the render pass's 0.001), and a shadow ray runs per light per gather-
 // ray hit -- PROBE_DIM^3 * PROBE_GATHER_SAMPLES of those per bounce, so
 // keeping this cheap matters more here than in the once-per-pixel render
-// pass.
-const float SHADOW_NORMAL_BIAS = 0.05;
+// pass. SHADOW_NORMAL_BIAS was 0.05 (only ~1.6x a voxel) -- widened to match
+// the render pass's own fix for the same reason: too thin a margin once a
+// slightly-off calc_static_normal() estimate is factored in.
+const float SHADOW_NORMAL_BIAS = 0.12;
 const float SHADOW_SOFTNESS = 16.0;
 const int SHADOW_MAX_STEPS = 64;
 
@@ -175,18 +177,34 @@ vec3 sample_prev_probes(vec3 p) {
 // (duplicated rather than shared for the same reason sample_prev_probes()
 // above is: short, and the two shaders' sample_field() come from a shared
 // include already, so this is the one remaining small piece of drift risk
-// -- acceptable given its size).
+// -- acceptable given its size). Also mirrors that copy's fix: a tap
+// landing in a brick-less neighbour right at a coarse-cell boundary
+// (skip_dist != 0) returns a placeholder distance, not a real one -- p
+// itself is always a valid, bricked sample (both call sites below only
+// reach here after confirming that), so it's the safe fallback for
+// whichever side of a tap comes back unbricked, instead of silently
+// differencing against the placeholder and baking a corrupted, grid-
+// aligned normal permanently into the GI probes.
 vec3 calc_static_normal(vec3 p) {
     vec3 dummy_dir = vec3(0.0, 0.0, 1.0);
     vec2 e = vec2(0.0025, 0.0);
-    float dx0, dx1, dy0, dy1, dz0, dz1, skip;
+    float dist_p, skip_p;
     int unused_material;
+    sample_field(p, dummy_dir, dist_p, skip_p, unused_material);
+
+    float dx0, dx1, dy0, dy1, dz0, dz1, skip;
     sample_field(p + e.xyy, dummy_dir, dx1, skip, unused_material);
+    if (skip != 0.0) dx1 = dist_p;
     sample_field(p - e.xyy, dummy_dir, dx0, skip, unused_material);
+    if (skip != 0.0) dx0 = dist_p;
     sample_field(p + e.yxy, dummy_dir, dy1, skip, unused_material);
+    if (skip != 0.0) dy1 = dist_p;
     sample_field(p - e.yxy, dummy_dir, dy0, skip, unused_material);
+    if (skip != 0.0) dy0 = dist_p;
     sample_field(p + e.yyx, dummy_dir, dz1, skip, unused_material);
+    if (skip != 0.0) dz1 = dist_p;
     sample_field(p - e.yyx, dummy_dir, dz0, skip, unused_material);
+    if (skip != 0.0) dz0 = dist_p;
     return normalize(vec3(dx1 - dx0, dy1 - dy0, dz1 - dz0));
 }
 

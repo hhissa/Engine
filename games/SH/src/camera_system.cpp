@@ -10,6 +10,12 @@ void CameraSystem::add_pose(const CameraPose &pose) {
   poses_.push_back(pose);
 }
 
+void CameraSystem::set_poses(std::vector<CameraPose> poses) {
+  poses_ = std::move(poses);
+  current_ = 0;
+  zoom_offset_ = 0.0f; // fresh station list -- start at its authored distance
+}
+
 void CameraSystem::cycle() {
   if (!poses_.empty() && !debug_active_) {
     current_ = (current_ + 1) % poses_.size();
@@ -108,13 +114,11 @@ void CameraSystem::update(u32 screen_width, u32 screen_height, f32 delta_time) {
   // whatever's actually under the view, not a fixed direction that ignores
   // where the mouse has panned it. Scrolling up (a positive wheel delta)
   // zooms in -- moves forward.
-  constexpr f32 kZoomStep = 0.15f;    // world units per wheel notch
-  constexpr f32 kMinZoomOffset = -1.5f; // furthest zoomed out (back away)
-  constexpr f32 kMaxZoomOffset = 3.0f;  // furthest zoomed in (move forward)
+  constexpr f32 kZoomStep = 0.15f; // world units per wheel notch
   zoom_offset_ = std::clamp(
       zoom_offset_ +
           static_cast<f32>(input::mouse_wheel_delta()) * kZoomStep,
-      kMinZoomOffset, kMaxZoomOffset);
+      -pose.max_zoom_out, pose.max_zoom_in);
 
   // A fresh Camera starts at yaw = pitch = 0, so the relative yaw()/pitch()
   // calls below set absolute angles: base facing plus the clamped pan.

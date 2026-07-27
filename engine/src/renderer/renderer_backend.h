@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 #include <memory>
+#include <string>
 #include <string_view>
 
 class PlatformLayer;
@@ -110,6 +111,13 @@ public:
   // baked into the field, so it takes effect the very next frame with no
   // rebake -- see VulkanRaymarchShader::render_to().
   virtual void set_selected_primitive(i32 index) = 0;
+
+  // Resolves a primitive's name (SdfPrimitiveDef::name) to the same
+  // scene_textures/scene_diffuse_colours index set_selected_primitive()
+  // above takes, or -1 if that name isn't currently uploaded -- see
+  // VulkanRaymarchShader::gpu_index_for_primitive(). A pure query (no
+  // side effects), unlike every other method here.
+  virtual i32 primitive_gpu_index(const std::string &name) const = 0;
 
   // Shows/hides the reference grid -- the subdivided ground plane (y=0)
   // the render pass draws as a modelling aid. Like set_selected_primitive()

@@ -71,7 +71,7 @@ CMakeFiles/sdf_editor_autogen: sdf_editor_autogen/timestamp
 sdf_editor_autogen/timestamp: /usr/lib/qt6/libexec/moc
 sdf_editor_autogen/timestamp: CMakeFiles/sdf_editor_autogen.dir/compiler_depend.ts
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Automatic MOC for target sdf_editor"
-	/usr/bin/cmake -E cmake_autogen /home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles/sdf_editor_autogen.dir/AutogenInfo.json ""
+	/usr/bin/cmake -E cmake_autogen /home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles/sdf_editor_autogen.dir/AutogenInfo.json Debug
 	/usr/bin/cmake -E touch /home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/sdf_editor_autogen/timestamp
 
 sdf_editor_autogen: CMakeFiles/sdf_editor_autogen

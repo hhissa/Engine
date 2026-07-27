@@ -36,6 +36,7 @@ question "Alright, lets get started!" {
     }
 
     question "Have you ever attempted suicide?" {
+        tag=DoorScene
         answer=That's a pretty blunt question.
     }
 

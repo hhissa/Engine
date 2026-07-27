@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class VulkanCommandBuffer;
@@ -123,6 +124,21 @@ public:
   // re-upload needed.
   void set_selected_primitive(i32 index) noexcept {
     selected_primitive_index_ = index;
+  }
+
+  // Resolves a primitive's SdfPrimitiveDef::name/Geometry::name to the same
+  // scene_textures/scene_diffuse_colours index set_selected_primitive()
+  // above takes -- for a caller (tools/sdf_editor) that only knows a
+  // primitive by name/position-within-its-layer and needs the GPU-flattened
+  // index rebuild_static_scene() actually assigned it (which, unlike a
+  // layer's ordinal position, depends on GeometrySystem::snapshot()'s
+  // unspecified iteration order and so can't be recomputed from an SdfScene
+  // alone). -1 if name isn't currently uploaded (e.g. stale, or dropped for
+  // exceeding kMaxScenePrimitives).
+  i32 gpu_index_for_primitive(const std::string &name) const noexcept {
+    auto it = primitive_gpu_index_by_name_.find(name);
+    return it != primitive_gpu_index_by_name_.end() ? static_cast<i32>(it->second)
+                                                    : -1;
   }
 
   // Shows/hides the reference grid (the subdivided y=0 plane the render
@@ -369,6 +385,20 @@ private:
   // post-process pass's pixelation step to read.
   std::optional<VulkanBuffer> pixelation_exempt_buffer_;
 
+  // Each static (and volumetric) primitive's effective texture offset/
+  // rotation -- xyz = material->texture_offset * geometry.
+  // texture_offset_scale (world units), w = material->texture_rotation
+  // (radians) -- parallel to primitive_colour_buffer_, read by the render
+  // pass's triplanar sampling. A separate binding rather than widening
+  // primitive_colour_buffer_'s existing vec4 (rgb=tint, a=texture_scale):
+  // that buffer's exact 1-vec4-per-primitive layout is shared verbatim
+  // with Builtin.ProbeBake.comp.glsl's own ScenePrimitiveColours binding,
+  // which only ever reads .rgb for flat albedo -- restriding it here would
+  // silently feed that shader's simple per-primitive indexing corrupted
+  // data instead. Keeping texture transform in its own buffer touches
+  // nothing outside this pass.
+  std::optional<VulkanBuffer> tex_transform_buffer_;
+
   // Pass 4a: bright-pass + horizontal half of the bloom blur (see the
   // class comment). Reads output_image_, writes bloom_temp_image_ below.
   VulkanShaderModule bloom_blur_h_stage_;
@@ -451,6 +481,10 @@ private:
   // releases through TextureSystem.
   bool skybox_enabled_ = false;
   std::string skybox_texture_name_;
+
+  // See gpu_index_for_primitive() above -- rebuilt from scratch by every
+  // rebuild_static_scene() call (construction, and every rebake()).
+  std::unordered_map<std::string, u32> primitive_gpu_index_by_name_;
 
   bool valid_ = false;
 };

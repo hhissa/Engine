@@ -54,13 +54,15 @@ QASystem::Entry &QASystem::add_follow_up(Entry &parent, std::string question,
 namespace {
 // Converts one parsed ConversationQuestion (engine/src/resources/
 // conversation.h's pure data shape) into a QASystem::Entry, recursively --
-// the two are structurally identical (question/answer_lines/follow_ups)
-// except Entry also carries the in-game `asked` flag conversation data has
-// no business knowing about, which just defaults to false here.
+// the two are structurally identical (question/answer_lines/tag/
+// follow_ups) except Entry also carries the in-game `asked` flag and
+// on_selected callback conversation data has no business knowing about,
+// which just default to false/empty here.
 QASystem::Entry to_entry(const ConversationQuestion &question) {
   QASystem::Entry entry;
   entry.question = question.text;
   entry.answer_lines = question.answer_lines;
+  entry.tag = question.tag;
   entry.follow_ups.reserve(question.follow_ups.size());
   for (const ConversationQuestion &child : question.follow_ups) {
     entry.follow_ups.push_back(to_entry(child));
@@ -123,6 +125,51 @@ void QASystem::unload_conversation(ConversationHandle handle) {
   }
 }
 
+namespace {
+// Recursively searches list (and every entry's follow_ups) for an exact
+// question-text match -- returns nullptr if none found. Shared by
+// set_on_selected() below.
+QASystem::Entry *find_entry_by_text(std::vector<QASystem::Entry> &list,
+                                    std::string_view text) {
+  for (QASystem::Entry &entry : list) {
+    if (entry.question == text) {
+      return &entry;
+    }
+    if (QASystem::Entry *found = find_entry_by_text(entry.follow_ups, text)) {
+      return found;
+    }
+  }
+  return nullptr;
+}
+} // namespace
+
+void QASystem::set_on_selected(std::string_view question_text,
+                               std::function<void()> callback) {
+  Entry *entry = find_entry_by_text(entries_, question_text);
+  if (!entry) {
+    KWARN("QASystem::set_on_selected: no currently-loaded question has the "
+         "exact text '{}'.",
+         question_text);
+    return;
+  }
+  entry->on_selected = std::move(callback);
+}
+
+void QASystem::set_on_returned_to_root(std::function<void()> callback) {
+  on_returned_to_root_ = std::move(callback);
+}
+
+void QASystem::register_scene_state(std::string_view name,
+                                    std::function<void()> callback) {
+  std::string key(name);
+  if (scene_states_.contains(key)) {
+    KWARN("QASystem::register_scene_state: '{}' was already registered -- "
+         "overwriting.",
+         key);
+  }
+  scene_states_[key] = std::move(callback);
+}
+
 void QASystem::update() {
   if (entries_.empty()) {
     return;
@@ -138,6 +185,19 @@ void QASystem::update() {
     }
     if (key_pressed(input::Key::Enter)) {
       list[cursor_].asked = true; // permanent -- never cleared
+      if (list[cursor_].on_selected) {
+        list[cursor_].on_selected();
+      }
+      if (list[cursor_].tag) {
+        auto it = scene_states_.find(*list[cursor_].tag);
+        if (it != scene_states_.end()) {
+          it->second();
+        } else {
+          KWARN("QASystem: question '{}' has tag '{}' with no registered "
+               "scene state.",
+               list[cursor_].question, *list[cursor_].tag);
+        }
+      }
       answer_line_ = 0;
       state_ = State::Answer;
     }
@@ -158,6 +218,9 @@ void QASystem::update() {
           if (all_asked) {
             current_list_ = &entries_;
             cursor_ = 0;
+            if (on_returned_to_root_) {
+              on_returned_to_root_();
+            }
           }
           // else: unanswered siblings remain -- stay on current_list_ with
           // cursor_ unchanged (still a valid index into it).

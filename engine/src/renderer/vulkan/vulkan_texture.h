@@ -48,3 +48,13 @@ private:
 // texture. Useful as a placeholder for anything that needs *a* texture
 // before real asset loading exists.
 std::vector<u8> generate_checkerboard_pixels(u32 size, u32 tile_size);
+
+// Generates a size x size RGBA texture of one uniform colour -- unlike
+// generate_checkerboard_pixels() above, genuinely flat/spatially uniform.
+// Used for TextureSystem::flat_texture(): a material's bump map sampled
+// from a spatially-uniform texture reads identical luminance at every UV
+// offset, so the finite-difference bump computation naturally comes out to
+// exactly zero perturbation -- i.e. this is what makes "no bump map set"
+// mean "no bump mapping applied" rather than needing a separate per-
+// material enable flag.
+std::vector<u8> generate_flat_pixels(u32 size, u8 r, u8 g, u8 b, u8 a);

@@ -37,6 +37,7 @@ public:
   void remove_scene(SceneHandle handle) override;
   void clear_scenes() override;
   void set_selected_primitive(i32 index) override;
+  i32 primitive_gpu_index(const std::string &name) const override;
   void set_grid_visible(b8 visible) override;
   void set_bloom_enabled(b8 enabled) override;
   void set_vignette_enabled(b8 enabled) override;

@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts120_to+060+000+000_tr+0000_oak_stretcher_1816_mm_architextures
+diffuse_colour=1 1 1 1
+texture_scale=1.2
+texture_offset=0.6 0 0
+diffuse_map_name=oak_stretcher_1816_mm_architextures

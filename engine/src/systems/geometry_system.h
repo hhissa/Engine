@@ -135,6 +135,19 @@ struct Geometry {
   // larger) frequency, same failure mode smoothness had before it got the
   // same treatment. 1 = unscaled.
   f32 texture_scale_factor = 1.0f;
+  // Accumulated uniform scale applied to this primitive's *effective*
+  // texture offset (world units -- see Material::texture_offset) at upload
+  // time: effective = material->texture_offset * texture_offset_scale.
+  // Same rationale as texture_scale_factor above (Material is shared/
+  // reference-counted, so scale_scene() can't just multiply
+  // material->texture_offset directly) and the same reason it needs
+  // rescaling at all: texture_offset is a world-unit *length* (how far the
+  // pattern is shifted), so it must shrink/grow in lockstep with the
+  // primitive and its texture_scale, or the offset ends up relatively too
+  // large/small -- the pattern visibly "sliding" out of alignment -- once
+  // the scene around it has been scaled. texture_rotation needs no
+  // equivalent: an angle is scale-invariant. 1 = unscaled.
+  f32 texture_offset_scale = 1.0f;
   std::string material_name; // Key MaterialSystem was acquired with --
                             // needed again at release time.
   Material *material = nullptr; // Non-owning -- owned by MaterialSystem.
@@ -270,6 +283,10 @@ public:
   Light &acquire_light(const LightConfig &config, bool auto_release);
   void release_light(std::string_view name);
   std::vector<Light> light_snapshot() const;
+  // Same stability guarantee as find() above, for a light -- needed by
+  // VulkanRendererBackend::translate_scene()/rotate_scene()/scale_scene() to
+  // move a loaded scene's lights in lockstep with its opaque geometry.
+  Light *find_light(std::string_view name);
 
   // Mirrors acquire()/release()/snapshot() above, for volumetric "light
   // shaft" primitives instead -- a separate map, so a volumetric can share a

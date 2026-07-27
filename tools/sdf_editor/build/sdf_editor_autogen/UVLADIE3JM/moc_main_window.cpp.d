@@ -1,7 +1,9 @@
 /home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/sdf_editor_autogen/UVLADIE3JM/moc_main_window.cpp: /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/main_window.h \
   /home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/sdf_editor_autogen/moc_predefs.h \
   /home/h-i/Projects/NOAIEngine/engine/src/defines.h \
+  /home/h-i/Projects/NOAIEngine/engine/src/renderer/camera.h \
   /home/h-i/Projects/NOAIEngine/engine/src/resources/sdf_scene.h \
+  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/scene_viewport.h \
   /usr/include/alloca.h \
   /usr/include/asm-generic/errno-base.h \
   /usr/include/asm-generic/errno.h \
@@ -420,6 +422,13 @@
   /usr/include/x86_64-linux-gnu/c++/13/bits/os_defines.h \
   /usr/include/x86_64-linux-gnu/gnu/stubs-64.h \
   /usr/include/x86_64-linux-gnu/gnu/stubs.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QElapsedTimer \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QEvent \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QMargins \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QObject \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QPoint \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QPointF \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QRect \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qalgorithms.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qanystringview.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qarraydata.h \
@@ -441,8 +450,10 @@
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qcontainerinfo.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qcontainertools_impl.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qcontiguouscache.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qcoreevent.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qdatastream.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qdebug.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qelapsedtimer.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qflags.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qforeach.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qglobal.h \
@@ -461,6 +472,7 @@
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qmetacontainer.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qmetatype.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qnamespace.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qnativeinterface.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qnumeric.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qobject.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qobject_impl.h \
@@ -502,6 +514,7 @@
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qvarlengtharray.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qversiontagging.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/QColor \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/QWindow \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qaction.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qbitmap.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qbrush.h \
@@ -521,10 +534,13 @@
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qregion.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qrgb.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qrgba64.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qsurface.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qsurfaceformat.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qtgui-config.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qtguiexports.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qtguiglobal.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qtransform.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qwindow.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qwindowdefs.h \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QMainWindow \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qmainwindow.h \

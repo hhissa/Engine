@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts165_to+090+000+000_tr+0000_WoodDoor_1508
+diffuse_colour=1 1 1 1
+texture_scale=1.65
+texture_offset=0.9 0 0
+diffuse_map_name=WoodDoor_1508

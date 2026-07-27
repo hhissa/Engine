@@ -1,8 +1,11 @@
 #pragma once
 #include <defines.h>
 #include <glm/glm.hpp>
+#include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 // Identifies one load_conversation() call's worth of top-level questions
@@ -72,6 +75,20 @@ public:
     bool asked = false; // set on first selection -- darkens the question
                         // in the list permanently
     std::vector<Entry> follow_ups;
+    // Fired from update(), once, the instant the player selects this
+    // question (Enter pressed while the cursor is on it) -- before its
+    // answer starts playing, at the same point `asked` is set. Empty by
+    // default (most questions have no side effect). Set via
+    // set_on_selected() below rather than assigned directly -- game code
+    // has no other way to reach a specific Entry living inside entries_/
+    // some other entry's follow_ups.
+    std::function<void()> on_selected;
+    // Opaque symbolic name from the loaded .conversation file's `tag=`
+    // line (see resources/conversation.h -- copied verbatim by to_entry()
+    // in qa_system.cpp), or nullopt if this question has none. Dispatched
+    // by name against scene_states_ in update() -- see
+    // register_scene_state() below for what a tag actually triggers.
+    std::optional<std::string> tag;
   };
 
   // Appends a new top-level question and returns a reference to it -- pass
@@ -116,6 +133,76 @@ public:
   // always kicking the player back to the top level on an unload.
   void unload_conversation(ConversationHandle handle);
 
+  // Attaches callback as the given question's on-select hook (see
+  // Entry::on_selected) -- e.g. to swap out a scene/model the moment the
+  // player picks a particular dialogue option:
+  //
+  //   qa_.set_on_selected("Do you remember what happened?", [this] {
+  //     renderer_remove_scene(scene_);
+  //     scene_ = renderer_load_scene("assets/scenes/man_transformed.sdf")
+  //                  .scale(0.35)
+  //                  .translate(glm::vec3(0.0, -2.8, 0.0));
+  //   });
+  //
+  // A general escape hatch for a one-off side effect keyed by a question's
+  // exact text -- for anything that names a reusable, symbolic scene state
+  // in the .conversation file itself (so content can declare the
+  // association instead of game code searching for literal text), use
+  // register_scene_state() below instead; that's what a `tag=` line
+  // dispatches to.
+  //
+  // Searches every currently-loaded top-level question and its follow-ups
+  // (recursively, in load/add order) for an exact match against
+  // question_text; logs a warning and does nothing if none matches (a
+  // typo, or called before the question's conversation is loaded -- call
+  // this after load_conversation() returns, not before). Matches by the
+  // question's own text rather than a numeric path into entries_/
+  // follow_ups, so a hookup in game code reads naturally against the
+  // .conversation file's actual content and doesn't silently point at the
+  // wrong question if the file is later reordered. The callback itself
+  // lives inside that Entry (not tracked by a separate pointer/index this
+  // class has to keep valid), so once attached it survives any later
+  // entries_ reallocation from a further add_entry()/load_conversation()
+  // call.
+  void set_on_selected(std::string_view question_text, std::function<void()> callback);
+
+  // Attaches callback as the "returned to the top-level list" hook -- fired
+  // from update() exactly when a finished follow-up branch pops back to
+  // entries_ because every question at that level has now been asked (see
+  // the class comment's "past the last answer line" section). NOT fired
+  // for a leaf question that was already at the top level (there's nowhere
+  // to "pop back" from), and not fired repeatedly while sitting at the top
+  // level -- only on the transition itself. One hook for the whole
+  // conversation (unlike set_on_selected(), which targets a single
+  // question) -- e.g. to reset the scene back to its base state once the
+  // player has exhausted a branch:
+  //
+  //   qa_.set_on_returned_to_root([this] { apply_scene_state(SceneState::Normal); });
+  void set_on_returned_to_root(std::function<void()> callback);
+
+  // Registers callback under name -- fired from update() the instant the
+  // player selects any question whose `tag=` line (see resources/
+  // conversation.h's file format, and Entry::tag above) equals name, right
+  // alongside on_selected. Mirrors how Ink's host game reacts to a `#tag`
+  // line, or how Yarn Spinner dispatches a `<<command>>` to a handler
+  // registered via AddCommandHandler(name, ...): the dialogue content
+  // declares a symbolic name, game code says what that name means, and
+  // QASystem itself never interprets it. E.g.:
+  //
+  //   qa_.register_scene_state("DoorScene",
+  //                            [this] { apply_scene_state(SceneState::DoorScene); });
+  //
+  // Unlike set_on_selected(), this has nothing to do with any particular
+  // Entry -- name -> callback is stored independently of entries_/
+  // follow_ups, so call order relative to load_conversation() doesn't
+  // matter, and a registered name keeps working across an
+  // unload_conversation()/load_conversation() of a different file. Logs a
+  // warning (but still overwrites) if name was already registered -- doing
+  // so silently would hide what's almost certainly a content mistake (two
+  // different questions/files meaning to use two different names,
+  // colliding by accident).
+  void register_scene_state(std::string_view name, std::function<void()> callback);
+
   void update();
 
   // screen_height is the current framebuffer height (screen pixels) --
@@ -148,6 +235,12 @@ private:
   // its default member initializer (&entries_) runs after entries_ already
   // exists.
   std::vector<Entry> *current_list_ = &entries_;
+
+  // See set_on_returned_to_root() above.
+  std::function<void()> on_returned_to_root_;
+
+  // See register_scene_state() above.
+  std::unordered_map<std::string, std::function<void()>> scene_states_;
 
   State state_ = State::QuestionList;
   size_t cursor_ = 0;      // which question the selection cursor is on, within *current_list_

@@ -20,8 +20,9 @@
 // File format (see assets/conversations/*.conversation for real examples):
 // a sequence of top-level `question "<text>" { ... }` blocks, each
 // containing zero or more `answer=<line>` entries (one per line, in file
-// order) and, optionally, further nested `question` blocks -- each of
-// those becomes a follow-up of its enclosing question, to any depth:
+// order), an optional `tag=<name>` entry, and, optionally, further nested
+// `question` blocks -- each of those becomes a follow-up of its enclosing
+// question, to any depth:
 //
 //   #conversation file
 //   version=0.1
@@ -32,6 +33,7 @@
 //       answer=I've been here a long time.
 //
 //       question "Do you have a name?" {
+//           tag=RevealName
 //           answer=Not one I remember.
 //       }
 //
@@ -47,10 +49,23 @@
 // starting with '#' are ignored anywhere; a top-level "version=" line is
 // accepted but not currently read (kept for forward compatibility, like
 // every other file format in this engine).
+//
+// `tag=` is opaque to this parser -- it's a symbolic name a particular
+// game's dialogue system can react to however it likes (e.g. SH's
+// QASystem::register_scene_state()/Entry::tag dispatches it to a scene/
+// model transition), the same way Ink's own `#tag` lines or Yarn Spinner's
+// `<<command>>`s are meaningless to the story engine itself and only mean
+// something to whatever host code is listening for that name. This module
+// stays deliberately ignorant of what any given tag *does* -- see the file
+// header comment above.
 
 struct ConversationQuestion {
   std::string text;
   std::vector<std::string> answer_lines;
+  // Opaque symbolic name a game's dialogue system can react to -- see the
+  // file format comment above. std::nullopt if this question has no
+  // `tag=` line.
+  std::optional<std::string> tag;
   // Nested sub-questions, revealed (by whichever system is playing this
   // conversation) once this question's own answer finishes -- see the
   // file format comment above for how these nest in the source file.

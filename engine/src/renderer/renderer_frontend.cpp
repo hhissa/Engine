@@ -234,6 +234,10 @@ void renderer_set_selected_primitive(i32 index) {
   }
 }
 
+i32 renderer_get_primitive_gpu_index(const std::string &name) {
+  return backend ? backend->primitive_gpu_index(name) : -1;
+}
+
 void renderer_set_grid_visible(b8 visible) {
   if (backend) {
     backend->set_grid_visible(visible);

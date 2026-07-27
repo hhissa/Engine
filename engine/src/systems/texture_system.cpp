@@ -5,6 +5,13 @@
 namespace {
 constexpr u32 kDefaultTextureSize = 256;
 constexpr u32 kDefaultTextureTile = 32;
+// Small -- flat_texture_ is spatially uniform by construction, so it needs
+// no real resolution at all, unlike the checkerboard default. Must be at
+// least 16: vulkan_image.cpp hardcodes every VulkanImage to 4 mip levels
+// (`// TODO: Support mip mapping`), and Vulkan requires
+// mipLevels <= floor(log2(max(width,height)))+1 -- a smaller size (e.g. 4)
+// fails that validation check at image-creation time.
+constexpr u32 kFlatTextureSize = 16;
 
 std::string texture_path(std::string_view name) {
   return "assets/textures/" + std::string(name) + ".png";
@@ -17,6 +24,12 @@ TextureSystem::TextureSystem(VulkanContext &context) : context_(&context) {
       generate_checkerboard_pixels(kDefaultTextureSize, kDefaultTextureTile));
   if (!default_texture_->is_valid()) {
     KERROR("Failed to create the default texture.");
+  }
+
+  flat_texture_.emplace(*context_, kFlatTextureSize, kFlatTextureSize, 4,
+                       generate_flat_pixels(kFlatTextureSize, 255, 255, 255, 255));
+  if (!flat_texture_->is_valid()) {
+    KERROR("Failed to create the flat texture.");
   }
 }
 

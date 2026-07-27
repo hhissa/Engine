@@ -1,17 +1,20 @@
 #pragma once
+#include "scene_viewport.h" // for PrimitiveRef/GizmoTransformResult, used by
+                            // slot signatures below
 #include <resources/sdf_scene.h>
 
 #include <QColor>
 #include <QMainWindow>
 
 class QListWidget;
+class QTreeWidgetItem;
 class QComboBox;
 class QDoubleSpinBox;
 class QLineEdit;
 class QPushButton;
 class QLabel;
 class QCheckBox;
-class SceneViewport;
+class ContentsTreeWidget;
 
 // A small Qt front-end over testbed/src/sdf_authoring.h's read/write/
 // builder functions: pick a primitive type from a scrollable list, choose
@@ -41,6 +44,13 @@ public:
 private slots:
   void on_add_clicked();
   void on_remove_clicked();
+  // Connected to new_layer_button_'s clicked -- creates an empty SdfLayerDef
+  // (Union, smoothness 0, "layerN") with no primitives yet, adds it to the
+  // tree, and selects it, so it becomes on_add_clicked()'s target (see
+  // active_layer_index_). The explicit way to start a layer meant to hold
+  // more than one primitive, rather than on_add_clicked()'s implicit "no
+  // active layer -> make a fresh one" fallback.
+  void on_new_layer_clicked();
   void on_pick_colour_clicked();
   // Connected to emissive_colour_button_'s clicked -- mirrors
   // on_pick_colour_clicked() for the emissive colour swatch (see
@@ -48,6 +58,12 @@ private slots:
   void on_pick_emissive_colour_clicked();
   void on_pick_texture_clicked();
   void on_clear_texture_clicked();
+  // Mirrors on_pick_texture_clicked()/on_clear_texture_clicked() for
+  // bump_map_name_ -- a SEPARATE texture from texture_name_ (see
+  // Material::bump_map_name engine-side), sampled purely for surface-detail
+  // perturbation, never for colour.
+  void on_pick_bump_map_clicked();
+  void on_clear_bump_map_clicked();
   void on_save_clicked();
   void on_load_clicked();
   void on_type_selection_changed();
@@ -58,25 +74,35 @@ private slots:
   // The grid is editor-only: the engine defaults it to hidden and only
   // this tool ever turns it on, so games never render it.
   void on_show_grid_toggled(bool checked);
-  // Connected to viewport_'s primitive_picked(int) signal -- selects (or,
-  // if layer_index is -1, clears selection of) the matching row in
-  // contents_list_, keeping the side panel in sync with clicks made
-  // directly in the 3D view (see ray_intersect.h/scene_viewport.cpp).
-  void on_viewport_primitive_picked(int layer_index);
-  // Connected to viewport_'s primitive_transformed(int, vec3, vec3, vec3)
-  // signal, fired once when a gizmo drag ends -- writes the final
-  // position/rotation/params back into scene_, refreshes the side panel's
-  // fields to match, and calls sync_viewport_scene() to actually persist +
-  // rebake (dragging itself never rebakes, see scene_viewport.h's class
-  // comment).
-  void on_viewport_primitive_transformed(int layer_index, glm::vec3 position,
-                                        glm::vec3 rotation, glm::vec3 params);
-  // Connected to contents_list_'s selection change -- the reverse
-  // direction of on_viewport_primitive_picked(), so selecting a row here
-  // also shows the gizmo on the matching primitive in the 3D view, and
-  // populates the side panel's fields with that primitive's current values
-  // (see populate_fields_from_selection()).
-  void on_contents_list_selection_changed();
+  // Connected to viewport_'s selection_changed(std::vector<PrimitiveRef>)
+  // signal -- mirrors the given selection onto contents_tree_'s own item
+  // selection, keeping the side panel in sync with clicks (and ctrl-clicks,
+  // for multi-select) made directly in the 3D view (see
+  // ray_intersect.h/scene_viewport.cpp).
+  void on_viewport_selection_changed(std::vector<PrimitiveRef> selection);
+  // Connected to viewport_'s
+  // primitives_transformed(std::vector<GizmoTransformResult>) signal, fired
+  // once when a gizmo drag ends -- writes every transformed primitive's
+  // final position/rotation/params back into scene_, refreshes the side
+  // panel's fields to match (only when exactly one primitive is selected),
+  // and calls sync_viewport_scene() to actually persist + rebake (dragging
+  // itself never rebakes, see scene_viewport.h's class comment).
+  void on_viewport_primitives_transformed(std::vector<GizmoTransformResult> results);
+  // Connected to contents_tree_'s itemSelectionChanged -- the reverse
+  // direction of on_viewport_selection_changed(), so selecting row(s) here
+  // also shows the gizmo on the matching primitive(s) in the 3D view.
+  // Selecting exactly one primitive row also populates the side panel's
+  // fields with its current values (see populate_fields_from_selection())
+  // and live-editing becomes active; any other selection (zero, several, or
+  // a layer row) leaves the fields as pure "staging" values for Add, same
+  // as when nothing is selected. Also updates active_layer_index_ -- the
+  // layer on_add_clicked() targets.
+  void on_contents_tree_selection_changed();
+  // Connected to contents_tree_'s primitives_reparented signal, fired after
+  // a drag-and-drop moves one or more primitive rows under a different
+  // layer row -- re-derives scene_.layers from the tree's now-current
+  // structure (see sync_layers_from_tree()).
+  void on_primitives_reparented();
   // Connected to every "New Primitive" field's changed signal (operation,
   // smoothness, position, rotation, size) plus the colour/texture pickers.
   // If a primitive is currently selected, this reapplies the panel's
@@ -93,7 +119,7 @@ private slots:
   void on_param_expr_changed();
 
   // Mirrors on_type_selection_changed()/on_add_clicked()/
-  // on_remove_clicked()/on_contents_list_selection_changed()/
+  // on_remove_clicked()/on_contents_tree_selection_changed()/
   // on_live_edit_changed() above, for the Lights tab instead of Primitives
   // -- see populate_light_fields_from_selection()/apply_fields_to_light().
   void on_light_type_changed();
@@ -108,7 +134,7 @@ private slots:
   void on_ambient_changed();
 
   // Mirrors on_type_selection_changed()/on_add_clicked()/on_remove_clicked()/
-  // on_contents_list_selection_changed()/on_live_edit_changed() above, for
+  // on_contents_tree_selection_changed()/on_live_edit_changed() above, for
   // the Volumetrics tab instead of Primitives -- see
   // populate_volumetric_fields_from_selection()/apply_fields_to_volumetric().
   // Much closer to the Primitives tab than the Lights tab (a volumetric has
@@ -126,9 +152,31 @@ private slots:
   void on_volumetric_field_changed();
 
 private:
-  // Regenerates the "scene contents" list from scene_ (called after every
-  // add/remove/load) and updates the window title's unsaved-changes marker.
+  // Regenerates the "scene contents" tree from scene_ (called after every
+  // add/remove/load/reparent) and updates the window title's unsaved-
+  // changes marker -- one top-level item per layer (labeled with its
+  // operation/smoothness), one child item per primitive within it. Layer
+  // items store their scene_.layers[] index in kLayerIndexRole; primitive
+  // items store their (layer_index, primitive_index) pair in
+  // kLayerIndexRole/kPrimitiveIndexRole, plus the primitive's own stable
+  // name in kPrimitiveNameRole (see sync_layers_from_tree(), which needs
+  // that name to re-find a primitive after a drag-and-drop reparent).
   void refresh_contents_list();
+  // Returns every currently-selected leaf (primitive) row in contents_tree_
+  // as PrimitiveRefs -- ignores any selected layer row (a layer has nothing
+  // to feed the gizmo/edit fields with). Used by
+  // on_contents_tree_selection_changed() to drive viewport_'s selection.
+  std::vector<PrimitiveRef> tree_selected_primitives() const;
+  // Re-derives scene_.layers from contents_tree_'s current structure after
+  // a drag-and-drop reparent: each layer keeps its own name/operation/
+  // smoothness (read back from scene_.layers at its stored kLayerIndexRole
+  // before rebuilding), but its primitives[] is rebuilt from whichever
+  // primitive child items now sit under it in the tree, resolved back to
+  // actual SdfPrimitiveDef values by the stable name every primitive item
+  // carries (see refresh_contents_list()'s comment) -- position-based
+  // (layer_index, primitive_index) pairs can't survive a reparent, since
+  // that's exactly what just changed.
+  void sync_layers_from_tree();
   // Updates the position/rotation/param_spin_ fields' enabled/visible state
   // for the currently selected primitive type: position/rotation are
   // disabled (but stay visible) for Plane, which uses neither -- see
@@ -138,20 +186,22 @@ private:
   void update_field_enablement();
   // Populates every "New Primitive" field (type, operation, smoothness,
   // position, rotation, per-type params, colour, texture) from
-  // scene_.layers[layer_index]'s single primitive, so editing an existing
-  // selection starts from its actual current values -- colour_/
-  // texture_name_ are recovered by reading its material_name's .kmt file
-  // back (see parse_material_file() in the .cpp), since material_name
-  // alone doesn't say what colour/texture produced it. Sets
-  // populating_fields_ around every setValue() call so the resulting
-  // signals don't themselves trigger on_live_edit_changed().
-  void populate_fields_from_selection(int layer_index);
+  // scene_.layers[layer_index].primitives[primitive_index], so editing an
+  // existing single-primitive selection starts from its actual current
+  // values -- colour_/texture_name_ are recovered by reading its
+  // material_name's .kmt file back (see parse_material_file() in the .cpp),
+  // since material_name alone doesn't say what colour/texture produced it.
+  // Sets populating_fields_ around every setValue() call so the resulting
+  // signals don't themselves trigger on_live_edit_changed(). Only ever
+  // called when exactly one primitive is selected -- see
+  // on_contents_tree_selection_changed().
+  void populate_fields_from_selection(int layer_index, int primitive_index);
   // The inverse of populate_fields_from_selection(): writes the panel's
   // current field values into scene_.layers[layer_index]'s operation/
-  // smoothness/primitive, deriving a fresh material from colour_/
-  // texture_name_ via ensure_material(). Does not call
+  // smoothness and primitives[primitive_index], deriving a fresh material
+  // from colour_/texture_name_ via ensure_material(). Does not call
   // sync_viewport_scene() itself -- callers do that once, after.
-  void apply_fields_to_primitive(int layer_index);
+  void apply_fields_to_primitive(int layer_index, int primitive_index);
   // Writes (or reuses, if already present) assets/materials/<name>.kmt for
   // colour_ (+ texture_name_, if not empty) and returns its name -- the
   // material_name every added/edited primitive references. Deterministic
@@ -175,6 +225,14 @@ private:
   // no material/texture to recover and only 4 fields total.
   void populate_light_fields_from_selection(int light_index);
   void apply_fields_to_light(int light_index);
+  // Shows/hides the viewport's gizmo on light_index: a Point light gets a
+  // single-entry selection (PrimitiveRef::light_index) so its position can
+  // be dragged, same as a primitive; a Directional light has no position
+  // for a gizmo to show at all, so this just clears the selection instead.
+  // Called whenever lights_list_'s current row changes and whenever a
+  // selected light's own Type field flips between the two (see
+  // on_lights_list_selection_changed()/on_light_field_changed()).
+  void update_viewport_light_selection(int light_index);
 
   // Regenerates the "Volumetrics" list from scene_.volumetrics -- mirrors
   // refresh_contents_list().
@@ -200,6 +258,9 @@ private:
   SdfScene scene_;
   QColor colour_ = Qt::white;
   std::string texture_name_; // empty => no diffuse map, colour_ only.
+  // Separate from texture_name_ above -- empty => no bump map, no bump
+  // mapping applied at all (see Material::bump_map_name engine-side).
+  std::string bump_map_name_;
   // See Material::emissive_colour -- only takes effect once
   // emissive_intensity_spin_'s value is above 0 (the "off" default).
   QColor emissive_colour_ = Qt::white;
@@ -217,6 +278,12 @@ private:
   u64 next_layer_id_ = 0;
   u64 next_light_id_ = 0;
   u64 next_volumetric_id_ = 0;
+  // Names every added primitive "primitiveN", independent of which layer it
+  // lands in -- now that on_add_clicked() can add more than one primitive
+  // into the same layer (see active_layer_index_), the old
+  // "<layer_name>_primitive" convention (exactly one per layer) would
+  // collide the moment a second primitive joined a layer.
+  u64 next_primitive_id_ = 0;
 
   // Guards populate_fields_from_selection()'s setValue() calls against
   // re-entering on_live_edit_changed() -- without this, populating the
@@ -225,13 +292,22 @@ private:
   // field, and fragile if that ever stops being a no-op).
   bool populating_fields_ = false;
 
+  // Which scene_.layers[] entry on_add_clicked() pushes a new primitive
+  // into, instead of creating a fresh layer -- kept in sync with
+  // contents_tree_'s current selection by
+  // on_contents_tree_selection_changed() (a primitive row's parent layer,
+  // or a layer row itself; -1 if the selection doesn't imply one, e.g.
+  // nothing selected or several primitives spanning different layers).
+  int active_layer_index_ = -1;
+
   QColor light_colour_ = Qt::white;
   // Mirrors populating_fields_, for populate_light_fields_from_selection()/
   // on_light_field_changed().
   bool populating_light_fields_ = false;
 
   QListWidget *type_list_ = nullptr;
-  QListWidget *contents_list_ = nullptr;
+  ContentsTreeWidget *contents_tree_ = nullptr;
+  QPushButton *new_layer_button_ = nullptr;
   QComboBox *operation_combo_ = nullptr;
   QDoubleSpinBox *smoothness_spin_ = nullptr;
   QDoubleSpinBox *pos_x_ = nullptr;
@@ -257,10 +333,27 @@ private:
   QPushButton *texture_button_ = nullptr;
   QPushButton *texture_clear_button_ = nullptr;
   QLabel *texture_label_ = nullptr;
+  // Separate texture picker for bump_map_name_ -- mirrors texture_button_/
+  // texture_clear_button_/texture_label_ exactly.
+  QPushButton *bump_map_button_ = nullptr;
+  QPushButton *bump_map_clear_button_ = nullptr;
+  QLabel *bump_map_label_ = nullptr;
   // World units per texture tile ("texture_scale=" in the written .kmt --
   // see Material::texture_scale engine-side). Applies to the default
   // checkerboard too, so it stays enabled even with no texture chosen.
   QDoubleSpinBox *texture_scale_spin_ = nullptr;
+  // World-unit texture translate ("texture_offset=" in the written .kmt --
+  // see Material::texture_offset engine-side) -- shifts the triplanar
+  // pattern along each world axis. Applies to the default checkerboard
+  // too, same as texture_scale_spin_.
+  QDoubleSpinBox *texture_offset_x_ = nullptr;
+  QDoubleSpinBox *texture_offset_y_ = nullptr;
+  QDoubleSpinBox *texture_offset_z_ = nullptr;
+  // Texture rotate, in degrees in this UI ("texture_rotation=" in the
+  // written .kmt is radians -- see Material::texture_rotation engine-side;
+  // ensure_material()/populate_fields_from_selection() do the conversion,
+  // same as rot_x_/rot_y_/rot_z_ do for a primitive's own rotation).
+  QDoubleSpinBox *texture_rotation_spin_ = nullptr;
   QPushButton *emissive_colour_button_ = nullptr;
   QDoubleSpinBox *emissive_intensity_spin_ = nullptr; // 0 = not emissive
   QCheckBox *pixelation_exempt_check_ = nullptr; // see Material::pixelation_exempt
@@ -304,6 +397,12 @@ private:
   QPushButton *volumetric_texture_clear_button_ = nullptr;
   QLabel *volumetric_texture_label_ = nullptr;
   QDoubleSpinBox *volumetric_texture_scale_spin_ = nullptr;
+  // Mirror texture_offset_x_/y_/z_ and texture_rotation_spin_ above, for
+  // the Volumetrics tab's own independently-staged material.
+  QDoubleSpinBox *volumetric_texture_offset_x_ = nullptr;
+  QDoubleSpinBox *volumetric_texture_offset_y_ = nullptr;
+  QDoubleSpinBox *volumetric_texture_offset_z_ = nullptr;
+  QDoubleSpinBox *volumetric_texture_rotation_spin_ = nullptr;
   // See SdfVolumetricDef::density.
   QDoubleSpinBox *volumetric_density_spin_ = nullptr;
   // Mirrors populating_fields_, for populate_volumetric_fields_from_

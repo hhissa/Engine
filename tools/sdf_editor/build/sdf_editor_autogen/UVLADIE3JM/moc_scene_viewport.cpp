@@ -26,42 +26,39 @@ QT_WARNING_PUSH
 QT_WARNING_DISABLE_DEPRECATED
 namespace {
 struct qt_meta_stringdata_SceneViewport_t {
-    uint offsetsAndSizes[20];
+    uint offsetsAndSizes[18];
     char stringdata0[14];
-    char stringdata1[17];
+    char stringdata1[18];
     char stringdata2[1];
-    char stringdata3[12];
-    char stringdata4[22];
-    char stringdata5[10];
-    char stringdata6[9];
-    char stringdata7[9];
-    char stringdata8[7];
-    char stringdata9[5];
+    char stringdata3[26];
+    char stringdata4[10];
+    char stringdata5[23];
+    char stringdata6[34];
+    char stringdata7[8];
+    char stringdata8[5];
 };
 #define QT_MOC_LITERAL(ofs, len) \
     uint(sizeof(qt_meta_stringdata_SceneViewport_t::offsetsAndSizes) + ofs), len 
 Q_CONSTINIT static const qt_meta_stringdata_SceneViewport_t qt_meta_stringdata_SceneViewport = {
     {
         QT_MOC_LITERAL(0, 13),  // "SceneViewport"
-        QT_MOC_LITERAL(14, 16),  // "primitive_picked"
-        QT_MOC_LITERAL(31, 0),  // ""
-        QT_MOC_LITERAL(32, 11),  // "layer_index"
-        QT_MOC_LITERAL(44, 21),  // "primitive_transformed"
-        QT_MOC_LITERAL(66, 9),  // "glm::vec3"
-        QT_MOC_LITERAL(76, 8),  // "position"
-        QT_MOC_LITERAL(85, 8),  // "rotation"
-        QT_MOC_LITERAL(94, 6),  // "params"
-        QT_MOC_LITERAL(101, 4)   // "tick"
+        QT_MOC_LITERAL(14, 17),  // "selection_changed"
+        QT_MOC_LITERAL(32, 0),  // ""
+        QT_MOC_LITERAL(33, 25),  // "std::vector<PrimitiveRef>"
+        QT_MOC_LITERAL(59, 9),  // "selection"
+        QT_MOC_LITERAL(69, 22),  // "primitives_transformed"
+        QT_MOC_LITERAL(92, 33),  // "std::vector<GizmoTransformRes..."
+        QT_MOC_LITERAL(126, 7),  // "results"
+        QT_MOC_LITERAL(134, 4)   // "tick"
     },
     "SceneViewport",
-    "primitive_picked",
+    "selection_changed",
     "",
-    "layer_index",
-    "primitive_transformed",
-    "glm::vec3",
-    "position",
-    "rotation",
-    "params",
+    "std::vector<PrimitiveRef>",
+    "selection",
+    "primitives_transformed",
+    "std::vector<GizmoTransformResult>",
+    "results",
     "tick"
 };
 #undef QT_MOC_LITERAL
@@ -82,14 +79,14 @@ Q_CONSTINIT static const uint qt_meta_data_SceneViewport[] = {
 
  // signals: name, argc, parameters, tag, flags, initial metatype offsets
        1,    1,   32,    2, 0x06,    1 /* Public */,
-       4,    4,   35,    2, 0x06,    3 /* Public */,
+       5,    1,   35,    2, 0x06,    3 /* Public */,
 
  // slots: name, argc, parameters, tag, flags, initial metatype offsets
-       9,    0,   44,    2, 0x08,    8 /* Private */,
+       8,    0,   38,    2, 0x08,    5 /* Private */,
 
  // signals: parameters
-    QMetaType::Void, QMetaType::Int,    3,
-    QMetaType::Void, QMetaType::Int, 0x80000000 | 5, 0x80000000 | 5, 0x80000000 | 5,    3,    6,    7,    8,
+    QMetaType::Void, 0x80000000 | 3,    4,
+    QMetaType::Void, 0x80000000 | 6,    7,
 
  // slots: parameters
     QMetaType::Void,
@@ -106,15 +103,12 @@ Q_CONSTINIT const QMetaObject SceneViewport::staticMetaObject = { {
     qt_incomplete_metaTypeArray<qt_meta_stringdata_SceneViewport_t,
         // Q_OBJECT / Q_GADGET
         QtPrivate::TypeAndForceComplete<SceneViewport, std::true_type>,
-        // method 'primitive_picked'
+        // method 'selection_changed'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
-        QtPrivate::TypeAndForceComplete<int, std::false_type>,
-        // method 'primitive_transformed'
+        QtPrivate::TypeAndForceComplete<std::vector<PrimitiveRef>, std::false_type>,
+        // method 'primitives_transformed'
         QtPrivate::TypeAndForceComplete<void, std::false_type>,
-        QtPrivate::TypeAndForceComplete<int, std::false_type>,
-        QtPrivate::TypeAndForceComplete<glm::vec3, std::false_type>,
-        QtPrivate::TypeAndForceComplete<glm::vec3, std::false_type>,
-        QtPrivate::TypeAndForceComplete<glm::vec3, std::false_type>,
+        QtPrivate::TypeAndForceComplete<std::vector<GizmoTransformResult>, std::false_type>,
         // method 'tick'
         QtPrivate::TypeAndForceComplete<void, std::false_type>
     >,
@@ -127,23 +121,23 @@ void SceneViewport::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _i
         auto *_t = static_cast<SceneViewport *>(_o);
         (void)_t;
         switch (_id) {
-        case 0: _t->primitive_picked((*reinterpret_cast< std::add_pointer_t<int>>(_a[1]))); break;
-        case 1: _t->primitive_transformed((*reinterpret_cast< std::add_pointer_t<int>>(_a[1])),(*reinterpret_cast< std::add_pointer_t<glm::vec3>>(_a[2])),(*reinterpret_cast< std::add_pointer_t<glm::vec3>>(_a[3])),(*reinterpret_cast< std::add_pointer_t<glm::vec3>>(_a[4]))); break;
+        case 0: _t->selection_changed((*reinterpret_cast< std::add_pointer_t<std::vector<PrimitiveRef>>>(_a[1]))); break;
+        case 1: _t->primitives_transformed((*reinterpret_cast< std::add_pointer_t<std::vector<GizmoTransformResult>>>(_a[1]))); break;
         case 2: _t->tick(); break;
         default: ;
         }
     } else if (_c == QMetaObject::IndexOfMethod) {
         int *result = reinterpret_cast<int *>(_a[0]);
         {
-            using _t = void (SceneViewport::*)(int );
-            if (_t _q_method = &SceneViewport::primitive_picked; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+            using _t = void (SceneViewport::*)(std::vector<PrimitiveRef> );
+            if (_t _q_method = &SceneViewport::selection_changed; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
                 *result = 0;
                 return;
             }
         }
         {
-            using _t = void (SceneViewport::*)(int , glm::vec3 , glm::vec3 , glm::vec3 );
-            if (_t _q_method = &SceneViewport::primitive_transformed; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
+            using _t = void (SceneViewport::*)(std::vector<GizmoTransformResult> );
+            if (_t _q_method = &SceneViewport::primitives_transformed; *reinterpret_cast<_t *>(_a[1]) == _q_method) {
                 *result = 1;
                 return;
             }
@@ -182,16 +176,16 @@ int SceneViewport::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
 }
 
 // SIGNAL 0
-void SceneViewport::primitive_picked(int _t1)
+void SceneViewport::selection_changed(std::vector<PrimitiveRef> _t1)
 {
     void *_a[] = { nullptr, const_cast<void*>(reinterpret_cast<const void*>(std::addressof(_t1))) };
     QMetaObject::activate(this, &staticMetaObject, 0, _a);
 }
 
 // SIGNAL 1
-void SceneViewport::primitive_transformed(int _t1, glm::vec3 _t2, glm::vec3 _t3, glm::vec3 _t4)
+void SceneViewport::primitives_transformed(std::vector<GizmoTransformResult> _t1)
 {
-    void *_a[] = { nullptr, const_cast<void*>(reinterpret_cast<const void*>(std::addressof(_t1))), const_cast<void*>(reinterpret_cast<const void*>(std::addressof(_t2))), const_cast<void*>(reinterpret_cast<const void*>(std::addressof(_t3))), const_cast<void*>(reinterpret_cast<const void*>(std::addressof(_t4))) };
+    void *_a[] = { nullptr, const_cast<void*>(reinterpret_cast<const void*>(std::addressof(_t1))) };
     QMetaObject::activate(this, &staticMetaObject, 1, _a);
 }
 QT_WARNING_POP

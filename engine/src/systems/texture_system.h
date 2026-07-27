@@ -45,6 +45,15 @@ public:
   // texture without a named asset.
   VulkanTexture &default_texture() noexcept { return *default_texture_; }
 
+  // A procedurally-generated, genuinely flat/uniform-colour texture (unlike
+  // default_texture() above) -- see generate_flat_pixels()'s own comment
+  // for why a material with no bump map set uses this as its bump texture
+  // instead of default_texture(): a spatially-uniform texture reads
+  // identical luminance everywhere, so bump mapping's finite-difference
+  // computation naturally comes out to zero perturbation, making "no bump
+  // map" mean "no visible bump effect" with no separate enable flag needed.
+  VulkanTexture &flat_texture() noexcept { return *flat_texture_; }
+
 private:
   struct Entry {
     std::optional<VulkanTexture> texture;
@@ -55,4 +64,5 @@ private:
   VulkanContext *context_;
   std::unordered_map<std::string, Entry> textures_;
   std::optional<VulkanTexture> default_texture_;
+  std::optional<VulkanTexture> flat_texture_;
 };

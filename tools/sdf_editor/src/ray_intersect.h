@@ -26,10 +26,12 @@
 // needs its distance function written once, here and in the voxelize
 // shader, instead of that plus a bespoke exact intersection test.
 struct SceneRayHit {
-  f32 distance;    // along the ray, world units -- for picking the nearest hit
-  int layer_index; // which SdfScene::layers[] entry was hit (this editor
-                   // puts exactly one primitive per layer -- see
-                   // SdfEditorWindow::on_add_clicked())
+  f32 distance;       // along the ray, world units -- for picking the nearest hit
+  int layer_index;    // which SdfScene::layers[] entry was hit
+  int primitive_index; // which entry within that layer's primitives[] was hit
+                      // -- a layer can hold more than one primitive (see
+                      // SdfLayerDef's own comment), so layer_index alone no
+                      // longer identifies a unique primitive.
 };
 
 namespace sdf {
@@ -307,10 +309,11 @@ inline std::optional<SceneRayHit> raycast_scene(const SdfScene &scene,
   std::optional<SceneRayHit> best;
 
   for (int i = 0; i < static_cast<int>(scene.layers.size()); ++i) {
-    for (const SdfPrimitiveDef &primitive : scene.layers[i].primitives) {
-      std::optional<f32> t = raymarch_primitive(primitive, origin, dir);
+    const std::vector<SdfPrimitiveDef> &primitives = scene.layers[i].primitives;
+    for (int j = 0; j < static_cast<int>(primitives.size()); ++j) {
+      std::optional<f32> t = raymarch_primitive(primitives[j], origin, dir);
       if (t && (!best || *t < best->distance)) {
-        best = SceneRayHit{*t, i};
+        best = SceneRayHit{*t, i, j};
       }
     }
   }

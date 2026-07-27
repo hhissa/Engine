@@ -176,7 +176,24 @@ float shadow_march(vec3 origin, vec3 dir, float max_dist, float k, int max_steps
         }
 
         float step = valid ? abs(dist) : skip_dist;
-        shadow = min(shadow, k * step / max(travelled, SURF_DIST));
+        // Only a `valid` sample's dist is a real, isotropic distance-to-
+        // nearest-surface estimate -- the soft-shadow ratio below needs
+        // that (it's asking "how close did we pass to an occluder"). In
+        // the no-brick branch, skip_dist is something else entirely: the
+        // ray-specific distance to *this coarse cell's exit boundary*
+        // along dir, safe to step by only because that whole cell has no
+        // surface in it, in ANY direction. Folding it into the ratio here
+        // anyway was the actual "voxel/coarse-cell boundaries casting fake
+        // shadows" bug: a shadow ray entering a brick-less cell near a
+        // corner/edge at a grazing angle gets a small exit distance purely
+        // from grid geometry, nothing to do with any real occluder, and
+        // the ratio misread that as a near-miss darkening the penumbra --
+        // reliably, since coarse cells tile the world on a regular grid.
+        // An empty cell can't occlude anything, so skip-stepping across
+        // one must leave the running shadow estimate untouched.
+        if (valid) {
+            shadow = min(shadow, k * step / max(travelled, SURF_DIST));
+        }
         travelled += max(step, SURF_DIST);
 
         if (travelled > max_dist || shadow < 0.005) {

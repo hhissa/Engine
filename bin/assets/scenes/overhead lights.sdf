@@ -2,6 +2,48 @@
 version=0.1
 ambient=0.15
 
+light light0 {
+    type=point
+    position=0.09 -0.32 -1.53
+    colour=0.976471 0.941176 0.419608
+    intensity=0.5
+}
+
+light light1 {
+    type=point
+    position=-0.56 -0.32 -1.25
+    colour=0.976471 0.941176 0.419608
+    intensity=0.5
+}
+
+light light2 {
+    type=point
+    position=-0.96 -0.32 -0.74
+    colour=0.976471 0.941176 0.419608
+    intensity=0.5
+}
+
+light light3 {
+    type=point
+    position=1.05 -0.32 -1.06
+    colour=0.976471 0.941176 0.419608
+    intensity=0.5
+}
+
+light light4 {
+    type=point
+    position=0.72 -0.32 -0.01
+    colour=0.976471 0.941176 0.419608
+    intensity=0.5
+}
+
+light light5 {
+    type=point
+    position=-0.09 -0.1 0.77
+    colour=0.976471 0.941176 0.419608
+    intensity=1
+}
+
 layer layer1 {
     operation=union
     smoothness=0
@@ -24,7 +66,15 @@ layer layer2 {
         position=0.2 -0.56 -1.4
         rotation=0 -0.343132 -1.18909
         half_extents=0.2 0.1 0.1
-        material=qt_colour_241f31ff_white
+        material=qt_colour_241f31ff_ts060_white
+    }
+
+    primitive primitive0 {
+        type=box
+        position=0.181355 -0.520429 -1.4
+        rotation=0 -0.343132 -1.18909
+        half_extents=0.18 0.08 0.08
+        material=qt_colour_ffffffff_ts060_em0150f5c211_white
     }
 }
 

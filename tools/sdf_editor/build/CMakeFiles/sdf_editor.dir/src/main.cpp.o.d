@@ -1,12 +1,12 @@
 CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/main.cpp \
   /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/main_window.h \
-  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/resources/sdf_scene.h \
-  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/resources/../defines.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/array \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/compare \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/concepts \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/type_traits \
+  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/scene_viewport.h \
+  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/renderer/camera.h \
+  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/renderer/../defines.h \
+  /usr/include/glm/glm.hpp /usr/include/glm/detail/_fixes.hpp \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/cmath \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/requires_hosted.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13/bits/c++config.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13/bits/os_defines.h \
   /usr/include/features.h /usr/include/features-time64.h \
@@ -18,34 +18,8 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/include/x86_64-linux-gnu/gnu/stubs-64.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/x86_64-linux-gnu/c++/13/bits/cpu_defines.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/pstl/pstl_config.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/initializer_list \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/functexcept.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/exception_defines.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_algobase.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/cpp_type_traits.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/ext/type_traits.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/ext/numeric_traits.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_pair.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/move.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/utility.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_iterator_base_types.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/iterator_concepts.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/ptr_traits.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/ranges_cmp.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_iterator_base_funcs.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/concept_check.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/debug/assertions.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_iterator.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/new \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/exception.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_construct.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/debug/debug.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/predefined_ops.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bit \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/range_access.h \
-  /usr/include/glm/glm.hpp /usr/include/glm/detail/_fixes.hpp \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/cmath \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/requires_hosted.h \
   /usr/include/math.h \
   /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
   /usr/include/x86_64-linux-gnu/bits/types.h \
@@ -96,6 +70,30 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/include/alloca.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/specfun.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_algobase.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/functexcept.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/exception_defines.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/ext/numeric_traits.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_pair.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/type_traits \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/move.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/utility.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/compare \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/concepts \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_iterator_base_types.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/iterator_concepts.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/ptr_traits.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/ranges_cmp.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_iterator_base_funcs.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/concept_check.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/debug/assertions.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_iterator.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/new \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/exception.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_construct.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/debug/debug.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/predefined_ops.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bit \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/limits \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/tr1/gamma.tcc \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/tr1/special_function_util.h \
@@ -304,9 +302,14 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/typeinfo \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/hash_bytes.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/nested_exception.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/initializer_list \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/enable_special_members.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/functional_hash.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/invoke.h \
+  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/resources/sdf_scene.h \
+  /home/h-i/Projects/NOAIEngine/tools/sdf_editor/../../engine/src/resources/../defines.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/array \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/range_access.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/string \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stringfwd.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/memoryfwd.h \
@@ -369,9 +372,8 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_vector.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_bvector.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/vector.tcc \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/QColor \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qcolor.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qtguiglobal.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QElapsedTimer \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qelapsedtimer.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qglobal.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/utility \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_relops.h \
@@ -429,18 +431,43 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qnumeric.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qversiontagging.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qforeach.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qtgui-config.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qtguiexports.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qrgb.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QPoint \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qpoint.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qnamespace.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qtmetamacros.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qstringlist.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qlist.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qarraydatapointer.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qarraydataops.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QPointF \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/QWindow \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qwindow.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qtguiglobal.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qtgui-config.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qtguiexports.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QObject \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qobject.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qobjectdefs.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qobjectdefs_impl.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qstring.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qchar.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/functional \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/std_function.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/unordered_map \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/unordered_map.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/hashtable.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/hashtable_policy.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/node_handle.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/erase_if.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_algo.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/algorithmfwd.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_heap.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/uniform_int_dist.h \
+  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_tempbuf.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qstringview.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qbytearray.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qrefcount.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qarraydata.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qpair.h /usr/include/string.h \
   /usr/include/strings.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qarraydatapointer.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qarraydataops.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qcontainertools_impl.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/cstring \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/iterator \
@@ -458,7 +485,6 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/stdexcept \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/streambuf.tcc \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/memory \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_tempbuf.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_raw_storage_iter.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/align.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/unique_ptr.h \
@@ -486,26 +512,8 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/pstl/glue_memory_defs.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/pstl/execution_defs.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/algorithm \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_algo.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/algorithmfwd.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_heap.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/uniform_int_dist.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/ranges_algo.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/pstl/glue_algorithm_defs.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qhashfunctions.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qstring.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qchar.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/functional \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/std_function.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/unordered_map \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/unordered_map.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/hashtable.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/hashtable_policy.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/node_handle.h \
-  /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/erase_if.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qstringview.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qbytearray.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qrefcount.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qbytearrayalgorithms.h \
   /usr/lib/llvm-18/lib/clang/18/include/__stdarg_va_list.h \
   /usr/lib/llvm-18/lib/clang/18/include/__stdarg_va_arg.h \
@@ -519,24 +527,16 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qanystringview.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qutf8stringview.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qstringtokenizer.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qlist.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qhashfunctions.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/numeric \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/bits/stl_numeric.h \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/pstl/glue_numeric_defs.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qiterator.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qbytearraylist.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qstringlist.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qalgorithms.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qstringmatcher.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qrgba64.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QMainWindow \
-  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qmainwindow.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qtwidgetsglobal.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qtwidgets-config.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qtwidgetsexports.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qwidget.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qwindowdefs.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qobjectdefs.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qobjectdefs_impl.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qobject.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qscopedpointer.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qmetatype.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qcompare.h \
@@ -579,15 +579,23 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/format \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/charconv \
   /usr/bin/../lib/gcc/x86_64-linux-gnu/13/../../../../include/c++/13/span \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QEvent \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qcoreevent.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QMargins \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qmargins.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qaction.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qkeysequence.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qicon.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/QRect \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qrect.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qsize.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtCore/qnativeinterface.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qsurface.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qsurfaceformat.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qwindowdefs.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qicon.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qpixmap.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qpaintdevice.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qrect.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qpoint.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qcolor.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qrgb.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qrgba64.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qsharedpointer.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qshareddata.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qsharedpointer_impl.h \
@@ -597,6 +605,17 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qpolygon.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qregion.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qline.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qcursor.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qbitmap.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/QColor \
+  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QMainWindow \
+  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qmainwindow.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qtwidgetsglobal.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qtwidgets-config.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qtwidgetsexports.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qwidget.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qaction.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/qkeysequence.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qvariant.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qdebug.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qtextstream.h \
@@ -613,15 +632,11 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qfontmetrics.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qfontinfo.h \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qsizepolicy.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qcursor.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtGui/qbitmap.h \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qtabwidget.h \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/QApplication \
   /usr/include/x86_64-linux-gnu/qt6/QtWidgets/qapplication.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qcoreapplication.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qcoreevent.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qeventloop.h \
-  /usr/include/x86_64-linux-gnu/qt6/QtCore/qnativeinterface.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qcoreapplication_platform.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qguiapplication.h \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qinputmethod.h \

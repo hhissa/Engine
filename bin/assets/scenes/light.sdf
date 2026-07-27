@@ -2,6 +2,13 @@
 version=0.1
 ambient=0.15
 
+light light0 {
+    type=point
+    position=-2.45 -3.08 -0.02
+    colour=0.976471 0.941176 0.419608
+    intensity=0.2
+}
+
 layer layer0 {
     operation=union
     smoothness=0.1

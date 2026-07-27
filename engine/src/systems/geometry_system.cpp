@@ -206,6 +206,14 @@ std::vector<Light> GeometrySystem::light_snapshot() const {
   return result;
 }
 
+Light *GeometrySystem::find_light(std::string_view name) {
+  auto it = lights_.find(std::string(name));
+  if (it == lights_.end()) {
+    return nullptr;
+  }
+  return &it->second.light;
+}
+
 Volumetric &GeometrySystem::acquire_volumetric(const VolumetricConfig &config,
                                                bool auto_release) {
   VolumetricEntry &entry = volumetrics_.try_emplace(config.name).first->second;

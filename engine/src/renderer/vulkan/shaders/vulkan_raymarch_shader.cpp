@@ -127,10 +127,13 @@ constexpr u32 kProbeDim = 16;
 constexpr u32 kProbeCount = kProbeDim * kProbeDim * kProbeDim;
 // How many light bounces bake_probes() simulates -- Inigo Quilez's
 // "simplegi" article (the technique this is adapted from) mentions using
-// up to 3. Each additional bounce is a full extra kProbeCount x
-// PROBE_GATHER_SAMPLES gather-ray pass, so this is the other major bake-
-// cost lever alongside kProbeDim.
-constexpr u32 kProbeBounceCount = 3;
+// up to 3; raised past that here for noticeably more colour bleeding into
+// corners/indirectly-lit areas before the bounces converge. Each
+// additional bounce is a full extra kProbeCount x PROBE_GATHER_SAMPLES
+// gather-ray pass, so this is the other major bake-cost lever alongside
+// kProbeDim -- still a one-time cost per rebake(), not per frame, so
+// raising it is cheap relative to render_to()'s own per-frame budget.
+constexpr u32 kProbeBounceCount = 6;
 // bake_probes()'s ping-pong loop starts bounce 0 reading probe_buffer_a_
 // (zeroed) and writing probe_buffer_b_, then alternates -- so bounce i
 // writes b_ if i is even, a_ if i is odd. After kProbeBounceCount
@@ -201,7 +204,7 @@ constexpr u32 kMaxLayers = 1001;
 // allocated size -- lights are read from a plain storage buffer (see
 // GpuLight below), not a fixed-size shader array, so this could grow freely
 // if a scene ever legitimately needed more.
-constexpr u32 kMaxLights = 8;
+constexpr u32 kMaxLights = 128;
 
 // Matches the `Primitive` struct in Builtin.RaymarchVoxelize.comp.glsl.
 struct GpuPrimitive {
@@ -402,12 +405,21 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       *context_, pixelation_exempt_buffer_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
+  // One vec4 (xyz=texture_offset, w=texture_rotation) per primitive -- see
+  // Material::texture_offset/texture_rotation.
+  const u64 tex_transform_buffer_size =
+      static_cast<u64>(kMaxScenePrimitives) * sizeof(f32) * 4;
+  tex_transform_buffer_.emplace(
+      *context_, tex_transform_buffer_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
   if (!indirection_buffer_->is_valid() || !brick_pool_buffer_->is_valid() ||
       !brick_counter_buffer_->is_valid() || !primitive_buffer_->is_valid() ||
       !primitive_colour_buffer_->is_valid() || !layer_buffer_->is_valid() ||
       !brick_primitive_buffer_->is_valid() || !light_buffer_->is_valid() ||
       !param_expr_buffer_->is_valid() || !probe_buffer_a_->is_valid() ||
-      !probe_buffer_b_->is_valid() || !pixelation_exempt_buffer_->is_valid()) {
+      !probe_buffer_b_->is_valid() || !pixelation_exempt_buffer_->is_valid() ||
+      !tex_transform_buffer_->is_valid()) {
     KERROR("Failed to create sparse voxel field buffers.");
     return;
   }
@@ -456,9 +468,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // out_image's alpha channel for the post-process pass to read -- and
   // 12 = the optional skybox texture (see set_skybox()), a single combined
   // image sampler rather than a fixed-size array like binding 6 since
-  // there's only ever one at a time.
-  VkDescriptorSetLayoutBinding render_bindings[13]{};
-  for (u32 i = 0; i < 13; ++i) {
+  // there's only ever one at a time -- and 13 = each primitive's effective
+  // texture offset/rotation (see tex_transform_buffer_'s comment), read by
+  // the same triplanar sampling that reads binding 5's texture_scale -- and
+  // 14 = each primitive's bump map texture (see Material::bump_texture),
+  // a second fixed-size array exactly mirroring binding 6's scene_textures
+  // but sampled purely for luminance by sample_scene_heights(), never for
+  // colour.
+  VkDescriptorSetLayoutBinding render_bindings[15]{};
+  for (u32 i = 0; i < 15; ++i) {
     render_bindings[i].binding = i;
     render_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     render_bindings[i].descriptorCount = 1;
@@ -468,10 +486,12 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   render_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   render_bindings[6].descriptorCount = kMaxScenePrimitives;
   render_bindings[12].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  render_bindings[14].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  render_bindings[14].descriptorCount = kMaxScenePrimitives;
 
   VkDescriptorSetLayoutCreateInfo render_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  render_layout_info.bindingCount = 13;
+  render_layout_info.bindingCount = 15;
   render_layout_info.pBindings = render_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &render_layout_info, context_->allocator,
@@ -544,13 +564,14 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // One pool backing all six sets.
   VkDescriptorPoolSize pool_sizes[3]{};
   pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  // voxelize's 7 + render's 10 + probe bake's 7 x2 (probe_bake_set_ and
+  // voxelize's 7 + render's 11 + probe bake's 7 x2 (probe_bake_set_ and
   // probe_bake_set_odd_ -- see their declaration comment).
-  pool_sizes[0].descriptorCount = 31;
+  pool_sizes[0].descriptorCount = 32;
   pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   pool_sizes[1].descriptorCount = 6; // render's 1 + bloom blur h's 2 + post composite's 3
   pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  pool_sizes[2].descriptorCount = kMaxScenePrimitives + 1; // scene_textures + skybox_texture
+  // scene_textures + scene_bump_textures + skybox_texture.
+  pool_sizes[2].descriptorCount = kMaxScenePrimitives * 2 + 1;
 
   VkDescriptorPoolCreateInfo pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -613,17 +634,19 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   render_image_info.imageView = output_image_.view;
 
   // Buffer bindings, in binding order (binding 0 is the image, 6 the
-  // texture array -- both written separately below/by
-  // rebuild_static_scene()): 1..5 as before, 7/8/9 = the analytic-scene
-  // buffers the per-pixel material re-evaluation reads, 10 = whichever
-  // probe buffer holds the final bounce's result (see
-  // kProbeFinalInBufferB) -- fixed at construction, since which physical
-  // buffer is "final" never changes once kProbeBounceCount is compiled in
-  // -- and 11 = per-primitive pixelation-exempt flags.
+  // texture array, 12 the skybox texture -- all written separately below/
+  // by rebuild_static_scene()/write_skybox_binding()): 1..5 as before,
+  // 7/8/9 = the analytic-scene buffers the per-pixel material
+  // re-evaluation reads, 10 = whichever probe buffer holds the final
+  // bounce's result (see kProbeFinalInBufferB) -- fixed at construction,
+  // since which physical buffer is "final" never changes once
+  // kProbeBounceCount is compiled in -- 11 = per-primitive
+  // pixelation-exempt flags, and 13 = per-primitive texture offset/
+  // rotation.
   struct RenderBufferBinding {
     u32 binding;
     VkBuffer buffer;
-  } render_buffer_bindings[10] = {
+  } render_buffer_bindings[11] = {
       {1, indirection_buffer_->handle()},
       {2, brick_pool_buffer_->handle()},
       {3, light_buffer_->handle()},
@@ -635,10 +658,11 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       {10, kProbeFinalInBufferB ? probe_buffer_b_->handle()
                                : probe_buffer_a_->handle()},
       {11, pixelation_exempt_buffer_->handle()},
+      {13, tex_transform_buffer_->handle()},
   };
 
-  VkDescriptorBufferInfo render_buffer_infos[10];
-  VkWriteDescriptorSet render_writes[11]{};
+  VkDescriptorBufferInfo render_buffer_infos[11];
+  VkWriteDescriptorSet render_writes[12]{};
   render_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   render_writes[0].dstSet = render_set_;
   render_writes[0].dstBinding = 0;
@@ -646,7 +670,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   render_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   render_writes[0].pImageInfo = &render_image_info;
 
-  for (u32 i = 0; i < 10; ++i) {
+  for (u32 i = 0; i < 11; ++i) {
     render_buffer_infos[i] = {render_buffer_bindings[i].buffer, 0,
                               VK_WHOLE_SIZE};
     render_writes[i + 1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -657,7 +681,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     render_writes[i + 1].pBufferInfo = &render_buffer_infos[i];
   }
 
-  vkUpdateDescriptorSets(context_->device.logical_device, 11, render_writes,
+  vkUpdateDescriptorSets(context_->device.logical_device, 12, render_writes,
                         0, nullptr);
 
   // Binding 12 (skybox_texture) starts pointed at the filler texture --
@@ -835,6 +859,7 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   light_buffer_.reset();
   param_expr_buffer_.reset();
   pixelation_exempt_buffer_.reset();
+  tex_transform_buffer_.reset();
   primitive_colour_buffer_.reset();
   brick_primitive_buffer_.reset();
   primitive_buffer_.reset();
@@ -945,7 +970,15 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   std::vector<f32> gpu_colours(static_cast<size_t>(kMaxScenePrimitives) * 4,
                               1.0f);
   std::vector<f32> gpu_pixelation_exempt(kMaxScenePrimitives, 0.0f);
+  // xyz=texture_offset, w=texture_rotation per primitive -- see
+  // tex_transform_buffer_'s comment. Left zeroed (no offset, no rotation)
+  // for any slot a material/volumetric below doesn't explicitly set.
+  std::vector<f32> gpu_tex_transform(static_cast<size_t>(kMaxScenePrimitives) * 4, 0.0f);
   std::vector<VkDescriptorImageInfo> texture_infos(kMaxScenePrimitives);
+  // Mirrors texture_infos, one bump-map texture per primitive -- see
+  // Material::bump_texture/sample_scene_heights() in Builtin.RaymarchShader.
+  // comp.glsl.
+  std::vector<VkDescriptorImageInfo> bump_texture_infos(kMaxScenePrimitives);
   std::vector<GpuLayer> gpu_layers(kMaxLayers, GpuLayer{});
   std::vector<GpuParamExpr> gpu_param_exprs(static_cast<size_t>(kMaxScenePrimitives) * 4,
                                             GpuParamExpr{});
@@ -958,6 +991,17 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     info.imageView = filler_texture.view();
     info.sampler = filler_texture.sampler();
+  }
+  // Unused bump slots fall back to flat_texture() specifically, not the
+  // checkerboard filler_texture above -- a spatially-uniform texture reads
+  // as exactly zero bump perturbation (see TextureSystem::flat_texture()'s
+  // own comment), whereas the checkerboard would inject a spurious bump
+  // pattern into every unused/default-material slot.
+  VulkanTexture &flat_texture = context_->texture_system->flat_texture();
+  for (auto &info : bump_texture_infos) {
+    info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    info.imageView = flat_texture.view();
+    info.sampler = flat_texture.sampler();
   }
 
   // geometry.name -> its uploaded index in gpu_primitives, filled in as the
@@ -1059,10 +1103,25 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       gpu_pixelation_exempt[index] =
           geometry.material->pixelation_exempt ? 1.0f : 0.0f;
 
+      // Effective texture offset scales with the primitive the same way
+      // texture_scale does above (see Geometry::texture_offset_scale's
+      // comment); rotation is an angle, so it's used as-is.
+      const glm::vec3 effective_offset =
+          geometry.material->texture_offset * geometry.texture_offset_scale;
+      gpu_tex_transform[index * 4 + 0] = effective_offset.x;
+      gpu_tex_transform[index * 4 + 1] = effective_offset.y;
+      gpu_tex_transform[index * 4 + 2] = effective_offset.z;
+      gpu_tex_transform[index * 4 + 3] = geometry.material->texture_rotation;
+
       texture_infos[index].imageView =
           geometry.material->diffuse_texture->view();
       texture_infos[index].sampler =
           geometry.material->diffuse_texture->sampler();
+
+      bump_texture_infos[index].imageView =
+          geometry.material->bump_texture->view();
+      bump_texture_infos[index].sampler =
+          geometry.material->bump_texture->sampler();
 
       primitive_index_by_name[geometry.name] = index;
 
@@ -1131,10 +1190,23 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     gpu_colours[index * 4 + 2] = colour.b;
     gpu_colours[index * 4 + 3] = volumetric.material->texture_scale;
 
+    // No per-instance texture_offset_scale accumulator for volumetrics
+    // (mirrors how they already use material->texture_scale directly, with
+    // no texture_scale_factor equivalent either).
+    gpu_tex_transform[index * 4 + 0] = volumetric.material->texture_offset.x;
+    gpu_tex_transform[index * 4 + 1] = volumetric.material->texture_offset.y;
+    gpu_tex_transform[index * 4 + 2] = volumetric.material->texture_offset.z;
+    gpu_tex_transform[index * 4 + 3] = volumetric.material->texture_rotation;
+
     texture_infos[index].imageView =
         volumetric.material->diffuse_texture->view();
     texture_infos[index].sampler =
         volumetric.material->diffuse_texture->sampler();
+
+    // No bump_texture_infos write here, deliberately -- a volumetric is
+    // never a solid surface with a shaded normal (accumulate_volumetrics()
+    // has no bump step at all), so its slot just keeps the flat_texture()
+    // filler every index starts at above.
 
     ++index;
   }
@@ -1153,6 +1225,8 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   pixelation_exempt_buffer_->load_data(
       0, gpu_pixelation_exempt.size() * sizeof(f32), 0,
       gpu_pixelation_exempt.data());
+  tex_transform_buffer_->load_data(0, gpu_tex_transform.size() * sizeof(f32), 0,
+                                   gpu_tex_transform.data());
   layer_buffer_->load_data(0, gpu_layers.size() * sizeof(GpuLayer), 0,
                            gpu_layers.data());
   param_expr_buffer_->load_data(0, gpu_param_exprs.size() * sizeof(GpuParamExpr),
@@ -1250,17 +1324,29 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     ++light_count_;
   }
 
+  // See gpu_index_for_primitive()'s comment -- persisted past this
+  // function's return so external callers (tools/sdf_editor) can resolve a
+  // primitive's name to its GPU index at any later point, not just here.
+  primitive_gpu_index_by_name_ = std::move(primitive_index_by_name);
+
   ambient_ = context_->geometry_system->ambient();
   light_buffer_->load_data(0, gpu_lights.size() * sizeof(GpuLight), 0,
                           gpu_lights.data());
 
-  VkWriteDescriptorSet texture_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  texture_write.dstSet = render_set_;
-  texture_write.dstBinding = 6;
-  texture_write.descriptorCount = kMaxScenePrimitives;
-  texture_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  texture_write.pImageInfo = texture_infos.data();
-  vkUpdateDescriptorSets(context_->device.logical_device, 1, &texture_write, 0,
+  VkWriteDescriptorSet texture_writes[2]{};
+  texture_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  texture_writes[0].dstSet = render_set_;
+  texture_writes[0].dstBinding = 6;
+  texture_writes[0].descriptorCount = kMaxScenePrimitives;
+  texture_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  texture_writes[0].pImageInfo = texture_infos.data();
+  texture_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  texture_writes[1].dstSet = render_set_;
+  texture_writes[1].dstBinding = 14;
+  texture_writes[1].descriptorCount = kMaxScenePrimitives;
+  texture_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  texture_writes[1].pImageInfo = bump_texture_infos.data();
+  vkUpdateDescriptorSets(context_->device.logical_device, 2, texture_writes, 0,
                         nullptr);
 
   // voxelize() and bake_probes() (GI needs the field voxelize() just

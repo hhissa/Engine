@@ -27,6 +27,7 @@ MaterialSystem::MaterialSystem(TextureSystem &texture_system)
   default_mat.name = "default";
   default_mat.diffuse_colour = glm::vec4(1.0f);
   default_mat.diffuse_texture = &texture_system_->default_texture();
+  default_mat.bump_texture = &texture_system_->flat_texture();
   default_material_.emplace(std::move(default_mat));
 }
 
@@ -71,6 +72,8 @@ Material &MaterialSystem::acquire(std::string_view name, bool auto_release) {
           material.name = value;
         } else if (var_name == "diffuse_map_name") {
           material.diffuse_map_name = value;
+        } else if (var_name == "bump_map_name") {
+          material.bump_map_name = value;
         } else if (var_name == "diffuse_colour") {
           std::istringstream iss(value);
           glm::vec4 colour(1.0f);
@@ -92,6 +95,28 @@ Material &MaterialSystem::acquire(std::string_view name, bool auto_release) {
                  name, material.texture_scale);
           } else {
             material.texture_scale = scale;
+          }
+        } else if (var_name == "texture_offset") {
+          std::istringstream iss(value);
+          glm::vec3 offset(0.0f);
+          iss >> offset.x >> offset.y >> offset.z;
+          if (iss.fail()) {
+            KWARN("Error parsing texture_offset in file '{}'. Using the "
+                 "default of (0, 0, 0) instead.",
+                 name);
+          } else {
+            material.texture_offset = offset;
+          }
+        } else if (var_name == "texture_rotation") {
+          std::istringstream iss(value);
+          f32 rotation = 0.0f;
+          iss >> rotation;
+          if (iss.fail()) {
+            KWARN("Error parsing texture_rotation in file '{}'. Using the "
+                 "default of {} instead.",
+                 name, material.texture_rotation);
+          } else {
+            material.texture_rotation = rotation;
           }
         } else if (var_name == "emissive_colour" || var_name == "emissive_color") {
           std::istringstream iss(value);
@@ -125,6 +150,10 @@ Material &MaterialSystem::acquire(std::string_view name, bool auto_release) {
           material.diffuse_map_name.empty()
               ? &texture_system_->default_texture()
               : &texture_system_->acquire(material.diffuse_map_name, true);
+      material.bump_texture =
+          material.bump_map_name.empty()
+              ? &texture_system_->flat_texture()
+              : &texture_system_->acquire(material.bump_map_name, true);
 
       entry.material = std::move(material);
       KTRACE("Material '{}' loaded, reference count now {}.", name,
@@ -151,6 +180,9 @@ void MaterialSystem::release(std::string_view name) {
     if (entry.material) {
       if (!entry.material->diffuse_map_name.empty()) {
         texture_system_->release(entry.material->diffuse_map_name);
+      }
+      if (!entry.material->bump_map_name.empty()) {
+        texture_system_->release(entry.material->bump_map_name);
       }
       if (entry.material->shader && entry.material->shader_instance_id !=
                                         VulkanShader::kInvalidInstanceId) {

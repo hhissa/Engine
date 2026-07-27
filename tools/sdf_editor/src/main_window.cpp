@@ -1,4 +1,5 @@
 #include "main_window.h"
+#include "contents_tree_widget.h"
 #include "scene_viewport.h"
 #include <renderer/renderer_frontend.h>
 #include <sdf_authoring.h>
@@ -19,6 +20,8 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTabWidget>
@@ -29,8 +32,10 @@
 #include <cctype>
 #include <cstdio>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -39,6 +44,38 @@ namespace {
 // path; this one is purely an implementation detail of keeping the
 // viewport live.
 constexpr std::string_view kLivePreviewPath = "assets/scenes/.sdf_editor_live.sdf";
+
+// contents_tree_'s per-item data roles (see
+// SdfEditorWindow::refresh_contents_list()) -- every item (layer or
+// primitive) carries kLayerIndexRole; primitive items additionally carry
+// kPrimitiveIndexRole (its position within that layer's primitives[]) and
+// kPrimitiveNameRole (its stable SdfPrimitiveDef::name, the only thing that
+// survives a drag-and-drop reparent -- see
+// SdfEditorWindow::sync_layers_from_tree()).
+constexpr int kLayerIndexRole = Qt::UserRole;
+constexpr int kPrimitiveIndexRole = Qt::UserRole + 1;
+constexpr int kPrimitiveNameRole = Qt::UserRole + 2;
+
+// Stops viewport's render timer for as long as this guard is alive --
+// construct one at the top of any handler that shows a modal dialog
+// (QFileDialog/QColorDialog/QMessageBox all spin their own nested Qt event
+// loop) and let it go out of scope when the handler returns. See
+// SceneViewport::pause_rendering()'s own comment for why leaving the
+// render timer running through a modal dialog was actually freezing the
+// whole application, not just the 3D view.
+class ScopedRenderPause {
+public:
+  explicit ScopedRenderPause(SceneViewport *viewport) : viewport_(viewport) {
+    viewport_->pause_rendering();
+  }
+  ~ScopedRenderPause() { viewport_->resume_rendering(); }
+
+  ScopedRenderPause(const ScopedRenderPause &) = delete;
+  ScopedRenderPause &operator=(const ScopedRenderPause &) = delete;
+
+private:
+  SceneViewport *viewport_;
+};
 
 // A material's colour/texture can't be recovered from its material_name
 // alone (it's an opaque deterministic hash-ish string, see ensure_material()
@@ -51,7 +88,15 @@ constexpr std::string_view kLivePreviewPath = "assets/scenes/.sdf_editor_live.sd
 struct ParsedMaterial {
   QColor colour = Qt::white;
   std::string texture_name;
+  std::string bump_map_name; // engine-side Material::bump_map_name -- empty
+                            // means no bump map (see Material::bump_texture)
   double texture_scale = 0.6; // engine-side Material::texture_scale default
+  // engine-side Material::texture_offset default (world units); rotation
+  // kept in RADIANS here too, matching the .kmt file directly -- callers
+  // convert to degrees for the UI at the point they call setValue(), the
+  // same way a primitive's own rotation already does.
+  glm::vec3 texture_offset{0.0f};
+  double texture_rotation = 0.0;
   QColor emissive_colour = Qt::white;
   double emissive_intensity = 0.0; // engine-side Material::emissive_intensity
                                   // "off" default
@@ -71,6 +116,8 @@ ParsedMaterial parse_material_file(const std::string &material_name) {
     std::string value = line.substr(eq + 1);
     if (key == "diffuse_map_name") {
       result.texture_name = value;
+    } else if (key == "bump_map_name") {
+      result.bump_map_name = value;
     } else if (key == "diffuse_colour") {
       std::istringstream iss(value);
       float r, g, b, a;
@@ -82,6 +129,18 @@ ParsedMaterial parse_material_file(const std::string &material_name) {
       double scale = 0.0;
       if (iss >> scale && scale > 0.0) {
         result.texture_scale = scale;
+      }
+    } else if (key == "texture_offset") {
+      std::istringstream iss(value);
+      glm::vec3 offset(0.0f);
+      if (iss >> offset.x >> offset.y >> offset.z) {
+        result.texture_offset = offset;
+      }
+    } else if (key == "texture_rotation") {
+      std::istringstream iss(value);
+      double rotation = 0.0;
+      if (iss >> rotation) {
+        result.texture_rotation = rotation;
       }
     } else if (key == "emissive_colour" || key == "emissive_color") {
       std::istringstream iss(value);
@@ -270,10 +329,10 @@ SdfEditorWindow::SdfEditorWindow() {
   // separate overlay widget -- see scene_viewport.h's class comment for
   // why an overlay widget doesn't work here.
   viewport_ = new SceneViewport();
-  connect(viewport_, &SceneViewport::primitive_picked, this,
-         &SdfEditorWindow::on_viewport_primitive_picked);
-  connect(viewport_, &SceneViewport::primitive_transformed, this,
-         &SdfEditorWindow::on_viewport_primitive_transformed);
+  connect(viewport_, &SceneViewport::selection_changed, this,
+         &SdfEditorWindow::on_viewport_selection_changed);
+  connect(viewport_, &SceneViewport::primitives_transformed, this,
+         &SdfEditorWindow::on_viewport_primitives_transformed);
   QWidget *viewport_container = QWidget::createWindowContainer(viewport_, central);
   // Keeps the swapchain from ever seeing a 0x0 extent (e.g. if the window
   // starts very small or a splitter gets dragged to its limit).
@@ -408,6 +467,23 @@ SdfEditorWindow::SdfEditorWindow() {
   texture_row->addWidget(texture_label_, /*stretch=*/1);
   form->addRow("Texture:", texture_row);
 
+  bump_map_button_ = new QPushButton("Choose...");
+  bump_map_clear_button_ = new QPushButton("Clear");
+  bump_map_label_ = new QLabel("(none)");
+  bump_map_button_->setToolTip(
+      "A separate texture sampled purely for surface-detail bump mapping, "
+      "not colour. Leave unset for a flat surface -- bump mapping is no "
+      "longer derived from the diffuse texture above.");
+  connect(bump_map_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_pick_bump_map_clicked);
+  connect(bump_map_clear_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_clear_bump_map_clicked);
+  auto *bump_map_row = new QHBoxLayout();
+  bump_map_row->addWidget(bump_map_button_);
+  bump_map_row->addWidget(bump_map_clear_button_);
+  bump_map_row->addWidget(bump_map_label_, /*stretch=*/1);
+  form->addRow("Bump Map:", bump_map_row);
+
   texture_scale_spin_ = new QDoubleSpinBox();
   texture_scale_spin_->setRange(0.05, 50.0);
   texture_scale_spin_->setSingleStep(0.05);
@@ -420,6 +496,32 @@ SdfEditorWindow::SdfEditorWindow() {
          QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
          &SdfEditorWindow::on_live_edit_changed);
   form->addRow("Texture Scale:", texture_scale_spin_);
+
+  texture_offset_x_ = new QDoubleSpinBox();
+  texture_offset_y_ = new QDoubleSpinBox();
+  texture_offset_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin : {texture_offset_x_, texture_offset_y_, texture_offset_z_}) {
+    spin->setRange(-100.0, 100.0);
+    spin->setSingleStep(0.1);
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_live_edit_changed);
+  }
+  auto *texture_offset_row = new QHBoxLayout();
+  texture_offset_row->addWidget(texture_offset_x_);
+  texture_offset_row->addWidget(texture_offset_y_);
+  texture_offset_row->addWidget(texture_offset_z_);
+  form->addRow("Texture Offset (x, y, z):", texture_offset_row);
+
+  texture_rotation_spin_ = new QDoubleSpinBox();
+  texture_rotation_spin_->setRange(-360.0, 360.0);
+  texture_rotation_spin_->setSingleStep(1.0);
+  texture_rotation_spin_->setSuffix(QStringLiteral("°"));
+  texture_rotation_spin_->setToolTip(
+      "Rotates the texture pattern within each triplanar projection plane.");
+  connect(texture_rotation_spin_,
+         QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Texture Rotation:", texture_rotation_spin_);
 
   emissive_colour_button_ = new QPushButton("Choose...");
   emissive_colour_button_->setStyleSheet(
@@ -458,17 +560,29 @@ SdfEditorWindow::SdfEditorWindow() {
   auto *primitives_layout = new QVBoxLayout(primitives_tab);
   primitives_layout->addWidget(form_group);
 
+  auto *add_row = new QHBoxLayout();
   auto *add_button = new QPushButton("Add Primitive");
   connect(add_button, &QPushButton::clicked, this,
          &SdfEditorWindow::on_add_clicked);
-  primitives_layout->addWidget(add_button);
+  add_row->addWidget(add_button);
+  new_layer_button_ = new QPushButton("New Layer");
+  new_layer_button_->setToolTip(
+      "Starts an empty layer (Union, no smoothness) and selects it, so "
+      "'Add Primitive' above adds into it -- the way to build up a layer "
+      "that holds more than one primitive.");
+  connect(new_layer_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_new_layer_clicked);
+  add_row->addWidget(new_layer_button_);
+  primitives_layout->addLayout(add_row);
 
   primitives_layout->addWidget(new QLabel("Scene Contents"));
-  contents_list_ = new QListWidget();
-  contents_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  connect(contents_list_, &QListWidget::currentItemChanged, this,
-         &SdfEditorWindow::on_contents_list_selection_changed);
-  primitives_layout->addWidget(contents_list_, /*stretch=*/1);
+  contents_tree_ = new ContentsTreeWidget();
+  contents_tree_->setHeaderHidden(true);
+  connect(contents_tree_, &QTreeWidget::itemSelectionChanged, this,
+         &SdfEditorWindow::on_contents_tree_selection_changed);
+  connect(contents_tree_, &ContentsTreeWidget::primitives_reparented, this,
+         &SdfEditorWindow::on_primitives_reparented);
+  primitives_layout->addWidget(contents_tree_, /*stretch=*/1);
 
   auto *remove_button = new QPushButton("Remove Selected");
   connect(remove_button, &QPushButton::clicked, this,
@@ -661,6 +775,31 @@ SdfEditorWindow::SdfEditorWindow() {
          &SdfEditorWindow::on_volumetric_field_changed);
   volumetric_form->addRow("Texture Scale:", volumetric_texture_scale_spin_);
 
+  volumetric_texture_offset_x_ = new QDoubleSpinBox();
+  volumetric_texture_offset_y_ = new QDoubleSpinBox();
+  volumetric_texture_offset_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin : {volumetric_texture_offset_x_, volumetric_texture_offset_y_,
+                              volumetric_texture_offset_z_}) {
+    spin->setRange(-100.0, 100.0);
+    spin->setSingleStep(0.1);
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_volumetric_field_changed);
+  }
+  auto *volumetric_texture_offset_row = new QHBoxLayout();
+  volumetric_texture_offset_row->addWidget(volumetric_texture_offset_x_);
+  volumetric_texture_offset_row->addWidget(volumetric_texture_offset_y_);
+  volumetric_texture_offset_row->addWidget(volumetric_texture_offset_z_);
+  volumetric_form->addRow("Texture Offset (x, y, z):", volumetric_texture_offset_row);
+
+  volumetric_texture_rotation_spin_ = new QDoubleSpinBox();
+  volumetric_texture_rotation_spin_->setRange(-360.0, 360.0);
+  volumetric_texture_rotation_spin_->setSingleStep(1.0);
+  volumetric_texture_rotation_spin_->setSuffix(QStringLiteral("°"));
+  connect(volumetric_texture_rotation_spin_,
+         QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_volumetric_field_changed);
+  volumetric_form->addRow("Texture Rotation:", volumetric_texture_rotation_spin_);
+
   volumetric_density_spin_ = new QDoubleSpinBox();
   volumetric_density_spin_->setRange(0.0, 20.0);
   volumetric_density_spin_->setSingleStep(0.1);
@@ -796,25 +935,51 @@ std::string SdfEditorWindow::ensure_material() const {
   bool pixelation_exempt = pixelation_exempt_check_->isChecked();
   const char *pixelation_suffix = pixelation_exempt ? "_px" : "";
 
-  char name_buf[168];
+  // Same reasoning as emissive_suffix above -- only appended when actually
+  // non-default, so a primitive that never touches offset/rotation keeps
+  // exactly the material name it always would have.
+  glm::vec3 offset(texture_offset_x_->value(), texture_offset_y_->value(),
+                   texture_offset_z_->value());
+  double rotation_degrees = texture_rotation_spin_->value();
+  char tex_transform_suffix[64] = "";
+  if (offset != glm::vec3(0.0f) || rotation_degrees != 0.0) {
+    std::snprintf(tex_transform_suffix, sizeof(tex_transform_suffix),
+                 "_to%+04d%+04d%+04d_tr%+05d",
+                 static_cast<int>(std::lround(offset.x * 100.0)),
+                 static_cast<int>(std::lround(offset.y * 100.0)),
+                 static_cast<int>(std::lround(offset.z * 100.0)),
+                 static_cast<int>(std::lround(rotation_degrees * 100.0)));
+  }
+
+  // Same reasoning as tex_transform_suffix above -- only appended when a
+  // bump map is actually set, so a primitive that never touches it keeps
+  // exactly the material name it always would have.
+  char bump_suffix[160] = "";
+  if (!bump_map_name_.empty()) {
+    std::snprintf(bump_suffix, sizeof(bump_suffix), "_bump_%s",
+                 bump_map_name_.c_str());
+  }
+
+  char name_buf[384];
   if (texture_name_.empty()) {
     std::snprintf(name_buf, sizeof(name_buf),
-                 "qt_colour_%02x%02x%02x%02x_ts%03d%s%s", colour_.red(),
-                 colour_.green(), colour_.blue(), colour_.alpha(),
-                 scale_centi, emissive_suffix, pixelation_suffix);
-  } else {
-    std::snprintf(name_buf, sizeof(name_buf),
-                 "qt_colour_%02x%02x%02x%02x_ts%03d%s%s_%s", colour_.red(),
+                 "qt_colour_%02x%02x%02x%02x_ts%03d%s%s%s%s", colour_.red(),
                  colour_.green(), colour_.blue(), colour_.alpha(),
                  scale_centi, emissive_suffix, pixelation_suffix,
-                 texture_name_.c_str());
+                 tex_transform_suffix, bump_suffix);
+  } else {
+    std::snprintf(name_buf, sizeof(name_buf),
+                 "qt_colour_%02x%02x%02x%02x_ts%03d%s%s%s%s_%s", colour_.red(),
+                 colour_.green(), colour_.blue(), colour_.alpha(),
+                 scale_centi, emissive_suffix, pixelation_suffix,
+                 tex_transform_suffix, bump_suffix, texture_name_.c_str());
   }
   std::string name = name_buf;
 
-  // Deterministic from the colour's RGBA, texture scale, emissive colour/
-  // intensity, pixelation-exempt flag, and texture name, so picking the
-  // same combination again later just reuses this file instead of
-  // accumulating duplicates.
+  // Deterministic from the colour's RGBA, texture scale/offset/rotation,
+  // emissive colour/intensity, pixelation-exempt flag, texture name, and
+  // bump map name, so picking the same combination again later just reuses
+  // this file instead of accumulating duplicates.
   std::ofstream file("assets/materials/" + name + ".kmt");
   if (file.is_open()) {
     file << "#material file\n\n";
@@ -823,6 +988,13 @@ std::string SdfEditorWindow::ensure_material() const {
     file << "diffuse_colour=" << colour_.redF() << " " << colour_.greenF()
         << " " << colour_.blueF() << " " << colour_.alphaF() << "\n";
     file << "texture_scale=" << texture_scale_spin_->value() << "\n";
+    if (offset != glm::vec3(0.0f)) {
+      file << "texture_offset=" << offset.x << " " << offset.y << " "
+          << offset.z << "\n";
+    }
+    if (rotation_degrees != 0.0) {
+      file << "texture_rotation=" << glm::radians(rotation_degrees) << "\n";
+    }
     if (emissive_intensity > 0.0) {
       file << "emissive_colour=" << emissive_colour_.redF() << " "
           << emissive_colour_.greenF() << " " << emissive_colour_.blueF()
@@ -841,6 +1013,11 @@ std::string SdfEditorWindow::ensure_material() const {
     // Otherwise no diffuse_map_name -- MaterialSystem falls back to the
     // default (checkerboard) texture, tinted by diffuse_colour above, same
     // convention assets/materials/default_text_material.kmt already uses.
+    if (!bump_map_name_.empty()) {
+      file << "bump_map_name=" << bump_map_name_ << "\n";
+    }
+    // Otherwise no bump_map_name -- MaterialSystem falls back to
+    // TextureSystem::flat_texture(), i.e. no bump mapping at all.
   }
   return name;
 }
@@ -855,14 +1032,31 @@ void SdfEditorWindow::on_add_clicked() {
 
   std::string material_name = ensure_material();
 
-  SdfLayerOperation operation = operation_combo_->currentIndex() == 1
-                                    ? SdfLayerOperation::Subtraction
-                                    : SdfLayerOperation::Union;
-  f32 smoothness = static_cast<f32>(smoothness_spin_->value());
-
-  std::string layer_name = "layer" + std::to_string(next_layer_id_++);
-  SdfLayerDef &layer = add_layer(scene_, layer_name, operation, smoothness);
-  std::string primitive_name = layer_name + "_primitive";
+  // If a layer is currently active (see active_layer_index_ -- set by
+  // selecting one of its primitives, the layer row itself, or clicking New
+  // Layer), add into it instead of always starting a fresh layer -- the
+  // way to build up a layer that holds more than one primitive. Its own
+  // operation/smoothness (set when it was created) are left alone here;
+  // the Join Operation/Smoothness fields below only apply when they're
+  // about to define a brand-new layer.
+  SdfLayerDef *layer_ptr;
+  if (active_layer_index_ >= 0 &&
+      active_layer_index_ < static_cast<int>(scene_.layers.size())) {
+    layer_ptr = &scene_.layers[active_layer_index_];
+  } else {
+    SdfLayerOperation operation = operation_combo_->currentIndex() == 1
+                                      ? SdfLayerOperation::Subtraction
+                                      : SdfLayerOperation::Union;
+    f32 smoothness = static_cast<f32>(smoothness_spin_->value());
+    std::string layer_name = "layer" + std::to_string(next_layer_id_++);
+    layer_ptr = &add_layer(scene_, layer_name, operation, smoothness);
+  }
+  SdfLayerDef &layer = *layer_ptr;
+  // Globally unique regardless of which layer it lands in -- a layer can
+  // now hold more than one primitive, so the old "<layer_name>_primitive"
+  // convention (exactly one per layer) would collide the moment a second
+  // primitive joined the same layer.
+  std::string primitive_name = "primitive" + std::to_string(next_primitive_id_++);
 
   glm::vec3 position =
       spec.has_position
@@ -911,23 +1105,81 @@ void SdfEditorWindow::on_add_clicked() {
 }
 
 void SdfEditorWindow::on_remove_clicked() {
-  QListWidgetItem *item = contents_list_->currentItem();
-  if (!item) {
+  QList<QTreeWidgetItem *> selected = contents_tree_->selectedItems();
+  if (selected.isEmpty()) {
     return;
   }
-  int layer_index = item->data(Qt::UserRole).toInt();
-  if (layer_index >= 0 &&
-      layer_index < static_cast<int>(scene_.layers.size())) {
-    scene_.layers.erase(scene_.layers.begin() + layer_index);
+
+  // A selected layer row removes the whole layer (every primitive in it,
+  // even ones not separately selected); a selected primitive row removes
+  // just that primitive, identified by its stable name (see
+  // refresh_contents_list()'s comment) since indices may span several
+  // layers at once here.
+  std::set<int> whole_layers_to_remove;
+  std::set<std::string> primitive_names_to_remove;
+  for (QTreeWidgetItem *item : selected) {
+    if (!item->parent()) {
+      whole_layers_to_remove.insert(item->data(0, kLayerIndexRole).toInt());
+    } else {
+      primitive_names_to_remove.insert(
+          item->data(0, kPrimitiveNameRole).toString().toStdString());
+    }
   }
+
+  std::vector<SdfLayerDef> kept_layers;
+  kept_layers.reserve(scene_.layers.size());
+  for (int i = 0; i < static_cast<int>(scene_.layers.size()); ++i) {
+    if (whole_layers_to_remove.count(i)) {
+      continue;
+    }
+    SdfLayerDef &layer = scene_.layers[i];
+    std::vector<SdfPrimitiveDef> kept_primitives;
+    kept_primitives.reserve(layer.primitives.size());
+    for (SdfPrimitiveDef &primitive : layer.primitives) {
+      if (!primitive_names_to_remove.count(primitive.name)) {
+        kept_primitives.push_back(std::move(primitive));
+      }
+    }
+    layer.primitives = std::move(kept_primitives);
+    kept_layers.push_back(std::move(layer));
+  }
+  scene_.layers = std::move(kept_layers);
+
   refresh_contents_list();
   sync_viewport_scene();
-  // Layer indices may have shifted (or the removed one no longer exists at
-  // all) -- any previous selection is potentially stale/wrong now.
-  viewport_->set_selected_layer(-1);
+  // Layer/primitive indices may have shifted (or no longer exist at all) --
+  // any previous selection is potentially stale/wrong now.
+  viewport_->set_selection({});
+  active_layer_index_ = -1;
+}
+
+void SdfEditorWindow::on_new_layer_clicked() {
+  std::string layer_name = "layer" + std::to_string(next_layer_id_++);
+  // Always Union/no-smoothness regardless of whatever the "New Primitive"
+  // form's Join Operation/Smoothness fields currently show -- those fields
+  // describe what to create for on_add_clicked()'s fallback path, not this
+  // explicit, blank action (see request: "each layer is by default
+  // unioned").
+  add_layer(scene_, layer_name, SdfLayerOperation::Union, 0.0f);
+
+  refresh_contents_list();
+  sync_viewport_scene();
+
+  // Select the new (empty) layer row -- on_contents_tree_selection_changed()
+  // then sets active_layer_index_ to it, so the very next Add Primitive
+  // click adds into it instead of starting yet another layer.
+  for (int i = 0; i < contents_tree_->topLevelItemCount(); ++i) {
+    QTreeWidgetItem *layer_item = contents_tree_->topLevelItem(i);
+    if (layer_item->data(0, kLayerIndexRole).toInt() ==
+        static_cast<int>(scene_.layers.size()) - 1) {
+      contents_tree_->setCurrentItem(layer_item);
+      break;
+    }
+  }
 }
 
 void SdfEditorWindow::on_pick_colour_clicked() {
+  ScopedRenderPause pause(viewport_);
   QColor picked = QColorDialog::getColor(colour_, this, "Select Colour",
                                          QColorDialog::ShowAlphaChannel);
   if (picked.isValid()) {
@@ -939,6 +1191,7 @@ void SdfEditorWindow::on_pick_colour_clicked() {
 }
 
 void SdfEditorWindow::on_pick_emissive_colour_clicked() {
+  ScopedRenderPause pause(viewport_);
   QColor picked =
       QColorDialog::getColor(emissive_colour_, this, "Select Emissive Colour");
   if (picked.isValid()) {
@@ -950,6 +1203,7 @@ void SdfEditorWindow::on_pick_emissive_colour_clicked() {
 }
 
 void SdfEditorWindow::on_pick_texture_clicked() {
+  ScopedRenderPause pause(viewport_);
   QString path = QFileDialog::getOpenFileName(
       this, "Select Texture Image", QString(),
       "Images (*.png *.jpg *.jpeg *.bmp *.tga)");
@@ -992,6 +1246,46 @@ void SdfEditorWindow::on_clear_texture_clicked() {
   on_live_edit_changed(); // apply immediately if a primitive is selected
 }
 
+void SdfEditorWindow::on_pick_bump_map_clicked() {
+  ScopedRenderPause pause(viewport_);
+  QString path = QFileDialog::getOpenFileName(
+      this, "Select Bump Map Image", QString(),
+      "Images (*.png *.jpg *.jpeg *.bmp *.tga)");
+  if (path.isEmpty()) {
+    return;
+  }
+
+  QImage image(path);
+  if (image.isNull()) {
+    QMessageBox::warning(this, "Bump Map Load Failed",
+                         "Could not read image: " + path);
+    return;
+  }
+
+  QDir().mkpath("assets/textures");
+  std::string base = sanitize_texture_name(
+      QFileInfo(path).completeBaseName().toStdString());
+  std::string dest = "assets/textures/" + base + ".png";
+  if (!image.save(QString::fromStdString(dest), "PNG")) {
+    QMessageBox::warning(this, "Bump Map Copy Failed",
+                         "Could not write " + QString::fromStdString(dest));
+    return;
+  }
+
+  bump_map_name_ = base;
+  bump_map_label_->setText(QString::fromStdString(bump_map_name_));
+  on_live_edit_changed(); // apply immediately if a primitive is selected
+}
+
+void SdfEditorWindow::on_clear_bump_map_clicked() {
+  if (bump_map_name_.empty()) {
+    return;
+  }
+  bump_map_name_.clear();
+  bump_map_label_->setText("(none)");
+  on_live_edit_changed(); // apply immediately if a primitive is selected
+}
+
 void SdfEditorWindow::on_move_mode_clicked() {
   viewport_->set_gizmo_mode(GizmoMode::Translate);
 }
@@ -1005,6 +1299,7 @@ void SdfEditorWindow::on_show_grid_toggled(bool checked) {
 }
 
 void SdfEditorWindow::on_save_clicked() {
+  ScopedRenderPause pause(viewport_);
   QString path =
       QFileDialog::getSaveFileName(this, "Save SDF Scene",
                                    "assets/scenes/authored_scene.sdf",
@@ -1019,6 +1314,7 @@ void SdfEditorWindow::on_save_clicked() {
 }
 
 void SdfEditorWindow::on_load_clicked() {
+  ScopedRenderPause pause(viewport_);
   QString path = QFileDialog::getOpenFileName(
       this, "Load SDF Scene", "assets/scenes/", "SDF Scene Files (*.sdf)");
   if (path.isEmpty()) {
@@ -1060,6 +1356,14 @@ void SdfEditorWindow::on_load_clicked() {
   }
   next_volumetric_id_ = next_id_after("volumetric", volumetric_names);
 
+  std::vector<std::string> primitive_names;
+  for (const SdfLayerDef &layer : scene_.layers) {
+    for (const SdfPrimitiveDef &primitive : layer.primitives) {
+      primitive_names.push_back(primitive.name);
+    }
+  }
+  next_primitive_id_ = next_id_after("primitive", primitive_names);
+
   refresh_contents_list();
   refresh_lights_list();
   refresh_volumetrics_list();
@@ -1068,8 +1372,9 @@ void SdfEditorWindow::on_load_clicked() {
     ambient_spin_->setValue(scene_.ambient);
   }
   sync_viewport_scene();
-  viewport_->set_selected_layer(-1); // previous selection is from a
-                                     // different scene entirely now
+  active_layer_index_ = -1;
+  viewport_->set_selection({}); // previous selection is from a different
+                                // scene entirely now
 }
 
 void SdfEditorWindow::sync_viewport_scene() {
@@ -1085,63 +1390,213 @@ void SdfEditorWindow::sync_viewport_scene() {
   renderer_load_scene(kLivePreviewPath);
 }
 
-void SdfEditorWindow::on_viewport_primitive_picked(int layer_index) {
-  if (layer_index < 0) {
-    contents_list_->clearSelection();
-    contents_list_->setCurrentItem(nullptr);
-    return;
+void SdfEditorWindow::on_viewport_selection_changed(std::vector<PrimitiveRef> selection) {
+  // A viewport click never selects a light (pick_at() only ray-casts
+  // against primitives -- see ray_intersect.h), so any light row still
+  // showing selected in lights_list_ is now stale; clear it for
+  // consistency with what the tree's about to show below.
+  {
+    const QSignalBlocker light_blocker(lights_list_);
+    lights_list_->setCurrentItem(nullptr);
   }
-  for (int i = 0; i < contents_list_->count(); ++i) {
-    QListWidgetItem *item = contents_list_->item(i);
-    if (item->data(Qt::UserRole).toInt() == layer_index) {
-      contents_list_->setCurrentItem(item);
-      break;
+
+  // Mirror viewport_'s selection onto contents_tree_ -- block its own
+  // selection-changed signal while doing so, since
+  // on_contents_tree_selection_changed() would otherwise just call
+  // viewport_->set_selection() right back with what's already selected.
+  const QSignalBlocker blocker(contents_tree_);
+  contents_tree_->clearSelection();
+  for (const PrimitiveRef &ref : selection) {
+    for (int i = 0; i < contents_tree_->topLevelItemCount(); ++i) {
+      QTreeWidgetItem *layer_item = contents_tree_->topLevelItem(i);
+      if (layer_item->data(0, kLayerIndexRole).toInt() != ref.layer_index) {
+        continue;
+      }
+      for (int j = 0; j < layer_item->childCount(); ++j) {
+        QTreeWidgetItem *primitive_item = layer_item->child(j);
+        if (primitive_item->data(0, kPrimitiveIndexRole).toInt() ==
+            ref.primitive_index) {
+          primitive_item->setSelected(true);
+          contents_tree_->scrollToItem(primitive_item);
+        }
+      }
     }
+  }
+
+  // The signal blocker above means active_layer_index_/the side panel's
+  // fields need updating by hand, exactly what
+  // on_contents_tree_selection_changed() would otherwise have done.
+  if (selection.size() == 1) {
+    active_layer_index_ = selection.front().layer_index;
+    populate_fields_from_selection(selection.front().layer_index,
+                                   selection.front().primitive_index);
+  } else if (selection.empty()) {
+    active_layer_index_ = -1;
+  } else {
+    bool same_layer = std::all_of(
+        selection.begin(), selection.end(), [&](const PrimitiveRef &ref) {
+          return ref.layer_index == selection.front().layer_index;
+        });
+    active_layer_index_ = same_layer ? selection.front().layer_index : -1;
   }
 }
 
-void SdfEditorWindow::on_viewport_primitive_transformed(int layer_index,
-                                                        glm::vec3 position,
-                                                        glm::vec3 rotation,
-                                                        glm::vec3 params) {
-  if (layer_index < 0 || layer_index >= static_cast<int>(scene_.layers.size())) {
-    return;
+void SdfEditorWindow::on_viewport_primitives_transformed(
+    std::vector<GizmoTransformResult> results) {
+  for (const GizmoTransformResult &result : results) {
+    if (result.ref.is_light()) {
+      if (result.ref.light_index >= 0 &&
+          result.ref.light_index < static_cast<int>(scene_.lights.size())) {
+        // Only position is meaningful for a light -- rotation/params are
+        // always sent (see GizmoTransformResult's comment) but unused here.
+        scene_.lights[result.ref.light_index].position = result.position;
+      }
+      continue;
+    }
+    if (result.ref.layer_index < 0 ||
+        result.ref.layer_index >= static_cast<int>(scene_.layers.size())) {
+      continue;
+    }
+    auto &primitives = scene_.layers[result.ref.layer_index].primitives;
+    if (result.ref.primitive_index < 0 ||
+        result.ref.primitive_index >= static_cast<int>(primitives.size())) {
+      continue;
+    }
+    SdfPrimitiveDef &primitive = primitives[result.ref.primitive_index];
+    primitive.position = result.position;
+    primitive.rotation = result.rotation;
+    primitive.params = result.params;
   }
-  auto &primitives = scene_.layers[layer_index].primitives;
-  if (primitives.empty()) {
-    return;
-  }
-  primitives.front().position = position;
-  primitives.front().rotation = rotation;
-  primitives.front().params = params;
   // Persists + rebakes, and re-pushes scene_ into viewport_ -- resolving
   // the temporary divergence between SdfEditorWindow's and SceneViewport's
   // copies that existed only during the drag itself.
   sync_viewport_scene();
   // The drag just changed position/rotation/size without going through the
   // side panel's fields at all -- refresh them so they don't show stale
-  // pre-drag values.
-  populate_fields_from_selection(layer_index);
-}
-
-void SdfEditorWindow::on_contents_list_selection_changed() {
-  QListWidgetItem *item = contents_list_->currentItem();
-  int layer_index = item ? item->data(Qt::UserRole).toInt() : -1;
-  viewport_->set_selected_layer(layer_index);
-  if (layer_index >= 0) {
-    populate_fields_from_selection(layer_index);
+  // pre-drag values (only meaningful for a single-item selection -- see
+  // populate_fields_from_selection()'s own comment).
+  if (results.size() == 1) {
+    const PrimitiveRef &ref = results.front().ref;
+    if (ref.is_light()) {
+      populate_light_fields_from_selection(ref.light_index);
+    } else {
+      populate_fields_from_selection(ref.layer_index, ref.primitive_index);
+    }
   }
 }
 
-void SdfEditorWindow::populate_fields_from_selection(int layer_index) {
+std::vector<PrimitiveRef> SdfEditorWindow::tree_selected_primitives() const {
+  std::vector<PrimitiveRef> result;
+  for (QTreeWidgetItem *item : contents_tree_->selectedItems()) {
+    if (!item->parent()) {
+      continue; // a layer row -- nothing to feed the gizmo/edit fields with
+    }
+    result.push_back(PrimitiveRef{item->data(0, kLayerIndexRole).toInt(),
+                                  item->data(0, kPrimitiveIndexRole).toInt()});
+  }
+  return result;
+}
+
+void SdfEditorWindow::on_contents_tree_selection_changed() {
+  // Selecting a primitive row here supersedes any light selection -- a
+  // light and a primitive never show the gizmo together (see
+  // on_lights_list_selection_changed()'s mirror of this).
+  {
+    const QSignalBlocker light_blocker(lights_list_);
+    lights_list_->setCurrentItem(nullptr);
+  }
+
+  std::vector<PrimitiveRef> selection = tree_selected_primitives();
+  viewport_->set_selection(selection);
+
+  if (selection.size() == 1) {
+    active_layer_index_ = selection.front().layer_index;
+    populate_fields_from_selection(selection.front().layer_index,
+                                   selection.front().primitive_index);
+    return;
+  }
+  if (!selection.empty()) {
+    bool same_layer = std::all_of(
+        selection.begin(), selection.end(), [&](const PrimitiveRef &ref) {
+          return ref.layer_index == selection.front().layer_index;
+        });
+    active_layer_index_ = same_layer ? selection.front().layer_index : -1;
+    return;
+  }
+
+  // Nothing (primitive-wise) selected -- a lone layer row still counts as
+  // "active" for on_add_clicked(), so Add Primitive can target it.
+  QList<QTreeWidgetItem *> selected_items = contents_tree_->selectedItems();
+  if (selected_items.size() == 1 && !selected_items.front()->parent()) {
+    active_layer_index_ = selected_items.front()->data(0, kLayerIndexRole).toInt();
+  } else {
+    active_layer_index_ = -1;
+  }
+}
+
+void SdfEditorWindow::on_primitives_reparented() { sync_layers_from_tree(); }
+
+void SdfEditorWindow::sync_layers_from_tree() {
+  // Steal every primitive out of scene_.layers, keyed by its stable name --
+  // a drag-and-drop reparent only ever changes which layer a primitive
+  // item sits under in the tree, never its own name, so this is the only
+  // safe way to re-find each one once (layer_index, primitive_index) pairs
+  // are exactly what the drag just invalidated.
+  std::unordered_map<std::string, SdfPrimitiveDef> primitives_by_name;
+  for (SdfLayerDef &layer : scene_.layers) {
+    for (SdfPrimitiveDef &primitive : layer.primitives) {
+      primitives_by_name.emplace(primitive.name, std::move(primitive));
+    }
+  }
+
+  std::vector<SdfLayerDef> new_layers;
+  new_layers.reserve(contents_tree_->topLevelItemCount());
+  for (int i = 0; i < contents_tree_->topLevelItemCount(); ++i) {
+    QTreeWidgetItem *layer_item = contents_tree_->topLevelItem(i);
+    int old_layer_index = layer_item->data(0, kLayerIndexRole).toInt();
+    if (old_layer_index < 0 || old_layer_index >= static_cast<int>(scene_.layers.size())) {
+      continue; // shouldn't happen -- refresh_contents_list() always
+                // stamps a valid index
+    }
+    // Layer identity (name/operation/smoothness) is untouched by a
+    // primitive drag -- only its primitives[] is being rebuilt here.
+    SdfLayerDef new_layer;
+    new_layer.name = scene_.layers[old_layer_index].name;
+    new_layer.operation = scene_.layers[old_layer_index].operation;
+    new_layer.smoothness = scene_.layers[old_layer_index].smoothness;
+
+    for (int j = 0; j < layer_item->childCount(); ++j) {
+      QTreeWidgetItem *primitive_item = layer_item->child(j);
+      std::string name =
+          primitive_item->data(0, kPrimitiveNameRole).toString().toStdString();
+      auto it = primitives_by_name.find(name);
+      if (it != primitives_by_name.end()) {
+        new_layer.primitives.push_back(std::move(it->second));
+      }
+    }
+    new_layers.push_back(std::move(new_layer));
+  }
+  scene_.layers = std::move(new_layers);
+
+  refresh_contents_list();
+  sync_viewport_scene();
+  // Every (layer_index, primitive_index) pair the drag touched is stale --
+  // simplest to just drop the selection rather than try to track where
+  // each dragged item landed.
+  viewport_->set_selection({});
+  active_layer_index_ = -1;
+}
+
+void SdfEditorWindow::populate_fields_from_selection(int layer_index,
+                                                     int primitive_index) {
   if (layer_index < 0 || layer_index >= static_cast<int>(scene_.layers.size())) {
     return;
   }
   const SdfLayerDef &layer = scene_.layers[layer_index];
-  if (layer.primitives.empty()) {
+  if (primitive_index < 0 || primitive_index >= static_cast<int>(layer.primitives.size())) {
     return;
   }
-  const SdfPrimitiveDef &primitive = layer.primitives.front();
+  const SdfPrimitiveDef &primitive = layer.primitives[primitive_index];
   PrimitiveTypeSpec spec = type_spec_for(primitive.type);
 
   populating_fields_ = true;
@@ -1178,7 +1633,15 @@ void SdfEditorWindow::populate_fields_from_selection(int layer_index) {
   texture_label_->setText(texture_name_.empty()
                               ? QStringLiteral("(none)")
                               : QString::fromStdString(texture_name_));
+  bump_map_name_ = material.bump_map_name;
+  bump_map_label_->setText(bump_map_name_.empty()
+                               ? QStringLiteral("(none)")
+                               : QString::fromStdString(bump_map_name_));
   texture_scale_spin_->setValue(material.texture_scale);
+  texture_offset_x_->setValue(material.texture_offset.x);
+  texture_offset_y_->setValue(material.texture_offset.y);
+  texture_offset_z_->setValue(material.texture_offset.z);
+  texture_rotation_spin_->setValue(glm::degrees(material.texture_rotation));
   emissive_colour_ = material.emissive_colour;
   emissive_colour_button_->setStyleSheet(
       QString("background-color: %1;").arg(emissive_colour_.name()));
@@ -1190,12 +1653,12 @@ void SdfEditorWindow::populate_fields_from_selection(int layer_index) {
   update_field_enablement();
 }
 
-void SdfEditorWindow::apply_fields_to_primitive(int layer_index) {
+void SdfEditorWindow::apply_fields_to_primitive(int layer_index, int primitive_index) {
   SdfLayerDef &layer = scene_.layers[layer_index];
-  if (layer.primitives.empty()) {
+  if (primitive_index < 0 || primitive_index >= static_cast<int>(layer.primitives.size())) {
     return;
   }
-  SdfPrimitiveDef &primitive = layer.primitives.front();
+  SdfPrimitiveDef &primitive = layer.primitives[primitive_index];
   PrimitiveTypeSpec spec = type_spec_for(primitive.type);
 
   layer.operation = operation_combo_->currentIndex() == 1
@@ -1226,21 +1689,26 @@ void SdfEditorWindow::apply_fields_to_primitive(int layer_index) {
 }
 
 void SdfEditorWindow::on_live_edit_changed() {
-  if (populating_fields_ || !contents_list_) {
-    // !contents_list_: a field's valueChanged can fire from the
+  if (populating_fields_ || !contents_tree_) {
+    // !contents_tree_: a field's valueChanged can fire from the
     // constructor itself (setting an initial default after the signal is
-    // already connected), before contents_list_ exists yet.
+    // already connected), before contents_tree_ exists yet.
     return;
   }
-  QListWidgetItem *item = contents_list_->currentItem();
-  if (!item) {
-    return; // nothing selected -- fields are just staging values for Add
+  // Only meaningful for exactly one selected primitive -- these fields
+  // can't sensibly live-edit several primitives at once if they're
+  // different types/materials (see on_contents_tree_selection_changed()'s
+  // own comment).
+  std::vector<PrimitiveRef> selection = tree_selected_primitives();
+  if (selection.size() != 1) {
+    return; // nothing (or more than one thing) selected -- fields are just
+           // staging values for Add
   }
-  int layer_index = item->data(Qt::UserRole).toInt();
+  int layer_index = selection.front().layer_index;
   if (layer_index < 0 || layer_index >= static_cast<int>(scene_.layers.size())) {
     return;
   }
-  apply_fields_to_primitive(layer_index);
+  apply_fields_to_primitive(layer_index, selection.front().primitive_index);
   sync_viewport_scene();
 }
 
@@ -1287,9 +1755,11 @@ void SdfEditorWindow::on_remove_light_clicked() {
   }
   refresh_lights_list();
   sync_viewport_scene();
+  viewport_->set_selection({}); // the just-removed light can't stay selected
 }
 
 void SdfEditorWindow::on_pick_light_colour_clicked() {
+  ScopedRenderPause pause(viewport_);
   QColor picked = QColorDialog::getColor(light_colour_, this,
                                         "Select Light Colour");
   if (picked.isValid()) {
@@ -1306,6 +1776,16 @@ void SdfEditorWindow::on_lights_list_selection_changed() {
   if (light_index >= 0) {
     populate_light_fields_from_selection(light_index);
   }
+
+  // Selecting a light here supersedes any primitive selection -- mirrors
+  // on_contents_tree_selection_changed()'s own clearing of lights_list_.
+  {
+    const QSignalBlocker tree_blocker(contents_tree_);
+    contents_tree_->clearSelection();
+  }
+  active_layer_index_ = -1;
+
+  update_viewport_light_selection(light_index);
 }
 
 void SdfEditorWindow::populate_light_fields_from_selection(int light_index) {
@@ -1352,6 +1832,15 @@ void SdfEditorWindow::apply_fields_to_light(int light_index) {
   light.intensity = static_cast<f32>(light_intensity_spin_->value());
 }
 
+void SdfEditorWindow::update_viewport_light_selection(int light_index) {
+  if (light_index >= 0 && light_index < static_cast<int>(scene_.lights.size()) &&
+      scene_.lights[light_index].type == SdfLightType::Point) {
+    viewport_->set_selection({PrimitiveRef{-1, -1, light_index}});
+  } else {
+    viewport_->set_selection({});
+  }
+}
+
 void SdfEditorWindow::on_light_field_changed() {
   if (populating_light_fields_ || !lights_list_) {
     // !lights_list_: a field's valueChanged can fire from the constructor
@@ -1369,6 +1858,11 @@ void SdfEditorWindow::on_light_field_changed() {
   }
   apply_fields_to_light(light_index);
   sync_viewport_scene();
+  // Keeps the gizmo in sync with a Type toggle -- e.g. switching from Point
+  // to Directional should hide it (a directional light has no position for
+  // the gizmo to show), and the reverse should show it again. A no-op
+  // (recomputes the same selection) for any other field's change.
+  update_viewport_light_selection(light_index);
 }
 
 void SdfEditorWindow::on_ambient_changed() {
@@ -1391,18 +1885,29 @@ void SdfEditorWindow::refresh_lights_list() {
 }
 
 void SdfEditorWindow::refresh_contents_list() {
-  contents_list_->clear();
+  contents_tree_->clear();
   for (int i = 0; i < static_cast<int>(scene_.layers.size()); ++i) {
     const SdfLayerDef &layer = scene_.layers[i];
     const char *op_label =
         layer.operation == SdfLayerOperation::Subtraction ? "Subtract" : "Union";
-    for (const SdfPrimitiveDef &primitive : layer.primitives) {
-      QString text = QString("%1 '%2' [%3]")
+    QString layer_text = QString("%1 [%2, smoothness %3]")
+                             .arg(QString::fromStdString(layer.name))
+                             .arg(op_label)
+                             .arg(layer.smoothness, 0, 'f', 2);
+    auto *layer_item = new QTreeWidgetItem(contents_tree_, {layer_text});
+    layer_item->setData(0, kLayerIndexRole, i);
+    layer_item->setExpanded(true);
+
+    for (int j = 0; j < static_cast<int>(layer.primitives.size()); ++j) {
+      const SdfPrimitiveDef &primitive = layer.primitives[j];
+      QString text = QString("%1 '%2'")
                          .arg(primitive_type_label(primitive.type))
-                         .arg(QString::fromStdString(primitive.name))
-                         .arg(op_label);
-      auto *item = new QListWidgetItem(text, contents_list_);
-      item->setData(Qt::UserRole, i);
+                         .arg(QString::fromStdString(primitive.name));
+      auto *primitive_item = new QTreeWidgetItem(layer_item, {text});
+      primitive_item->setData(0, kLayerIndexRole, i);
+      primitive_item->setData(0, kPrimitiveIndexRole, j);
+      primitive_item->setData(0, kPrimitiveNameRole,
+                              QString::fromStdString(primitive.name));
     }
   }
 }
@@ -1443,17 +1948,32 @@ std::string SdfEditorWindow::ensure_volumetric_material() const {
   int scale_centi = static_cast<int>(
       std::lround(volumetric_texture_scale_spin_->value() * 100.0));
 
-  char name_buf[168];
+  glm::vec3 offset(volumetric_texture_offset_x_->value(),
+                   volumetric_texture_offset_y_->value(),
+                   volumetric_texture_offset_z_->value());
+  double rotation_degrees = volumetric_texture_rotation_spin_->value();
+  char tex_transform_suffix[64] = "";
+  if (offset != glm::vec3(0.0f) || rotation_degrees != 0.0) {
+    std::snprintf(tex_transform_suffix, sizeof(tex_transform_suffix),
+                 "_to%+04d%+04d%+04d_tr%+05d",
+                 static_cast<int>(std::lround(offset.x * 100.0)),
+                 static_cast<int>(std::lround(offset.y * 100.0)),
+                 static_cast<int>(std::lround(offset.z * 100.0)),
+                 static_cast<int>(std::lround(rotation_degrees * 100.0)));
+  }
+
+  char name_buf[224];
   if (volumetric_texture_name_.empty()) {
-    std::snprintf(name_buf, sizeof(name_buf), "qt_vol_colour_%02x%02x%02x%02x_ts%03d",
-                 volumetric_colour_.red(), volumetric_colour_.green(),
-                 volumetric_colour_.blue(), volumetric_colour_.alpha(), scale_centi);
-  } else {
-    std::snprintf(name_buf, sizeof(name_buf),
-                 "qt_vol_colour_%02x%02x%02x%02x_ts%03d_%s",
+    std::snprintf(name_buf, sizeof(name_buf), "qt_vol_colour_%02x%02x%02x%02x_ts%03d%s",
                  volumetric_colour_.red(), volumetric_colour_.green(),
                  volumetric_colour_.blue(), volumetric_colour_.alpha(), scale_centi,
-                 volumetric_texture_name_.c_str());
+                 tex_transform_suffix);
+  } else {
+    std::snprintf(name_buf, sizeof(name_buf),
+                 "qt_vol_colour_%02x%02x%02x%02x_ts%03d%s_%s",
+                 volumetric_colour_.red(), volumetric_colour_.green(),
+                 volumetric_colour_.blue(), volumetric_colour_.alpha(), scale_centi,
+                 tex_transform_suffix, volumetric_texture_name_.c_str());
   }
   std::string name = name_buf;
 
@@ -1466,6 +1986,13 @@ std::string SdfEditorWindow::ensure_volumetric_material() const {
         << volumetric_colour_.greenF() << " " << volumetric_colour_.blueF()
         << " " << volumetric_colour_.alphaF() << "\n";
     file << "texture_scale=" << volumetric_texture_scale_spin_->value() << "\n";
+    if (offset != glm::vec3(0.0f)) {
+      file << "texture_offset=" << offset.x << " " << offset.y << " "
+          << offset.z << "\n";
+    }
+    if (rotation_degrees != 0.0) {
+      file << "texture_rotation=" << glm::radians(rotation_degrees) << "\n";
+    }
     if (!volumetric_texture_name_.empty()) {
       file << "diffuse_map_name=" << volumetric_texture_name_ << "\n";
     }
@@ -1527,6 +2054,7 @@ void SdfEditorWindow::on_remove_volumetric_clicked() {
 }
 
 void SdfEditorWindow::on_pick_volumetric_colour_clicked() {
+  ScopedRenderPause pause(viewport_);
   QColor picked = QColorDialog::getColor(volumetric_colour_, this,
                                         "Select Colour",
                                         QColorDialog::ShowAlphaChannel);
@@ -1539,6 +2067,7 @@ void SdfEditorWindow::on_pick_volumetric_colour_clicked() {
 }
 
 void SdfEditorWindow::on_pick_volumetric_texture_clicked() {
+  ScopedRenderPause pause(viewport_);
   QString path = QFileDialog::getOpenFileName(
       this, "Select Texture Image", QString(),
       "Images (*.png *.jpg *.jpeg *.bmp *.tga)");
@@ -1622,6 +2151,10 @@ void SdfEditorWindow::populate_volumetric_fields_from_selection(int volumetric_i
           ? QStringLiteral("(none)")
           : QString::fromStdString(volumetric_texture_name_));
   volumetric_texture_scale_spin_->setValue(material.texture_scale);
+  volumetric_texture_offset_x_->setValue(material.texture_offset.x);
+  volumetric_texture_offset_y_->setValue(material.texture_offset.y);
+  volumetric_texture_offset_z_->setValue(material.texture_offset.z);
+  volumetric_texture_rotation_spin_->setValue(glm::degrees(material.texture_rotation));
   volumetric_density_spin_->setValue(volumetric.density);
 
   populating_volumetric_fields_ = false;

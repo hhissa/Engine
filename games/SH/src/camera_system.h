@@ -11,6 +11,19 @@ struct CameraPose {
   f32 yaw = 0.0f;   // radians; 0 faces +Z (see Camera::forward())
   f32 pitch = 0.0f; // radians; positive looks up
   f32 max_pan = 0.2f; // max deviation from (yaw, pitch), both axes
+  // How far the scroll-driven zoom (see CameraSystem's class comment) may
+  // dolly the camera away from *this pose's own starting position*, in
+  // world units -- both plain non-negative distances traveled from that
+  // start, not a pair of absolute world-space bounds (there's no min/max
+  // ordering to get backwards): max_zoom_out is how far back(away from the
+  // framing) scrolling down may go, max_zoom_in is how far forward
+  // (toward/through the framing) scrolling up may go. Defaults match this
+  // system's old fixed, pose-independent range, so a pose that doesn't set
+  // these zooms exactly like it always did; a tighter close-up station can
+  // still shrink either distance so scrolling can't dolly it somewhere the
+  // framing wasn't meant to show (through a wall, past the subject, etc).
+  f32 max_zoom_out = 1.5f;
+  f32 max_zoom_in = 3.0f;
 };
 
 // Holds the game's camera stations and lets the player cycle through them
@@ -21,9 +34,10 @@ struct CameraPose {
 // pose's base facing, so every station is a constrained angle, not a full
 // look-around -- plus a scroll-driven zoom: the mouse wheel dollies the
 // camera along the pose's *base* facing direction (not the panned one, so
-// zooming doesn't jitter with mouse position), clamped to
-// [kMinZoomOffset, kMaxZoomOffset] world units. Scrolling up/away zooms in
-// (dollies forward, matching the common map/3D-viewer convention).
+// zooming doesn't jitter with mouse position), dollied at most the current
+// pose's own max_zoom_out/max_zoom_in distance away from its starting
+// position (see CameraPose). Scrolling up/away zooms in (dollies forward,
+// matching the common map/3D-viewer convention).
 // Resets to the pose's authored distance every time the station changes
 // (see cycle()) -- each station is meant to be a specific, intentional
 // framing, so zoom is a temporary adjustment to the current one, not a
@@ -44,6 +58,18 @@ struct CameraPose {
 class CameraSystem {
 public:
   void add_pose(const CameraPose &pose);
+
+  // Replaces the entire station list wholesale and jumps to its first
+  // entry, resetting zoom -- for a caller (SHGame::apply_scene_state())
+  // whose camera stations are a *complete* description per scene state
+  // (different scenery/model loaded, different angles make sense), rather
+  // than one fixed list every state shares and Tab cycles through
+  // regardless of what's actually on screen. Safe to call while the debug
+  // camera is active -- it only replaces poses_/resets current_/
+  // zoom_offset_, it doesn't touch debug_camera_ itself, so the switch
+  // takes effect (silently) whenever the player next returns to the posed
+  // stations.
+  void set_poses(std::vector<CameraPose> poses);
 
   // Advances to the next pose, wrapping at the end. Ignored while the
   // debug camera is active (the stations aren't in control).

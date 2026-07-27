@@ -2,25 +2,39 @@
 version=0.1
 ambient=0.69
 
-light light2 {
-    type=directional
-    direction=0 1 0
-    colour=1 1 1
-    intensity=5.75
-}
-
 light light3 {
-    type=directional
-    direction=0 0 -1
+    type=point
+    position=0 -1.06 0
     colour=1 1 1
-    intensity=2
+    intensity=0.55
 }
 
 light light4 {
-    type=directional
-    direction=0 0 -1
+    type=point
+    position=-1.75 -1.06 -1.19
     colour=1 1 1
-    intensity=5
+    intensity=0.25
+}
+
+light light5 {
+    type=point
+    position=-1.75 -1.06 -0.29
+    colour=1 1 1
+    intensity=0.25
+}
+
+light light6 {
+    type=point
+    position=-1.75 -1.06 0.74
+    colour=1 1 1
+    intensity=0.25
+}
+
+light light7 {
+    type=point
+    position=2.32 -0.81 0.74
+    colour=1 1 1
+    intensity=0.25
 }
 
 layer layer2 {

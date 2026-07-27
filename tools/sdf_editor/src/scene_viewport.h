@@ -21,6 +21,40 @@ enum class GizmoAxis { None, X, Y, Z };
 // SdfEditorWindow's Move/Rotate buttons (see set_gizmo_mode() below).
 enum class GizmoMode { Translate, Rotate };
 
+// Identifies one selected item within scene_: either a primitive (which
+// layer, and which entry within that layer's primitives[] -- a layer can
+// hold more than one primitive, see SdfLayerDef's own comment, so a layer
+// index alone no longer names a unique primitive the way it used to when
+// this editor enforced one-primitive-per-layer) OR a light (light_index
+// into scene_.lights, with layer_index/primitive_index left at -1). Only
+// a Point light is ever referenced this way -- a Directional light has no
+// position for the gizmo to show/drag (see SdfLightDef).
+struct PrimitiveRef {
+  int layer_index = -1;
+  int primitive_index = -1;
+  int light_index = -1;
+
+  bool is_light() const { return light_index >= 0; }
+
+  bool operator==(const PrimitiveRef &other) const {
+    return layer_index == other.layer_index &&
+          primitive_index == other.primitive_index &&
+          light_index == other.light_index;
+  }
+};
+
+// One selected item's final position/rotation/params once a gizmo drag
+// (possibly across a multi-item selection) ends -- see
+// primitives_transformed() below. For a light ref (see PrimitiveRef above),
+// only position is meaningful -- rotation/params are sent as zero and
+// ignored by the receiving end (a point light has neither).
+struct GizmoTransformResult {
+  PrimitiveRef ref;
+  glm::vec3 position;
+  glm::vec3 rotation;
+  glm::vec3 params;
+};
+
 // Embeds the engine's live Vulkan-rendered raymarch scene into a Qt
 // widget tree (via QWidget::createWindowContainer(), see main_window.cpp)
 // -- a live view with mouse-orbit camera controls (right-drag to orbit,
@@ -54,7 +88,7 @@ enum class GizmoMode { Translate, Rotate };
 // VulkanRaymarchShader::rebake()'s comment) -- only the gizmo's own 2D
 // lines move live, following an in-memory-only edit to scene_. The real
 // renderer_load_scene()/rebake only happens once, in SdfEditorWindow, when
-// primitive_transformed() fires on mouse release.
+// primitives_transformed() fires on mouse release.
 class SceneViewport : public QWindow {
   Q_OBJECT
 
@@ -79,25 +113,24 @@ public:
   // the same scene the viewport is actually showing. Also the point where
   // any transform a just-finished drag applied gets overwritten with
   // SdfEditorWindow's authoritative merged copy, resolving the temporary
-  // divergence between the two during a drag (see primitive_transformed()).
+  // divergence between the two during a drag (see primitives_transformed()).
   void set_scene(const SdfScene &scene) {
     scene_ = scene;
     update_gizmo();
   }
 
-  // Selects (or, for a negative index, deselects) which primitive the
-  // gizmo is shown on -- called both from this class's own pick_at() and
-  // externally by SdfEditorWindow when the side panel's own list selection
-  // changes, so either place can drive the other. Also drives the
-  // renderer's selection outline (see renderer_set_selected_primitive() in
-  // the .cpp): layer_index doubles as the raymarch field's
-  // scene_textures/scene_diffuse_colours index, which holds *only* because
-  // this editor puts exactly one primitive per layer and always reloads
-  // the entire scene_ on every change (see sync_viewport_scene()) --
-  // GeometrySystem::rebuild_static_scene() then uploads primitives in
-  // layer order, so a layer's ordinal position among the currently-loaded
-  // layers is exactly its GPU primitive index too.
-  void set_selected_layer(int layer_index);
+  // Selects (or, for an empty vector, deselects) which item(s) -- primitives
+  // and/or lights (see PrimitiveRef) -- the gizmo is shown on/drags
+  // together -- called both from this class's own pick_at() and externally
+  // by SdfEditorWindow when the side panel's own tree/lights-list selection
+  // changes, so either place can drive the other. A single-element
+  // selection behaves exactly like the old one-primitive gizmo; a multi-
+  // element one shows/drags the gizmo at the group's centroid (see
+  // update_gizmo()). Only the first entry drives the renderer's selection
+  // outline (see renderer_set_selected_primitive() in the .cpp) -- that
+  // outline is a single-primitive highlight, not a group one, and doesn't
+  // apply to a light selection at all (no outline concept for one).
+  void set_selection(const std::vector<PrimitiveRef> &selection);
 
   // Switches which gizmo tool is shown/interactive -- called by
   // SdfEditorWindow's Move/Rotate toggle buttons.
@@ -115,21 +148,43 @@ public:
   // yet -- the engine only comes up on the first exposeEvent).
   void set_grid_visible(bool visible);
 
-signals:
-  // Emitted on every left-click release that isn't a gizmo drag:
-  // layer_index is the SdfScene layer index the ray hit nearest (this
-  // editor puts exactly one primitive per layer -- see
-  // SdfEditorWindow::on_add_clicked()), or -1 if the click hit nothing
-  // (deselect).
-  void primitive_picked(int layer_index);
+  // Stops/restarts tick_timer_ -- SdfEditorWindow calls pause_rendering()
+  // before opening any modal dialog (QFileDialog/QColorDialog/...) and
+  // resume_rendering() right after. A modal dialog spins its own nested
+  // Qt event loop, but a QTimer keeps firing into that nested loop unless
+  // stopped -- so without this, tick() (and therefore a Vulkan present
+  // every ~16ms) kept running the whole time the dialog was up, on a
+  // window that's now partially/fully occluded by it. This engine's WSI
+  // calls (vkAcquireNextImageKHR, the in-flight fence wait) use infinite
+  // timeouts with no occlusion guard, and everything -- render loop, GUI
+  // event loop, the dialog itself -- shares this one thread, so if
+  // presentation ever stalls while occluded (a real possibility on
+  // Linux/X11), the whole process appears to freeze, dialog included,
+  // until that indefinite wait eventually returns (if it ever does).
+  // Simply not rendering at all while a dialog owns the event loop removes
+  // the only thing that could stall it. Safe to call resume_rendering()
+  // before the engine has even initialized (e.g. no dialog opened yet) --
+  // it's a no-op then, same as tick_timer_ being null-checked throughout.
+  void pause_rendering();
+  void resume_rendering();
 
-  // Emitted once, when a gizmo drag ends (mouse release) -- position/
-  // rotation/params are the primitive's final values (only one of them
-  // actually changed, depending on which axis/gizmo mode/primitive type,
-  // but all three are always sent so SdfEditorWindow can just overwrite its
-  // own copy unconditionally).
-  void primitive_transformed(int layer_index, glm::vec3 position,
-                             glm::vec3 rotation, glm::vec3 params);
+signals:
+  // Emitted on every left-click release that isn't a gizmo drag, reflecting
+  // this class's own (possibly just-updated) selection: a plain click
+  // replaces the whole selection with whatever the ray hit nearest (or
+  // clears it, for a click that hit nothing); a ctrl-click toggles just the
+  // hit primitive in/out of whatever was already selected. SdfEditorWindow
+  // mirrors this back onto contents_tree_'s own item selection so both
+  // stay in sync no matter which side drove the change.
+  void selection_changed(std::vector<PrimitiveRef> selection);
+
+  // Emitted once, when a gizmo drag ends (mouse release) -- one entry per
+  // primitive that was part of the drag (a single-primitive selection
+  // sends exactly one), each carrying that primitive's final position/
+  // rotation/params (only one of the three actually changed, depending on
+  // axis/gizmo mode/primitive type, but all three are always sent so
+  // SdfEditorWindow can just overwrite its own copies unconditionally).
+  void primitives_transformed(std::vector<GizmoTransformResult> results);
 
 protected:
   void exposeEvent(QExposeEvent *event) override;
@@ -164,9 +219,10 @@ private:
   // using the exact same construction Builtin.RaymarchShader.comp.glsl
   // uses per-pixel (uv from pixel/image size, then
   // uv.x*right + uv.y*up + forward) -- so a click picks whatever the user
-  // actually sees at that pixel. Also drives set_selected_layer() and
-  // emits primitive_picked().
-  void pick_at(QPoint pos);
+  // actually sees at that pixel. additive true (ctrl-click) toggles the hit
+  // primitive in/out of the current selection instead of replacing it.
+  // Drives set_selection() and emits selection_changed().
+  void pick_at(QPoint pos, bool additive);
 
   // Inverts the same ray construction: projects a world point to this
   // window's logical-pixel coordinates (matching mouse events/
@@ -190,11 +246,21 @@ private:
   std::vector<QPointF> build_gizmo_ring(glm::vec3 origin_world,
                                         GizmoAxis axis, f32 radius) const;
 
-  // Returns the currently-selected primitive, or nullptr if nothing valid
-  // is selected (index out of range, or that layer somehow has no
-  // primitives -- shouldn't happen given this editor's one-primitive-per-
-  // layer convention, but checked defensively).
-  SdfPrimitiveDef *selected_primitive();
+  // Resolves selected_ to actual primitive pointers (skipping any light
+  // entries, and any entry that's gone stale -- index out of range, e.g. a
+  // removal elsewhere shrank scene_ since the selection was made).
+  std::vector<SdfPrimitiveDef *> selected_primitives();
+  // Mirrors selected_primitives() for the light entries in selected_ (see
+  // PrimitiveRef::is_light()) instead.
+  std::vector<SdfLightDef *> selected_lights();
+
+  // The centroid of gizmo_effective_position() across every currently-
+  // selected primitive, plus each selected light's own position -- where
+  // the gizmo is drawn/dragged from. Equals a single item's own position
+  // when exactly one is selected, so this is a strict generalization of the
+  // old single-primitive behaviour, not a different one.
+  glm::vec3 selection_centroid(const std::vector<SdfPrimitiveDef *> &primitives,
+                               const std::vector<SdfLightDef *> &lights) const;
 
   // Recomputes the gizmo's screen-space geometry (logical pixels, matching
   // mouse events) from the current selection/camera/gizmo_mode_ and caches
@@ -255,7 +321,9 @@ private:
   bool key_q_ = false;
   bool key_e_ = false;
 
-  int selected_layer_index_ = -1;
+  // See set_selection()/selected_primitives(). Empty means nothing
+  // selected -- the gizmo is hidden.
+  std::vector<PrimitiveRef> selected_;
 
   GizmoMode gizmo_mode_ = GizmoMode::Translate;
 
@@ -276,15 +344,44 @@ private:
   std::vector<QPointF> gizmo_ring_y_;
   std::vector<QPointF> gizmo_ring_z_;
 
+  // A small wireframe-sphere marker (three orthogonal rings, reusing
+  // build_gizmo_ring()) drawn at the Translate gizmo's origin whenever the
+  // selection includes a light -- a light has no raymarched geometry of its
+  // own, so without this its position would otherwise only be visible as
+  // three bare axis lines crossing empty space. Recomputed alongside the
+  // Translate gizmo in update_gizmo(); empty/false whenever gizmo_mode_
+  // isn't Translate or nothing selected is a light.
+  bool gizmo_light_marker_visible_ = false;
+  std::vector<QPointF> gizmo_light_marker_x_;
+  std::vector<QPointF> gizmo_light_marker_y_;
+  std::vector<QPointF> gizmo_light_marker_z_;
+
   GizmoAxis dragging_axis_ = GizmoAxis::None;
   // Which gizmo was active when the drag started -- locked in for the
   // whole drag so a mode toggle mid-drag (Move/Rotate buttons) can't change
   // how update_gizmo_drag()/end_gizmo_drag() interpret dragging_axis_.
   GizmoMode drag_mode_ = GizmoMode::Translate;
   QPointF drag_start_mouse_;
-  glm::vec3 drag_start_position_{0.0f};
-  glm::vec3 drag_start_rotation_{0.0f};
-  glm::vec3 drag_start_params_{0.0f};
+  // Per-selected-primitive snapshot taken at drag start (parallel to
+  // selected_, same order/size) -- a single-element selection reduces to
+  // exactly the old single-primitive drag; a multi-element one lets
+  // update_gizmo_drag() apply the same delta (Translate) or orbit every
+  // primitive around drag_group_pivot_ (Rotate) without losing where each
+  // one started.
+  std::vector<glm::vec3> drag_start_positions_;
+  std::vector<glm::vec3> drag_start_rotations_;
+  std::vector<glm::vec3> drag_start_params_;
+  // Mirrors drag_start_positions_ for the selection's light entries
+  // (parallel to selected_lights(), Translate-mode only -- a light has no
+  // rotation/params, so Rotate-mode drags simply never touch it).
+  std::vector<glm::vec3> drag_start_light_positions_;
+  // Rotate-mode only: the group's centroid at drag start (see
+  // selection_centroid()), fixed for the whole drag -- every selected
+  // primitive's position orbits this same point, and its own rotation is
+  // composed with the drag's delta quaternion, mirroring
+  // VulkanRendererBackend::rotate_scene()'s own "orbit + compose" approach
+  // for rotating a group of primitives together.
+  glm::vec3 drag_group_pivot_{0.0f};
   // A linear approximation held fixed for the whole drag: how the screen-
   // space position changes per world unit moved along the dragged axis,
   // computed once at drag start from the axis's screen-space direction/

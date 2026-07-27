@@ -64,6 +64,13 @@ layout(binding = 5) readonly buffer ScenePrimitiveColours {
 // real image regardless of whether the shader ever reads that index.
 const int MAX_SCENE_PRIMITIVES = 1000;
 layout(binding = 6) uniform sampler2D scene_textures[MAX_SCENE_PRIMITIVES];
+// Mirrors scene_textures above, one bump-map texture per primitive (see
+// Material::bump_texture, engine-side) -- sampled purely for luminance by
+// sample_scene_heights() below, never for colour. Unused/no-bump slots are
+// bound to a genuinely flat/uniform-colour filler (TextureSystem::
+// flat_texture()), not the checkerboard scene_textures falls back to, so a
+// material with no bump map set reads as exactly zero bump perturbation.
+layout(binding = 14) uniform sampler2D scene_bump_textures[MAX_SCENE_PRIMITIVES];
 
 // The analytic scene SDF (shared with the voxelize pass -- one copy, so
 // the baked field and this pass's per-pixel material provenance can never
@@ -132,12 +139,16 @@ const float SURF_DIST = 0.001;
 // off the surface being shaded, along its normal, comfortably more than
 // one baked voxel's world size (COARSE_CELL_SIZE/BRICK_DIM here is
 // (2*16)/128/8 = 0.03125) so the ray's very first sample doesn't re-detect
-// that same surface as its own occluder. SHADOW_SOFTNESS is shadow_march()'s
-// k -- how hard-edged the penumbra reads. SHADOW_MAX_STEPS can stay modest
-// (unlike MAX_STEPS above): a shadow ray only ever needs to cross the
-// scene's own baked volume, never reach all the way out to a distant
-// camera.
-const float SHADOW_NORMAL_BIAS = 0.05;
+// that same surface as its own occluder. Was 0.05 (only ~1.6x a voxel) --
+// too thin a margin once a slightly-off calc_static_normal() estimate (see
+// its own comment) is factored in, which could leave the ray's very first
+// sample still inside/grazing its own surface and reporting a false
+// occluder. ~4x a voxel gives real headroom without pushing the shadow
+// visibly off-contact. SHADOW_SOFTNESS is shadow_march()'s k -- how
+// hard-edged the penumbra reads. SHADOW_MAX_STEPS can stay modest (unlike
+// MAX_STEPS above): a shadow ray only ever needs to cross the scene's own
+// baked volume, never reach all the way out to a distant camera.
+const float SHADOW_NORMAL_BIAS = 0.12;
 const float SHADOW_SOFTNESS = 16.0;
 const int SHADOW_MAX_STEPS = 256;
 
@@ -195,6 +206,29 @@ layout(binding = 11) readonly buffer PixelationExemptBuffer {
 // actually read then.
 layout(binding = 12) uniform sampler2D skybox_texture;
 
+// One entry per registered static/volumetric primitive (parallel to
+// scene_diffuse_colours) -- xyz = that primitive's effective texture
+// offset (world units, added to the sample point before the triplanar
+// projection/texture_scale divide -- a texture "translate"), w = its
+// texture rotation (radians, applied to each triplanar UV plane before
+// sampling -- a texture "rotate"). See Material::texture_offset/
+// texture_rotation engine-side. (0,0,0,0) leaves a primitive's texture
+// exactly where it always was.
+layout(binding = 13) readonly buffer ScenePrimitiveTexTransform {
+    vec4 scene_tex_transform[];
+};
+
+// Rotates a 2D UV by angle_radians around the origin -- used to apply a
+// primitive's texture_rotation to each triplanar projection plane before
+// sampling. Same rotation matrix in every plane, since a triplanar
+// projection has no single consistent "up" to rotate relative to
+// otherwise.
+vec2 rotate_uv(vec2 uv, float angle_radians) {
+    float s = sin(angle_radians);
+    float c = cos(angle_radians);
+    return vec2(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
+}
+
 // Trilinearly samples the baked probe grid at world point p -- the
 // render-time counterpart to the GI bake, reading exactly the regular
 // PROBE_DIM^3 grid Builtin.ProbeBake.comp.glsl wrote, covering the same
@@ -239,22 +273,96 @@ vec3 sample_probe_grid(vec3 p) {
     return mix(c0, c1, t.z);
 }
 
+// Cheap contact AO: a short march of AO_STEPS samples along the surface
+// normal, comparing the baked field's actual distance at each tap against
+// what an unoccluded point that far out ought to read -- if something's
+// crowding closer than expected (a nearby wall, a crease), the shortfall
+// darkens the result. This is Inigo Quilez's classic SDF ambient-occlusion
+// trick (https://iquilezles.org/articles/nvscene2008/rwwtt.pdf), applied
+// against the already-baked field via sample_field() (Builtin.
+// BakedFieldCommon.inc.glsl) instead of re-evaluating the analytic scene
+// per tap. Distinct from -- and much cheaper than -- sample_probe_grid()'s
+// multi-bounce GI above: this only reaches a few fine voxels out (voxel
+// size here is COARSE_CELL_SIZE/BRICK_DIM = 0.03125, see
+// SHADOW_NORMAL_BIAS's own comment below), so it darkens contacts/creases
+// at a resolution the coarse, sparse probe grid can't represent, rather
+// than standing in for indirect lighting itself.
+//
+// An unbricked sample (skip_dist != 0.0, see sample_field()'s own comment)
+// means genuinely empty space at least that far out -- treated as exactly
+// step_dist away (zero contribution to occlusion), the same "valid vs.
+// safe-to-step" distinction shadow_march() already makes.
+//
+// AO_STRENGTH is a local constant, not a push constant, for now -- this is
+// a prototype to evaluate whether the look is worth keeping at all; if so,
+// promoting it to a tunable (mirroring set_bloom_intensity()/
+// set_vignette_strength()'s push-constant plumbing) is a mechanical
+// follow-up, not a design decision.
+float calc_contact_ao(vec3 p, vec3 normal) {
+    const int AO_STEPS = 5;
+    // ~2 fine voxels per step (voxel = COARSE_CELL_SIZE/BRICK_DIM =
+    // 0.03125) -- short enough to read as contact/crease darkening, not
+    // general-purpose occlusion (that's what sample_probe_grid() is for).
+    const float AO_STEP_SIZE = 0.06;
+    const float AO_STRENGTH = 1.5;
+
+    vec3 origin = p + normal * SHADOW_NORMAL_BIAS; // same off-surface bias
+                                                   // shadow rays use, for
+                                                   // the same reason (avoid
+                                                   // re-detecting this same
+                                                   // surface as the first tap)
+    float occlusion = 0.0;
+    float weight = 1.0;
+    for (int i = 1; i <= AO_STEPS; ++i) {
+        float step_dist = AO_STEP_SIZE * float(i);
+        vec3 sample_pos = origin + normal * step_dist;
+
+        float dist, skip_dist;
+        int material;
+        sample_field(sample_pos, normal, dist, skip_dist, material);
+        float d = (skip_dist == 0.0) ? dist : step_dist;
+
+        occlusion += weight * max(step_dist - d, 0.0);
+        weight *= 0.6; // farther taps count for progressively less
+    }
+    return clamp(1.0 - AO_STRENGTH * occlusion, 0.0, 1.0);
+}
+
 // Normal of the baked static field at p via finite differences. Offsets
 // are tiny (0.0025) relative to a coarse cell (0.25), so these queries
-// essentially always land in the same bricked cell as p itself -- the
-// no-brick/skip_dist branch (which needs a real ray direction) shouldn't
-// trigger here, so any placeholder direction is fine.
+// almost always land in the same bricked cell as p itself -- but a hit
+// right at a coarse-cell boundary (grid lines every 0.25 world units,
+// starting at -BOUNDS -- i.e. every "round" coordinate, exactly where
+// authored geometry like a floor at y=0 tends to sit) can still have one
+// or more of the six taps below land in a brick-less neighbour. There,
+// sample_field() returns a placeholder dist (== COARSE_CELL_SIZE, not a
+// real signed distance -- see its own comment) and flags it via
+// skip_dist != 0. Blindly differencing that placeholder against a real
+// distance corrupted the gradient right on that grid -- read as banding/
+// fake shadow lines tracking coarse-cell boundaries. p itself is always a
+// valid, bricked sample (this is only ever called at a confirmed raymarch
+// hit), so it's the safe fallback for whichever side of a tap comes back
+// unbricked.
 vec3 calc_static_normal(vec3 p) {
     vec3 dummy_dir = vec3(0.0, 0.0, 1.0);
     vec2 e = vec2(0.0025, 0.0);
-    float dx0, dx1, dy0, dy1, dz0, dz1, skip;
+    float dist_p, skip_p;
     int unused_material;
+    sample_field(p, dummy_dir, dist_p, skip_p, unused_material);
+
+    float dx0, dx1, dy0, dy1, dz0, dz1, skip;
     sample_field(p + e.xyy, dummy_dir, dx1, skip, unused_material);
+    if (skip != 0.0) dx1 = dist_p;
     sample_field(p - e.xyy, dummy_dir, dx0, skip, unused_material);
+    if (skip != 0.0) dx0 = dist_p;
     sample_field(p + e.yxy, dummy_dir, dy1, skip, unused_material);
+    if (skip != 0.0) dy1 = dist_p;
     sample_field(p - e.yxy, dummy_dir, dy0, skip, unused_material);
+    if (skip != 0.0) dy0 = dist_p;
     sample_field(p + e.yyx, dummy_dir, dz1, skip, unused_material);
+    if (skip != 0.0) dz1 = dist_p;
     sample_field(p - e.yyx, dummy_dir, dz0, skip, unused_material);
+    if (skip != 0.0) dz0 = dist_p;
     return normalize(vec3(dx1 - dx0, dy1 - dy0, dz1 - dz0));
 }
 
@@ -281,14 +389,20 @@ vec3 sample_scene_texture(int index, vec2 uv) {
 // tangent-space normal-map texture unwrapped onto a mesh's authored UVs;
 // SDF primitives here have neither a mesh nor authored UVs (see the
 // triplanar diffuse sampling above for why colour is already triplanar), so
-// there's no "normal_texture" asset to sample instead. This derives the
-// same kind of detail directly from the existing diffuse texture's own
-// luminance -- a standard technique ("bump mapping from a height/luminance
-// field") for when no explicit normal map exists -- via a 3-tap finite
-// difference per axis-plane, then recombines the three tangent-space bumps
-// into the base normal using the "whiteout blend" construction (Golus,
-// "Normal Mapping for a Triplanar Shader"), reusing the same per-axis
-// `blend` weights as the diffuse triplanar mix above.
+// this instead derives bump detail from a separate, explicitly-set bump
+// map texture's luminance (Material::bump_map_name/bump_texture,
+// scene_bump_textures above) -- a standard technique ("bump mapping from a
+// height/luminance field") for when there's no authored tangent-space
+// normal map -- via a 3-tap finite difference per axis-plane, then
+// recombines the three tangent-space bumps into the base normal using the
+// "whiteout blend" construction (Golus, "Normal Mapping for a Triplanar
+// Shader"), reusing the same per-axis `blend` weights as the diffuse
+// triplanar mix above. A material with no bump map set samples
+// flat_texture()'s uniform colour here (see scene_bump_textures' own
+// comment), so all three taps read identical luminance and this comes out
+// to exactly zero perturbation -- bump mapping is opt-in per material, not
+// derived from whatever diffuse texture (even the default checkerboard)
+// happens to be assigned.
 const float BUMP_UV_EPSILON = 0.015;
 const float BUMP_STRENGTH = 0.25;
 
@@ -313,9 +427,9 @@ void sample_scene_heights(int index, vec2 uv, out float h_centre, out float h_u,
     h_v = 0.0;
     for (int i = 0; i < MAX_SCENE_PRIMITIVES; ++i) {
         if (i == index) {
-            h_centre = luminance(texture(scene_textures[i], uv).rgb);
-            h_u = luminance(texture(scene_textures[i], uv + vec2(BUMP_UV_EPSILON, 0.0)).rgb);
-            h_v = luminance(texture(scene_textures[i], uv + vec2(0.0, BUMP_UV_EPSILON)).rgb);
+            h_centre = luminance(texture(scene_bump_textures[i], uv).rgb);
+            h_u = luminance(texture(scene_bump_textures[i], uv + vec2(BUMP_UV_EPSILON, 0.0)).rgb);
+            h_v = luminance(texture(scene_bump_textures[i], uv + vec2(0.0, BUMP_UV_EPSILON)).rgb);
         }
     }
 }
@@ -523,10 +637,11 @@ vec3 accumulate_volumetrics(vec3 ray_origin, vec3 ray_dir, float max_march_dist,
                 continue; // outside this shaft -- no contribution here
             }
 
-            vec3 local = primitive_local_space(idx, p);
+            vec3 local = primitive_local_space(idx, p) + scene_tex_transform[idx].xyz;
             float texture_scale = max(scene_diffuse_colours[idx].a, 0.01);
             vec2 uv = local.xz / texture_scale +
                      vec2(0.0, local.y / texture_scale - push.time * VOLUMETRIC_SCROLL_SPEED);
+            uv = rotate_uv(uv, scene_tex_transform[idx].w);
 
             vec3 tex_colour = sample_scene_texture(idx, uv);
             vec3 tint = scene_diffuse_colours[idx].rgb;
@@ -609,21 +724,31 @@ void main() {
         // blend by how much the normal faces that axis (a normal facing
         // mostly +/-X should be dominated by the YZ-plane projection, since
         // that's the plane you'd actually be looking at face-on there).
-        vec3 tri_p = p / texture_scale;
+        // The offset is added in world space *before* the texture_scale
+        // divide (so it's authored in world units, like texture_scale
+        // itself), and the rotation is applied per-plane just before each
+        // sample below -- see ScenePrimitiveTexTransform above for both.
+        vec3 tex_offset = scene_tex_transform[hit_material].xyz;
+        float tex_rotation = scene_tex_transform[hit_material].w;
+        vec3 tri_p = (p + tex_offset) / texture_scale;
         vec3 blend = abs(normal);
         blend /= (blend.x + blend.y + blend.z);
 
-        vec3 tex_colour = sample_scene_texture(hit_material, tri_p.yz) * blend.x +
-                          sample_scene_texture(hit_material, tri_p.xz) * blend.y +
-                          sample_scene_texture(hit_material, tri_p.xy) * blend.z;
+        vec2 uv_yz = rotate_uv(tri_p.yz, tex_rotation);
+        vec2 uv_xz = rotate_uv(tri_p.xz, tex_rotation);
+        vec2 uv_xy = rotate_uv(tri_p.xy, tex_rotation);
+
+        vec3 tex_colour = sample_scene_texture(hit_material, uv_yz) * blend.x +
+                          sample_scene_texture(hit_material, uv_xz) * blend.y +
+                          sample_scene_texture(hit_material, uv_xy) * blend.z;
         vec3 tint = scene_diffuse_colours[hit_material].rgb;
 
         float h_centre, h_u, h_v;
-        sample_scene_heights(hit_material, tri_p.yz, h_centre, h_u, h_v);
+        sample_scene_heights(hit_material, uv_yz, h_centre, h_u, h_v);
         vec3 bump_x = bump_from_heights(h_centre, h_u, h_v);
-        sample_scene_heights(hit_material, tri_p.xz, h_centre, h_u, h_v);
+        sample_scene_heights(hit_material, uv_xz, h_centre, h_u, h_v);
         vec3 bump_y = bump_from_heights(h_centre, h_u, h_v);
-        sample_scene_heights(hit_material, tri_p.xy, h_centre, h_u, h_v);
+        sample_scene_heights(hit_material, uv_xy, h_centre, h_u, h_v);
         vec3 bump_z = bump_from_heights(h_centre, h_u, h_v);
 
         normal = apply_triplanar_bump(normal, blend, bump_x, bump_y, bump_z);
@@ -636,7 +761,13 @@ void main() {
         // when they escape the scene entirely -- see Builtin.ProbeBake.
         // comp.glsl -- rather than being re-added flatly at every pixel
         // here, which would double-count it).
-        vec3 lighting = sample_probe_grid(p);
+        //
+        // calc_contact_ao() only darkens this indirect term, not the direct
+        // lights summed below -- a directly-lit crease is already handled
+        // by that light's own shadow_march() ray, and darkening direct
+        // light too would double up with it (and read wrong for a crease
+        // lit brightly enough to wash out any real occlusion).
+        vec3 lighting = sample_probe_grid(p) * calc_contact_ao(p, normal);
         for (int i = 0; i < push.light_count; ++i) {
             Light light = lights[i];
             int light_type = int(light.vector_type.w);

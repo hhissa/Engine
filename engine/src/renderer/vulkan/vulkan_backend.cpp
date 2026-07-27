@@ -523,6 +523,18 @@ void VulkanRendererBackend::translate_scene(SceneHandle handle,
     }
     volumetric->position += delta;
   }
+  for (const std::string &name : it->second.light_names) {
+    Light *light = context_.geometry_system->find_light(name);
+    if (!light) {
+      continue;
+    }
+    // Only a Point light's vector is a world-space position -- a
+    // Directional light's is a pure direction (see LightConfig::vector),
+    // unaffected by translation.
+    if (light->type == LightType::Point) {
+      light->vector += delta;
+    }
+  }
 
   // Deferred to begin_frame() -- see scene_dirty_'s comment.
   scene_dirty_ = true;
@@ -568,6 +580,17 @@ void VulkanRendererBackend::rotate_scene(SceneHandle handle,
     volumetric->position = scene_rotation * volumetric->position;
     volumetric->rotation =
         glm::eulerAngles(scene_rotation * glm::quat(volumetric->rotation));
+  }
+  for (const std::string &name : it->second.light_names) {
+    Light *light = context_.geometry_system->find_light(name);
+    if (!light) {
+      continue;
+    }
+    // A Point light's vector is a position (rotates like a primitive's --
+    // see translate_scene() above); a Directional light's is a direction,
+    // which also needs to turn with the scene, just without the position
+    // semantics (no pivot-relative orbit -- a direction has no origin).
+    light->vector = scene_rotation * light->vector;
   }
 
   // Deferred to begin_frame() -- see scene_dirty_'s comment.
@@ -622,6 +645,11 @@ void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
     // Geometry::texture_scale_factor's comment for why mutating it here
     // would leak into every other primitive using that same material).
     geometry->texture_scale_factor *= factor;
+    // The texture's world-space offset is a length too (see
+    // Geometry::texture_offset_scale's comment) -- same accumulation
+    // reasoning as texture_scale_factor immediately above. Rotation needs
+    // no equivalent line here: an angle is scale-invariant.
+    geometry->texture_offset_scale *= factor;
 
     touched_layers.insert(geometry->layer);
   }
@@ -639,6 +667,32 @@ void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
     volumetric->position *= factor;
     volumetric->params *= factor;
     volumetric->extra_param *= factor;
+  }
+  for (const std::string &name : it->second.light_names) {
+    Light *light = context_.geometry_system->find_light(name);
+    if (!light) {
+      continue;
+    }
+    // Only a Point light's vector is a position (a length, scales like any
+    // other -- see the primitive loop above); a Directional light's is a
+    // direction, whose magnitude is meaningless, so scaling it would be a
+    // silent no-op at best -- skip it instead of pretending it matters.
+    if (light->type == LightType::Point) {
+      light->vector *= factor;
+      // A Point light's brightness at a given surface falls off as
+      // intensity/distance^2 (see the render shader's attenuation term).
+      // Scaling position without also scaling intensity by factor^2 changes
+      // how bright the light reads at every surface around it: growing a
+      // scene (factor > 1) pushes the light farther from everything it was
+      // authored to illuminate, so its apparent brightness silently drops
+      // by factor^2 (e.g. a 3x scale makes it 9x dimmer -- easily enough to
+      // read as "the light doesn't work at all"); shrinking a scene
+      // (factor < 1) does the reverse, making it implausibly bright.
+      // Scaling intensity by factor^2 here exactly cancels the extra
+      // distance^2 in the denominator, so the light reads the same
+      // brightness at every correspondingly-scaled point it did before.
+      light->intensity *= factor * factor;
+    }
   }
 
   for (u32 layer_index : touched_layers) {
@@ -709,6 +763,10 @@ void VulkanRendererBackend::clear_scenes() {
 
 void VulkanRendererBackend::set_selected_primitive(i32 index) {
   context_.raymarch_shader->set_selected_primitive(index);
+}
+
+i32 VulkanRendererBackend::primitive_gpu_index(const std::string &name) const {
+  return context_.raymarch_shader->gpu_index_for_primitive(name);
 }
 
 void VulkanRendererBackend::set_grid_visible(b8 visible) {

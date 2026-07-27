@@ -81,6 +81,10 @@ void parse_question_body(const std::vector<std::string> &lines, size_t &pos,
       question.answer_lines.push_back(trim(trimmed.substr(eq + 1)));
       continue;
     }
+    if (eq != std::string::npos && trimmed.compare(0, eq, "tag") == 0) {
+      question.tag = trim(trimmed.substr(eq + 1));
+      continue;
+    }
 
     KWARN("'{}': unexpected line at {}: '{}'.", path, line_number, trimmed);
   }

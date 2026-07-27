@@ -143,6 +143,13 @@ void QuestionNode::set_answer_lines(QStringList lines) {
   update();
 }
 
+void QuestionNode::set_tag(QString tag) {
+  // Not painted on the node face (unlike question_/answer_lines_ above) --
+  // no geometry/repaint implications, just stored for conversation_io.cpp
+  // to write out.
+  tag_ = std::move(tag);
+}
+
 QPointF QuestionNode::side_local_pos(Side side) const {
   qreal h = content_height();
   switch (side) {

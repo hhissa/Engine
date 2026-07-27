@@ -72,7 +72,7 @@ include CMakeFiles/sdf_editor.dir/flags.make
 sdf_editor_autogen/timestamp: /usr/lib/qt6/libexec/moc
 sdf_editor_autogen/timestamp: CMakeFiles/sdf_editor.dir/compiler_depend.ts
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Automatic MOC for target sdf_editor"
-	/usr/bin/cmake -E cmake_autogen /home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles/sdf_editor_autogen.dir/AutogenInfo.json ""
+	/usr/bin/cmake -E cmake_autogen /home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles/sdf_editor_autogen.dir/AutogenInfo.json Debug
 	/usr/bin/cmake -E touch /home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/sdf_editor_autogen/timestamp
 
 CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o: CMakeFiles/sdf_editor.dir/flags.make
@@ -131,10 +131,24 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.s"
 	/usr/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/scene_viewport.cpp -o CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.s
 
+CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o: CMakeFiles/sdf_editor.dir/flags.make
+CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o: /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/contents_tree_widget.cpp
+CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o: CMakeFiles/sdf_editor.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o"
+	/usr/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o -MF CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o.d -o CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o -c /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/contents_tree_widget.cpp
+
+CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.i"
+	/usr/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/contents_tree_widget.cpp > CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.i
+
+CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.s"
+	/usr/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/contents_tree_widget.cpp -o CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.s
+
 CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o: CMakeFiles/sdf_editor.dir/flags.make
 CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o: /home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp
 CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o: CMakeFiles/sdf_editor.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o"
 	/usr/bin/clang++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o -MF CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o.d -o CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o -c /home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp
 
 CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.i: cmake_force
@@ -151,6 +165,7 @@ sdf_editor_OBJECTS = \
 "CMakeFiles/sdf_editor.dir/src/main.cpp.o" \
 "CMakeFiles/sdf_editor.dir/src/main_window.cpp.o" \
 "CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o" \
+"CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o" \
 "CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o"
 
 # External object files for target sdf_editor
@@ -160,6 +175,7 @@ sdf_editor: CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o
 sdf_editor: CMakeFiles/sdf_editor.dir/src/main.cpp.o
 sdf_editor: CMakeFiles/sdf_editor.dir/src/main_window.cpp.o
 sdf_editor: CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o
+sdf_editor: CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o
 sdf_editor: CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o
 sdf_editor: CMakeFiles/sdf_editor.dir/build.make
 sdf_editor: /usr/lib/x86_64-linux-gnu/libQt6Widgets.so.6.4.2
@@ -169,7 +185,7 @@ sdf_editor: /usr/lib/x86_64-linux-gnu/libGLX.so
 sdf_editor: /usr/lib/x86_64-linux-gnu/libOpenGL.so
 sdf_editor: /usr/lib/x86_64-linux-gnu/libQt6Core.so.6.4.2
 sdf_editor: CMakeFiles/sdf_editor.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Linking CXX executable sdf_editor"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Linking CXX executable sdf_editor"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/sdf_editor.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

@@ -76,6 +76,13 @@ public:
   QStringList answer_lines() const { return answer_lines_; }
   void set_answer_lines(QStringList lines);
 
+  // Opaque symbolic name (see resources/conversation.h's `tag=` line/
+  // ConversationQuestion::tag) a game's dialogue system can react to --
+  // empty means "no tag" (mirrors ConversationQuestion::tag's
+  // std::nullopt, see graph_scene.cpp's place()/to_question()).
+  QString tag() const { return tag_; }
+  void set_tag(QString tag);
+
   // Scene-space position of the midpoint of one of this box's four sides
   // (accounting for its current, content-dependent height) -- where a
   // ConnectionItem attached there actually starts/ends.
@@ -148,6 +155,7 @@ private:
 
   QString question_ = QStringLiteral("New question");
   QStringList answer_lines_;
+  QString tag_;
 
   bool hovered_ = false;
   std::array<int, kSideCount> side_connection_count_{};

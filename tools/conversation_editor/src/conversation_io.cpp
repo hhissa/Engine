@@ -9,6 +9,9 @@ void write_question(std::ostream &out, const ConversationQuestion &question,
                     int indent) {
   std::string pad(static_cast<size_t>(indent) * 4, ' ');
   out << pad << "question \"" << question.text << "\" {\n";
+  if (question.tag) {
+    out << pad << "    tag=" << *question.tag << "\n";
+  }
   for (const std::string &answer : question.answer_lines) {
     out << pad << "    answer=" << answer << "\n";
   }

@@ -40,6 +40,21 @@ struct Material {
   // Builtin.RaymarchShader.comp.glsl, so materials that don't set it look
   // exactly as they always did.
   f32 texture_scale = 0.6f;
+  // World-space offset ("texture_offset=" in the .kmt, three floats)
+  // added to the sample point *before* the triplanar projection/
+  // texture_scale divide -- shifts the pattern by that many world units
+  // along each axis, i.e. a texture "translate". (0,0,0) (the default)
+  // leaves the tiling exactly where it always was. Only read by
+  // VulkanRaymarchShader's triplanar sampling, same as texture_scale.
+  glm::vec3 texture_offset{0.0f};
+  // 2D rotation ("texture_rotation=" in the .kmt, radians) applied to each
+  // triplanar projection's own UV plane before sampling -- a texture
+  // "rotate". Applied identically to all three axis-plane projections (it
+  // has no single "up" to be relative to on a primitive with no fixed
+  // orientation otherwise), same as texture_offset only read by
+  // VulkanRaymarchShader's triplanar sampling. 0.0f (the default) leaves
+  // the pattern unrotated.
+  f32 texture_rotation = 0.0f;
   // Self-illumination -- "emissive_colour="/"emissive_intensity=" in the
   // .kmt. Any primitive using a material with emissive_intensity > 0
   // becomes a visible light source: it renders at a brightness
@@ -61,8 +76,20 @@ struct Material {
   // even while everything else on screen pixelates. Off by default (this
   // primitive pixelates normally, like everything else).
   bool pixelation_exempt = false;
+  // "bump_map_name=" in the .kmt -- a SEPARATE texture from diffuse_map_name
+  // above, sampled purely for its luminance to perturb the surface normal
+  // (see sample_scene_heights()/bump_from_heights() in Builtin.
+  // RaymarchShader.comp.glsl). Empty (the default) means no bump map:
+  // bump_texture below resolves to TextureSystem::flat_texture() instead,
+  // a genuinely spatially-uniform texture that makes the bump computation
+  // come out to zero -- so bump mapping is opt-in per material, not
+  // something derived from whatever diffuse texture (even the default
+  // checkerboard) happens to be assigned.
+  std::string bump_map_name;
   VulkanTexture *diffuse_texture =
       nullptr; // Non-owning -- owned by TextureSystem.
+  VulkanTexture *bump_texture =
+      nullptr; // Non-owning -- owned by TextureSystem. See bump_map_name above.
 
   // GPU instance resources for the shader this material is bound to via
   // MaterialSystem::bind_to_shader(). Left at their defaults (shader ==
@@ -90,14 +117,14 @@ public:
 
   // Loads and parses assets/materials/<name>.kmt the first time a given
   // name is requested (subsequent calls for the same name reuse the cached
-  // result and just bump its reference count), resolving diffuse_map_name
-  // through TextureSystem. Falls back to default_material() if the file is
-  // missing, so callers can always dereference the result.
+  // result and just bump its reference count), resolving diffuse_map_name/
+  // bump_map_name through TextureSystem. Falls back to default_material()
+  // if the file is missing, so callers can always dereference the result.
   Material &acquire(std::string_view name, bool auto_release);
 
   // Mirrors TextureSystem::release: every acquire() call must be paired
   // with exactly one release() call for the same name. Also releases the
-  // material's diffuse texture reference, if it had one, and (if the
+  // material's diffuse/bump texture references, if it had any, and (if the
   // material was bound to a shader via bind_to_shader()) its shader
   // instance resources.
   void release(std::string_view name);

@@ -90,6 +90,16 @@ ConversationEditorWindow::ConversationEditorWindow() {
          &ConversationEditorWindow::on_question_text_changed);
   form->addRow("Question:", question_edit_);
 
+  tag_edit_ = new QLineEdit();
+  tag_edit_->setPlaceholderText("(none)");
+  tag_edit_->setToolTip(
+      "Optional symbolic name written as a `tag=` line in the file -- a "
+      "game's dialogue system can react to it (e.g. trigger a scene/model "
+      "transition) without this tool needing to know what it means.");
+  connect(tag_edit_, &QLineEdit::textChanged, this,
+         &ConversationEditorWindow::on_tag_changed);
+  form->addRow("Tag:", tag_edit_);
+
   answers_list_ = new QListWidget();
   answers_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   connect(answers_list_, &QListWidget::itemChanged, this,
@@ -215,6 +225,7 @@ void ConversationEditorWindow::populate_fields_from_selection(QuestionNode *node
 
   if (node) {
     question_edit_->setText(node->question());
+    tag_edit_->setText(node->tag());
     answers_list_->clear();
     for (const QString &line : node->answer_lines()) {
       auto *item = new QListWidgetItem(line, answers_list_);
@@ -223,6 +234,7 @@ void ConversationEditorWindow::populate_fields_from_selection(QuestionNode *node
     set_fields_enabled(true);
   } else {
     question_edit_->clear();
+    tag_edit_->clear();
     answers_list_->clear();
     set_fields_enabled(false);
   }
@@ -232,6 +244,7 @@ void ConversationEditorWindow::populate_fields_from_selection(QuestionNode *node
 
 void ConversationEditorWindow::set_fields_enabled(bool enabled) {
   question_edit_->setEnabled(enabled);
+  tag_edit_->setEnabled(enabled);
   answers_list_->setEnabled(enabled);
 }
 
@@ -240,6 +253,13 @@ void ConversationEditorWindow::on_question_text_changed() {
     return;
   }
   selected_node_->set_question(question_edit_->text());
+}
+
+void ConversationEditorWindow::on_tag_changed() {
+  if (populating_fields_ || !selected_node_) {
+    return;
+  }
+  selected_node_->set_tag(tag_edit_->text());
 }
 
 void ConversationEditorWindow::on_answer_lines_changed() {

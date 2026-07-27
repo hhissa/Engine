@@ -191,6 +191,12 @@
 			null
 		],
 		[
+			"/home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/contents_tree_widget.h",
+			"Mu",
+			"UVLADIE3JM/moc_contents_tree_widget.cpp",
+			null
+		],
+		[
 			"/home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/main_window.h",
 			"Mu",
 			"UVLADIE3JM/moc_main_window.cpp",
@@ -212,14 +218,7 @@
 	"HEADER_EXTENSIONS" : [ "h", "hh", "h++", "hm", "hpp", "hxx", "in", "txx" ],
 	"INCLUDE_DIR" : "/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/sdf_editor_autogen/include",
 	"MOC_COMPILATION_FILE" : "/home/h-i/Projects/NOAIEngine/tools/sdf_editor/build/sdf_editor_autogen/mocs_compilation.cpp",
-	"MOC_DEFINITIONS" : 
-	[
-		"KIMPORT",
-		"QT_CORE_LIB",
-		"QT_GUI_LIB",
-		"QT_NO_DEBUG",
-		"QT_WIDGETS_LIB"
-	],
+	"MOC_DEFINITIONS" : [ "KIMPORT", "QT_CORE_LIB", "QT_GUI_LIB", "QT_WIDGETS_LIB" ],
 	"MOC_DEPEND_FILTERS" : 
 	[
 		[
@@ -279,6 +278,11 @@
 	[
 		[
 			"/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp",
+			"Mu",
+			null
+		],
+		[
+			"/home/h-i/Projects/NOAIEngine/tools/sdf_editor/src/contents_tree_widget.cpp",
 			"Mu",
 			null
 		],

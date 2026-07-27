@@ -6,6 +6,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o.d"
   "CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o"
   "CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o.d"
+  "CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o"
+  "CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o.d"
   "CMakeFiles/sdf_editor.dir/src/main.cpp.o"
   "CMakeFiles/sdf_editor.dir/src/main.cpp.o.d"
   "CMakeFiles/sdf_editor.dir/src/main_window.cpp.o"

@@ -71,6 +71,10 @@ private slots:
   void on_answer_lines_changed();
   void on_add_answer_line_clicked();
   void on_remove_answer_line_clicked();
+  // Connected to tag_edit_'s textChanged -- mirrors
+  // on_question_text_changed() exactly, for the optional `tag=` field (see
+  // QuestionNode::tag()/resources/conversation.h's file format).
+  void on_tag_changed();
 
 private:
   void populate_fields_from_selection(QuestionNode *node);
@@ -83,6 +87,9 @@ private:
 
   QLineEdit *question_edit_ = nullptr;
   QListWidget *answers_list_ = nullptr;
+  // Optional symbolic name a game's dialogue system can react to (see
+  // QuestionNode::tag()) -- empty means no tag.
+  QLineEdit *tag_edit_ = nullptr;
 
   // Guards populate_fields_from_selection()'s setText()/etc. calls against
   // re-entering on_question_text_changed()/on_answer_lines_changed() --

@@ -4,6 +4,7 @@
 #include "renderer_types.inl"
 
 #include <glm/glm.hpp>
+#include <string>
 #include <string_view>
 
 struct static_mesh_data;
@@ -132,6 +133,12 @@ void renderer_clear_scenes();
 // `index` means), or -1 for none. Cheap and immediate (a push constant, not
 // a rebake) -- call every time the selection changes, not once at startup.
 void renderer_set_selected_primitive(i32 index);
+
+// Resolves a primitive's name (SdfPrimitiveDef::name) to the index
+// renderer_set_selected_primitive() above takes, or -1 if that name isn't
+// currently uploaded/no backend exists yet -- see
+// RendererBackend::primitive_gpu_index().
+i32 renderer_get_primitive_gpu_index(const std::string &name);
 
 // Shows/hides the reference grid: the ground plane (y=0) subdivided into
 // 1-unit cells (heavier lines every 10 units, world X/Z axes tinted),

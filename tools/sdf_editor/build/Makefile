@@ -203,6 +203,30 @@ sdf_editor_autogen/mocs_compilation.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/sdf_editor.dir/build.make CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.s
 .PHONY : sdf_editor_autogen/mocs_compilation.cpp.s
 
+src/contents_tree_widget.o: src/contents_tree_widget.cpp.o
+.PHONY : src/contents_tree_widget.o
+
+# target to build an object file
+src/contents_tree_widget.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sdf_editor.dir/build.make CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o
+.PHONY : src/contents_tree_widget.cpp.o
+
+src/contents_tree_widget.i: src/contents_tree_widget.cpp.i
+.PHONY : src/contents_tree_widget.i
+
+# target to preprocess a source file
+src/contents_tree_widget.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sdf_editor.dir/build.make CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.i
+.PHONY : src/contents_tree_widget.cpp.i
+
+src/contents_tree_widget.s: src/contents_tree_widget.cpp.s
+.PHONY : src/contents_tree_widget.s
+
+# target to generate assembly for a file
+src/contents_tree_widget.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sdf_editor.dir/build.make CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.s
+.PHONY : src/contents_tree_widget.cpp.s
+
 src/main.o: src/main.cpp.o
 .PHONY : src/main.o
 
@@ -292,6 +316,9 @@ help:
 	@echo "... sdf_editor_autogen/mocs_compilation.o"
 	@echo "... sdf_editor_autogen/mocs_compilation.i"
 	@echo "... sdf_editor_autogen/mocs_compilation.s"
+	@echo "... src/contents_tree_widget.o"
+	@echo "... src/contents_tree_widget.i"
+	@echo "... src/contents_tree_widget.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"

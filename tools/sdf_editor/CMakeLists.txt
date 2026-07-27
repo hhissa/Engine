@@ -33,6 +33,8 @@ add_executable(sdf_editor
   src/main_window.h
   src/scene_viewport.cpp
   src/scene_viewport.h
+  src/contents_tree_widget.cpp
+  src/contents_tree_widget.h
   src/ray_intersect.h
   # Reused directly rather than duplicated -- the same read/write/builder
   # functions testbed uses (see testbed/src/sdf_authoring.h/.cpp).

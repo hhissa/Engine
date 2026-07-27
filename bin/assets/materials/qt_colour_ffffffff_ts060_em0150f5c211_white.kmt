@@ -1,0 +1,9 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts060_em0150f5c211_white
+diffuse_colour=1 1 1 1
+texture_scale=0.6
+emissive_colour=0.960784 0.760784 0.0666667
+emissive_intensity=1.5
+diffuse_map_name=white

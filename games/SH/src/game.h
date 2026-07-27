@@ -6,6 +6,23 @@
 #include <game_types.h>
 #include <renderer/renderer_types.inl>
 
+#include <optional>
+
+// Named, fully-specified combinations of loaded scenery/model -- see
+// SHGame::apply_scene_state(). Add a new enumerator here (and a matching
+// case in apply_scene_state()'s switch) for each new state the story
+// needs, then wire a dialogue option to it via
+// qa_.set_on_selected("...", [this] { apply_scene_state(SceneState::X); });
+// in initialize() (see QASystem::set_on_selected()'s own comment).
+enum class SceneState {
+  Normal, // the starting room/man/lights setup -- see initialize().
+  // Triggered by "Have you ever attempted suicide?" -- swaps everything
+  // out for assets/scenes/door_scene.sdf alone (no room/lights/overhead
+  // lights), matching what that dialogue option used to do directly via
+  // renderer_clear_scenes() before it was folded into this state system.
+  DoorScene,
+};
+
 class SHGame : public Game {
 public:
   SHGame();
@@ -17,6 +34,15 @@ public:
   void on_resize(u32 width, u32 height) override;
 
 private:
+  // Tears down whichever scenery/model is currently loaded and rebuilds
+  // exactly the combination `state` specifies -- every case in its switch
+  // is a complete description of what should be loaded, not a diff from
+  // whatever was there before, so switching from any state to any other
+  // is always correct without needing to know what the previous one was.
+  // No-op if state is already current_state_ (e.g. re-selecting a dialogue
+  // option that maps to the state already active).
+  void apply_scene_state(SceneState state);
+
   f32 delta_time_ = 0.0f;
 
   QASystem qa_;
@@ -34,6 +60,12 @@ private:
   SceneHandle overheadLights_ = kInvalidSceneHandle;
 
   SceneHandle room = kInvalidSceneHandle;
+
+  // Which SceneState is currently loaded -- nullopt only before the very
+  // first apply_scene_state() call (see initialize()), so that call always
+  // proceeds even though it happens to request SceneState::Normal, the
+  // enum's own first (default-looking) value.
+  std::optional<SceneState> current_state_;
 
   // The dialogue tree loaded via qa_.load_conversation() in initialize() --
   // kept around so it (or a future conversation swapped in for a different

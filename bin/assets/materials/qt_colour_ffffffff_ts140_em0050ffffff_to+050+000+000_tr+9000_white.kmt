@@ -1,0 +1,11 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts140_em0050ffffff_to+050+000+000_tr+9000_white
+diffuse_colour=1 1 1 1
+texture_scale=1.4
+texture_offset=0.5 0 0
+texture_rotation=1.5708
+emissive_colour=1 1 1
+emissive_intensity=0.5
+diffuse_map_name=white
