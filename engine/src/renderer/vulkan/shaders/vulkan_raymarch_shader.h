@@ -236,7 +236,40 @@ public:
   // skybox is currently enabled.
   void disable_skybox();
 
+  // Scales pass 3/4's internal render targets (output_image_/
+  // bloom_temp_image_/post_process_image_) relative to the actual
+  // framebuffer size -- e.g. 0.75 renders/post-processes at 75% linear
+  // resolution (~56% the pixel count), then render_to() upscales the
+  // result into swapchain_image via a linear blit instead of a 1:1 copy.
+  // Every pass here costs O(pixel count), so this is the lever for trading
+  // sharpness for frame rate on a large/fullscreen window instead of
+  // paying full native-resolution cost unconditionally -- see
+  // recreate_render_target_images(). Takes effect immediately (waits for
+  // the device to go idle, like set_skybox()), not just on the next
+  // resize. Clamped to (0, 1] -- 0 would create zero-sized images.
+  void set_render_scale(f32 scale) noexcept;
+  f32 render_scale() const noexcept { return render_scale_; }
+
 private:
+  // Destroys and recreates output_image_/bloom_temp_image_/
+  // post_process_image_ at render_width_/render_height_ (recomputed here
+  // from base_width_/base_height_ and render_scale_, floored to at least
+  // 1x1). Shared by the constructor, on_resized(), and set_render_scale()
+  // -- all three need identical sizing so the images, the dispatches
+  // reading/writing them, and the descriptor sets pointing at them never
+  // disagree. Doesn't touch descriptor sets itself: the constructor's
+  // first call runs before any exist, while on_resized()/
+  // set_render_scale() must re-point their already-live sets at the new
+  // image views afterward (see their callers).
+  void recreate_render_target_images();
+
+  // Re-points render_set_/bloom_blur_h_set_/post_composite_set_'s image
+  // bindings at output_image_/bloom_temp_image_/post_process_image_'s
+  // current views -- called right after recreate_render_target_images()
+  // by on_resized()/set_render_scale(), never by the constructor (nothing
+  // references those sets yet at that point).
+  void rebind_render_target_descriptors();
+
   // Common to set_skybox()/disable_skybox()/the constructor's initial
   // binding -- (re-)points render_set_'s skybox binding (12) at texture.
   // Doesn't itself wait for device idle -- callers do that first.
@@ -418,15 +451,34 @@ private:
   VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
 
   VulkanImage output_image_{};
-  // Half-resolution (both dimensions) -- bloom is a soft, low-frequency
+  // Half-resolution (both dimensions, of render_width_/render_height_ --
+  // not necessarily the swapchain's) -- bloom is a soft, low-frequency
   // effect, so blurring/storing it at quarter the pixel count of
   // output_image_ is imperceptible in the final (upsampled-via-bilinear-
   // like-taps) composite and a quarter the cost. Recreated alongside
   // output_image_ on resize (see on_resized()).
   VulkanImage bloom_temp_image_{};
-  // Full-resolution -- the actual final frame, copied to the swapchain
-  // image in place of output_image_ (see render_to()).
+  // Same resolution as output_image_ -- the actual final frame, upscaled
+  // (see set_render_scale()) into the swapchain image in render_to().
   VulkanImage post_process_image_{};
+
+  // Framebuffer size last passed to on_resized() (or, before the first
+  // resize, the constructor) -- render_width_/render_height_ below are
+  // derived from these and render_scale_. Stored so set_render_scale() can
+  // recompute/recreate the render targets on demand without needing the
+  // caller to supply the framebuffer size again.
+  u32 base_width_ = 0;
+  u32 base_height_ = 0;
+  // output_image_/bloom_temp_image_/post_process_image_'s actual size --
+  // max(1, base_{width,height}_ * render_scale_). render_to()'s dispatch
+  // group counts and the bloom/post-composite passes' full_width/
+  // full_height push constants use these, not the width/height parameters
+  // it's called with (the swapchain's size) -- see
+  // recreate_render_target_images().
+  u32 render_width_ = 0;
+  u32 render_height_ = 0;
+  // See set_render_scale()/render_scale() above.
+  f32 render_scale_ = 1.0f;
 
   // See set_selected_primitive() above.
   i32 selected_primitive_index_ = -1;

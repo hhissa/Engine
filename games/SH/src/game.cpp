@@ -172,8 +172,8 @@ b8 SHGame::initialize() {
   qa_.set_on_returned_to_root(
       [this] { apply_scene_state(SceneState::Normal); });
 
-  renderer_set_pixelation_enabled(true);
-  renderer_set_pixelation_block_size(5);
+
+  renderer_set_render_scale(0.75f);
 
   // Stronger than the engine's subtle defaults -- this scene is a dim
   // attic room lit mainly by one bright window, so the default bloom

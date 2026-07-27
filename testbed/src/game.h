@@ -22,4 +22,10 @@ private:
   // scene()) -- kInvalidSceneHandle once removed via the 'R'/'C' demo
   // keybinds in update(), so a second press is a harmless no-op.
   SceneHandle demo_scene_ = kInvalidSceneHandle;
+
+  // Adjusted by the Minus/Plus demo keybinds in update() -- see
+  // renderer_set_render_scale(). Mirrors what the renderer's already been
+  // told, so repeated presses at the clamped ends are harmless no-ops
+  // instead of redundant device-idle-waiting calls every frame held.
+  f32 render_scale_ = 1.0f;
 };

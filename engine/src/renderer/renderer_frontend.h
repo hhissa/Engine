@@ -202,6 +202,16 @@ void renderer_set_vignette_strength(f32 strength);
 // to 0.55.
 void renderer_set_vignette_radius(f32 radius);
 
+// Scales the raymarch/post-process passes' internal render resolution
+// relative to the actual framebuffer size -- e.g. 0.75 renders at 75%
+// linear resolution (~56% the pixel count) and upscales into the
+// framebuffer via a linear blit. Every one of those passes costs O(pixel
+// count), so this is the lever for trading sharpness for frame rate on a
+// large or fullscreen window instead of paying full native-resolution
+// cost unconditionally. Takes effect immediately. Clamped to (0, 1].
+// Defaults to 1.0 (native resolution, unchanged from before this existed).
+void renderer_set_render_scale(f32 scale);
+
 // Rebakes the bitmap font every renderer_draw_text() call uses (SH's Q&A
 // list, HUD text, the debug camera hint, etc.), from
 // assets/fonts/<name>.ttf at pixel_height -- e.g.

@@ -69,7 +69,7 @@ layer layer7 {
 
     primitive layer7_primitive {
         type=box_frame
-        position=0 -0.63 1.13
+        position=-0.0225286 -0.63 1.13
         rotation=0 0 0
         params=0.9 0.7 0.01 0.04
         material=qt_colour_5e5c64ff_white
@@ -557,20 +557,20 @@ layer layer50 {
     }
 }
 
-volumetric volumetric0 {
-    type=box
-    position=3 -0.5 1.2
-    rotation=0.261799 0 0.785398
-    params=0.4 0.7 0.6 0
-    density=0.4
-    material=qt_vol_colour_f9f06bff_ts125_Stripes
-}
-
 volumetric volumetric1 {
     type=box
-    position=-3.2 -0.8 0.3
+    position=-2.5 -1 0
     rotation=0 0 -0.785398
-    params=1.2 2 1.7 0
+    params=0.5 1.5 1.5 0
     density=0.2
-    material=qt_vol_colour_f9f06bff_ts125_Stripes
+    material=qt_vol_colour_ffff00ff_ts050_to+000+000+000_tr-9000_Stripes
+}
+
+volumetric volumetric2 {
+    type=box
+    position=2.5 -1 0
+    rotation=0 0 0.785398
+    params=0.5 1.5 0.5 0
+    density=0.2
+    material=qt_vol_colour_ffff00ff_ts050_to+000+000+000_tr-9000_Stripes
 }

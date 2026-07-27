@@ -47,6 +47,7 @@ public:
   void set_bloom_intensity(f32 intensity) override;
   void set_vignette_strength(f32 strength) override;
   void set_vignette_radius(f32 radius) override;
+  void set_render_scale(f32 scale) override;
   void set_font(std::string_view name, f32 pixel_height) override;
   void set_skybox(std::string_view texture_name) override;
   void disable_skybox() override;

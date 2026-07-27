@@ -805,6 +805,10 @@ void VulkanRendererBackend::set_vignette_radius(f32 radius) {
   context_.raymarch_shader->set_vignette_radius(radius);
 }
 
+void VulkanRendererBackend::set_render_scale(f32 scale) {
+  context_.raymarch_shader->set_render_scale(scale);
+}
+
 void VulkanRendererBackend::set_font(std::string_view name, f32 pixel_height) {
   context_.text_shader->set_font(name, pixel_height);
 }

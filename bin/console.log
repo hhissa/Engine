@@ -21,38 +21,19 @@
 [DEBUG]: Vulkan surface created.
 [INFO]:  linux_read_sorted_physical_devices:
 [INFO]:       Original order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
+[INFO]:             [0] Quadro T2000 with Max-Q Design
 [INFO]:       Sorted order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060  
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
+[INFO]:             [0] Quadro T2000 with Max-Q Design  
 [INFO]:  linux_read_sorted_physical_devices:
 [INFO]:       Original order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
+[INFO]:             [0] Quadro T2000 with Max-Q Design
 [INFO]:       Sorted order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060  
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
-[INFO]:  linux_read_sorted_physical_devices:
-[INFO]:       Original order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
-[INFO]:       Sorted order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060  
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
-[INFO]:  linux_read_sorted_physical_devices:
-[INFO]:       Original order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)
-[INFO]:       Sorted order:
-[INFO]:             [0] NVIDIA GeForce RTX 3060  
-[INFO]:             [1] llvmpipe (LLVM 20.1.2, 256 bits)  
-[INFO]:  Selected device: 'NVIDIA GeForce RTX 3060'.
+[INFO]:             [0] Quadro T2000 with Max-Q Design  
+[INFO]:  Selected device: 'Quadro T2000 with Max-Q Design'.
 [INFO]:  GPU type is Discrete.
 [INFO]:  Physical device selected.
 [INFO]:  Creating logical device...
-[INFO]:  Inserted device layer "VK_LAYER_KHRONOS_validation" (libVkLayer_khronos_validation.so)
-[INFO]:  Failed to find vkGetDeviceProcAddr in layer "libVkLayer_MESA_device_select.so"
+[INFO]:  Inserted device layer "VK_LAYER_KHRONOS_validation" (/usr/lib/libVkLayer_khronos_validation.so)
 [INFO]:  vkCreateDevice layer callstack setup to:
 [INFO]:     <Application>
 [INFO]:       ||
@@ -60,11 +41,12 @@
 [INFO]:       ||
 [INFO]:     VK_LAYER_KHRONOS_validation
 [INFO]:             Type: Explicit
+[INFO]:             Enabled By: By the Application
 [INFO]:             Manifest: /usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
-[INFO]:             Library:  libVkLayer_khronos_validation.so
+[INFO]:             Library:  /usr/lib/libVkLayer_khronos_validation.so
 [INFO]:       ||
 [INFO]:     <Device>
-[INFO]:         Using "NVIDIA GeForce RTX 3060" with driver: "libGLX_nvidia.so.0"
+[INFO]:         Using "Quadro T2000 with Max-Q Design" with driver: "/usr/lib/libGLX_nvidia.so.610.43.03"
 [INFO]:  Logical device created.
 [INFO]:  Graphics command pool created.
 [INFO]:  Queues obtained.
@@ -151,9 +133,9 @@
 [TRACE]: Light 'scene1/light6' registered.
 [TRACE]: Light 'scene1/light7' registered.
 [TRACE]: Texture 'Stripes' loaded, reference count now 1.
-[TRACE]: Material 'qt_vol_colour_f9f06bff_ts125_Stripes' loaded, reference count now 1.
-[TRACE]: Volumetric 'scene1/volumetric0' registered.
+[TRACE]: Material 'qt_vol_colour_ffff00ff_ts050_to+000+000+000_tr-9000_Stripes' loaded, reference count now 1.
 [TRACE]: Volumetric 'scene1/volumetric1' registered.
+[TRACE]: Volumetric 'scene1/volumetric2' registered.
 [TRACE]: Material 'qt_colour_ffffffff_ts060_white' loaded, reference count now 1.
 [TRACE]: Geometry 'scene2/layer0/layer0_primitive' registered.
 [TRACE]: Geometry 'scene2/layer1/layer1_primitive' registered.
@@ -249,7 +231,7 @@
   JOB        : 0.00B
   TEXTURE    : 0.00B
   MAT_INST   : 0.00B
-  RENDERER   : 64.00B
+  RENDERER   : 48.00B
   GAME       : 352.00B
   TRANSFORM  : 0.00B
   ENTITY     : 0.00B
@@ -257,18 +239,79 @@
   SCENE      : 0.00B
   SHADER     : 0.00B
 
-[DEBUG]: Window resize: 1854, 1011
-[DEBUG]: Resized to 1854x1011
-[INFO]:  Vulkan renderer backend->resized: w/h/gen: 1854/1011/1
+[DEBUG]: Window resize: 954, 514
+[DEBUG]: Resized to 954x514
+[INFO]:  Vulkan renderer backend->resized: w/h/gen: 954/514/1
+[DEBUG]: Window resize: 950, 510
+[DEBUG]: Resized to 950x510
+[INFO]:  Vulkan renderer backend->resized: w/h/gen: 950/510/2
 [INFO]:  Swapchain created successfully.
 [DEBUG]: Vulkan command buffers created.
 [INFO]:  Resized, booting.
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1190000000119 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11c000000011c format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 2, Index 0, variable "post_process_out"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11f000000011f format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1190000000119 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11c000000011c format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1190000000119 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11c000000011c format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 2, Index 0, variable "post_process_out"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11f000000011f format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1190000000119 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[WARN]:  (Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
+vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11c000000011c format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
+2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
+Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
+[INFO]:  Swapchain created successfully.
+[DEBUG]: Vulkan command buffers created.
+[INFO]:  Resized, booting.
+[DEBUG]: ' ' key pressed in window.
+[DEBUG]: ' ' key pressed in window.
+[DEBUG]: Window resize: 1908, 1028
+[DEBUG]: Resized to 1908x1028
+[INFO]:  Vulkan renderer backend->resized: w/h/gen: 1908/1028/3
+[INFO]:  Swapchain created successfully.
+[DEBUG]: Vulkan command buffers created.
+[INFO]:  Resized, booting.
+[DEBUG]: ' ' key released in window.
+[DEBUG]: ' ' key released in window.
 [DEBUG]: '	' key pressed in window.
 [DEBUG]: '	' key released in window.
 [DEBUG]: '	' key pressed in window.
 [DEBUG]: '	' key released in window.
 [DEBUG]: '	' key pressed in window.
 [DEBUG]: '	' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
 [DEBUG]: '' key pressed in window.
 [DEBUG]: '' key released in window.
 [DEBUG]: '' key pressed in window.
@@ -283,10 +326,6 @@
 [DEBUG]: '(' key released in window.
 [DEBUG]: '(' key pressed in window.
 [DEBUG]: '(' key released in window.
-[DEBUG]: '(' key pressed in window.
-[DEBUG]: '(' key released in window.
-[DEBUG]: '&' key pressed in window.
-[DEBUG]: '&' key released in window.
 [DEBUG]: '' key pressed in window.
 [TRACE]: Texture 'WoodDoor_1508' loaded, reference count now 1.
 [TRACE]: Material 'qt_colour_ffffffff_ts100_px_to+050+000+000_tr+0000_WoodDoor_1508' loaded, reference count now 1.
@@ -318,6 +357,10 @@
 [DEBUG]: '' key released in window.
 [DEBUG]: '' key pressed in window.
 [DEBUG]: '' key released in window.
+[DEBUG]: '(' key pressed in window.
+[DEBUG]: '(' key released in window.
+[DEBUG]: '	' key pressed in window.
+[DEBUG]: '	' key released in window.
 [DEBUG]: '&' key pressed in window.
 [DEBUG]: '&' key released in window.
 [DEBUG]: '&' key pressed in window.
@@ -328,18 +371,24 @@
 [DEBUG]: '&' key released in window.
 [DEBUG]: '&' key pressed in window.
 [DEBUG]: '&' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
+[DEBUG]: '&' key pressed in window.
+[DEBUG]: '&' key released in window.
+[DEBUG]: '&' key pressed in window.
+[DEBUG]: '&' key released in window.
 [DEBUG]: '' key pressed in window.
 [DEBUG]: '' key released in window.
 [DEBUG]: '' key pressed in window.
 [DEBUG]: '' key released in window.
 [DEBUG]: '(' key pressed in window.
 [DEBUG]: '(' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '&' key pressed in window.
+[DEBUG]: '&' key released in window.
 [DEBUG]: '' key pressed in window.
 [DEBUG]: '' key released in window.
 [DEBUG]: '' key pressed in window.
@@ -411,9 +460,9 @@
 [TRACE]: Light 'scene7/light6' registered.
 [TRACE]: Light 'scene7/light7' registered.
 [TRACE]: Texture 'Stripes' loaded, reference count now 1.
-[TRACE]: Material 'qt_vol_colour_f9f06bff_ts125_Stripes' loaded, reference count now 1.
-[TRACE]: Volumetric 'scene7/volumetric0' registered.
+[TRACE]: Material 'qt_vol_colour_ffff00ff_ts050_to+000+000+000_tr-9000_Stripes' loaded, reference count now 1.
 [TRACE]: Volumetric 'scene7/volumetric1' registered.
+[TRACE]: Volumetric 'scene7/volumetric2' registered.
 [TRACE]: Material 'qt_colour_ffffffff_ts060_white' loaded, reference count now 1.
 [TRACE]: Geometry 'scene8/layer0/layer0_primitive' registered.
 [TRACE]: Geometry 'scene8/layer1/layer1_primitive' registered.
@@ -494,6 +543,12 @@
 [TRACE]: Light 'scene11/light4' registered.
 [TRACE]: Light 'scene11/light5' registered.
 [DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[INFO]:  EVENT_CODE_APPLICATION_QUIT received, shutting down.
+[DEBUG]: '' key released in window.
 [DEBUG]: Destroying shaders...
 [DEBUG]: Destroying Vulkan swapchain...
 [DEBUG]: Destroying Vulkan device...

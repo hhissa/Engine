@@ -319,6 +319,15 @@ void renderer_set_vignette_radius(f32 radius) {
   }
 }
 
+void renderer_set_render_scale(f32 scale) {
+  if (backend) {
+    backend->set_render_scale(scale);
+  } else {
+    KWARN("renderer backend does not exist to accept a render-scale "
+         "request.");
+  }
+}
+
 void renderer_set_font(std::string_view name, f32 pixel_height) {
   if (backend) {
     backend->set_font(name, pixel_height);

@@ -1,9 +1,10 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/sdf_editor.dir/link.d"
   "CMakeFiles/sdf_editor_autogen.dir/AutogenUsed.txt"
   "CMakeFiles/sdf_editor_autogen.dir/ParseCache.txt"
   "sdf_editor_autogen"
-  "CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o"
-  "CMakeFiles/sdf_editor.dir/home/h-i/Projects/NOAIEngine/testbed/src/sdf_authoring.cpp.o.d"
+  "CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.cpp.o"
+  "CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.cpp.o.d"
   "CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o"
   "CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o.d"
   "CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o"

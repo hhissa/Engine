@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_vol_colour_ffff00ff_ts060_scars_1
+diffuse_colour=1 1 0 1
+texture_scale=0.6
+diffuse_map_name=scars_1

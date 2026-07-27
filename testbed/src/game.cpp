@@ -86,6 +86,24 @@ b8 TestbedGame::update(f32 dt) {
     demo_scene_ = kInvalidSceneHandle;
   }
 
+  // Render-scale demo keybinds -- Minus/Plus step render_scale_ by 0.1
+  // (clamped to [0.25, 1.0]) and push it to the renderer. Edge-detected
+  // like R/C above: set_render_scale() waits for the device to go idle to
+  // safely recreate the render targets, so it must fire once per press,
+  // not every frame the key is held.
+  if (input::is_key_down(input::Key::Minus) &&
+      !input::was_key_down(input::Key::Minus)) {
+    render_scale_ = glm::clamp(render_scale_ - 0.1f, 0.25f, 1.0f);
+    renderer_set_render_scale(render_scale_);
+    KDEBUG("Render scale: {}", render_scale_);
+  }
+  if (input::is_key_down(input::Key::Plus) &&
+      !input::was_key_down(input::Key::Plus)) {
+    render_scale_ = glm::clamp(render_scale_ + 0.1f, 0.25f, 1.0f);
+    renderer_set_render_scale(render_scale_);
+    KDEBUG("Render scale: {}", render_scale_);
+  }
+
   return true;
 }
 

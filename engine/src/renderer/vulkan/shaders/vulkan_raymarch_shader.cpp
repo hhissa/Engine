@@ -290,38 +290,12 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     return;
   }
 
-  // Output storage image that pass 3 (render) writes into. Only STORAGE
-  // now, not TRANSFER_SRC -- the post-process passes (4a/4b) read it via
-  // imageLoad, and it's post_process_image_ below that gets copied to the
-  // swapchain now, not this one directly.
-  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, context_->framebuffer_width,
-                      context_->framebuffer_height,
-                      context_->swapchain.image_format.format,
-                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
-                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
-                      VK_IMAGE_ASPECT_COLOR_BIT, &output_image_);
-
-  // Half-resolution scratch buffer for the bloom blur's horizontal pass
-  // (pass 4a) -- see bloom_temp_image_'s header comment for why half-res.
-  vulkan_image_create(context_, VK_IMAGE_TYPE_2D,
-                      (context_->framebuffer_width + 1) / 2,
-                      (context_->framebuffer_height + 1) / 2,
-                      context_->swapchain.image_format.format,
-                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
-                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
-                      VK_IMAGE_ASPECT_COLOR_BIT, &bloom_temp_image_);
-
-  // Final frame, written by pass 4b and copied to the swapchain in place
-  // of output_image_ (see render_to()) -- TRANSFER_SRC for that copy, like
-  // output_image_ used to be.
-  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, context_->framebuffer_width,
-                      context_->framebuffer_height,
-                      context_->swapchain.image_format.format,
-                      VK_IMAGE_TILING_OPTIMAL,
-                      VK_IMAGE_USAGE_STORAGE_BIT |
-                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
-                      VK_IMAGE_ASPECT_COLOR_BIT, &post_process_image_);
+  // Output/bloom-scratch/post-process images, sized off render_scale_ (1.0
+  // unless set_render_scale() has been called) -- see
+  // recreate_render_target_images().
+  base_width_ = context_->framebuffer_width;
+  base_height_ = context_->framebuffer_height;
+  recreate_render_target_images();
 
   // Sparse voxel field storage.
   const u64 indirection_size =
@@ -876,37 +850,61 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   vulkan_image_destroy(context_, &output_image_);
 }
 
-void VulkanRaymarchShader::on_resized(u32 width, u32 height) {
-  if (!valid_) {
-    return;
-  }
+void VulkanRaymarchShader::recreate_render_target_images() {
+  render_width_ = std::max(1u, static_cast<u32>(base_width_ * render_scale_));
+  render_height_ =
+      std::max(1u, static_cast<u32>(base_height_ * render_scale_));
 
+  // Output storage image that pass 3 (render) writes into. Only STORAGE,
+  // not TRANSFER_SRC -- the post-process passes (4a/4b) read it via
+  // imageLoad, and it's post_process_image_ below that gets blitted to the
+  // swapchain now, not this one directly.
   vulkan_image_destroy(context_, &output_image_);
-  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, width, height,
-                      context_->swapchain.image_format.format,
+  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, render_width_,
+                      render_height_, context_->swapchain.image_format.format,
                       VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
                       VK_IMAGE_ASPECT_COLOR_BIT, &output_image_);
 
+  // Half-resolution scratch buffer for the bloom blur's horizontal pass
+  // (pass 4a) -- see bloom_temp_image_'s header comment for why half-res.
   vulkan_image_destroy(context_, &bloom_temp_image_);
-  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, (width + 1) / 2,
-                      (height + 1) / 2, context_->swapchain.image_format.format,
+  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, (render_width_ + 1) / 2,
+                      (render_height_ + 1) / 2,
+                      context_->swapchain.image_format.format,
                       VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
                       VK_IMAGE_ASPECT_COLOR_BIT, &bloom_temp_image_);
 
+  // Final frame, written by pass 4b and blitted (see render_to()) into the
+  // swapchain image, upscaling from render_width_/render_height_ to
+  // whatever size the swapchain actually is -- TRANSFER_SRC for that blit.
   vulkan_image_destroy(context_, &post_process_image_);
-  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, width, height,
-                      context_->swapchain.image_format.format,
+  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, render_width_,
+                      render_height_, context_->swapchain.image_format.format,
                       VK_IMAGE_TILING_OPTIMAL,
                       VK_IMAGE_USAGE_STORAGE_BIT |
                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
                       VK_IMAGE_ASPECT_COLOR_BIT, &post_process_image_);
+}
 
+void VulkanRaymarchShader::on_resized(u32 width, u32 height) {
+  if (!valid_) {
+    return;
+  }
+
+  base_width_ = width;
+  base_height_ = height;
+  recreate_render_target_images();
+  rebind_render_target_descriptors();
+}
+
+void VulkanRaymarchShader::rebind_render_target_descriptors() {
   // Re-point every descriptor binding that referenced one of the images
-  // just destroyed/recreated above -- their old views no longer exist, so
-  // the descriptor sets would otherwise reference dangling handles.
+  // recreate_render_target_images() just destroyed/recreated -- their old
+  // views no longer exist, so the descriptor sets would otherwise
+  // reference dangling handles.
   VkDescriptorImageInfo render_image_info{VK_NULL_HANDLE, output_image_.view,
                                           VK_IMAGE_LAYOUT_GENERAL};
   VkWriteDescriptorSet render_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -1419,6 +1417,23 @@ void VulkanRaymarchShader::disable_skybox() {
   write_skybox_binding(context_->texture_system->default_texture());
 }
 
+void VulkanRaymarchShader::set_render_scale(f32 scale) noexcept {
+  scale = std::clamp(scale, 0.05f, 1.0f);
+  if (!valid_ || scale == render_scale_) {
+    return;
+  }
+  render_scale_ = scale;
+
+  // Waits for the device to go idle first, like set_skybox() -- about to
+  // destroy/recreate output_image_/bloom_temp_image_/post_process_image_
+  // and rewrite descriptor bindings pointing at them, either of which a
+  // still-in-flight render_to() dispatch could be reading/writing through.
+  vkDeviceWaitIdle(context_->device.logical_device);
+
+  recreate_render_target_images();
+  rebind_render_target_descriptors();
+}
+
 namespace {
 // Records one compute-to-compute buffer memory barrier per entry in
 // buffers -- shared by voxelize()/bake_probes() below, which each need
@@ -1641,8 +1656,12 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
   VkCommandBuffer cmd = command_buffer.handle();
 
   constexpr u32 local_size = 16; // must match local_size_x/y in every pass 3/4 shader
-  u32 group_x = (width + local_size - 1) / local_size;
-  u32 group_y = (height + local_size - 1) / local_size;
+  // Dispatches size off render_width_/render_height_ (output_image_/
+  // bloom_temp_image_/post_process_image_'s actual size, per render_scale_
+  // -- see set_render_scale()), not width/height (the swapchain's size,
+  // used below only for the final upscale blit).
+  u32 group_x = (render_width_ + local_size - 1) / local_size;
+  u32 group_y = (render_height_ + local_size - 1) / local_size;
 
   // --- Pass 3: render the scene into output_image_ (rgb=colour,
   // a=pixelation-exempt flag). ---
@@ -1686,8 +1705,9 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-  BloomBlurHPushConstants bloom_blur_h_push{
-      static_cast<i32>(width), static_cast<i32>(height), bloom_threshold_};
+  BloomBlurHPushConstants bloom_blur_h_push{static_cast<i32>(render_width_),
+                                            static_cast<i32>(render_height_),
+                                            bloom_threshold_};
   bloom_blur_h_pipeline_->bind(command_buffer);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                          bloom_blur_h_pipeline_->layout(), 0, 1,
@@ -1695,8 +1715,8 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
   vkCmdPushConstants(cmd, bloom_blur_h_pipeline_->layout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0,
                     sizeof(BloomBlurHPushConstants), &bloom_blur_h_push);
-  u32 half_group_x = ((width + 1) / 2 + local_size - 1) / local_size;
-  u32 half_group_y = ((height + 1) / 2 + local_size - 1) / local_size;
+  u32 half_group_x = ((render_width_ + 1) / 2 + local_size - 1) / local_size;
+  u32 half_group_y = ((render_height_ + 1) / 2 + local_size - 1) / local_size;
   vkCmdDispatch(cmd, half_group_x, half_group_y, 1);
 
   // --- Pass 4b: finish the bloom blur vertically, composite bloom +
@@ -1713,8 +1733,8 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
   PostCompositePushConstants post_composite_push{
-      static_cast<i32>(width),
-      static_cast<i32>(height),
+      static_cast<i32>(render_width_),
+      static_cast<i32>(render_height_),
       bloom_enabled_ ? bloom_intensity_ : 0.0f,
       vignette_enabled_ ? vignette_strength_ : 0.0f,
       vignette_radius_,
@@ -1749,18 +1769,28 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
                    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                    VK_PIPELINE_STAGE_TRANSFER_BIT);
 
-  VkImageCopy region{};
-  region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  region.srcSubresource.layerCount = 1;
-  region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  region.dstSubresource.layerCount = 1;
-  region.extent = {width, height, 1};
+  // Blits rather than copies -- post_process_image_ is render_width_ x
+  // render_height_ (render_scale_ of the swapchain's own width/height, see
+  // set_render_scale()), so this is also what upscales the render back up
+  // to the swapchain's actual size. A no-op-equivalent plain upscale at
+  // render_scale_ == 1.0 (src/dst extents match, LINEAR degenerates to an
+  // exact copy).
+  VkImageBlit blit_region{};
+  blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  blit_region.srcSubresource.layerCount = 1;
+  blit_region.srcOffsets[1] = {static_cast<i32>(render_width_),
+                              static_cast<i32>(render_height_), 1};
+  blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  blit_region.dstSubresource.layerCount = 1;
+  blit_region.dstOffsets[1] = {static_cast<i32>(width), static_cast<i32>(height),
+                              1};
 
   // Copies from post_process_image_ now, not output_image_ directly -- the
   // post-process chain's final result.
-  vkCmdCopyImage(cmd, post_process_image_.handle,
+  vkCmdBlitImage(cmd, post_process_image_.handle,
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapchain_image,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit_region,
+                VK_FILTER_LINEAR);
 
   // Swapchain image -> colour attachment, ready for the UI renderpass that
   // runs right after this (see VulkanRendererBackend::end_frame()) to draw

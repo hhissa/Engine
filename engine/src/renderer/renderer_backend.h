@@ -145,6 +145,16 @@ public:
   virtual void set_vignette_strength(f32 strength) = 0;
   virtual void set_vignette_radius(f32 radius) = 0;
 
+  // Scales pass 3/4's internal render resolution relative to the actual
+  // framebuffer size (upscaled back up via a linear blit) -- see
+  // VulkanRaymarchShader::set_render_scale(). The lever for trading
+  // sharpness for frame rate on a large/fullscreen window, since every
+  // pass here costs O(pixel count). Takes effect immediately (a device-
+  // idle wait to safely recreate render targets and rewrite the
+  // descriptor bindings pointing at them), so prefer calling it for a
+  // deliberate quality/perf change, not every frame. Clamped to (0, 1].
+  virtual void set_render_scale(f32 scale) = 0;
+
   // Rebakes the bitmap font every renderer_draw_text() call uses, from
   // assets/fonts/<name>.ttf at pixel_height -- see VulkanTextShader::
   // set_font() for exact semantics (not cheap -- a full re-bake + device-
