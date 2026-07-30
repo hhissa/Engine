@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts500_01_minimal_few_small_diffuse
+diffuse_colour=1 1 1 1
+texture_scale=5
+diffuse_map_name=01_minimal_few_small_diffuse

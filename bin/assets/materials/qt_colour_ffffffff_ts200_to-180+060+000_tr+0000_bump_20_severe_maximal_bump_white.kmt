@@ -1,0 +1,9 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts200_to-180+060+000_tr+0000_bump_20_severe_maximal_bump_white
+diffuse_colour=1 1 1 1
+texture_scale=2
+texture_offset=-1.8 0.6 0
+diffuse_map_name=white
+bump_map_name=20_severe_maximal_bump

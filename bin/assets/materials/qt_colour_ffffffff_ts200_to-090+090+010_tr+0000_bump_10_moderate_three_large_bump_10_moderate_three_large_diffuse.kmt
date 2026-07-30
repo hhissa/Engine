@@ -1,0 +1,9 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts200_to-090+090+010_tr+0000_bump_10_moderate_three_large_bump_10_moderate_three_large_diffuse
+diffuse_colour=1 1 1 1
+texture_scale=2
+texture_offset=-0.9 0.9 0.1
+diffuse_map_name=10_moderate_three_large_diffuse
+bump_map_name=10_moderate_three_large_bump

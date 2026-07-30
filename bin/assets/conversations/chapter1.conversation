@@ -2,35 +2,43 @@
 version=0.1
 
 question "Alright, lets get started!" {
+    tag=Normal
     answer=...
 
     question "Where do you cut?" {
+        tag=Normal
         answer=My thighs... mainly.
 
         question "Why your thighs?" {
-            answer=It's harder to see. 
+            tag=Normal
+            answer=It's harder to see.
             answer=People don't notice that way.
         }
 
         question "Mainly?" {
+            tag=Normal
             answer=I have a small scar on my wrist.
             answer=I don't want to talk about that right now.
         }
     }
 
     question "Do you feel confident?" {
+        tag=Normal
         answer=Ha... yeah right
     }
 
     question "When did you first start cutting?" {
+        tag=Normal
         answer=A couple years ago now.
     }
 
     question "Do you have a favourite scar?" {
+        tag=Normal
         answer=Kinda. Favourite isn't the right word.
     }
 
     question "When was the last time you cut?" {
+        tag=Normal
         answer=Three or so months ago.
         answer=Maybe more, I'm bad with the passage of time.
     }
@@ -38,9 +46,27 @@ question "Alright, lets get started!" {
     question "Have you ever attempted suicide?" {
         tag=DoorScene
         answer=That's a pretty blunt question.
+        answer=The answer is yes.
+
+        question "Why did you do it?" {
+            tag=DoorScene
+            answer=Why does anyone do anything?
+            answer=I guess I just felt tired.
+
+            question "Tired?" {
+                tag=DoorScene
+                answer=Drained, that might be better.
+            }
+        }
+
+        question "Tell me the story of what happened." {
+            tag=DoorScene
+            answer=Okay, it's not that interesting of a story, really.
+        }
     }
 
     question "Do you have a diagnosis?" {
+        tag=Normal
         answer=I do.
     }
 }

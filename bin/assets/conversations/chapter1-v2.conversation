@@ -1,0 +1,106 @@
+#conversation file
+version=0.1
+
+question "Say hello to the cameras!" {
+    tag=Normal
+    answer=HELLO CAMERAS!!!
+
+    question "Hahaha Nice! Why dont you introduce yourself?" {
+        tag=Normal
+        answer=Hi, I'm Herve.
+        answer=The dearest and certainly the most handsome of your friends.
+
+        question "And what are we here to do?" {
+            tag=Normal
+            answer=Well, I'm here to help you with your project, ofcourse.
+            answer=BECAUSE I'M A GREAT FRIEND!!!
+
+            question "And what do you know about my Project?" {
+                tag=Normal
+                answer=You've been pretty vague...
+                answer=From what you've told me.
+                answer=And you haven't told me much, you're photographing people who self harm.
+
+                question "That's about all you need to know." {
+                    tag=Normal
+                    answer=Cool.
+
+                    question "Alright then, let's get started." {
+                        tag=Normal
+                        answer=Yeah, I've gotta see Herve after this.
+
+                        question "Where do you cut?" {
+                            tag=Normal
+                            answer=My thighs mainly, you know this.
+
+                            question "Mainly?" {
+                                tag=Normal
+                                answer=Other than the scar from when I tried to...
+                                answer=You know.
+                                answer=From when i tried to pull the wires out of my arms.
+
+                                question "Oh right." {
+                                    tag=Normal
+                                }
+                            }
+
+                            question "The camera doesn't, so pretend you don't know me." {
+                                tag=Normal
+                                answer=Alright...
+                            }
+
+                            question "Why your thighs?" {
+                                tag=Normal
+                            }
+                        }
+
+                        question "When did you first start cutting?" {
+                            tag=Normal
+                        }
+
+                        question "Do you have a favourite scar?" {
+                            tag=Normal
+                        }
+
+                        question "When was the last time you cut?" {
+                            tag=Normal
+                        }
+
+                        question "Do you have a diagnosis?" {
+                            tag=Normal
+                        }
+
+                        question "Have you ever attempted suicide?" {
+                            tag=Normal
+                            answer=Yes, once.
+
+                            question "Tell me about it?" {
+                                tag=DoorScene1
+                                answer=Sure, I don't think I've ever told you this story.
+                                answer=I guess I should start at the bathroom door.
+                                answer=In my house, there's this blue door.
+                                answer=It makes this horrible hollow sound when you knock.
+
+                                question "Why is that important?" {
+                                    tag=DoorScene1
+                                    answer=Just wait.
+
+                                    question "Anyway, I'll " {
+                                    }
+                                }
+
+                                question "Can you make the noise for the camera?" {
+                                    answer=Hahahaha
+                                    answer=no.
+
+                                    question "Anyway, I'll " {
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

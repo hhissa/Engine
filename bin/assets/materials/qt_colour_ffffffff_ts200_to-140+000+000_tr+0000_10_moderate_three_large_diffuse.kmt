@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts200_to-140+000+000_tr+0000_10_moderate_three_large_diffuse
+diffuse_colour=1 1 1 1
+texture_scale=2
+texture_offset=-1.4 0 0
+diffuse_map_name=10_moderate_three_large_diffuse

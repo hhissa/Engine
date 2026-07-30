@@ -16,6 +16,7 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QSizePolicy>
 #include <QVBoxLayout>
 #include <QWheelEvent>
@@ -23,13 +24,46 @@
 
 GraphView::GraphView(GraphScene *scene, QWidget *parent) : QGraphicsView(scene, parent) {
   setRenderHint(QPainter::Antialiasing);
-  setDragMode(QGraphicsView::RubberBandDrag); // click-drag empty space -> box-select
+  setDragMode(QGraphicsView::RubberBandDrag); // left-click-drag empty space -> box-select
 }
 
 void GraphView::wheelEvent(QWheelEvent *event) {
   constexpr qreal kZoomStep = 1.15;
   qreal factor = event->angleDelta().y() > 0 ? kZoomStep : 1.0 / kZoomStep;
   scale(factor, factor);
+}
+
+void GraphView::mousePressEvent(QMouseEvent *event) {
+  if (event->button() == Qt::RightButton) {
+    panning_ = true;
+    last_pan_pos_ = event->pos();
+    setCursor(Qt::ClosedHandCursor);
+    event->accept();
+    return; // consumed -- right-click is pan-only, never reaches the scene
+  }
+  QGraphicsView::mousePressEvent(event);
+}
+
+void GraphView::mouseMoveEvent(QMouseEvent *event) {
+  if (panning_) {
+    QPoint delta = event->pos() - last_pan_pos_;
+    last_pan_pos_ = event->pos();
+    horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
+    verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
+    event->accept();
+    return;
+  }
+  QGraphicsView::mouseMoveEvent(event);
+}
+
+void GraphView::mouseReleaseEvent(QMouseEvent *event) {
+  if (event->button() == Qt::RightButton && panning_) {
+    panning_ = false;
+    setCursor(Qt::ArrowCursor);
+    event->accept();
+    return;
+  }
+  QGraphicsView::mouseReleaseEvent(event);
 }
 
 ConversationEditorWindow::ConversationEditorWindow() {

@@ -29,7 +29,32 @@ constexpr ConversationHandle kInvalidConversationHandle = 0;
 // showing (only the answer line + "[Enter] continue" hint are drawn) --
 // see render().
 //
-// Past the last answer line:
+// Two scene-state changes happen per question, at two different moments
+// (see register_scene_state() below for what a tag actually triggers):
+//   - The instant a question is *asked* (Enter pressed on it in the list,
+//     before its answer starts playing): that question's own `tag=`
+//     scene state fires, if it has one. This is the "reaction shot" --
+//     it fires immediately, same as Entry::on_selected.
+//   - The instant its answer finishes (past the last answer line, Enter
+//     pressed once more): the *current layer's* scene state fires instead
+//     -- see current_layer_tag_. Each layer's scene state is established
+//     by whichever question was answered to reveal it: answering a
+//     question with follow-ups carries that question's own tag forward as
+//     the resting state for the follow-up list now being shown, and that
+//     same state persists for every further question answered within that
+//     list (including nested follow-ups of follow-ups, and so on to any
+//     depth) until a deeper question with its own tag establishes a new
+//     one for its own follow-ups, or the view pops back up to a
+//     shallower list, which restores whatever state was established there.
+//     A question with no tag of its own leaves the current layer's state
+//     exactly as it already was rather than clearing it -- e.g. an intro
+//     question with no tag doesn't blank out whatever state its own
+//     follow-up list should keep using. If no layer has established any
+//     state yet (nothing tagged has been answered along the current
+//     chain), the designated base scene state fires instead -- see
+//     set_base_scene_state().
+//
+// Past the last answer line, the question list itself is then updated:
 //   - If the just-answered entry has follow-up questions, the list swaps
 //     to showing *that entry's* follow-ups instead of the list it was
 //     just picked from -- so answering "Who are you?" can reveal a
@@ -37,9 +62,17 @@ constexpr ConversationHandle kInvalidConversationHandle = 0;
 //     player back at the top level.
 //   - Otherwise (a "leaf" question, no follow-ups): if every question at
 //     the current level has now been asked, the branch is fully explored,
-//     so the view returns all the way to the top-level list (not just one
-//     level up) -- otherwise it stays on the current list so the player
-//     can pick a remaining sibling follow-up.
+//     so the view pops back up one level in the chain it descended
+//     through to get here (the list containing whichever question's
+//     follow-ups current_list_ now is). If that shallower level turns out
+//     to be fully asked too -- which happens whenever the question that
+//     led down into the just-finished branch was the last unasked sibling
+//     at that level as well -- the view keeps popping up one level at a
+//     time, and so on to any depth, until it either lands on a level with
+//     an unasked question left, or unwinds all the way to the top-level
+//     list. Otherwise (an unasked question remains at the level just
+//     landed on) it stays there so the player can pick a remaining
+//     sibling follow-up.
 // This can nest to any depth (a follow-up can have its own follow-ups),
 // though .conversation files are only expected to use one or two levels
 // in practice.
@@ -86,7 +119,11 @@ public:
     // Opaque symbolic name from the loaded .conversation file's `tag=`
     // line (see resources/conversation.h -- copied verbatim by to_entry()
     // in qa_system.cpp), or nullopt if this question has none. Dispatched
-    // by name against scene_states_ in update() -- see
+    // by name against scene_states_ in update() the instant this question
+    // is selected (same moment as on_selected above and `asked` is set) --
+    // the "reaction shot" for asking this specific question. See the
+    // class comment for how this fits together with the base scene state
+    // that fires once the answer is done being read, and
     // register_scene_state() below for what a tag actually triggers.
     std::optional<std::string> tag;
   };
@@ -167,23 +204,38 @@ public:
   void set_on_selected(std::string_view question_text, std::function<void()> callback);
 
   // Attaches callback as the "returned to the top-level list" hook -- fired
-  // from update() exactly when a finished follow-up branch pops back to
-  // entries_ because every question at that level has now been asked (see
-  // the class comment's "past the last answer line" section). NOT fired
-  // for a leaf question that was already at the top level (there's nowhere
-  // to "pop back" from), and not fired repeatedly while sitting at the top
-  // level -- only on the transition itself. One hook for the whole
-  // conversation (unlike set_on_selected(), which targets a single
-  // question) -- e.g. to reset the scene back to its base state once the
-  // player has exhausted a branch:
+  // from update() exactly when a one-level-up pop (see the class comment's
+  // "past the last answer line" section) lands on entries_ itself, i.e.
+  // the *last* pop of a chain, whether that's a single pop (one level of
+  // nesting) or the final one of several (a level popped back into that
+  // then turned out to be fully asked too, on some later exhaustion --
+  // each individual pop only ever moves up one level, so reaching entries_
+  // from several levels deep takes one exhaustion per level, not one
+  // callback firing per level). NOT fired for a leaf question that was
+  // already at the top level (there's nowhere to "pop back" from), and not
+  // fired repeatedly while sitting at the top level -- only on the
+  // transition itself. One hook for the whole conversation (unlike
+  // set_on_selected(), which targets a single question) -- e.g. to reset
+  // the scene back to its base state once the player has exhausted a
+  // branch:
   //
   //   qa_.set_on_returned_to_root([this] { apply_scene_state(SceneState::Normal); });
   void set_on_returned_to_root(std::function<void()> callback);
 
-  // Registers callback under name -- fired from update() the instant the
-  // player selects any question whose `tag=` line (see resources/
-  // conversation.h's file format, and Entry::tag above) equals name, right
-  // alongside on_selected. Mirrors how Ink's host game reacts to a `#tag`
+  // Attaches callback as the fallback scene state -- fired from update()
+  // once an answer finishes (see the class comment's current_layer_tag_
+  // section) whenever no layer along the current chain has established a
+  // tag-based state of its own yet, e.g. right after an untagged
+  // introductory question is answered, before any of its (possibly
+  // tagged) follow-ups have been picked:
+  //
+  //   qa_.set_base_scene_state([this] { apply_scene_state(SceneState::Normal); });
+  void set_base_scene_state(std::function<void()> callback);
+
+  // Registers callback under name -- fired from update() the instant a
+  // question whose `tag=` line (see resources/conversation.h's file
+  // format, and Entry::tag above) equals name is selected -- see the class
+  // comment for exactly when. Mirrors how Ink's host game reacts to a `#tag`
   // line, or how Yarn Spinner dispatches a `<<command>>` to a handler
   // registered via AddCommandHandler(name, ...): the dialogue content
   // declares a symbolic name, game code says what that name means, and
@@ -236,11 +288,60 @@ private:
   // exists.
   std::vector<Entry> *current_list_ = &entries_;
 
+  // The chain of ancestor lists current_list_ descended through to get
+  // where it is -- list_stack_.back() is current_list_'s immediate parent
+  // (the list containing whichever question's follow_ups current_list_
+  // now is), and so on back to (but not including) &entries_, which is
+  // implicitly where the chain bottoms out. Pushed in update() whenever an
+  // answered question's follow-ups are shown (descending one level),
+  // popped whenever a fully-asked level pops back up one level (see the
+  // class comment's "past the last answer line" section) -- so this is
+  // always empty exactly when current_list_ == &entries_, and cleared
+  // alongside current_list_'s reset in unload_conversation() for the same
+  // reason (its entries could otherwise dangle once erase() runs).
+  std::vector<std::vector<Entry> *> list_stack_;
+
+  // Parallel to list_stack_ -- layer_tag_stack_[i] is the value
+  // current_layer_tag_ held right before descending into list_stack_[i],
+  // so popping back up one level restores the tag that governed that
+  // shallower list too, rather than leaving whatever tag governed the
+  // deeper branch just left behind in place. Pushed/popped in lockstep
+  // with list_stack_ for that reason.
+  std::vector<std::optional<std::string>> layer_tag_stack_;
+
+  // The tag whose scene state governs the list current_list_ currently
+  // is -- see the class comment. nullopt until some question with a tag
+  // of its own has been answered along the current chain (in which case
+  // set_base_scene_state()'s fallback applies instead). Updated in
+  // update() only when descending into a tagged question's follow_ups
+  // (an untagged question's follow_ups leave it as whatever it already
+  // was -- inherited, not cleared); restored from layer_tag_stack_ when
+  // popping back up; reset to nullopt alongside current_list_'s reset in
+  // unload_conversation().
+  std::optional<std::string> current_layer_tag_;
+
   // See set_on_returned_to_root() above.
   std::function<void()> on_returned_to_root_;
 
+  // See set_base_scene_state() above.
+  std::function<void()> base_scene_state_;
+
   // See register_scene_state() above.
   std::unordered_map<std::string, std::function<void()>> scene_states_;
+
+  // Looks up entry.tag in scene_states_ and fires it, if present; logs a
+  // warning (naming entry.question) if entry.tag is set but no scene state
+  // was ever registered under that name. No-op if entry.tag is nullopt.
+  // Called from update() the instant a question is selected -- see the
+  // class comment.
+  void fire_scene_state(const Entry &entry);
+
+  // Fires the scene state named by current_layer_tag_ if it's set (logging
+  // a warning if that name was never registered), or base_scene_state_
+  // otherwise. Called from update() once an answer finishes and
+  // current_layer_tag_ has already been updated/restored for wherever
+  // navigation landed -- see the class comment.
+  void apply_layer_scene_state();
 
   State state_ = State::QuestionList;
   size_t cursor_ = 0;      // which question the selection cursor is on, within *current_list_

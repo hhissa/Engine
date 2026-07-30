@@ -111,8 +111,14 @@ void QASystem::unload_conversation(ConversationHandle handle) {
   // current_list_'s comment for why this has to happen first regardless of
   // whether handle's questions are the ones currently open (working out
   // whether current_list_ points into a subtree about to be erased isn't
-  // worth the complexity next to just always resetting).
+  // worth the complexity next to just always resetting). list_stack_ and
+  // layer_tag_stack_ are cleared alongside it for the same reason -- their
+  // entries could otherwise dangle/refer to removed content once the
+  // erase() loop below runs.
   current_list_ = &entries_;
+  list_stack_.clear();
+  layer_tag_stack_.clear();
+  current_layer_tag_.reset();
   state_ = State::QuestionList;
   cursor_ = 0;
   answer_line_ = 0;
@@ -159,6 +165,10 @@ void QASystem::set_on_returned_to_root(std::function<void()> callback) {
   on_returned_to_root_ = std::move(callback);
 }
 
+void QASystem::set_base_scene_state(std::function<void()> callback) {
+  base_scene_state_ = std::move(callback);
+}
+
 void QASystem::register_scene_state(std::string_view name,
                                     std::function<void()> callback) {
   std::string key(name);
@@ -168,6 +178,36 @@ void QASystem::register_scene_state(std::string_view name,
          key);
   }
   scene_states_[key] = std::move(callback);
+}
+
+void QASystem::fire_scene_state(const Entry &entry) {
+  if (!entry.tag) {
+    return;
+  }
+  auto it = scene_states_.find(*entry.tag);
+  if (it != scene_states_.end()) {
+    it->second();
+  } else {
+    KWARN("QASystem: question '{}' has tag '{}' with no registered "
+         "scene state.",
+         entry.question, *entry.tag);
+  }
+}
+
+void QASystem::apply_layer_scene_state() {
+  if (!current_layer_tag_) {
+    if (base_scene_state_) {
+      base_scene_state_();
+    }
+    return;
+  }
+  auto it = scene_states_.find(*current_layer_tag_);
+  if (it != scene_states_.end()) {
+    it->second();
+  } else {
+    KWARN("QASystem: layer tag '{}' has no registered scene state.",
+         *current_layer_tag_);
+  }
 }
 
 void QASystem::update() {
@@ -188,16 +228,10 @@ void QASystem::update() {
       if (list[cursor_].on_selected) {
         list[cursor_].on_selected();
       }
-      if (list[cursor_].tag) {
-        auto it = scene_states_.find(*list[cursor_].tag);
-        if (it != scene_states_.end()) {
-          it->second();
-        } else {
-          KWARN("QASystem: question '{}' has tag '{}' with no registered "
-               "scene state.",
-               list[cursor_].question, *list[cursor_].tag);
-        }
-      }
+      // The question is being asked right now -- fire its own tag's scene
+      // state immediately (the "reaction shot"; see the class comment),
+      // rather than waiting for its answer to finish.
+      fire_scene_state(list[cursor_]);
       answer_line_ = 0;
       state_ = State::Answer;
     }
@@ -206,26 +240,61 @@ void QASystem::update() {
       ++answer_line_;
       Entry &answered = (*current_list_)[cursor_];
       if (answer_line_ >= answered.answer_lines.size()) {
-        // Past the last answer line -- decide what the question list shows
-        // next (see the class comment for the exact policy).
+        // Past the last answer line -- the question is now fully read.
+        // Decide what the question list shows next (see the class comment
+        // for the exact policy), updating current_layer_tag_ to match
+        // wherever navigation lands, then apply whichever scene state that
+        // leaves current -- see apply_layer_scene_state().
         if (!answered.follow_ups.empty()) {
+          list_stack_.push_back(current_list_);
+          layer_tag_stack_.push_back(current_layer_tag_);
+          if (answered.tag) {
+            // This question's own tag becomes the resting state for its
+            // follow-up list (and, transitively, for anything answered
+            // within it) -- see the class comment. An untagged question
+            // leaves current_layer_tag_ exactly as it was, so its
+            // follow-ups inherit whatever state already governed it.
+            current_layer_tag_ = answered.tag;
+          }
           current_list_ = &answered.follow_ups;
           cursor_ = 0;
-        } else if (current_list_ != &entries_) {
+        } else if (!list_stack_.empty()) {
           bool all_asked = std::all_of(
               current_list_->begin(), current_list_->end(),
               [](const Entry &e) { return e.asked; });
-          if (all_asked) {
-            current_list_ = &entries_;
+          // Keep popping up one level at a time -- not just once -- for as
+          // long as the level just landed on is *also* fully asked (this
+          // happens whenever the question whose follow-ups we just
+          // finished was the last unasked sibling at that shallower level
+          // too), until reaching a level with an unasked question left, or
+          // unwinding all the way back to entries_ (see the class
+          // comment). Restore the tag that governed each shallower list in
+          // turn as we go.
+          while (all_asked) {
+            current_list_ = list_stack_.back();
+            list_stack_.pop_back();
+            current_layer_tag_ = layer_tag_stack_.back();
+            layer_tag_stack_.pop_back();
             cursor_ = 0;
-            if (on_returned_to_root_) {
-              on_returned_to_root_();
+            if (current_list_ == &entries_) {
+              // Nowhere further up to pop to -- list_stack_ is empty here
+              // per its invariant, so the loop ends regardless.
+              if (on_returned_to_root_) {
+                on_returned_to_root_();
+              }
+              break;
             }
+            all_asked = std::all_of(
+                current_list_->begin(), current_list_->end(),
+                [](const Entry &e) { return e.asked; });
           }
-          // else: unanswered siblings remain -- stay on current_list_ with
-          // cursor_ unchanged (still a valid index into it).
+          // else (loop never entered/exited early): unanswered siblings
+          // remain at wherever we ended up -- stay there with cursor_ and
+          // current_layer_tag_ unchanged (still valid/current).
         }
-        // else: a leaf at the top level already -- nothing to do.
+        // else: a leaf at the top level already (list_stack_ empty) --
+        // nothing to do.
+        apply_layer_scene_state();
         state_ = State::QuestionList;
       }
     }

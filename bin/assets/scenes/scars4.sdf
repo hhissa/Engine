@@ -1,0 +1,23 @@
+#sdf scene file
+version=0.1
+ambient=0.15
+
+light light0 {
+    type=point
+    position=0 -0.0354016 -1.09809
+    colour=1 1 1
+    intensity=0.85
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive primitive0 {
+        type=box
+        position=0 0 0
+        rotation=0 0 0
+        half_extents=1 1 0.1
+        material=qt_colour_ffffffff_ts200_to-180+060+000_tr+0000_bump_20_severe_maximal_bump_20_severe_maximal_diffuse
+    }
+}

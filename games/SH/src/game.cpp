@@ -112,7 +112,7 @@ void SHGame::apply_scene_state(SceneState state) {
     });
     break;
 
-  case SceneState::DoorScene:
+  case SceneState::DoorScene1:
     // Deliberately loads only scene_ -- room/light1_/light2_/
     // overheadLights_ stay torn down (kInvalidSceneHandle), same as the
     // renderer_clear_scenes() this replaced.
@@ -153,22 +153,32 @@ b8 SHGame::initialize() {
   // finishes (the list returns to the top level automatically once every
   // follow-up at the current level has been asked).
   dialogue_ =
-      qa_.load_conversation("assets/conversations/chapter1.conversation");
+      qa_.load_conversation("assets/conversations/chapter1-v2.conversation");
 
-  // "DoorScene" is declared in the .conversation file itself (a `tag=`
-  // line on whichever question(s) should trigger it -- currently "Have you
-  // ever attempted suicide?" in chapter1.conversation) rather than matched
-  // here by literal question text, so content can move/reword/reuse the
-  // trigger without a matching game.cpp change.
+  // "DoorScene" and "Normal" are declared in the .conversation file itself
+  // (`tag=` lines -- currently "DoorScene" on "Have you ever attempted
+  // suicide?" and its own follow-up, "Normal" on effectively everything
+  // else, both nested several levels deep in chapter1-v2.conversation)
+  // rather than matched here by literal question text, so content can
+  // move/reword/reuse either trigger without a matching game.cpp change.
+  // Both fire the instant their question is asked (see QASystem's class
+  // comment's "reaction shot"), so the scene changes right away rather
+  // than only once the answer has been read; "Normal" also fires as the
+  // *layer* state once a Normal-tagged question's answer finishes (see
+  // current_layer_tag_) -- that's what actually clears DoorScene once its
+  // question and any of its own follow-ups are done, by restoring the
+  // enclosing chain's inherited "Normal" tag rather than nullopt.
   qa_.register_scene_state(
-      "DoorScene", [this] { apply_scene_state(SceneState::DoorScene); });
+      "DoorScene1", [this] { apply_scene_state(SceneState::DoorScene1); });
+  qa_.register_scene_state(
+      "Normal", [this] { apply_scene_state(SceneState::Normal); });
 
-  // Base-level questions play out in SceneState::Normal (already the
-  // active state at this point -- see apply_scene_state() above); once a
-  // follow-up branch is fully explored and the view pops back to the
-  // top-level list, put the scene back to that same base state too, so a
-  // dialogue-triggered state (like DoorScene above) doesn't linger once
-  // the player has moved on from the question that caused it.
+  // Fallback for the (currently empty, but kept for safety) stretch of the
+  // chain no tag has covered yet -- see set_base_scene_state()'s doc
+  // comment. set_on_returned_to_root is a second, independent trigger:
+  // it fires once, specifically when a nested follow-up branch is fully
+  // explored and the view pops all the way back up to the top-level list.
+  qa_.set_base_scene_state([this] { apply_scene_state(SceneState::Normal); });
   qa_.set_on_returned_to_root(
       [this] { apply_scene_state(SceneState::Normal); });
 

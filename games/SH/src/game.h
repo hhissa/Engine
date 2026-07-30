@@ -20,7 +20,7 @@ enum class SceneState {
   // out for assets/scenes/door_scene.sdf alone (no room/lights/overhead
   // lights), matching what that dialogue option used to do directly via
   // renderer_clear_scenes() before it was folded into this state system.
-  DoorScene,
+  DoorScene1,
 };
 
 class SHGame : public Game {

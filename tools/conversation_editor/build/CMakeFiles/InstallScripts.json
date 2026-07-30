@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/bumbandit/Projects/Engine/tools/conversation_editor/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

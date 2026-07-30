@@ -1,6 +1,7 @@
 #pragma once
 #include <QGraphicsView>
 #include <QMainWindow>
+#include <QPoint>
 
 class QLineEdit;
 class QListWidget;
@@ -8,11 +9,13 @@ class QListWidgetItem;
 class GraphScene;
 class QuestionNode;
 
-// QGraphicsView with wheel-to-zoom (Qt gives free scrollbar-based panning,
-// but a node graph that grows beyond one screenful is much easier to work
-// with when you can also zoom out) -- otherwise a plain view over
-// GraphScene. Kept here rather than its own file pair: it's a five-line
-// override, not worth a second header/source for.
+// QGraphicsView with wheel-to-zoom and right-click-drag panning -- otherwise
+// a plain view over GraphScene, left in RubberBandDrag mode throughout so
+// left-click keeps doing its usual job (box-select over empty canvas, node
+// body drag, and GraphScene's own side-handle connection drag -- all of
+// which go through QGraphicsItem/QGraphicsScene machinery untouched by any
+// of this). Kept here rather than its own file pair: it's a small set of
+// overrides, not worth a second header/source for.
 class GraphView : public QGraphicsView {
   Q_OBJECT
 public:
@@ -20,6 +23,19 @@ public:
 
 protected:
   void wheelEvent(QWheelEvent *event) override;
+  // Right button starts/stops a pan; panning_ + last_pan_pos_ track it
+  // across the move events in between. Handled by hand (scrollbar deltas)
+  // rather than via QGraphicsView::ScrollHandDrag, since that mode is
+  // wired to the left button and switching it in and out per-press is what
+  // broke left-click's own drag gestures (box-select, node-drag,
+  // side-handle connection-drag) before.
+  void mousePressEvent(QMouseEvent *event) override;
+  void mouseMoveEvent(QMouseEvent *event) override;
+  void mouseReleaseEvent(QMouseEvent *event) override;
+
+private:
+  bool panning_ = false;
+  QPoint last_pan_pos_;
 };
 
 // A Qt node-graph editor for authoring .conversation files (see
