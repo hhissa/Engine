@@ -2,12 +2,14 @@
 #include <QGraphicsView>
 #include <QMainWindow>
 #include <QPoint>
+#include <QPointF>
 
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
 class GraphScene;
 class QuestionNode;
+class ConnectionItem;
 
 // QGraphicsView with wheel-to-zoom and right-click-drag panning -- otherwise
 // a plain view over GraphScene, left in RubberBandDrag mode throughout so
@@ -34,6 +36,17 @@ protected:
   void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
+  // Right-clicking directly on a ConnectionItem shows a context menu
+  // ("Insert Node Here" / "Delete Connection") instead of starting the
+  // usual right-click pan -- called from mousePressEvent() before it falls
+  // through to the panning_ = true path below. click_scene_pos is where the
+  // click landed in scene coordinates, both for GraphScene::
+  // insert_node_on_connection()'s pos argument and to reuse as the menu's
+  // own popup position (global_pos).
+  void show_connection_menu(ConnectionItem *connection, QPointF click_scene_pos,
+                            QPoint global_pos);
+
+  GraphScene *scene_;
   bool panning_ = false;
   QPoint last_pan_pos_;
 };

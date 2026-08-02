@@ -2,6 +2,7 @@ CMakeFiles/conversation_editor.dir/conversation_editor_autogen/mocs_compilation.
   /home/bumbandit/Projects/Engine/tools/conversation_editor/build/conversation_editor_autogen/mocs_compilation.cpp \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/build/conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/build/conversation_editor_autogen/UVLADIE3JM/../../../src/graph_scene.h \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/build/conversation_editor_autogen/UVLADIE3JM/../../../src/connection_item.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/build/conversation_editor_autogen/UVLADIE3JM/../../../src/question_node.h \
   /usr/include/qt6/QtWidgets/QGraphicsObject \
   /usr/include/qt6/QtWidgets/qgraphicsitem.h \
@@ -447,6 +448,7 @@ CMakeFiles/conversation_editor.dir/conversation_editor_autogen/mocs_compilation.
   /usr/include/qt6/QtGui/qrgba64.h /usr/include/qt6/QtGui/qimage.h \
   /usr/include/qt6/QtGui/qpixelformat.h /usr/include/qt6/QtCore/QRectF \
   /usr/include/qt6/QtCore/QString /usr/include/qt6/QtCore/QStringList \
+  /usr/include/qt6/QtWidgets/QGraphicsPathItem \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/resources/conversation.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/resources/../defines.h \
   /usr/include/qt6/QtWidgets/QGraphicsScene \

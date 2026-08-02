@@ -26,6 +26,7 @@ question "Say hello to the cameras!" {
                     answer=Cool.
 
                     question "Alright then, let's get started." {
+                        id=shared1
                         tag=Normal
                         answer=Yeah, I've gotta see Herve after this.
 
@@ -78,22 +79,137 @@ question "Say hello to the cameras!" {
                                 tag=DoorScene1
                                 answer=Sure, I don't think I've ever told you this story.
                                 answer=I guess I should start at the bathroom door.
-                                answer=In my house, there's this blue door.
-                                answer=It makes this horrible hollow sound when you knock.
+                                answer=In my house, there's this blue bathroom door.
+                                answer=It makes this horrible rattling sound when you knock.
+                                answer=Anyway, one April I decided I was going to take my own life.
+                                answer=I closed that blue door, I locked it and I took a razor blade to my wrists.
+                                answer=It wasn't long after that that I heard the horrible rattle of the blue door.
+                                answer=My little sister was knocking.
 
-                                question "Why is that important?" {
+                                question ""Herve, hurry up I need to pee."" {
                                     tag=DoorScene1
-                                    answer=Just wait.
+                                    answer="Go away."
 
-                                    question "Anyway, I'll " {
-                                    }
-                                }
+                                    question ""Are you taking a bath? You better not finish all the hot water."" {
+                                        tag=DoorScene1
+                                        answer="Maggy, I'm sorry."
+                                        answer="Please just go away."
+                                        answer=It must have been ten minutes when she came back.
+                                        answer=I was starting to fade in and out of conciousness.
 
-                                question "Can you make the noise for the camera?" {
-                                    answer=Hahahaha
-                                    answer=no.
+                                        question ""Herve, get out of the bathroom, I'm going to pee my pants." {
+                                            tag=DoorScene1
+                                            answer=...
 
-                                    question "Anyway, I'll " {
+                                            question ""Herve, are you there?"" {
+                                                tag=DoorScene1
+                                                answer="Maggy..."
+
+                                                question "What happened next?" {
+                                                    tag=DoorScene1
+                                                    answer=She knocked.
+                                                    answer=Pretty soon she was banging on the door.
+                                                    answer=That horrible rattling sound got louder.
+                                                    answer=Louder and Louder.
+                                                    answer=It's selfish of me, but in that moment all I wanted was for that noise to stop.
+
+                                                    question "What did you do?" {
+                                                        tag=DoorScene2
+                                                        answer=The only thing I could do to make that horrible rattling stop.
+                                                        answer=I gathered what little strength I had left.
+                                                        answer=I dragged myself out of the tub.
+                                                        answer=I dragged myself across the cold tiles, and I opened the door.
+                                                        answer=I'll never forget the look on her face.
+                                                        answer=It was the last thing I remember seeing before I passed out for good.
+
+                                                        question "Why did you do it? Why try to end your life?" {
+                                                            tag=Normal
+                                                            answer=You know people think gravity is a undiscriminating force.
+                                                            answer=That it affects all people the same way.
+                                                            answer=This isn't true.
+
+                                                            question "What do you mean?" {
+                                                                tag=Normal
+                                                                answer=When you're sick with something like this.
+                                                                answer=The force of gravity is stronger.
+                                                                answer=Everything is more difficult.
+                                                                answer=And so you're left with two options.
+                                                                answer=You can wake up everyday, and fight against a force of nature.
+                                                                answer=Or buckle.
+                                                                answer=Its not a battle you can win, you know.
+                                                                answer=It's just something you can survive.
+                                                            }
+                                                        }
+
+                                                        question "I'm so sorry Herve." {
+                                                            tag=Normal
+                                                            answer=Don't be.
+                                                            answer=I'm doing great now.
+                                                            answer=I'm happy.
+                                                        }
+
+                                                        question "Do you regret it?" {
+                                                            tag=Normal
+                                                            answer=A part of me does.
+                                                            answer=The other part of me believes that i deserved to have that happen to me.
+                                                            answer=Don't misunderstand me, I would never attempt it again.
+
+                                                            question "But?" {
+                                                                tag=Normal
+                                                                answer=I just know that what happened to me happened for a reason.
+                                                                answer=That no matter how difficult it was me that chose to give up.
+
+                                                                question "And that means you deserved it?" {
+                                                                    tag=Normal
+                                                                    answer=You wouldn't get it.
+                                                                    answer=Lets move on?
+
+                                                                    question "Okay, but before we do I want to tell you something." {
+                                                                        tag=Normal
+                                                                        answer=What's that?
+
+                                                                        question "You should be kinder to yourself." {
+                                                                            tag=Normal
+                                                                            answer=...
+
+                                                                            question "No one deserves that." {
+                                                                                tag=Normal
+                                                                                answer=Thank you.
+                                                                                answer=Now let's move on.
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                                                        question "Was your sister okay?" {
+                                                            tag=Normal
+                                                            answer=Not at first no, she was inconsolable.
+                                                            answer=It took her a couple days to re-adjust.
+                                                            answer=Pretty soon, she was back to normal.
+                                                            answer=That's one thing they don't tell you about suicide.
+
+                                                            question "What's that?" {
+                                                                tag=Normal
+                                                                answer=You know, I don't think I've fully processed it yet.
+                                                                answer=My suicide...
+                                                                answer=but the world doesn't stop so you can process.
+                                                                answer=and people don't wait for you.
+                                                                answer=By the time I was out of the hospital...
+                                                                answer=Anyway, she had already processed it.
+                                                            }
+                                                        }
+
+                                                        question "We dont have to talk about this anymore." {
+                                                            tag=Normal
+                                                            loop_to=shared1
+                                                            answer=Thank you.
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

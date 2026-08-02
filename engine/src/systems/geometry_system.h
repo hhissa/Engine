@@ -44,6 +44,17 @@ enum class LayerOperation : u32 {
   Subtraction = 1,
 };
 
+// Mirrors SdfRepetitionMode (sdf_scene.h) value-for-value -- see its comment
+// for exactly what cell/count mean per mode. None means a plain, unrepeated
+// primitive (cell/count are ignored entirely).
+enum class RepetitionMode : u32 {
+  None = 0,
+  Infinite = 1,
+  Limited = 2,
+  Rotational = 3,
+  Rectangular = 4,
+};
+
 // One layer's combine rule. Geometry::layer indexes into
 // GeometrySystem::layers() to find the SceneLayer it belongs to -- a layer
 // can hold as many primitives as you like, and this operation/smoothness
@@ -79,6 +90,13 @@ struct GeometryConfig {
   // text only; VulkanRaymarchShader::rebuild_static_scene() compiles it
   // (via compile_expression()) at GPU-upload time.
   std::array<std::string, 4> param_expressions;
+  // Domain repetition -- see SdfPrimitiveDef::repetition_mode's comment
+  // (sdf_scene.h) for exactly what each mode does with cell/count; mirrored
+  // here verbatim, exactly like every other primitive attribute in this
+  // struct.
+  RepetitionMode repetition_mode = RepetitionMode::None;
+  glm::vec3 repetition_cell{1.0f};
+  glm::vec3 repetition_count{1.0f};
   std::string material_name;
 
   static GeometryConfig sphere(std::string name, glm::vec3 position,
@@ -118,6 +136,13 @@ struct Geometry {
   // resolve_params() in Builtin.SdfSceneCommon.inc.glsl). 1 = unscaled;
   // ignored for slots with no formula.
   f32 param_expr_scale = 1.0f;
+  // Domain repetition -- see GeometryConfig::repetition_mode above.
+  // repetition_cell is a length (like position/params), scaled in lockstep
+  // by scale_scene() the same way those are; repetition_count is a plain
+  // instance count and never scales.
+  RepetitionMode repetition_mode = RepetitionMode::None;
+  glm::vec3 repetition_cell{1.0f};
+  glm::vec3 repetition_count{1.0f};
   // Accumulated uniform scale applied to this primitive's *effective*
   // texture_scale (world units per texture tile -- see Material::
   // texture_scale) at upload time: effective = material->texture_scale *

@@ -1,4 +1,5 @@
 #pragma once
+#include "connection_item.h"
 #include "question_node.h"
 
 #include <resources/conversation.h>
@@ -8,33 +9,48 @@
 
 #include <vector>
 
-class ConnectionItem;
 class QGraphicsPathItem;
 
 // Owns the conversation graph: QuestionNode items and the ConnectionItems
-// between them. A connection is directed (source -> target) and means
-// "target is a follow-up of source" -- see QuestionNode's own comment.
-// Neither incoming nor outgoing connections are capped: a straight chain
-// (Q1 -> Q2 -> Q3 -> Q4) is exactly as valid as a branching tree, and
-// several different questions can all connect INTO the same node -- a
-// merge point, letting a handful of different follow-up threads all
+// between them. A FollowUp-kind connection is directed (source -> target)
+// and means "target is a follow-up of source" -- see QuestionNode's own
+// comment. Neither incoming nor outgoing FollowUp connections are capped: a
+// straight chain (Q1 -> Q2 -> Q3 -> Q4) is exactly as valid as a branching
+// tree, and several different questions can all connect INTO the same node
+// -- a merge point, letting a handful of different follow-up threads all
 // converge back onto one shared next question once whichever one the
-// player actually took is exhausted. A node with zero incoming
+// player actually took is exhausted. A node with zero incoming FollowUp
 // connections is a top-level question; connecting FROM a node makes the
 // target a follow-up of it, to any depth ("nodes without any connections
 // exist at the top level, nodes connected to them are subquestions").
 //
-// The .conversation file format itself is still a plain tree (see
-// engine/src/resources/conversation.h -- each question's follow_ups is a
-// vector it owns outright, not a reference to something shared), so a
-// merge point isn't written once and pointed at twice: to_conversation()
-// walks every incoming edge into a merged node and re-serializes that
-// node's *entire* subtree once per edge, producing one textually-identical
-// copy under each parent. In play, that's indistinguishable from a real
-// shared destination -- whichever branch the player actually took leads to
-// its own copy of the same question -- it just costs some duplication in
-// the saved file rather than in the editor, where you still only ever
-// author and edit that question once.
+// A Loop-kind connection (see ConnectionItem::Kind) is different: it means
+// "once source's answer finishes, jump back to target" rather than
+// "target is a follow-up of source" -- see resources/conversation.h's
+// `loop_to=`. Dragging a connection that would otherwise create a cycle
+// (target can already reach source by following existing FollowUp
+// connections -- i.e. target is one of source's own ancestors) produces a
+// Loop connection instead of being rejected -- see would_create_cycle()
+// and mouseReleaseEvent(). Loop connections are deliberately excluded from
+// the tree-shape bookkeeping below (would_create_cycle()'s reachability
+// walk, has_incoming_connection(), to_conversation()'s follow_ups walk) --
+// a node can have at most one outgoing Loop connection (dragging a new one
+// from the same source replaces the old), but any number of incoming ones.
+//
+// The .conversation file format itself is still a plain tree for FollowUp
+// edges (see engine/src/resources/conversation.h -- each question's
+// follow_ups is a vector it owns outright, not a reference to something
+// shared), so a merge point isn't written once and pointed at twice:
+// to_conversation() walks every incoming FollowUp edge into a merged node
+// and re-serializes that node's *entire* subtree once per edge, producing
+// one textually-identical copy under each parent. In play, that's
+// indistinguishable from a real shared destination -- whichever branch the
+// player actually took leads to its own copy of the same question -- it
+// just costs some duplication in the saved file rather than in the editor,
+// where you still only ever author and edit that question once. A Loop
+// edge's target gets the same `id=` treatment for exactly the same reason,
+// but its source references it with `loop_to=` instead of being
+// duplicated under it.
 //
 // Connections are made by dragging from the midpoint of one of a node's
 // four sides (see QuestionNode::side_at()) to another node, snapping to
@@ -79,9 +95,24 @@ public:
   // everything else about the graph is unaffected.
   void remove_connection(ConnectionItem *connection);
 
-  // True if node has at least one incoming connection (i.e. it's a
-  // follow-up of something, whether one parent or several merging into
-  // it) -- false means node is top-level.
+  // Splits connection in two by inserting a freshly spawned node between
+  // its source and target, centered on pos (typically wherever the user
+  // right-clicked along the curve -- see GraphView's context menu in
+  // main_window.cpp): connection's source keeps its original side and now
+  // points at the new node instead, the new node points onward to
+  // connection's original target via its original side, and connection
+  // itself is removed. Both new edges carry connection's own Kind (Loop
+  // splits into two Loop legs same as FollowUp splits into two FollowUp
+  // legs) -- whichever it was, "jump to/continue to X" becomes "jump
+  // to/continue to the new node, which does the same to X". Returns the
+  // new node, selected the same way a drag-to-empty-canvas spawn is (see
+  // mouseReleaseEvent()), ready for its question text to be typed in.
+  QuestionNode *insert_node_on_connection(ConnectionItem *connection, QPointF pos);
+
+  // True if node has at least one incoming FollowUp connection (i.e. it's
+  // a follow-up of something, whether one parent or several merging into
+  // it) -- false means node is top-level. Incoming Loop connections don't
+  // count -- being a loop_to= target doesn't nest a node under anything.
   bool has_incoming_connection(QuestionNode *node) const;
 
   // Clears every node/connection -- used by MainWindow's "New" action and
@@ -115,11 +146,14 @@ public:
   // load_from_conversation(), which builds connections directly from
   // already-validated (by construction -- it's a tree on disk) file data.
   // Public so free helper functions building a graph programmatically
-  // (see graph_scene.cpp's place()) can call it without needing to be
-  // members; callers driving this from user interaction should go through
-  // the normal drag gesture instead, which enforces no-cycles.
+  // (see graph_scene.cpp's place()/connect_loop_edges()) can call it
+  // without needing to be members; callers driving this from user
+  // interaction should go through the normal drag gesture instead, which
+  // enforces no-cycles (turning a would-be cycle into a Loop connection
+  // instead -- see the class comment).
   void connect_nodes(QuestionNode *source, QuestionNode::Side source_side,
-                     QuestionNode *target, QuestionNode::Side target_side);
+                     QuestionNode *target, QuestionNode::Side target_side,
+                     ConnectionItem::Kind kind = ConnectionItem::Kind::FollowUp);
 
 signals:
   // Fired whenever the selection settles on exactly one node (nullptr if
@@ -139,10 +173,15 @@ private slots:
 private:
   // True if connecting source -> target would create a cycle -- i.e.
   // target can already reach source by following zero or more existing
-  // outgoing connections (a plain graph reachability search from target;
-  // with merge points allowed, a node can have more than one parent, so
-  // this can no longer just walk a single-parent chain) -- see
-  // mouseReleaseEvent().
+  // outgoing FollowUp connections (a plain graph reachability search from
+  // target; with merge points allowed, a node can have more than one
+  // parent, so this can no longer just walk a single-parent chain) -- see
+  // mouseReleaseEvent(), which treats "would create a cycle" as "make this
+  // a Loop connection instead of a FollowUp one" rather than as a rejected
+  // drag. Deliberately ignores existing Loop connections when walking
+  // reachability -- they're expected to close cycles by design, and
+  // letting them count here would make nearly every later drag look
+  // cycle-forming once even one Loop connection exists.
   bool would_create_cycle(QuestionNode *source, QuestionNode *target) const;
 
   // Removes connection from connections_ and un-marks both endpoints'

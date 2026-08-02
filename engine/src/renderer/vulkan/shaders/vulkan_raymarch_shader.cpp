@@ -225,6 +225,16 @@ struct GpuPrimitive {
   // that field's comment); yzw unused padding, kept as a full vec4 so the
   // std430 layout stays a whole number of vec4s on both sides.
   f32 expr_scale[4];
+  // Domain repetition (see https://iquilezles.org/articles/sdfrepetition/
+  // and Builtin.SdfSceneCommon.inc.glsl's Primitive struct comment): x =
+  // Geometry::repetition_mode as a float (0 = None, the zero-init default --
+  // left untouched for a volumetric, which never repeats, see
+  // rebuild_static_scene() below); yzw = Geometry::repetition_cell.xyz.
+  f32 repeat_mode_cell[4];
+  // Geometry::repetition_count.xyz; w unused padding, kept as a full vec4 so
+  // the std430 layout stays a whole number of vec4s on both sides, matching
+  // every other GPU-side struct here.
+  f32 repeat_count[4];
 };
 
 // Matches the `Layer` struct in Builtin.RaymarchVoxelize.comp.glsl.
@@ -1058,6 +1068,16 @@ void VulkanRaymarchShader::rebuild_static_scene() {
                           geometry.material->emissive_intensity;
       prim.expr_scale[3] = geometry.material->emissive_colour.b *
                           geometry.material->emissive_intensity;
+
+      prim.repeat_mode_cell[0] =
+          static_cast<f32>(static_cast<u32>(geometry.repetition_mode));
+      prim.repeat_mode_cell[1] = geometry.repetition_cell.x;
+      prim.repeat_mode_cell[2] = geometry.repetition_cell.y;
+      prim.repeat_mode_cell[3] = geometry.repetition_cell.z;
+      prim.repeat_count[0] = geometry.repetition_count.x;
+      prim.repeat_count[1] = geometry.repetition_count.y;
+      prim.repeat_count[2] = geometry.repetition_count.z;
+      prim.repeat_count[3] = 0.0f;
 
       // Compile each slot's "parametric attribute" formula, if it has one
       // -- an empty string (the default) or a compile failure both just

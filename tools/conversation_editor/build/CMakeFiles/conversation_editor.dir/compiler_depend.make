@@ -483,6 +483,7 @@ conversation_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/sr
   /usr/include/qt6/QtGui/qtransform.h \
   /usr/include/qt6/QtGui/qwindowdefs.h \
   /usr/include/qt6/QtWidgets/QGraphicsObject \
+  /usr/include/qt6/QtWidgets/QGraphicsPathItem \
   /usr/include/qt6/QtWidgets/QGraphicsScene \
   /usr/include/qt6/QtWidgets/QGraphicsView \
   /usr/include/qt6/QtWidgets/QMainWindow \
@@ -873,83 +874,23 @@ conversation_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/sr
   /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsTargets.cmake \
   /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsTargetsPrecheck.cmake \
   /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsVersionlessTargets.cmake \
-  /usr/share/cmake/Modules/CMakeCXXCompiler.cmake.in \
-  /usr/share/cmake/Modules/CMakeCXXCompilerABI.cpp \
   /usr/share/cmake/Modules/CMakeCXXInformation.cmake \
   /usr/share/cmake/Modules/CMakeCheckCompilerFlagCommonPatterns.cmake \
   /usr/share/cmake/Modules/CMakeCommonLanguageInclude.cmake \
-  /usr/share/cmake/Modules/CMakeCompilerIdDetection.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCompiler.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCompilerABI.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCompilerId.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCompilerSupport.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineSystem.cmake \
-  /usr/share/cmake/Modules/CMakeFindBinUtils.cmake \
   /usr/share/cmake/Modules/CMakeFindDependencyMacro.cmake \
   /usr/share/cmake/Modules/CMakeGenericSystem.cmake \
   /usr/share/cmake/Modules/CMakeInitializeConfigs.cmake \
   /usr/share/cmake/Modules/CMakeLanguageInformation.cmake \
-  /usr/share/cmake/Modules/CMakeParseImplicitIncludeInfo.cmake \
-  /usr/share/cmake/Modules/CMakeParseImplicitLinkInfo.cmake \
-  /usr/share/cmake/Modules/CMakeParseLibraryArchitecture.cmake \
-  /usr/share/cmake/Modules/CMakeSystem.cmake.in \
   /usr/share/cmake/Modules/CMakeSystemSpecificInformation.cmake \
   /usr/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake \
-  /usr/share/cmake/Modules/CMakeTestCXXCompiler.cmake \
-  /usr/share/cmake/Modules/CMakeTestCompilerCommon.cmake \
-  /usr/share/cmake/Modules/CMakeUnixFindMake.cmake \
   /usr/share/cmake/Modules/CheckCXXCompilerFlag.cmake \
   /usr/share/cmake/Modules/CheckCXXSourceCompiles.cmake \
   /usr/share/cmake/Modules/CheckIncludeFileCXX.cmake \
   /usr/share/cmake/Modules/CheckLibraryExists.cmake \
-  /usr/share/cmake/Modules/Compiler/ADSP-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/ARMCC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/ARMClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/AppleClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Borland-DetermineCompiler.cmake \
   /usr/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake \
   /usr/share/cmake/Modules/Compiler/Clang-CXX.cmake \
-  /usr/share/cmake/Modules/Compiler/Clang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Clang-DetermineCompilerInternal.cmake \
-  /usr/share/cmake/Modules/Compiler/Clang-FindBinUtils.cmake \
   /usr/share/cmake/Modules/Compiler/Clang.cmake \
-  /usr/share/cmake/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Cray-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/CrayClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Diab-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Embarcadero-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Fujitsu-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/GHS-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake \
   /usr/share/cmake/Modules/Compiler/GNU.cmake \
-  /usr/share/cmake/Modules/Compiler/HP-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/IAR-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake \
-  /usr/share/cmake/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Intel-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/MSVC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/NVHPC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/NVIDIA-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/OrangeC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/PGI-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/PathScale-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/PellesC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Renesas-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/SCO-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/TI-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/TIClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Tasking-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Watcom-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/XL-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake \
   /usr/share/cmake/Modules/FindOpenGL.cmake \
   /usr/share/cmake/Modules/FindPackageHandleStandardArgs.cmake \
   /usr/share/cmake/Modules/FindPackageMessage.cmake \
@@ -958,12 +899,9 @@ conversation_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/sr
   /usr/share/cmake/Modules/GNUInstallDirs.cmake \
   /usr/share/cmake/Modules/Internal/CMakeCXXLinkerInformation.cmake \
   /usr/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake \
-  /usr/share/cmake/Modules/Internal/CMakeDetermineLinkerId.cmake \
-  /usr/share/cmake/Modules/Internal/CMakeInspectCXXLinker.cmake \
   /usr/share/cmake/Modules/Internal/CheckCompilerFlag.cmake \
   /usr/share/cmake/Modules/Internal/CheckFlagCommonConfig.cmake \
   /usr/share/cmake/Modules/Internal/CheckSourceCompiles.cmake \
-  /usr/share/cmake/Modules/Internal/FeatureTesting.cmake \
   /usr/share/cmake/Modules/Linker/GNU-CXX.cmake \
   /usr/share/cmake/Modules/Linker/GNU.cmake \
   /usr/share/cmake/Modules/MacroAddFileDependencies.cmake \
@@ -971,7 +909,6 @@ conversation_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/sr
   /usr/share/cmake/Modules/Platform/Linker/Linux-GNU-CXX.cmake \
   /usr/share/cmake/Modules/Platform/Linker/Linux-GNU.cmake \
   /usr/share/cmake/Modules/Platform/Linux-Clang-CXX.cmake \
-  /usr/share/cmake/Modules/Platform/Linux-Determine-CXX.cmake \
   /usr/share/cmake/Modules/Platform/Linux-GNU-CXX.cmake \
   /usr/share/cmake/Modules/Platform/Linux-GNU.cmake \
   /usr/share/cmake/Modules/Platform/Linux-Initialize.cmake \
@@ -981,6 +918,7 @@ conversation_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/sr
 CMakeFiles/conversation_editor.dir/conversation_editor_autogen/mocs_compilation.cpp.o: conversation_editor_autogen/mocs_compilation.cpp \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/conversation.h \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/connection_item.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/graph_scene.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/main_window.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/question_node.h \
@@ -1320,6 +1258,7 @@ CMakeFiles/conversation_editor.dir/conversation_editor_autogen/mocs_compilation.
   /usr/include/locale.h \
   /usr/include/math.h \
   /usr/include/pthread.h \
+  /usr/include/qt6/QtCore/QPoint \
   /usr/include/qt6/QtCore/QPointF \
   /usr/include/qt6/QtCore/QRectF \
   /usr/include/qt6/QtCore/QString \
@@ -1485,6 +1424,7 @@ CMakeFiles/conversation_editor.dir/conversation_editor_autogen/mocs_compilation.
   /usr/include/qt6/QtGui/qtransform.h \
   /usr/include/qt6/QtGui/qwindowdefs.h \
   /usr/include/qt6/QtWidgets/QGraphicsObject \
+  /usr/include/qt6/QtWidgets/QGraphicsPathItem \
   /usr/include/qt6/QtWidgets/QGraphicsScene \
   /usr/include/qt6/QtWidgets/QGraphicsView \
   /usr/include/qt6/QtWidgets/QMainWindow \
@@ -2099,6 +2039,8 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o: /home/bumbandit/Pr
   /usr/include/c++/16/bits/functexcept.h \
   /usr/include/c++/16/bits/functional_hash.h \
   /usr/include/c++/16/bits/hash_bytes.h \
+  /usr/include/c++/16/bits/hashtable.h \
+  /usr/include/c++/16/bits/hashtable_policy.h \
   /usr/include/c++/16/bits/invoke.h \
   /usr/include/c++/16/bits/ios_base.h \
   /usr/include/c++/16/bits/istream.tcc \
@@ -2120,6 +2062,7 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o: /home/bumbandit/Pr
   /usr/include/c++/16/bits/new_allocator.h \
   /usr/include/c++/16/bits/new_except.h \
   /usr/include/c++/16/bits/new_throw.h \
+  /usr/include/c++/16/bits/node_handle.h \
   /usr/include/c++/16/bits/ostream.h \
   /usr/include/c++/16/bits/ostream.tcc \
   /usr/include/c++/16/bits/ostream_insert.h \
@@ -2157,6 +2100,7 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o: /home/bumbandit/Pr
   /usr/include/c++/16/bits/unicode-data.h \
   /usr/include/c++/16/bits/unicode.h \
   /usr/include/c++/16/bits/uniform_int_dist.h \
+  /usr/include/c++/16/bits/unordered_map.h \
   /usr/include/c++/16/bits/uses_allocator.h \
   /usr/include/c++/16/bits/uses_allocator_args.h \
   /usr/include/c++/16/bits/utility.h \
@@ -2178,6 +2122,7 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o: /home/bumbandit/Pr
   /usr/include/c++/16/debug/assertions.h \
   /usr/include/c++/16/debug/debug.h \
   /usr/include/c++/16/exception \
+  /usr/include/c++/16/ext/aligned_buffer.h \
   /usr/include/c++/16/ext/alloc_traits.h \
   /usr/include/c++/16/ext/atomicity.h \
   /usr/include/c++/16/ext/numeric_traits.h \
@@ -2205,6 +2150,7 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o: /home/bumbandit/Pr
   /usr/include/c++/16/tuple \
   /usr/include/c++/16/type_traits \
   /usr/include/c++/16/typeinfo \
+  /usr/include/c++/16/unordered_map \
   /usr/include/c++/16/vector \
   /usr/include/c++/16/x86_64-pc-linux-gnu/bits/atomic_word.h \
   /usr/include/c++/16/x86_64-pc-linux-gnu/bits/basic_file.h \
@@ -2338,6 +2284,8 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o: /home/bumbandit/Pr
   /usr/lib/clang/22/include/stdint.h
 
 CMakeFiles/conversation_editor.dir/src/graph_scene.cpp.o: /home/bumbandit/Projects/Engine/tools/conversation_editor/src/graph_scene.cpp \
+  /home/bumbandit/Projects/Engine/engine/src/defines.h \
+  /home/bumbandit/Projects/Engine/engine/src/core/logger.h \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/conversation.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/connection_item.h \
@@ -3216,6 +3164,7 @@ CMakeFiles/conversation_editor.dir/src/main.cpp.o: /home/bumbandit/Projects/Engi
   /usr/include/locale.h \
   /usr/include/math.h \
   /usr/include/pthread.h \
+  /usr/include/qt6/QtCore/QPoint \
   /usr/include/qt6/QtCore/q17memory.h \
   /usr/include/qt6/QtCore/q20bit.h \
   /usr/include/qt6/QtCore/q20functional.h \
@@ -3439,6 +3388,7 @@ CMakeFiles/conversation_editor.dir/src/main.cpp.o: /home/bumbandit/Projects/Engi
 CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projects/Engine/tools/conversation_editor/src/main_window.cpp \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/conversation.h \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/connection_item.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/conversation_io.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/graph_scene.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/main_window.h \
@@ -3786,6 +3736,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projec
   /usr/include/pthread.h \
   /usr/include/qt6/QtCore/QList \
   /usr/include/qt6/QtCore/QObject \
+  /usr/include/qt6/QtCore/QPoint \
   /usr/include/qt6/QtCore/QPointF \
   /usr/include/qt6/QtCore/QRect \
   /usr/include/qt6/QtCore/QRectF \
@@ -3994,6 +3945,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projec
   /usr/include/qt6/QtWidgets/QFileDialog \
   /usr/include/qt6/QtWidgets/QFormLayout \
   /usr/include/qt6/QtWidgets/QGraphicsObject \
+  /usr/include/qt6/QtWidgets/QGraphicsPathItem \
   /usr/include/qt6/QtWidgets/QGraphicsScene \
   /usr/include/qt6/QtWidgets/QGraphicsView \
   /usr/include/qt6/QtWidgets/QGroupBox \
@@ -4006,6 +3958,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projec
   /usr/include/qt6/QtWidgets/QMainWindow \
   /usr/include/qt6/QtWidgets/QMessageBox \
   /usr/include/qt6/QtWidgets/QPushButton \
+  /usr/include/qt6/QtWidgets/QScrollBar \
   /usr/include/qt6/QtWidgets/QSizePolicy \
   /usr/include/qt6/QtWidgets/QVBoxLayout \
   /usr/include/qt6/QtWidgets/QWidget \
@@ -4038,6 +3991,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projec
   /usr/include/qt6/QtWidgets/qpushbutton.h \
   /usr/include/qt6/QtWidgets/qrubberband.h \
   /usr/include/qt6/QtWidgets/qscrollarea.h \
+  /usr/include/qt6/QtWidgets/qscrollbar.h \
   /usr/include/qt6/QtWidgets/qsizepolicy.h \
   /usr/include/qt6/QtWidgets/qslider.h \
   /usr/include/qt6/QtWidgets/qstyle.h \
@@ -4745,6 +4699,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/lib32/libXau.so.6:
 
+/usr/lib32/libX11.so.6:
+
 /usr/lib32/libX11-xcb.so.1:
 
 /usr/lib32/libGLdispatch.so.0:
@@ -4774,98 +4730,6 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 /usr/lib/libicudata.so.78:
 
 /usr/lib/libgraphite2.so.3:
-
-/usr/lib/libfreetype.so.6:
-
-/usr/lib/libfontconfig.so.1:
-
-/usr/lib/libexpat.so.1:
-
-/usr/lib/libdouble-conversion.so.3:
-
-/usr/lib/libc_nonshared.a:
-
-/usr/lib/libc.so.6:
-
-/usr/lib/libbz2.so.1.0:
-
-/usr/lib/libbrotlidec.so.1:
-
-/usr/lib/libbrotlicommon.so.1:
-
-/usr/lib/libb2.so.1:
-
-/usr/lib/libXdmcp.so.6:
-
-/usr/lib/libXau.so.6:
-
-/usr/lib/libX11.so.6:
-
-/usr/lib/libOpenGL.so:
-
-/usr/lib/libGLX.so:
-
-/usr/lib/libEGL.so.1:
-
-/usr/lib64/gcc/x86_64-pc-linux-gnu/16/libstdc++.so:
-
-/usr/lib64/gcc/x86_64-pc-linux-gnu/16/libgcc_s.so:
-
-/usr/lib64/gcc/x86_64-pc-linux-gnu/16/crtendS.o:
-
-/usr/lib64/libm.so:
-
-/usr/lib64/libgcc_s.so.1:
-
-/usr/lib64/libc.so:
-
-/usr/lib64/Scrt1.o:
-
-/home/bumbandit/Projects/Engine/bin/libengine.so:
-
-/usr/include/qt6/QtWidgets/QStyleOptionGraphicsItem:
-
-/usr/include/qt6/QtWidgets/QStyle:
-
-/usr/include/qt6/QtWidgets/QGraphicsSceneHoverEvent:
-
-/usr/include/qt6/QtGui/QFontMetrics:
-
-/usr/include/qt6/QtWidgets/qtabbar.h:
-
-/usr/include/qt6/QtWidgets/qstyleoption.h:
-
-/usr/include/qt6/QtWidgets/qstyle.h:
-
-/usr/include/qt6/QtWidgets/qpushbutton.h:
-
-/usr/include/qt6/QtWidgets/qlistview.h:
-
-/usr/include/qt6/QtWidgets/qlineedit.h:
-
-/usr/include/qt6/QtWidgets/qlayoutitem.h:
-
-/usr/include/qt6/QtWidgets/qlabel.h:
-
-/usr/include/qt6/QtWidgets/qinputdialog.h:
-
-/usr/include/qt6/QtWidgets/qgroupbox.h:
-
-/usr/include/qt6/QtWidgets/qgridlayout.h:
-
-/usr/include/qt6/QtWidgets/qformlayout.h:
-
-/usr/include/qt6/QtWidgets/qfiledialog.h:
-
-/usr/include/qt6/QtWidgets/qdialogbuttonbox.h:
-
-/usr/include/qt6/QtWidgets/qboxlayout.h:
-
-/usr/lib/cmake/Qt6/QtPublicCMakeEarlyPolicyHelpers.cmake:
-
-/usr/include/c++/16/bits/ptr_traits.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/include/qt6/QtWidgets/QLineEdit:
 
@@ -4917,6 +4781,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/stdlib.h:
 
+/usr/include/qt6/QtWidgets/qslider.h:
+
 /usr/include/qt6/QtWidgets/qtwidgetsglobal.h:
 
 /usr/include/bits/posix2_lim.h:
@@ -4925,9 +4791,13 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevKeyboardPluginAdditionalTargetInfo.cmake:
 
+/usr/include/qt6/QtWidgets/QGraphicsPathItem:
+
 /usr/lib/clang/22/include/__stddef_offsetof.h:
 
 /usr/include/qt6/QtGui/qtguiglobal.h:
+
+/usr/include/qt6/QtWidgets/qlineedit.h:
 
 /usr/include/c++/16/optional:
 
@@ -4961,6 +4831,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/lib/clang/22/include/stddef.h:
 
+/usr/include/c++/16/list:
+
 /usr/include/bits/libc-header-start.h:
 
 /usr/include/qt6/QtGui/qpalette.h:
@@ -4975,6 +4847,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/c++/16/bits/nested_exception.h:
 
+/usr/lib/libXau.so.6:
+
 /usr/lib/cmake/Qt6/QtFeature.cmake:
 
 /usr/include/qt6/QtGui/qpaintdevice.h:
@@ -4986,10 +4860,6 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 /usr/include/locale.h:
 
 /usr/include/c++/16/bits/alloc_traits.h:
-
-/usr/include/qt6/QtWidgets/qabstractspinbox.h:
-
-/usr/include/qt6/QtCore/qtcoreglobal.h:
 
 /usr/include/gnu/stubs.h:
 
@@ -5013,6 +4883,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/qt6/QtCore/qstringfwd.h:
 
+/usr/include/qt6/QtCore/qregularexpression.h:
+
 /usr/include/c++/16/bits/fstream.tcc:
 
 /usr/include/qt6/QtCore/qstring.h:
@@ -5027,6 +4899,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/qt6/QtCore/qcalendar.h:
 
+/usr/lib/libOpenGL.so:
+
 /usr/include/qt6/QtCore/qobjectdefs_impl.h:
 
 /usr/include/qt6/QtCore/qobjectdefs.h:
@@ -5039,11 +4913,11 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/qt6/QtCore/qobject.h:
 
+/usr/include/qt6/QtCore/qnumeric.h:
+
 /usr/lib/cmake/Qt6Gui/Qt6QGifPluginTargets-relwithdebinfo.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QIbusPlatformInputContextPluginTargets.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineSystem.cmake:
 
 /usr/include/qt6/QtCore/qmetatype.h:
 
@@ -5065,13 +4939,13 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/qt6/QtCore/qmalloc.h:
 
+/usr/lib64/libc.so:
+
 /usr/include/qt6/QtGui/qcolor.h:
 
 /usr/include/qt6/QtCore/qlogging.h:
 
 /usr/include/bits/stdint-uintn.h:
-
-/usr/share/cmake/Modules/Compiler/MSVC-DetermineCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevTabletPluginTargets.cmake:
 
@@ -5088,6 +4962,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 /usr/include/qt6/QtCore/qsharedpointer_impl.h:
 
 /usr/include/qt6/QtCore/qfunctionaltools_impl.h:
+
+/usr/include/qt6/QtGui/qpolygon.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSKmsEglDeviceIntegrationPluginConfig.cmake:
 
@@ -5185,6 +5061,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/c++/16/atomic:
 
+/usr/include/errno.h:
+
 /usr/include/stdc-predef.h:
 
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/os_defines.h:
@@ -5201,9 +5079,9 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/error_constants.h:
 
-/usr/include/qt6/QtWidgets/qlistwidget.h:
+/usr/lib/libQt6Gui.so.6.11.1:
 
-/usr/include/c++/16/x86_64-pc-linux-gnu/bits/ctype_inline.h:
+/usr/include/qt6/QtCore/qstdlibdetection.h:
 
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/c++locale.h:
 
@@ -5237,6 +5115,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/c++/16/tr1/special_function_util.h:
 
+/usr/lib/libXdmcp.so.6:
+
 /usr/lib/cmake/Qt6/QtPublicSbomFileHelpers.cmake:
 
 /usr/include/qt6/QtCore/qdebug.h:
@@ -5253,7 +5133,7 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/sched.h:
 
-/usr/include/qt6/QtWidgets/QGraphicsPathItem:
+/usr/include/c++/16/bits/hashtable.h:
 
 /usr/include/c++/16/tr1/beta_function.tcc:
 
@@ -5270,6 +5150,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 /usr/include/c++/16/bits/stl_heap.h:
 
 /usr/include/bits/types/clockid_t.h:
+
+/usr/include/qt6/QtWidgets/QGraphicsSceneHoverEvent:
 
 /usr/include/c++/16/sstream:
 
@@ -5321,13 +5203,13 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/c++/16/bits/chrono_io.h:
 
+/usr/include/c++/16/typeinfo:
+
+/usr/include/c++/16/x86_64-pc-linux-gnu/bits/atomic_word.h:
+
 /usr/include/qt6/QtCore/qtclasshelpermacros.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QXcbGlxIntegrationPluginTargets-relwithdebinfo.cmake:
-
-/usr/include/errno.h:
-
-/usr/share/cmake/Modules/Internal/CMakeInspectCXXLinker.cmake:
 
 /usr/include/qt6/QtWidgets/QListWidget:
 
@@ -5379,21 +5261,15 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QXcbGlxIntegrationPluginTargets.cmake:
 
-/usr/lib/libQt6Core.so.6.11.1:
-
-/usr/include/qt6/QtCore/qspan.h:
-
 /usr/lib/cmake/Qt6Gui/Qt6QXcbIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/include/c++/16/pstl/execution_defs.h:
 
+/usr/include/c++/16/bits/allocator.h:
+
 /usr/include/bits/time64.h:
 
 /usr/include/qt6/QtGui/qtransform.h:
-
-/usr/lib64/crti.o:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandIntegrationPluginConfig.cmake:
 
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsTargetsPrecheck.cmake:
 
@@ -5415,7 +5291,11 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/qt6/QtCore/qtversionchecks.h:
 
+/usr/include/qt6/QtGui/QFontMetrics:
+
 /home/bumbandit/Projects/Engine/tools/conversation_editor/src/main.cpp:
+
+/usr/include/c++/16/bits/cpp_type_traits.h:
 
 /usr/include/sys/single_threaded.h:
 
@@ -5425,7 +5305,15 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/share/cmake/Modules/Internal/CheckCompilerFlag.cmake:
 
+/usr/include/c++/16/bits/basic_ios.h:
+
 /usr/include/qt6/QtCore/QString:
+
+/usr/include/c++/16/ratio:
+
+/usr/include/c++/16/ios:
+
+/usr/include/qt6/QtCore/qtnoop.h:
 
 /usr/include/qt6/QtCore/qsize.h:
 
@@ -5461,7 +5349,7 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/bits/types/timer_t.h:
 
-/usr/share/cmake/Modules/CMakeTestCXXCompiler.cmake:
+/usr/lib64/gcc/x86_64-pc-linux-gnu/16/libgcc_s.so:
 
 /usr/include/qt6/QtCore/qcompilerdetection.h:
 
@@ -5474,8 +5362,6 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandFullScreenShellV1IntegrationPluginTargets.cmake:
 
 /usr/include/bits/types/struct_itimerspec.h:
-
-/usr/share/cmake/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake:
 
 /usr/include/bits/types/sigset_t.h:
 
@@ -5507,9 +5393,9 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/qt6/QtGui/qvector2d.h:
 
-/usr/include/qt6/QtGui/qpainter.h:
-
 /usr/include/c++/16/tr1/hypergeometric.tcc:
+
+/usr/include/qt6/QtGui/qpainter.h:
 
 /home/bumbandit/Projects/Engine/tools/conversation_editor/src/main_window.h:
 
@@ -5517,19 +5403,21 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/qt6/QtGui/qvectornd.h:
 
+/usr/include/qt6/QtCore/qtaggedpointer.h:
+
 /usr/include/bits/types.h:
 
 /usr/lib/clang/22/include/__stdarg_va_copy.h:
 
 /usr/include/bits/timex.h:
 
+/usr/lib64/gcc/x86_64-pc-linux-gnu/16/crtendS.o:
+
 /usr/include/bits/errno.h:
 
 /usr/include/c++/16/bits/stl_map.h:
 
 /usr/include/c++/16/clocale:
-
-/usr/share/cmake/Modules/CMakeCompilerIdDetection.cmake:
 
 /usr/include/asm-generic/errno-base.h:
 
@@ -5575,6 +5463,8 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/c++/16/version:
 
+/usr/include/c++/16/bits/chrono.h:
+
 /usr/include/c++/16/tr1/bessel_function.tcc:
 
 /usr/include/qt6/QtCore/qpoint.h:
@@ -5599,17 +5489,9 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/c++/16/ext/type_traits.h:
 
-/usr/share/cmake/Modules/Compiler/TIClang-DetermineCompiler.cmake:
-
 /usr/include/c++/16/bits/ranges_cmp.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSEmulatorIntegrationPluginTargets.cmake:
-
-/usr/lib64/gcc/x86_64-pc-linux-gnu/16/libgcc.a:
-
-/usr/include/qt6/QtCore/QPointF:
-
-/usr/include/pthread.h:
 
 /usr/include/qt6/QtWidgets/QFormLayout:
 
@@ -5631,7 +5513,15 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/include/qt6/QtCore/qsharedpointer.h:
 
+/usr/include/qt6/QtWidgets/QMainWindow:
+
+/usr/bin/cmake:
+
 /usr/include/qt6/QtGui/qrgb.h:
+
+/usr/lib/cmake/Qt6/QtPublicSbomCpeHelpers.cmake:
+
+/usr/include/qt6/QtWidgets/qformlayout.h:
 
 /usr/include/bits/time.h:
 
@@ -5701,23 +5591,17 @@ conversation_editor_autogen/moc_predefs.h:
 
 /usr/include/c++/16/string_view:
 
-/usr/share/cmake/Modules/Compiler/ADSP-DetermineCompiler.cmake:
-
 /usr/lib/cmake/Qt6Gui/Qt6QIbusPlatformInputContextPluginConfig.cmake:
 
 /usr/include/bits/types/__fpos64_t.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6GuiConfigVersion.cmake:
 
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandIntegrationPluginConfig.cmake:
+
+/usr/lib64/crti.o:
+
 /usr/include/c++/16/bits/stl_uninitialized.h:
-
-/usr/lib/libGLdispatch.so.0:
-
-/usr/include/bits/types/__locale_t.h:
-
-/usr/include/qt6/QtWidgets/qtwidgetsexports.h:
-
-/usr/include/c++/16/cstring:
 
 /usr/include/qt6/QtGui/qtgui-config.h:
 
@@ -5737,19 +5621,7 @@ conversation_editor_autogen/moc_predefs.h:
 
 /usr/include/c++/16/bits/stl_tree.h:
 
-/usr/lib/libdbus-1.so.3:
-
-/usr/include/bits/stdint-intn.h:
-
-/usr/include/c++/16/cerrno:
-
 /usr/lib/cmake/Qt6Gui/Qt6QVkKhrDisplayIntegrationPluginAdditionalTargetInfo.cmake:
-
-/usr/lib64/gcc/x86_64-pc-linux-gnu/16/crtbeginS.o:
-
-CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
-
-/usr/include/c++/16/x86_64-pc-linux-gnu/bits/ctype_base.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QMinimalIntegrationPluginTargetsPrecheck.cmake:
 
@@ -5767,11 +5639,9 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSEmulatorIntegrationPluginTargets-relwithdebinfo.cmake:
 
-/usr/include/qt6/QtCore/qnumeric.h:
-
-/usr/share/cmake/Modules/Compiler/PathScale-DetermineCompiler.cmake:
-
 /usr/include/c++/16/bits/iterator_concepts.h:
+
+/usr/include/qt6/QtWidgets/qfiledialog.h:
 
 /usr/include/bits/byteswap.h:
 
@@ -5813,6 +5683,12 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/qt6/QtCore/q17memory.h:
 
+/usr/include/c++/16/bits/ptr_traits.h:
+
+/usr/lib/cmake/Qt6/QtPublicCMakeEarlyPolicyHelpers.cmake:
+
+/usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginTargetsPrecheck.cmake:
+
 /usr/include/wchar.h:
 
 /usr/include/bits/wordsize.h:
@@ -5820,6 +5696,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/bits/posix1_lim.h:
 
 /usr/include/c++/16/cctype:
+
+/usr/lib/libEGL.so.1:
 
 /usr/include/bits/pthreadtypes.h:
 
@@ -5899,7 +5777,11 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/qt6/QtCore/qfiledevice.h:
 
+/usr/lib/libc_nonshared.a:
+
 /usr/include/c++/16/bits/shared_ptr_atomic.h:
+
+/usr/include/qt6/QtWidgets/qlistview.h:
 
 /usr/include/c++/16/bits/exception_defines.h:
 
@@ -5921,13 +5803,13 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/qt6/QtCore/qprocessordetection.h:
 
+/usr/include/qt6/QtGui/qpainterpath.h:
+
 /usr/lib/cmake/Qt6Gui/Qt6QGtk3ThemePluginConfig.cmake:
 
 /usr/include/qt6/QtWidgets/qmainwindow.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QXdgDesktopPortalThemePluginTargets-relwithdebinfo.cmake:
-
-/usr/share/cmake/Modules/Internal/FeatureTesting.cmake:
 
 /usr/include/c++/16/bits/ios_base.h:
 
@@ -5946,10 +5828,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/cmake/Qt6Gui/Qt6QSvgPluginTargets.cmake:
 
 /usr/include/qt6/QtCore/qtmocconstants.h:
-
-/usr/lib/ld-linux-x86-64.so.2:
-
-/usr/include/c++/16/charconv:
 
 /usr/include/c++/16/map:
 
@@ -5973,15 +5851,11 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/bits/parse_numbers.h:
 
-/usr/share/cmake/Modules/Platform/Linux-Determine-CXX.cmake:
-
 /usr/include/c++/16/bits/postypes.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QComposePlatformInputContextPluginTargets.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSKmsGbmIntegrationPluginAdditionalTargetInfo.cmake:
-
-/usr/share/cmake/Modules/Compiler/ARMCC-DetermineCompiler.cmake:
 
 /usr/include/sys/types.h:
 
@@ -5990,6 +5864,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/qt6/QtCore/qscopeguard.h:
 
 /usr/include/bits/fp-fast.h:
+
+/usr/lib/libc.so.6:
 
 /usr/include/c++/16/bits/std_function.h:
 
@@ -6009,8 +5885,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/bits/align.h:
 
-/usr/share/cmake/Modules/Compiler/SCO-DetermineCompiler.cmake:
-
 /usr/include/c++/16/bits/monostate.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandIviShellIntegrationPluginConfig.cmake:
@@ -6029,6 +5903,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QICOPluginTargets.cmake:
 
+/usr/lib64/libgcc_s.so.1:
+
 /usr/include/qt6/QtCore/qanystringview.h:
 
 /usr/include/c++/16/bits/sstream.tcc:
@@ -6044,8 +5920,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/c++/16/bits/stl_algo.h:
 
 /usr/include/c++/16/cassert:
-
-/usr/share/cmake/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake:
 
 /usr/include/asm-generic/int-ll64.h:
 
@@ -6071,21 +5945,17 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/bits/stl_multimap.h:
 
-/usr/share/cmake/Modules/Compiler/HP-CXX-DetermineCompiler.cmake:
-
 /usr/include/bits/locale.h:
 
-/usr/lib/libQt6DBus.so.6:
-
 /usr/include/c++/16/bits/stringfwd.h:
+
+/usr/lib/libQt6DBus.so.6:
 
 /usr/lib/cmake/Qt6Core/Qt6CoreDependencies.cmake:
 
 /usr/include/c++/16/bits/stl_pair.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QMinimalIntegrationPluginTargets-relwithdebinfo.cmake:
-
-/usr/share/cmake/Modules/CMakeCXXCompiler.cmake.in:
 
 /usr/include/features-time64.h:
 
@@ -6106,6 +5976,12 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/c++/16/climits:
 
 /usr/include/c++/16/functional:
+
+/usr/include/qt6/QtCore/QPointF:
+
+/usr/include/pthread.h:
+
+/usr/lib64/gcc/x86_64-pc-linux-gnu/16/libgcc.a:
 
 /usr/include/qt6/QtCore/qshareddata_impl.h:
 
@@ -6135,8 +6011,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/fstream:
 
-/usr/include/c++/16/cstdint:
-
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandIviShellIntegrationPluginAdditionalTargetInfo.cmake:
 
 /usr/include/c++/16/cstdio:
@@ -6145,7 +6019,7 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/linux/sched/types.h:
 
-/usr/share/cmake/Modules/Compiler/NVHPC-DetermineCompiler.cmake:
+/usr/include/qt6/QtWidgets/QStyleOptionGraphicsItem:
 
 /usr/include/qt6/QtCore/qmargins.h:
 
@@ -6156,12 +6030,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/clang/22/include/stdarg.h:
 
 /usr/include/c++/16/bits/unordered_map.h:
-
-/usr/lib/libX11-xcb.so.1:
-
-/home/bumbandit/Projects/Engine/tools/conversation_editor/CMakeLists.txt:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandXdgShellIntegrationPluginTargets.cmake:
 
 /usr/include/c++/16/ext/alloc_traits.h:
 
@@ -6211,10 +6079,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6/QtPublicCMakeHelpers.cmake:
 
-/usr/include/c++/16/bits/hashtable.h:
-
-/usr/share/cmake/Modules/Compiler/Clang-FindBinUtils.cmake:
-
 /usr/include/c++/16/iterator:
 
 /usr/include/qt6/QtCore/qbasicatomic.h:
@@ -6224,8 +6088,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/cmake/Qt6Core/Qt6CoreConfigVersion.cmake:
 
 /usr/lib/cmake/Qt6/QtPublicFindPackageHelpers.cmake:
-
-/usr/share/cmake/Modules/Compiler/ARMClang-DetermineCompiler.cmake:
 
 /usr/lib/cmake/Qt6/QtPublicPluginHelpers_v2.cmake:
 
@@ -6247,8 +6109,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6/QtPublicSbomExternalReferenceHelpers.cmake:
 
-/usr/share/cmake/Modules/CMakeFindBinUtils.cmake:
-
 /usr/lib/cmake/Qt6/QtPublicSbomOpsHelpers.cmake:
 
 /usr/lib/libm.so.6:
@@ -6260,6 +6120,12 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/cmake/Qt6Gui/Qt6GuiVersionlessAliasTargets.cmake:
 
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsVersionlessAliasTargets.cmake:
+
+CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
+
+/usr/include/c++/16/x86_64-pc-linux-gnu/bits/ctype_base.h:
+
+/usr/lib64/gcc/x86_64-pc-linux-gnu/16/crtbeginS.o:
 
 /usr/lib/cmake/Qt6/QtPublicTestHelpers.cmake:
 
@@ -6276,6 +6142,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/cmake/Qt6/QtPublicSbomGenerationCycloneDXHelpers.cmake:
 
 /usr/lib/cmake/Qt6Core/Qt6CoreConfigExtras.cmake:
+
+/usr/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:
 
 /usr/lib/cmake/Qt6Core/Qt6CoreTargetsPrecheck.cmake:
 
@@ -6393,6 +6261,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6GuiConfig.cmake:
 
+/usr/include/qt6/QtWidgets/qpushbutton.h:
+
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/cpu_defines.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6GuiPlugins.cmake:
@@ -6457,6 +6327,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/share/cmake/Modules/CheckIncludeFileCXX.cmake:
 
+/usr/lib/libGLX.so:
+
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevMousePluginTargets.cmake:
 
 /usr/include/asm-generic/bitsperlong.h:
@@ -6474,10 +6346,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 CMakeFiles/conversation_editor.dir/src/question_node.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevTabletPluginTargetsPrecheck.cmake:
-
-/usr/include/qt6/QtCore/qstdlibdetection.h:
-
-/usr/share/cmake/Modules/Compiler/PGI-DetermineCompiler.cmake:
 
 /usr/include/qt6/QtGui/QPainterPath:
 
@@ -6559,10 +6427,6 @@ CMakeFiles/conversation_editor.dir/src/question_node.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginAdditionalTargetInfo.cmake:
 
-/usr/include/qt6/QtCore/qregularexpression.h:
-
-/usr/share/cmake/Modules/Compiler/XL-CXX-DetermineCompiler.cmake:
-
 /usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginConfig.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginTargets-relwithdebinfo.cmake:
@@ -6570,10 +6434,6 @@ CMakeFiles/conversation_editor.dir/src/question_node.cpp.o:
 /usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QMinimalEglIntegrationPluginAdditionalTargetInfo.cmake:
-
-/usr/lib/libQt6Gui.so.6.11.1:
-
-/usr/share/cmake/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake:
 
 /usr/include/c++/16/bits/exception_ptr.h:
 
@@ -6601,19 +6461,11 @@ CMakeFiles/conversation_editor.dir/src/question_node.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QOffscreenIntegrationPluginConfig.cmake:
 
-/usr/include/qt6/QtCore/qtaggedpointer.h:
-
-/usr/share/cmake/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake:
-
 /usr/lib/cmake/Qt6Gui/Qt6QOffscreenIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QSvgIconPluginAdditionalTargetInfo.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QSvgIconPluginConfig.cmake:
-
-/usr/include/qt6/QtGui/qpainterpath.h:
-
-/usr/share/cmake/Modules/Compiler/Watcom-DetermineCompiler.cmake:
 
 CMakeFiles/4.4.0/CMakeSystem.cmake:
 
@@ -6629,11 +6481,11 @@ CMakeFiles/4.4.0/CMakeSystem.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QTsLibPluginTargetsPrecheck.cmake:
 
-/usr/share/cmake/Modules/CMakeDetermineCompilerId.cmake:
-
 /usr/lib/cmake/Qt6Gui/Qt6QTuioTouchPluginAdditionalTargetInfo.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QTuioTouchPluginConfig.cmake:
+
+/usr/lib/libX11.so.6:
 
 /usr/lib/cmake/Qt6Gui/Qt6QTuioTouchPluginTargets-relwithdebinfo.cmake:
 
@@ -6644,6 +6496,8 @@ CMakeFiles/4.4.0/CMakeSystem.cmake:
 /usr/lib/cmake/Qt6/QtPublicSbomBuildToolHelpers.cmake:
 
 /usr/include/libintl.h:
+
+/usr/include/qt6/QtWidgets/qtabbar.h:
 
 /usr/include/qt6/QtWidgets/qdialog.h:
 
@@ -6667,8 +6521,6 @@ CMakeFiles/4.4.0/CMakeSystem.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QVkKhrDisplayIntegrationPluginTargets-relwithdebinfo.cmake:
 
-/usr/share/cmake/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake:
-
 /usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginAdditionalTargetInfo.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginConfig.cmake:
@@ -6689,6 +6541,10 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandBradientDecorationPluginConfig.cmake:
 
+/usr/include/qt6/QtCore/qspan.h:
+
+/usr/lib/libQt6Core.so.6.11.1:
+
 /usr/lib/libvulkan.so.1:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandBradientDecorationPluginTargetsPrecheck.cmake:
@@ -6703,6 +6559,8 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandIviShellIntegrationPluginTargets-relwithdebinfo.cmake:
 
+/usr/lib/libdouble-conversion.so.3:
+
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandQtShellIntegrationPluginTargets.cmake:
 
 /usr/include/qt6/QtCore/qstringconverter.h:
@@ -6710,12 +6568,6 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o:
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandQtShellIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandWlShellIntegrationPluginConfig.cmake:
-
-/usr/include/c++/16/bits/basic_ios.h:
-
-/usr/share/cmake/Modules/Compiler/Clang-DetermineCompilerInternal.cmake:
-
-/usr/share/cmake/Modules/Compiler/OrangeC-DetermineCompiler.cmake:
 
 /usr/include/qt6/QtWidgets/qframe.h:
 
@@ -6785,10 +6637,6 @@ conversation_editor_autogen/UVLADIE3JM/moc_main_window.cpp:
 
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsDependencies.cmake:
 
-/usr/include/qt6/QtGui/qpolygon.h:
-
-/usr/share/cmake/Modules/Compiler/Borland-DetermineCompiler.cmake:
-
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsMacros.cmake:
 
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsPlugins.cmake:
@@ -6811,33 +6659,13 @@ conversation_editor_autogen/UVLADIE3JM/moc_main_window.cpp:
 
 /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsDependencies.cmake:
 
-/usr/share/cmake/Modules/Compiler/Cray-DetermineCompiler.cmake:
-
 conversation_editor_autogen/UVLADIE3JM/moc_question_node.cpp:
 
 /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsTargets.cmake:
 
 /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsTargetsPrecheck.cmake:
 
-/usr/include/c++/16/list:
-
-/usr/share/cmake/Modules/Compiler/GHS-DetermineCompiler.cmake:
-
-/usr/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:
-
-/usr/share/cmake/Modules/CMakeCXXCompilerABI.cpp:
-
 /usr/share/cmake/Modules/CMakeCheckCompilerFlagCommonPatterns.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineCompiler.cmake:
-
-/usr/lib/cmake/Qt6/QtPublicSbomCpeHelpers.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineCompilerSupport.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QJpegPluginConfig.cmake:
 
@@ -6849,33 +6677,11 @@ conversation_editor_autogen/UVLADIE3JM/moc_question_node.cpp:
 
 /usr/share/cmake/Modules/CMakeLanguageInformation.cmake:
 
-/usr/share/cmake/Modules/CMakeParseImplicitIncludeInfo.cmake:
-
-/usr/share/cmake/Modules/CMakeParseImplicitLinkInfo.cmake:
-
-/usr/share/cmake/Modules/CMakeSystem.cmake.in:
-
-/usr/include/c++/16/typeinfo:
-
-/usr/include/c++/16/x86_64-pc-linux-gnu/bits/atomic_word.h:
-
-/usr/share/cmake/Modules/Compiler/Intel-DetermineCompiler.cmake:
-
 /usr/include/c++/16/array:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevKeyboardPluginTargetsPrecheck.cmake:
 
 /usr/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake:
-
-/usr/include/c++/16/bits/chrono.h:
-
-/usr/share/cmake/Modules/CMakeTestCompilerCommon.cmake:
-
-/usr/share/cmake/Modules/CMakeUnixFindMake.cmake:
-
-/usr/share/cmake/Modules/Compiler/AppleClang-DetermineCompiler.cmake:
-
-/usr/share/cmake/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake:
 
 /usr/share/cmake/Modules/CheckCXXCompilerFlag.cmake:
 
@@ -6891,71 +6697,13 @@ conversation_editor_autogen/UVLADIE3JM/moc_question_node.cpp:
 
 /usr/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake:
 
-/usr/share/cmake/Modules/Compiler/Clang-DetermineCompiler.cmake:
-
 /usr/share/cmake/Modules/Compiler/Clang.cmake:
-
-/usr/include/c++/16/ratio:
-
-/usr/include/c++/16/ios:
-
-/usr/include/qt6/QtCore/qtnoop.h:
-
-/usr/share/cmake/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake:
-
-/usr/include/c++/16/bits/cpp_type_traits.h:
-
-/usr/share/cmake/Modules/Compiler/IAR-DetermineCompiler.cmake:
-
-/usr/share/cmake/Modules/Compiler/CrayClang-DetermineCompiler.cmake:
-
-/usr/include/qt6/QtWidgets/qslider.h:
-
-/usr/share/cmake/Modules/Compiler/Diab-DetermineCompiler.cmake:
-
-/usr/include/c++/16/bits/allocator.h:
-
-/usr/share/cmake/Modules/Compiler/Embarcadero-DetermineCompiler.cmake:
-
-/usr/include/qt6/QtWidgets/QMainWindow:
-
-/usr/bin/cmake:
-
-/usr/share/cmake/Modules/Compiler/Fujitsu-DetermineCompiler.cmake:
-
-/usr/include/qt6/QtWidgets/qlayout.h:
-
-/usr/share/cmake/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake:
 
 /usr/share/cmake/Modules/Compiler/GNU.cmake:
 
 /usr/include/qt6/QtWidgets/QMessageBox:
 
 /usr/include/qt6/QtWidgets/QSizePolicy:
-
-/usr/share/cmake/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake:
-
-/usr/share/cmake/Modules/Compiler/NVIDIA-DetermineCompiler.cmake:
-
-/usr/include/c++/16/bits/stl_vector.h:
-
-/usr/include/bits/math-vector.h:
-
-/usr/share/cmake/Modules/Compiler/PellesC-DetermineCompiler.cmake:
-
-/usr/include/qt6/QtGui/QWheelEvent:
-
-/usr/include/c++/16/filesystem:
-
-/usr/share/cmake/Modules/Compiler/Renesas-DetermineCompiler.cmake:
-
-/usr/share/cmake/Modules/Compiler/TI-DetermineCompiler.cmake:
-
-/usr/lib32/libX11.so.6:
-
-/usr/share/cmake/Modules/Compiler/Tasking-DetermineCompiler.cmake:
-
-/usr/share/cmake/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake:
 
 /usr/share/cmake/Modules/FindPackageHandleStandardArgs.cmake:
 
@@ -6977,11 +6725,13 @@ conversation_editor_autogen/UVLADIE3JM/moc_question_node.cpp:
 
 /usr/include/qt6/QtCore/qtmochelpers.h:
 
+/usr/include/c++/16/x86_64-pc-linux-gnu/bits/ctype_inline.h:
+
+/usr/include/qt6/QtWidgets/qlistwidget.h:
+
 /usr/include/bits/uio_lim.h:
 
 /usr/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake:
-
-/usr/share/cmake/Modules/Internal/CMakeDetermineLinkerId.cmake:
 
 /usr/share/cmake/Modules/Internal/CheckFlagCommonConfig.cmake:
 
@@ -6996,8 +6746,6 @@ conversation_editor_autogen/UVLADIE3JM/moc_question_node.cpp:
 /usr/share/cmake/Modules/Platform/Linux.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6GuiTargets-relwithdebinfo.cmake:
-
-/usr/share/cmake/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake:
 
 conversation_editor_autogen/mocs_compilation.cpp:
 
@@ -7031,6 +6779,10 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 
 /usr/include/bits/flt-eval-method.h:
 
+/usr/include/c++/16/bits/stl_vector.h:
+
+/usr/include/bits/math-vector.h:
+
 /usr/include/bits/mathcalls-helper-functions.h:
 
 /usr/include/bits/fp-logb.h:
@@ -7054,8 +6806,6 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 /usr/lib/clang/22/include/__stdarg___va_copy.h:
 
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/gthr.h:
-
-/usr/share/cmake/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake:
 
 /usr/lib/clang/22/include/__stdarg_va_arg.h:
 
@@ -7107,6 +6857,10 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 
 /usr/include/c++/16/bits/quoted_string.h:
 
+/usr/include/qt6/QtGui/QWheelEvent:
+
+/usr/include/c++/16/filesystem:
+
 /usr/include/qt6/QtCore/QRect:
 
 /usr/include/qt6/QtCore/QSize:
@@ -7114,6 +6868,12 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 /usr/include/qt6/QtCore/QSizeF:
 
 /usr/include/qt6/QtCore/qdirlisting.h:
+
+/usr/include/bits/stdint-intn.h:
+
+/usr/include/c++/16/cerrno:
+
+/usr/lib/libdbus-1.so.3:
 
 /usr/include/qt6/QtCore/qfile.h:
 
@@ -7124,8 +6884,6 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 /usr/include/qt6/QtCore/qitemselectionmodel.h:
 
 /usr/lib/cmake/Qt6/QtPublicSbomGenerationHelpers.cmake:
-
-/usr/share/cmake/Modules/CMakeParseLibraryArchitecture.cmake:
 
 /usr/include/qt6/QtCore/qurl.h:
 
@@ -7145,8 +6903,80 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 
 /usr/include/qt6/QtWidgets/QPushButton:
 
+/usr/include/c++/16/cstdint:
+
+/usr/include/qt6/QtWidgets/QScrollBar:
+
 /usr/include/qt6/QtWidgets/QWidget:
 
 /usr/include/c++/16/cwctype:
 
 /usr/include/qt6/QtWidgets/qabstractitemview.h:
+
+/usr/lib64/Scrt1.o:
+
+/usr/include/qt6/QtCore/qtcoreglobal.h:
+
+/usr/include/qt6/QtWidgets/qabstractspinbox.h:
+
+/usr/include/qt6/QtWidgets/qboxlayout.h:
+
+/usr/include/qt6/QtWidgets/qdialogbuttonbox.h:
+
+/usr/include/qt6/QtWidgets/qgridlayout.h:
+
+/usr/include/qt6/QtWidgets/qgroupbox.h:
+
+/usr/include/qt6/QtWidgets/qinputdialog.h:
+
+/usr/include/qt6/QtWidgets/qlabel.h:
+
+/usr/include/qt6/QtWidgets/qlayout.h:
+
+/usr/include/qt6/QtWidgets/qlayoutitem.h:
+
+/usr/include/qt6/QtWidgets/qscrollbar.h:
+
+/usr/include/qt6/QtWidgets/qstyle.h:
+
+/usr/include/qt6/QtWidgets/qstyleoption.h:
+
+/usr/include/qt6/QtWidgets/QStyle:
+
+/home/bumbandit/Projects/Engine/bin/libengine.so:
+
+/usr/lib64/libm.so:
+
+/usr/lib64/gcc/x86_64-pc-linux-gnu/16/libstdc++.so:
+
+/usr/include/c++/16/charconv:
+
+/usr/lib/ld-linux-x86-64.so.2:
+
+/usr/include/bits/types/__locale_t.h:
+
+/usr/include/qt6/QtWidgets/qtwidgetsexports.h:
+
+/usr/include/c++/16/cstring:
+
+/usr/lib/libGLdispatch.so.0:
+
+/home/bumbandit/Projects/Engine/tools/conversation_editor/CMakeLists.txt:
+
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandXdgShellIntegrationPluginTargets.cmake:
+
+/usr/lib/libX11-xcb.so.1:
+
+/usr/lib/libb2.so.1:
+
+/usr/lib/libbrotlicommon.so.1:
+
+/usr/lib/libbrotlidec.so.1:
+
+/usr/lib/libbz2.so.1.0:
+
+/usr/lib/libexpat.so.1:
+
+/usr/lib/libfontconfig.so.1:
+
+/usr/lib/libfreetype.so.6:

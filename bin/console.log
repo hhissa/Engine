@@ -67,6 +67,7 @@
 [DEBUG]: Graphics pipeline created!
 [INFO]:  Vulkan renderer initialized successfully.
 [DEBUG]: SHGame::initialize() called!
+[TRACE]: Texture 'skybox_to_equirect_2' loaded, reference count now 1.
 [TRACE]: Texture 'white' loaded, reference count now 1.
 [TRACE]: Material 'qt_colour_dedddaff_ts060_white' loaded, reference count now 1.
 [TRACE]: Geometry 'scene1/layer2/layer2_primitive' registered.
@@ -232,80 +233,98 @@
   TEXTURE    : 0.00B
   MAT_INST   : 0.00B
   RENDERER   : 48.00B
-  GAME       : 472.00B
+  GAME       : 536.00B
   TRANSFORM  : 0.00B
   ENTITY     : 0.00B
   ENTITY_NODE: 0.00B
   SCENE      : 0.00B
   SHADER     : 0.00B
 
-[DEBUG]: Window resize: 954, 1005
-[DEBUG]: Resized to 954x1005
-[INFO]:  Vulkan renderer backend->resized: w/h/gen: 954/1005/1
-[DEBUG]: Window resize: 950, 1001
-[DEBUG]: Resized to 950x1001
-[INFO]:  Vulkan renderer backend->resized: w/h/gen: 950/1001/2
+[DEBUG]: Window resize: 954, 500
+[DEBUG]: Resized to 954x500
+[INFO]:  Vulkan renderer backend->resized: w/h/gen: 954/500/1
+[DEBUG]: Window resize: 950, 496
+[DEBUG]: Resized to 950x496
+[INFO]:  Vulkan renderer backend->resized: w/h/gen: 950/496/2
 [INFO]:  Swapchain created successfully.
 [DEBUG]: Vulkan command buffers created.
 [INFO]:  Resized, booting.
 [DEBUG]: ' ' key pressed in window.
 [DEBUG]: ' ' key pressed in window.
-[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1190000000119 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+[DEBUG]: Window resize: 950, 1001
+[DEBUG]: Resized to 950x1001
+[INFO]:  Vulkan renderer backend->resized: w/h/gen: 950/1001/3
+[DEBUG]: ' ' key released in window.
+[DEBUG]: ' ' key released in window.
+[INFO]:  Swapchain created successfully.
+[DEBUG]: Vulkan command buffers created.
+[INFO]:  Resized, booting.
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x13b000000013b format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
-[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11c000000011c format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x13e000000013e format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
-[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 2, Index 0, variable "post_process_out"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11f000000011f format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 2, Index 0, variable "post_process_out"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1410000000141 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
-[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1190000000119 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x13b000000013b format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
-[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11c000000011c format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x13e000000013e format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
-[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1190000000119 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x13b000000013b format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
-[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11c000000011c format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5a000000005a, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x13e000000013e format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
-[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 2, Index 0, variable "post_process_out"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11f000000011f format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 2, Index 0, variable "post_process_out"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1410000000141 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
-[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x1190000000119 format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+[WARN]:  vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 0, Index 0, variable "scene_colour"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x13b000000013b format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
 [WARN]:  (Warning - This VUID has now been reported 10 times, which is the duplicate_message_limit value, this will be the last time reporting it).
-vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x11c000000011c format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
+vkCmdDispatch(): the storage image descriptor [VkDescriptorSet 0x5b000000005b, Set 0, Binding 1, Index 0, variable "bloom_temp"] is accessed by a OpTypeImage that has a Format operand Rgba8 (equivalent to VK_FORMAT_R8G8B8A8_UNORM) which doesn't match the VkImageView 0x13e000000013e format (VK_FORMAT_B8G8R8A8_UNORM). Any loads or stores with the variable will produce undefined values to the whole image (not just the texel being accessed). While the formats are compatible, Storage Images must exactly match. Few ways to resolve this are
 1. Set your ImageView to VK_FORMAT_R8G8B8A8_UNORM and swizzle the values in the shader to match the desired results.
 2. Use the Unknown format in your shader (will need the widely supported shaderStorageImageWriteWithoutFormat feature)
 Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-format-validation
 [INFO]:  Swapchain created successfully.
 [DEBUG]: Vulkan command buffers created.
 [INFO]:  Resized, booting.
+[DEBUG]: ' ' key pressed in window.
+[DEBUG]: ' ' key pressed in window.
 [DEBUG]: Window resize: 1908, 1001
 [DEBUG]: Resized to 1908x1001
-[INFO]:  Vulkan renderer backend->resized: w/h/gen: 1908/1001/3
+[INFO]:  Vulkan renderer backend->resized: w/h/gen: 1908/1001/4
 [INFO]:  Swapchain created successfully.
 [DEBUG]: Vulkan command buffers created.
 [INFO]:  Resized, booting.
-[DEBUG]: ' ' key released in window.
 [DEBUG]: ' ' key released in window.
+[DEBUG]: ' ' key released in window.
 [DEBUG]: '	' key pressed in window.
 [DEBUG]: '	' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
+[DEBUG]: '	' key pressed in window.
+[DEBUG]: '	' key released in window.
+[DEBUG]: '	' key pressed in window.
+[DEBUG]: '	' key released in window.
+[DEBUG]: '	' key pressed in window.
+[DEBUG]: '	' key released in window.
+[DEBUG]: '	' key pressed in window.
+[DEBUG]: '	' key released in window.
+[DEBUG]: '¡' key pressed in window.
+[DEBUG]: '¡' key released in window.
 [DEBUG]: '' key pressed in window.
 [DEBUG]: '' key released in window.
 [DEBUG]: '' key pressed in window.
@@ -355,6 +374,7 @@ Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#t
 [DEBUG]: '' key pressed in window.
 [DEBUG]: '' key released in window.
 [DEBUG]: '' key pressed in window.
+[TRACE]: Texture 'white' loaded, reference count now 1.
 [TRACE]: Texture 'WoodDoor_1508' loaded, reference count now 1.
 [TRACE]: Material 'qt_colour_ffffffff_ts100_px_to+050+000+000_tr+0000_WoodDoor_1508' loaded, reference count now 1.
 [TRACE]: Geometry 'scene6/layer0/layer0_primitive' registered.
@@ -369,7 +389,6 @@ Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#t
 [TRACE]: Geometry 'scene6/layer1/primitive3' registered.
 [TRACE]: Geometry 'scene6/layer1/primitive4' registered.
 [TRACE]: Geometry 'scene6/layer1/primitive5' registered.
-[TRACE]: Texture 'white' loaded, reference count now 1.
 [TRACE]: Material 'qt_colour_9a9996ff_ts140_to+050+000+000_tr+9000_white' loaded, reference count now 1.
 [TRACE]: Geometry 'scene6/layer3/primitive6' registered.
 [TRACE]: Texture 'oak_stretcher_1816_mm_architextures' loaded, reference count now 1.
@@ -399,11 +418,212 @@ Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#t
 [DEBUG]: '' key released in window.
 [DEBUG]: '' key pressed in window.
 [DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '' key pressed in window.
+[DEBUG]: '' key released in window.
+[DEBUG]: '(' key pressed in window.
+[DEBUG]: '(' key released in window.
+[DEBUG]: '(' key pressed in window.
+[DEBUG]: '(' key released in window.
+[DEBUG]: '(' key pressed in window.
+[DEBUG]: '(' key released in window.
 [DEBUG]: '(' key pressed in window.
 [DEBUG]: '(' key released in window.
 [DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
+[TRACE]: Texture 'skybox_to_equirect_2' loaded, reference count now 1.
+[TRACE]: Texture 'white' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_dedddaff_ts060_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer2/layer2_primitive' registered.
+[TRACE]: Geometry 'scene7/layer6/layer6_primitive' registered.
+[TRACE]: Material 'qt_colour_5e5c64ff_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer7/layer7_primitive' registered.
+[TRACE]: Geometry 'scene7/layer9/layer9_primitive' registered.
+[TRACE]: Geometry 'scene7/layer11/layer11_primitive' registered.
+[TRACE]: Geometry 'scene7/layer12/layer12_primitive' registered.
+[TRACE]: Texture 'woodpanel' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_77767bff_woodpanel' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer13/layer13_primitive' registered.
+[TRACE]: Material 'qt_colour_9a9996ff_woodpanel' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer14/layer14_primitive' registered.
+[TRACE]: Texture 'oak_stretcher_1816_mm_architextures' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts215_oak_stretcher_1816_mm_architextures' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer16/layer16_primitive' registered.
+[TRACE]: Material 'qt_colour_dedddaff_ts215_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer18/layer18_primitive' registered.
+[TRACE]: Texture 'douglas_fir_staggered_1800_mm_architextures' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts215_douglas_fir_staggered_1800_mm_architextures' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer19/layer19_primitive' registered.
+[TRACE]: Geometry 'scene7/layer20/layer20_primitive' registered.
+[TRACE]: Geometry 'scene7/layer22/layer22_primitive' registered.
+[TRACE]: Geometry 'scene7/layer23/layer23_primitive' registered.
+[TRACE]: Geometry 'scene7/layer24/layer24_primitive' registered.
+[TRACE]: Material 'qt_colour_63452cff_ts215_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer25/layer25_primitive' registered.
+[TRACE]: Geometry 'scene7/layer26/layer26_primitive' registered.
+[TRACE]: Geometry 'scene7/layer27/layer27_primitive' registered.
+[TRACE]: Geometry 'scene7/layer28/layer28_primitive' registered.
+[TRACE]: Material 'qt_colour_ffffffff_ts060_woodpanel' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer29/layer29_primitive' registered.
+[TRACE]: Geometry 'scene7/layer30/layer30_primitive' registered.
+[TRACE]: Geometry 'scene7/layer31/layer31_primitive' registered.
+[TRACE]: Geometry 'scene7/layer33/layer33_primitive' registered.
+[TRACE]: Geometry 'scene7/layer34/layer34_primitive' registered.
+[TRACE]: Geometry 'scene7/layer35/layer35_primitive' registered.
+[TRACE]: Geometry 'scene7/layer36/layer36_primitive' registered.
+[TRACE]: Geometry 'scene7/layer37/layer37_primitive' registered.
+[TRACE]: Geometry 'scene7/layer38/layer38_primitive' registered.
+[TRACE]: Geometry 'scene7/layer39/layer39_primitive' registered.
+[TRACE]: Geometry 'scene7/layer40/layer40_primitive' registered.
+[TRACE]: Texture 'rusted_metal' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_5e5c64ff_ts060_rusted_metal' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer41/layer41_primitive' registered.
+[TRACE]: Texture 'Poliigon_ConcreteWallCladding_7856_BaseColor' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts215_Poliigon_ConcreteWallCladding_7856_BaseColor' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer42/layer42_primitive' registered.
+[TRACE]: Texture 'concrete_wall' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_9a9996ff_ts215_concrete_wall' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer43/layer43_primitive' registered.
+[TRACE]: Geometry 'scene7/layer44/layer44_primitive' registered.
+[TRACE]: Geometry 'scene7/layer45/layer45_primitive' registered.
+[TRACE]: Geometry 'scene7/layer46/layer46_primitive' registered.
+[TRACE]: Geometry 'scene7/layer47/layer47_primitive' registered.
+[TRACE]: Geometry 'scene7/layer48/layer48_primitive' registered.
+[TRACE]: Geometry 'scene7/layer49/layer49_primitive' registered.
+[TRACE]: Material 'qt_colour_ffffffff_ts215_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene7/layer50/layer50_primitive' registered.
+[TRACE]: Light 'scene7/light3' registered.
+[TRACE]: Light 'scene7/light4' registered.
+[TRACE]: Light 'scene7/light5' registered.
+[TRACE]: Light 'scene7/light6' registered.
+[TRACE]: Light 'scene7/light7' registered.
+[TRACE]: Texture 'Stripes' loaded, reference count now 1.
+[TRACE]: Material 'qt_vol_colour_ffff00ff_ts050_to+000+000+000_tr-9000_Stripes' loaded, reference count now 1.
+[TRACE]: Volumetric 'scene7/volumetric1' registered.
+[TRACE]: Volumetric 'scene7/volumetric2' registered.
+[TRACE]: Material 'qt_colour_ffffffff_ts060_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene8/layer0/layer0_primitive' registered.
+[TRACE]: Geometry 'scene8/layer1/layer1_primitive' registered.
+[TRACE]: Material 'qt_colour_ffffffff_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene8/layer2/layer2_primitive' registered.
+[TRACE]: Geometry 'scene8/layer3/layer3_primitive' registered.
+[TRACE]: Geometry 'scene8/layer4/layer4_primitive' registered.
+[TRACE]: Geometry 'scene8/layer5/layer5_primitive' registered.
+[TRACE]: Geometry 'scene8/layer6/layer6_primitive' registered.
+[TRACE]: Geometry 'scene8/layer7/layer7_primitive' registered.
+[TRACE]: Geometry 'scene8/layer8/layer8_primitive' registered.
+[TRACE]: Geometry 'scene8/layer9/layer9_primitive' registered.
+[TRACE]: Geometry 'scene8/layer10/layer10_primitive' registered.
+[TRACE]: Geometry 'scene8/layer11/layer11_primitive' registered.
+[TRACE]: Geometry 'scene8/layer14/layer14_primitive' registered.
+[TRACE]: Geometry 'scene8/layer15/layer15_primitive' registered.
+[TRACE]: Geometry 'scene8/layer16/layer16_primitive' registered.
+[TRACE]: Geometry 'scene8/layer18/layer18_primitive' registered.
+[TRACE]: Geometry 'scene8/layer19/layer19_primitive' registered.
+[TRACE]: Texture 'scar_texture_diffuse' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts060_px_scar_texture_diffuse' loaded, reference count now 1.
+[TRACE]: Geometry 'scene8/layer20/layer20_primitive' registered.
+[TRACE]: Geometry 'scene8/layer22/layer22_primitive' registered.
+[TRACE]: Geometry 'scene8/layer26/layer26_primitive' registered.
+[TRACE]: Geometry 'scene8/layer27/layer27_primitive' registered.
+[TRACE]: Geometry 'scene8/layer32/layer32_primitive' registered.
+[TRACE]: Geometry 'scene8/layer33/layer33_primitive' registered.
+[TRACE]: Geometry 'scene8/layer34/layer34_primitive' registered.
+[TRACE]: Geometry 'scene8/layer36/layer36_primitive' registered.
+[TRACE]: Geometry 'scene8/layer38/layer38_primitive' registered.
+[TRACE]: Material 'qt_colour_ffffffff' loaded, reference count now 1.
+[TRACE]: Geometry 'scene8/layer39/layer39_primitive' registered.
+[TRACE]: Geometry 'scene8/layer41/layer41_primitive' registered.
+[TRACE]: Texture '20_severe_maximal_diffuse' loaded, reference count now 1.
+[TRACE]: Material 'qt_colour_ffffffff_ts080_px_20_severe_maximal_diffuse' loaded, reference count now 1.
+[TRACE]: Geometry 'scene8/layer42/layer42_primitive' registered.
+[TRACE]: Geometry 'scene8/layer43/layer43_primitive' registered.
+[TRACE]: Geometry 'scene8/layer44/layer44_primitive' registered.
+[TRACE]: Geometry 'scene9/layer0/layer0_primitive' registered.
+[TRACE]: Material 'qt_colour_3d3846ff_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene9/layer1/layer1_primitive' registered.
+[TRACE]: Geometry 'scene9/layer3/layer3_primitive' registered.
+[TRACE]: Geometry 'scene9/layer5/layer5_primitive' registered.
+[TRACE]: Geometry 'scene9/layer6/layer6_primitive' registered.
+[TRACE]: Geometry 'scene9/layer7/layer7_primitive' registered.
+[TRACE]: Material 'qt_colour_241f31ff_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene9/layer9/layer9_primitive' registered.
+[TRACE]: Geometry 'scene9/layer11/layer11_primitive' registered.
+[TRACE]: Material 'qt_colour_241f31ff_ts060_em0100f9f06b_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene9/layer12/layer12_primitive' registered.
+[TRACE]: Light 'scene9/light0' registered.
+[TRACE]: Geometry 'scene10/layer0/layer0_primitive' registered.
+[TRACE]: Geometry 'scene10/layer1/layer1_primitive' registered.
+[TRACE]: Geometry 'scene10/layer3/layer3_primitive' registered.
+[TRACE]: Geometry 'scene10/layer5/layer5_primitive' registered.
+[TRACE]: Geometry 'scene10/layer6/layer6_primitive' registered.
+[TRACE]: Geometry 'scene10/layer7/layer7_primitive' registered.
+[TRACE]: Geometry 'scene10/layer9/layer9_primitive' registered.
+[TRACE]: Geometry 'scene10/layer11/layer11_primitive' registered.
+[TRACE]: Geometry 'scene10/layer12/layer12_primitive' registered.
+[TRACE]: Light 'scene10/light0' registered.
+[TRACE]: Geometry 'scene11/layer1/layer1_primitive' registered.
+[TRACE]: Material 'qt_colour_241f31ff_ts060_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene11/layer2/layer2_primitive' registered.
+[TRACE]: Material 'qt_colour_ffffffff_ts060_em0150f5c211_white' loaded, reference count now 1.
+[TRACE]: Geometry 'scene11/layer2/primitive0' registered.
+[TRACE]: Geometry 'scene11/layer3/layer3_primitive' registered.
+[TRACE]: Geometry 'scene11/layer4/layer4_primitive' registered.
+[TRACE]: Geometry 'scene11/layer5/layer5_primitive' registered.
+[TRACE]: Geometry 'scene11/layer6/layer6_primitive' registered.
+[TRACE]: Geometry 'scene11/layer7/layer7_primitive' registered.
+[TRACE]: Geometry 'scene11/layer8/layer8_primitive' registered.
+[TRACE]: Geometry 'scene11/layer11/layer11_primitive' registered.
+[TRACE]: Light 'scene11/light0' registered.
+[TRACE]: Light 'scene11/light1' registered.
+[TRACE]: Light 'scene11/light2' registered.
+[TRACE]: Light 'scene11/light3' registered.
+[TRACE]: Light 'scene11/light4' registered.
+[TRACE]: Light 'scene11/light5' registered.
 [DEBUG]: '' key released in window.
 [DEBUG]: '' key pressed in window.
 [DEBUG]: '' key released in window.
@@ -413,32 +633,6 @@ Spec information at https://docs.vulkan.org/spec/latest/chapters/textures.html#t
 [DEBUG]: '' key released in window.
 [DEBUG]: '(' key pressed in window.
 [DEBUG]: '(' key released in window.
-[DEBUG]: '(' key pressed in window.
-[DEBUG]: '(' key released in window.
-[DEBUG]: '(' key pressed in window.
-[DEBUG]: '(' key released in window.
-[DEBUG]: '&' key pressed in window.
-[DEBUG]: '&' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '(' key pressed in window.
-[DEBUG]: '(' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
-[DEBUG]: '' key pressed in window.
-[DEBUG]: '' key released in window.
 [DEBUG]: '(' key pressed in window.
 [DEBUG]: '(' key released in window.
 [DEBUG]: '(' key pressed in window.

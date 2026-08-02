@@ -1,0 +1,174 @@
+#sdf scene file
+version=0.1
+ambient=0.75
+
+light light0 {
+    type=point
+    position=-0.35 -0.8 -0.5
+    colour=1 0.470588 0
+    intensity=0.15
+}
+
+light light1 {
+    type=point
+    position=-0.35 -0.8 -2
+    colour=1 0.470588 0
+    intensity=0.15
+}
+
+light light2 {
+    type=point
+    position=1 -0.8 -0.5
+    colour=1 0.470588 0
+    intensity=0.15
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive primitive0 {
+        type=box
+        position=1 -0.2 0.11
+        rotation=0 0 0
+        half_extents=2 0.2 0.1
+        material=qt_colour_ffffffff_ts100_to+050+000+000_tr+0000_woodpanel
+    }
+
+    primitive primitive1 {
+        type=box
+        position=1 -0.7 0.12
+        rotation=0 0 0
+        half_extents=2.1 0.7 0.1
+        material=qt_colour_ffffffff_ts100_px_to+050+000+000_tr+0000_courtyard_wallpaper_615_mm_architextures
+    }
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive primitive2 {
+        type=box
+        position=-0.94 -0.7 -3
+        rotation=0 0 0
+        half_extents=0.1 0.7 3
+        material=qt_colour_ffffffff_ts100_px_to+050+000+000_tr+0000_courtyard_wallpaper_615_mm_architextures
+    }
+
+    primitive primitive3 {
+        type=box
+        position=-0.89 -0.2 -3
+        rotation=0 0 0
+        half_extents=0.1 0.2 3
+        material=qt_colour_ffffffff_ts100_to+050+000+000_tr+9000_woodpanel
+    }
+
+    primitive primitive4 {
+        type=box
+        position=1.00828 -0.2 -3.41959
+        rotation=0 0 0
+        half_extents=0.1 0.2 1.6
+        material=qt_colour_ffffffff_ts100_to+050+000+000_tr+9000_woodpanel
+    }
+
+    primitive primitive5 {
+        type=box
+        position=1.04 -0.7 -3.42
+        rotation=0 0 0
+        half_extents=0.1 0.7 1.6
+        material=qt_colour_ffffffff_ts100_px_to+050+000+000_tr+0000_courtyard_wallpaper_615_mm_architextures
+    }
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0
+
+    primitive primitive6 {
+        type=box
+        position=-0.01 -1.47 -3
+        rotation=0 0 0
+        half_extents=2.6 0.1 3
+        material=qt_colour_9a9996ff_ts140_to+050+000+000_tr+9000_white
+    }
+
+    primitive primitive7 {
+        type=box
+        position=-0.01 0.113565 -3
+        rotation=0 0 0
+        half_extents=2.6 0.1 3
+        material=qt_colour_ffffffff_ts140_to+050+000+000_tr+9000_oak_stretcher_1816_mm_architextures
+    }
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0
+
+    primitive primitive8 {
+        type=ellipsoid
+        position=-0.89 -0.86 -0.611812
+        rotation=0 0 0
+        params=0.1 0.1 0.1 0
+        material=qt_colour_ffffffff_ts140_em0010f5c211_to+050+000+000_tr+9000_white
+    }
+
+    primitive primitive9 {
+        type=ellipsoid
+        position=-0.89 -0.86 -2.01
+        rotation=0 0 0
+        params=0.1 0.1 0.1 0
+        material=qt_colour_ffffffff_ts140_em0010f5c211_to+050+000+000_tr+9000_white
+    }
+
+    primitive primitive10 {
+        type=ellipsoid
+        position=0.928059 -0.86 0.0796066
+        rotation=0 0 0
+        params=0.1 0.1 0.1 0
+        material=qt_colour_ffffffff_ts140_em0010f5c211_to+050+000+000_tr+9000_white
+    }
+}
+
+layer layer5 {
+    operation=subtraction
+    smoothness=0
+
+    primitive primitive11 {
+        type=box
+        position=0 -0.51 0.1
+        rotation=0 0 0
+        half_extents=0.5 0.5 0.2
+        material=qt_colour_ffffffff_ts100_px_to+050+000+000_tr+0000_WoodDoor_1508
+    }
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0
+
+    primitive primitive13 {
+        type=ellipsoid
+        position=0.02 -0.0575269 -0.25
+        rotation=0 0 0
+        params=0.5 0.02 0.2 0
+        material=qt_colour_aa0000ff_ts100_px_to+050+000+000_tr+0000_bump_bloody_bloody
+    }
+
+    primitive primitive14 {
+        type=ellipsoid
+        position=-0.210772 -0.06 -0.45
+        rotation=0 0 0
+        params=0.3 0.02 0.2 0
+        material=qt_colour_aa0000ff_ts100_px_to+050+000+000_tr+0000_bump_bloody_bloody
+    }
+
+    primitive primitive15 {
+        type=ellipsoid
+        position=0.23 -0.06 -0.374823
+        rotation=0 0 0
+        params=0.15 0.02 0.2 0
+        material=qt_colour_aa0000ff_ts100_px_to+050+000+000_tr+0000_bump_bloody_bloody
+    }
+}

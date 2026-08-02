@@ -1,10 +1,12 @@
 #include "main_window.h"
+#include "connection_item.h"
 #include "conversation_io.h"
 #include "graph_scene.h"
 #include "question_node.h"
 
 #include <resources/conversation.h>
 
+#include <QAction>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -13,6 +15,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
@@ -22,7 +25,8 @@
 #include <QWheelEvent>
 #include <QWidget>
 
-GraphView::GraphView(GraphScene *scene, QWidget *parent) : QGraphicsView(scene, parent) {
+GraphView::GraphView(GraphScene *scene, QWidget *parent)
+    : QGraphicsView(scene, parent), scene_(scene) {
   setRenderHint(QPainter::Antialiasing);
   setDragMode(QGraphicsView::RubberBandDrag); // left-click-drag empty space -> box-select
 }
@@ -35,6 +39,18 @@ void GraphView::wheelEvent(QWheelEvent *event) {
 
 void GraphView::mousePressEvent(QMouseEvent *event) {
   if (event->button() == Qt::RightButton) {
+    QGraphicsItem *item = itemAt(event->pos());
+    if (auto *connection = qgraphicsitem_cast<ConnectionItem *>(item)) {
+      // A connection under the click takes priority over the usual
+      // right-click pan -- this is the only way to sever a connection or
+      // split it with a new node in between (see show_connection_menu()),
+      // there being no other gesture free for it: left-click is already
+      // body-drag/box-select/side-handle-drag, and right-click everywhere
+      // else is pan.
+      show_connection_menu(connection, mapToScene(event->pos()), event->globalPosition().toPoint());
+      event->accept();
+      return;
+    }
     panning_ = true;
     last_pan_pos_ = event->pos();
     setCursor(Qt::ClosedHandCursor);
@@ -42,6 +58,19 @@ void GraphView::mousePressEvent(QMouseEvent *event) {
     return; // consumed -- right-click is pan-only, never reaches the scene
   }
   QGraphicsView::mousePressEvent(event);
+}
+
+void GraphView::show_connection_menu(ConnectionItem *connection, QPointF click_scene_pos,
+                                     QPoint global_pos) {
+  QMenu menu(this);
+  QAction *insert_action = menu.addAction("Insert Node Here");
+  QAction *delete_action = menu.addAction("Delete Connection");
+  QAction *chosen = menu.exec(global_pos);
+  if (chosen == insert_action) {
+    scene_->insert_node_on_connection(connection, click_scene_pos);
+  } else if (chosen == delete_action) {
+    scene_->remove_connection(connection);
+  }
 }
 
 void GraphView::mouseMoveEvent(QMouseEvent *event) {
@@ -156,7 +185,13 @@ ConversationEditorWindow::ConversationEditorWindow() {
       "Hover a node to reveal its 4 side handles, then drag one to "
       "another node to make it a follow-up (it snaps to the nearest "
       "side). Chain questions Q1 -> Q2 -> Q3 the same way. A node with "
-      "no incoming connection is top-level.");
+      "no incoming connection is top-level. Dragging a connection back "
+      "onto an earlier question in the same chain makes a dashed amber "
+      "loop-back connection instead -- the player jumps there once this "
+      "question's answer finishes, rather than continuing forward. Several "
+      "questions can all connect into the very same follow-up (a merge "
+      "point). Right-click a connection to delete it or insert a new node "
+      "in the middle of it.");
   // Without this, a QLabel's minimum width is its full text laid out on
   // one line -- for a sentence this long, that's easily wider than a
   // laptop screen, which is exactly what was pinning this whole window's

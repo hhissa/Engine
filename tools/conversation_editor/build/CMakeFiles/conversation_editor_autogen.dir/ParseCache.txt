@@ -792,6 +792,7 @@
  mdp:/usr/include/locale.h
  mdp:/usr/include/pthread.h
  mdp:/usr/include/qt6/QtCore/QPoint
+ mdp:/usr/include/qt6/QtCore/QPointF
  mdp:/usr/include/qt6/QtCore/q17memory.h
  mdp:/usr/include/qt6/QtCore/q20bit.h
  mdp:/usr/include/qt6/QtCore/q20functional.h
@@ -993,6 +994,7 @@
  mdp:/home/bumbandit/Projects/Engine/engine/src/defines.h
  mdp:/home/bumbandit/Projects/Engine/engine/src/resources/conversation.h
  mdp:/home/bumbandit/Projects/Engine/tools/conversation_editor/build/conversation_editor_autogen/moc_predefs.h
+ mdp:/home/bumbandit/Projects/Engine/tools/conversation_editor/src/connection_item.h
  mdp:/home/bumbandit/Projects/Engine/tools/conversation_editor/src/graph_scene.h
  mdp:/home/bumbandit/Projects/Engine/tools/conversation_editor/src/question_node.h
  mdp:/usr/include/alloca.h
@@ -1447,6 +1449,7 @@
  mdp:/usr/include/qt6/QtGui/qtransform.h
  mdp:/usr/include/qt6/QtGui/qwindowdefs.h
  mdp:/usr/include/qt6/QtWidgets/QGraphicsObject
+ mdp:/usr/include/qt6/QtWidgets/QGraphicsPathItem
  mdp:/usr/include/qt6/QtWidgets/QGraphicsScene
  mdp:/usr/include/qt6/QtWidgets/qgraphicsitem.h
  mdp:/usr/include/qt6/QtWidgets/qgraphicsscene.h

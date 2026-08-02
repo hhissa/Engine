@@ -1,0 +1,10 @@
+#material file
+
+version=0.1
+name=qt_colour_aa0000ff_ts100_px_to+050+000+000_tr+0000_bump_bloody_bloody
+diffuse_colour=0.666667 0 0 1
+texture_scale=1
+texture_offset=0.5 0 0
+pixelation_exempt=true
+diffuse_map_name=bloody
+bump_map_name=bloody

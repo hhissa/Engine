@@ -73,6 +73,15 @@ constexpr ConversationHandle kInvalidConversationHandle = 0;
 //     list. Otherwise (an unasked question remains at the level just
 //     landed on) it stays there so the player can pick a remaining
 //     sibling follow-up.
+//   - Unless the just-answered entry has a loop_to= target (see
+//     resources/conversation.h) instead: rather than either of the above,
+//     the view jumps straight to wherever the target question was
+//     authored (its own containing list, cursor landing on it), as if the
+//     player had navigated there normally -- see loop_targets_. Lets a
+//     question further down the chain send the player back to an earlier
+//     point in the conversation (including, unlike a plain follow-up
+//     chain, back up to one of its own ancestors) instead of dead-ending
+//     or continuing to dive deeper.
 // This can nest to any depth (a follow-up can have its own follow-ups),
 // though .conversation files are only expected to use one or two levels
 // in practice.
@@ -126,6 +135,19 @@ public:
     // that fires once the answer is done being read, and
     // register_scene_state() below for what a tag actually triggers.
     std::optional<std::string> tag;
+
+    // Copied from ConversationQuestion::shared_id (see resources/
+    // conversation.h) -- non-nullopt if this entry is the canonical
+    // location some loop_target below points at. Only used to build
+    // loop_targets_ right after loading; never read afterward.
+    std::optional<std::string> shared_id;
+    // Copied from ConversationQuestion::loop_target -- non-nullopt if
+    // selecting this entry should jump the view back to whichever entry
+    // was authored with a matching shared_id, instead of the normal
+    // descend-into-follow_ups/pop-back-up handling -- see update()'s
+    // "past the last answer line" handling and the class comment's note
+    // on looping.
+    std::optional<std::string> loop_target;
   };
 
   // Appends a new top-level question and returns a reference to it -- pass
@@ -342,6 +364,43 @@ private:
   // current_layer_tag_ has already been updated/restored for wherever
   // navigation landed -- see the class comment.
   void apply_layer_scene_state();
+
+  // Everything update() needs to jump straight to a loop_to= target's own
+  // location, as if the player had navigated there normally -- i.e. a
+  // precomputed list_stack_/layer_tag_stack_/current_layer_tag_ snapshot
+  // for that target, built once by rebuild_loop_targets() rather than
+  // re-walked from entries_ on every jump.
+  struct LoopTarget {
+    std::vector<Entry> *list;        // the list containing the target entry
+    size_t index;                    // target entry's index within *list
+    std::vector<std::vector<Entry> *> ancestors;          // -> list_stack_
+    std::vector<std::optional<std::string>> ancestor_tags; // -> layer_tag_stack_
+    std::optional<std::string> layer_tag; // -> current_layer_tag_, governs *list
+  };
+
+  // Rebuilds loop_targets_ from scratch by walking entries_ -- called at
+  // the end of load_conversation()/unload_conversation(), since either can
+  // change which id='d entries exist (and, for a load, entries_'s buffer
+  // may have just reallocated, moving every follow_ups vector nested
+  // inside it -- rebuilding fresh rather than patching incrementally means
+  // this never has to reason about which previously-recorded pointers are
+  // still valid). Logs a warning (keeping the first found) if the same
+  // shared_id shows up on more than one entry across every currently
+  // loaded conversation -- loop_to= needs exactly one unambiguous target.
+  void rebuild_loop_targets();
+
+  // Recursive helper for rebuild_loop_targets() -- walks list (and,
+  // recursively, every entry's follow_ups) recording an ancestors/
+  // ancestor_tags/layer_tag path in lockstep with how update() itself
+  // would build list_stack_/layer_tag_stack_/current_layer_tag_ descending
+  // to reach it, so a jump into loop_targets_[id] later reproduces exactly
+  // where a normal descent would have left navigation state.
+  void index_loop_targets(std::vector<Entry> &list,
+                          std::vector<std::vector<Entry> *> ancestors,
+                          std::vector<std::optional<std::string>> ancestor_tags,
+                          std::optional<std::string> layer_tag);
+
+  std::unordered_map<std::string, LoopTarget> loop_targets_;
 
   State state_ = State::QuestionList;
   size_t cursor_ = 0;      // which question the selection cursor is on, within *current_list_

@@ -23,6 +23,12 @@ public:
   void move(glm::vec3 delta) noexcept { position_ += delta; }
 
   void yaw(f32 radians) noexcept { yaw_ += radians; }
+  // Current absolute yaw, radians -- e.g. for a debug HUD readout showing
+  // which way the free-fly camera is currently facing (see
+  // games/SH/src/game.cpp's [DEBUG CAM] overlay). Distinguished from the
+  // relative-adjust yaw(f32) above purely by arity, the same pairing
+  // move()/position() already uses for position.
+  f32 yaw() const noexcept { return yaw_; }
 
   // Clamped to avoid gimbal lock (matches upstream's +-89 degrees).
   void pitch(f32 radians) noexcept {
@@ -30,6 +36,8 @@ public:
     constexpr f32 limit = 1.55334303f; // 89 degrees, in radians
     pitch_ = pitch_ < -limit ? -limit : (pitch_ > limit ? limit : pitch_);
   }
+  // Current absolute pitch, radians -- see yaw() above.
+  f32 pitch() const noexcept { return pitch_; }
 
   glm::vec3 forward() const noexcept {
     return glm::normalize(glm::vec3(std::cos(pitch_) * std::sin(yaw_),

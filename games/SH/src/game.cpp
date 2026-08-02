@@ -65,41 +65,39 @@ void SHGame::apply_scene_state(SceneState state) {
   // loaded, not a diff from the previous state -- so tear down whatever
   // scenery/model is currently loaded first, unconditionally, rather than
   // trying to work out what changed between the old and new state.
-  auto remove_if_loaded = [](SceneHandle &handle) {
-    if (handle != kInvalidSceneHandle) {
-      renderer_remove_scene(handle);
-      handle = kInvalidSceneHandle;
-    }
-  };
-  remove_if_loaded(room);
-  remove_if_loaded(scene_);
-  remove_if_loaded(light1_);
-  remove_if_loaded(light2_);
-  remove_if_loaded(overheadLights_);
+  for (SceneHandle handle : loaded_scenes_) {
+    renderer_remove_scene(handle);
+  }
+  loaded_scenes_.clear();
 
   switch (state) {
   case SceneState::Normal:
-    room = renderer_load_scene("assets/scenes/room.sdf")
-               .scale(3.0)
-               .translate(glm::vec3(0.0, 0.0, 0.0));
+    renderer_enable_sky_box("skybox_to_equirect_2");
 
-    scene_ = renderer_load_scene("assets/scenes/man.sdf")
-                 .scale(0.35)
-                 .translate(glm::vec3(0.0, -2.8, 0.0));
+    loaded_scenes_.push_back(renderer_load_scene("assets/scenes/room.sdf")
+                                 .scale(3.0)
+                                 .translate(glm::vec3(0.0, 0.0, 0.0)));
 
-    light1_ = renderer_load_scene("assets/scenes/light.sdf")
-                  .rotate(glm::vec3(0.0f, glm::radians(45.0f), 0.0f))
-                  .scale(0.3)
-                  .translate(glm::vec3(2.0, -1.5, -1.0));
+    loaded_scenes_.push_back(renderer_load_scene("assets/scenes/man.sdf")
+                                 .scale(0.35)
+                                 .translate(glm::vec3(0.0, -2.8, 0.0)));
 
-    light2_ = renderer_load_scene("assets/scenes/light.sdf")
-                  .rotate(glm::vec3(0.0f, glm::radians(135.0f), 0.0f))
-                  .scale(0.3)
-                  .translate(glm::vec3(-2.0, -1.5, -1.0));
+    loaded_scenes_.push_back(
+        renderer_load_scene("assets/scenes/light.sdf")
+            .rotate(glm::vec3(0.0f, glm::radians(45.0f), 0.0f))
+            .scale(0.3)
+            .translate(glm::vec3(2.0, -1.5, -1.0)));
 
-    overheadLights_ = renderer_load_scene("assets/scenes/overhead lights.sdf")
-                          .scale(2.0f)
-                          .translate(glm::vec3(0.0, -4.0, 0.0));
+    loaded_scenes_.push_back(
+        renderer_load_scene("assets/scenes/light.sdf")
+            .rotate(glm::vec3(0.0f, glm::radians(135.0f), 0.0f))
+            .scale(0.3)
+            .translate(glm::vec3(-2.0, -1.5, -1.0)));
+
+    loaded_scenes_.push_back(
+        renderer_load_scene("assets/scenes/overhead lights.sdf")
+            .scale(2.0f)
+            .translate(glm::vec3(0.0, -4.0, 0.0)));
 
     // Camera stations around the man -- Tab cycles, mouse pans within each
     // pose's max_pan (see CameraSystem).
@@ -113,12 +111,13 @@ void SHGame::apply_scene_state(SceneState state) {
     break;
 
   case SceneState::DoorScene1:
-    // Deliberately loads only scene_ -- room/light1_/light2_/
-    // overheadLights_ stay torn down (kInvalidSceneHandle), same as the
-    // renderer_clear_scenes() this replaced.
-    scene_ = renderer_load_scene("assets/scenes/door_scene.sdf")
-                 .scale(0.35)
-                 .translate(glm::vec3(0.0, -2.8, 0.0));
+    renderer_enable_sky_box("white");
+    // Deliberately loads only the door scene -- the room/man/lights above
+    // stay torn down, same as the renderer_clear_scenes() this replaced.
+    loaded_scenes_.push_back(renderer_load_scene("assets/scenes/door_scene.sdf")
+                                 .scale(0.35)
+                                 .translate(glm::vec3(0.0, -2.8, 0.0)));
+
 
     // Placeholder framing -- mirrors Normal's straight-on station since
     // door_scene.sdf uses the same scale/translate as man.sdf above, but
@@ -126,9 +125,24 @@ void SHGame::apply_scene_state(SceneState state) {
     // Adjust position/yaw/pitch once you can see how it actually frames.
     cameras_.set_poses({
         {glm::vec3(0.0f, -3.0f, -1.0f), glm::radians(0.0f), glm::radians(0.0f),
-         0.1f, 0.5f, 0.5f},
+         0.1f, 1.0f, 0.5f},
+
     });
     break;
+
+  case SceneState::DoorScene2:
+    renderer_enable_sky_box("white");
+    
+    loaded_scenes_.push_back(renderer_load_scene("assets/scenes/door_scene_2.sdf")
+        .scale(0.35).
+        translate(glm::vec3(0.0, -2.8, 0.0))); 
+  
+        cameras_.set_poses({
+        {glm::vec3(0.0f, -3.0f, -1.0f), glm::radians(0.0f), glm::radians(0.0f),
+         0.1f, 1.0f, 0.5f},
+
+    });
+
   }
 
   current_state_ = state;
@@ -172,6 +186,8 @@ b8 SHGame::initialize() {
       "DoorScene1", [this] { apply_scene_state(SceneState::DoorScene1); });
   qa_.register_scene_state(
       "Normal", [this] { apply_scene_state(SceneState::Normal); });
+    qa_.register_scene_state(
+      "DoorScene2", [this] { apply_scene_state(SceneState::DoorScene2); });
 
   // Fallback for the (currently empty, but kept for safety) stretch of the
   // chain no tag has covered yet -- see set_base_scene_state()'s doc
@@ -241,8 +257,9 @@ b8 SHGame::render(f32 dt) {
     glm::vec3 pos = camera.position();
     renderer_draw_text(
         std::format("[DEBUG CAM]  WASD move  Q/E down/up  RMB-drag look  "
-                    "Shift fast  [0] exit  pos=({:.2f}, {:.2f}, {:.2f})",
-                    pos.x, pos.y, pos.z),
+                    "Shift fast  [0] exit  pos=({:.2f}, {:.2f}, {:.2f})  "
+                    "yaw={:.2f} pitch={:.2f}",
+                    pos.x, pos.y, pos.z, camera.yaw(), camera.pitch()),
         glm::vec2(32.0f, 64.0f), glm::vec4(1.0f, 0.8f, 0.3f, 1.0f));
   }
   static f32 elapsed = 0.0f;

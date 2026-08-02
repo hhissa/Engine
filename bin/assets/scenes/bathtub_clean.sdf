@@ -2,11 +2,11 @@
 version=0.1
 ambient=0.15
 
-light light1 {
-    type=directional
-    direction=0 0 -1
+light light2 {
+    type=point
+    position=0 -3.51 -1
     colour=1 1 1
-    intensity=0.85
+    intensity=6.85
 }
 
 layer layer0 {

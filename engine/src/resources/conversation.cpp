@@ -2,6 +2,7 @@
 #include "../core/logger.h"
 
 #include <fstream>
+#include <unordered_set>
 
 namespace {
 
@@ -85,6 +86,32 @@ void parse_question_body(const std::vector<std::string> &lines, size_t &pos,
       question.tag = trim(trimmed.substr(eq + 1));
       continue;
     }
+    // A shared question's own definition -- see the file format comment's
+    // "shared" section. Doesn't stop this question from also being a
+    // question_ref= target itself elsewhere in the file.
+    if (eq != std::string::npos && trimmed.compare(0, eq, "id") == 0) {
+      question.shared_id = trim(trimmed.substr(eq + 1));
+      continue;
+    }
+    // A bare stand-in for a question defined (via id=) elsewhere -- no
+    // text, no `{ }` body of its own, just this one line where a nested
+    // `question { ... }` block could otherwise be. Left as an unresolved
+    // stub here (empty text/answer_lines/follow_ups) -- see
+    // resolve_shared_questions() for turning this into the real content.
+    if (eq != std::string::npos && trimmed.compare(0, eq, "question_ref") == 0) {
+      ConversationQuestion &ref = question.follow_ups.emplace_back();
+      ref.shared_id = trim(trimmed.substr(eq + 1));
+      ref.is_reference = true;
+      continue;
+    }
+    // Sends a dialogue system back to an already-authored question (named
+    // by its id=) once this question's own answer finishes -- see the file
+    // format comment's "loop back" section. Unlike question_ref=, this
+    // stays on `question` itself rather than creating a follow-up stub.
+    if (eq != std::string::npos && trimmed.compare(0, eq, "loop_to") == 0) {
+      question.loop_target = trim(trimmed.substr(eq + 1));
+      continue;
+    }
 
     KWARN("'{}': unexpected line at {}: '{}'.", path, line_number, trimmed);
   }
@@ -140,4 +167,97 @@ std::optional<Conversation> load_conversation_file(std::string_view path) {
   }
 
   return conversation;
+}
+
+namespace {
+void collect_shared_definitions_recursive(
+    const ConversationQuestion &question,
+    std::unordered_map<std::string, const ConversationQuestion *> &out) {
+  if (question.shared_id && !question.is_reference) {
+    auto [it, inserted] = out.emplace(*question.shared_id, &question);
+    if (!inserted) {
+      KWARN("Duplicate id='{}' -- keeping the first definition found.",
+           *question.shared_id);
+    }
+  }
+  for (const ConversationQuestion &child : question.follow_ups) {
+    collect_shared_definitions_recursive(child, out);
+  }
+}
+} // namespace
+
+std::unordered_map<std::string, const ConversationQuestion *>
+collect_shared_definitions(const Conversation &conversation) {
+  std::unordered_map<std::string, const ConversationQuestion *> definitions;
+  for (const ConversationQuestion &question : conversation.questions) {
+    collect_shared_definitions_recursive(question, definitions);
+  }
+  return definitions;
+}
+
+namespace {
+// in_progress tracks shared_ids currently being expanded along the current
+// path, so a reference cycle (a shared definition that, directly or
+// transitively, contains a question_ref= back to itself) is caught instead
+// of recursing forever.
+//
+// preserve_shared_id is false exactly when this call is expanding a
+// question_ref= stand-in's target -- the resulting copy deliberately does
+// NOT keep that target's shared_id, so an id keeps exactly one canonical
+// location in the resolved tree (the definition's own natural position,
+// walked via the plain follow_ups recursion below, where preserve_shared_id
+// is true) no matter how many question_ref= stubs also expand to copies of
+// it. loop_to= (see ConversationQuestion::loop_target) relies on that
+// uniqueness to have exactly one place to jump to.
+ConversationQuestion resolve_question(
+    const ConversationQuestion &question,
+    const std::unordered_map<std::string, const ConversationQuestion *> &definitions,
+    std::unordered_set<std::string> &in_progress, bool preserve_shared_id) {
+  if (question.is_reference) {
+    const std::string &id = question.shared_id.value();
+    auto it = definitions.find(id);
+    if (it == definitions.end()) {
+      KWARN("question_ref='{}' does not match any id= definition.", id);
+      return ConversationQuestion{};
+    }
+    if (!in_progress.insert(id).second) {
+      KWARN("Circular question_ref chain involving id '{}'.", id);
+      return ConversationQuestion{};
+    }
+    ConversationQuestion resolved =
+        resolve_question(*it->second, definitions, in_progress,
+                         /*preserve_shared_id=*/false);
+    in_progress.erase(id);
+    return resolved;
+  }
+
+  ConversationQuestion resolved;
+  resolved.text = question.text;
+  resolved.answer_lines = question.answer_lines;
+  resolved.tag = question.tag;
+  resolved.loop_target = question.loop_target;
+  if (preserve_shared_id) {
+    resolved.shared_id = question.shared_id;
+  }
+  resolved.follow_ups.reserve(question.follow_ups.size());
+  for (const ConversationQuestion &child : question.follow_ups) {
+    resolved.follow_ups.push_back(
+        resolve_question(child, definitions, in_progress, /*preserve_shared_id=*/true));
+  }
+  return resolved;
+}
+} // namespace
+
+Conversation resolve_shared_questions(const Conversation &conversation) {
+  std::unordered_map<std::string, const ConversationQuestion *> definitions =
+      collect_shared_definitions(conversation);
+
+  Conversation resolved;
+  std::unordered_set<std::string> in_progress;
+  resolved.questions.reserve(conversation.questions.size());
+  for (const ConversationQuestion &question : conversation.questions) {
+    resolved.questions.push_back(
+        resolve_question(question, definitions, in_progress, /*preserve_shared_id=*/true));
+  }
+  return resolved;
 }

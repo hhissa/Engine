@@ -39,6 +39,17 @@ struct Primitive {
     // regardless of incoming light -- see main() there); the voxelize
     // pass never touches them, it only cares about shape.
     vec4 expr_scale;
+    // Domain repetition (Inigo Quilez, https://iquilezles.org/articles/
+    // sdfrepetition/): x = RepetitionMode as a float (0=None default; see
+    // the REPEAT_* constants below), yzw = cell spacing per axis
+    // (Infinite/Limited: X/Y/Z; Rectangular: X/Z, Y unused). Left at its
+    // zero-init default (None) for a volumetric primitive, which never
+    // repeats -- see rebuild_static_scene(), engine-side.
+    vec4 repeat_mode_cell;
+    // Limited/Rectangular: instance count per axis (X/Y/Z; Rectangular uses
+    // X/Z only). Rotational: x = copy count n. Ignored entirely whenever
+    // repeat_mode_cell.x == REPEAT_NONE or REPEAT_INFINITE.
+    vec4 repeat_count;
 };
 
 layout(binding = SDF_PRIMITIVE_BUFFER_BINDING) readonly buffer PrimitiveBuffer {
@@ -319,6 +330,198 @@ vec3 rotate_by_quat(vec3 v, vec4 q) {
     return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 }
 
+// ---------------------------------------------------------------------------
+// Domain repetition (Inigo Quilez, https://iquilezles.org/articles/
+// sdfrepetition/): a repeated primitive is evaluated at one or more
+// *candidate* points -- copies of the local-space sample point folded back
+// toward the origin cell -- and the smallest resulting distance wins,
+// exactly the article's "evaluate sdf at every candidate instance, take the
+// min" pattern. Each candidate re-runs resolve_params()/the primitive's own
+// shape function fresh (see evaluate_primitive_at() below), so a
+// parametric-attribute formula still varies correctly per repeated instance
+// instead of being computed once at the original point.
+// ---------------------------------------------------------------------------
+
+const int REPEAT_NONE = 0;
+const int REPEAT_INFINITE = 1;
+const int REPEAT_LIMITED = 2;
+const int REPEAT_ROTATIONAL = 3;
+const int REPEAT_RECTANGULAR = 4;
+
+// Dispatches to the primitive-specific distance function by type -- the
+// same switch primitive_sdf() used to do directly; factored out so every
+// repeat_*() function below can call it once per candidate point.
+float evaluate_shape(int type, vec3 local, vec4 params) {
+    if (type == 0) {
+        return sphere_sdf(local, params.x);
+    } else if (type == 1) {
+        return box_sdf(local, params.xyz);
+    } else if (type == 2) {
+        return plane_sdf(local, params.x);
+    } else if (type == 3) {
+        return torus_sdf(local, params.x, params.y);
+    } else if (type == 4) {
+        return capped_cylinder_sdf(local, params.x, params.y);
+    } else if (type == 5) {
+        return capped_cone_sdf(local, params.x, params.y, params.z);
+    } else if (type == 6) {
+        return round_box_sdf(local, params.xyz, params.w);
+    } else if (type == 7) {
+        return box_frame_sdf(local, params.xyz, params.w);
+    } else if (type == 8) {
+        return octahedron_sdf(local, params.x);
+    } else if (type == 9) {
+        return pyramid_sdf(local, params.x);
+    } else if (type == 10) {
+        return hex_prism_sdf(local, params.x, params.y);
+    } else if (type == 11) {
+        return round_cone_sdf(local, params.x, params.y, params.z);
+    } else if (type == 12) {
+        return capsule_sdf(local, params.x, params.y);
+    } else if (type == 13) {
+        return link_sdf(local, params.x, params.y, params.z);
+    }
+    return ellipsoid_sdf(local, params.xyz);
+}
+
+// Resolves index's parametric-attribute params fresh at candidate point r,
+// then evaluates its shape there -- the one place every repeat_*() function
+// below actually samples the primitive, so a formula-driven param (e.g.
+// radius = "0.1 + 0.1*p.y") varies per repeated instance rather than being
+// computed once at the original, unrepeated point.
+float evaluate_primitive_at(int index, int type, vec3 r, vec4 prim_params, float expr_scale) {
+    vec4 params = resolve_params(index, prim_params, r, max(expr_scale, 1e-6));
+    return evaluate_shape(type, r, params);
+}
+
+// Infinite repetition every cell.axis units, independently per axis -- an
+// axis with cell.axis <= 0 is left unrepeated (every candidate keeps that
+// axis's original coordinate), so a primitive can repeat along e.g. just X,
+// or X and Z, while staying a single instance along Y. Checks every
+// neighbour tile toward local on every axis (8 = 2^3 candidates) so a
+// neighbouring instance larger than one cell can't be missed and produce a
+// wrong (too-large) distance -- see the article's "correct repetition"
+// section. Cheaper single-sample shortcuts exist (mirroring, or folding into
+// one quadrant) but only hold for shapes symmetric about every repeated
+// axis, which isn't true of every primitive type in this engine (e.g. Box/
+// RoundBox/BoxFrame/Pyramid/Link can have different extents per axis), so
+// the always-correct, 8-candidate approach is used unconditionally instead.
+float repeat_infinite(int index, int type, vec3 local, vec4 prim_params, float expr_scale,
+                      vec3 cell) {
+    bvec3 axis_active = greaterThan(cell, vec3(1e-5));
+    vec3 safe_cell = mix(vec3(1.0), cell, axis_active); // 1.0 placeholder keeps an inactive axis' divide safe
+    vec3 id = round(local / safe_cell);
+    vec3 o = mix(vec3(0.0), sign(local - safe_cell * id), axis_active); // never step off an inactive axis
+
+    float d = 1e30;
+    for (int k = 0; k < 2; ++k) {
+        for (int j = 0; j < 2; ++j) {
+            for (int i = 0; i < 2; ++i) {
+                vec3 rid = id + vec3(i, j, k) * o;
+                vec3 r = mix(local, local - safe_cell * rid, axis_active);
+                d = min(d, evaluate_primitive_at(index, type, r, prim_params, expr_scale));
+            }
+        }
+    }
+    return d;
+}
+
+// Finite/limited repetition: exactly repeat_infinite() above, but each
+// axis's candidate instance id is additionally clamped to a fixed range
+// first, so the tiling stops after count.axis copies instead of continuing
+// forever -- see the article's "correct" limited-repetition section (the
+// alternative -- boolean-intersecting the infinite tiling against a
+// bounding box -- produces distance-field discontinuities that look fine
+// but are wrong for anything relying on accurate distances). An axis with
+// count.axis <= 1 keeps exactly one, centered instance (id clamped to 0),
+// matching a plain unrepeated primitive along that axis; cell.axis <= 0
+// leaves the axis alone entirely, same convention as repeat_infinite().
+float repeat_limited(int index, int type, vec3 local, vec4 prim_params, float expr_scale,
+                     vec3 cell, vec3 count) {
+    bvec3 axis_active = greaterThan(cell, vec3(1e-5));
+    vec3 safe_cell = mix(vec3(1.0), cell, axis_active);
+    vec3 half_span = max(count - 1.0, 0.0) * 0.5; // count copies centered on 0: ids in [-half_span, half_span]
+    vec3 id = round(local / safe_cell);
+    vec3 o = mix(vec3(0.0), sign(local - safe_cell * id), axis_active);
+
+    float d = 1e30;
+    for (int k = 0; k < 2; ++k) {
+        for (int j = 0; j < 2; ++j) {
+            for (int i = 0; i < 2; ++i) {
+                vec3 rid = clamp(id + vec3(i, j, k) * o, -half_span, half_span);
+                vec3 r = mix(local, local - safe_cell * rid, axis_active);
+                d = min(d, evaluate_primitive_at(index, type, r, prim_params, expr_scale));
+            }
+        }
+    }
+    return d;
+}
+
+// Rotational/angular repetition of n evenly-spaced copies around the
+// primitive's own local Y axis (compose with the primitive's `rotation` to
+// repeat around any axis/orientation instead) -- see the article's "angular
+// repetition" section, adapted from its 2D (x,y) form to this engine's
+// XZ ground plane. Evaluates the two angular neighbour wedges either side of
+// local (in XZ), same "check the neighbour, don't assume the current wedge
+// is the closest instance" reasoning as the linear repetition techniques
+// above, just in angle space instead of distance space. n < 2 disables
+// repetition (falls back to the plain unrepeated point).
+float repeat_rotational(int index, int type, vec3 local, vec4 prim_params, float expr_scale,
+                       int n) {
+    if (n < 2) {
+        return evaluate_primitive_at(index, type, local, prim_params, expr_scale);
+    }
+    float sector = 6.283185307 / float(n);
+    float angle = atan(local.z, local.x);
+    float id = floor(angle / sector);
+
+    float d = 1e30;
+    for (int i = 0; i < 2; ++i) {
+        float a = sector * (id + float(i));
+        float c = cos(a);
+        float s = sin(a);
+        // Rotates local's XZ by -a so wedge i lands back onto wedge 0's
+        // angular range, leaving Y untouched.
+        vec3 r = vec3(c * local.x + s * local.z, local.y, -s * local.x + c * local.z);
+        d = min(d, evaluate_primitive_at(index, type, r, prim_params, expr_scale));
+    }
+    return d;
+}
+
+// Rectangular (grid) repetition confined to the local XZ ground plane --
+// count.x by count.y copies (of the XZ plane, so count.y here means "along
+// Z") spaced cell.x/cell.y apart; Y is always left untouched. Distinct from
+// repeat_limited() above mainly in locking Y (a plain 2-axis grid is the
+// common case -- tiling columns/paving across the ground) and in its
+// simpler 2-value cell/count. Uses the same neighbour-checked, clamped-id
+// technique as repeat_limited() rather than the article's alternative
+// single-evaluation "fold into one quadrant" trick -- that trick requires
+// the wrapped SDF to be symmetric under swapping its two repeated axes (true
+// of e.g. Sphere/Torus/Capsule, whose XZ cross-section is circular, but not
+// of Box/RoundBox/BoxFrame/Pyramid/Link, whose extents can differ per axis),
+// and this engine's primitive catalogue includes several of those, so the
+// always-correct approach was used instead.
+float repeat_rectangular(int index, int type, vec3 local, vec4 prim_params, float expr_scale,
+                         vec2 cell, vec2 count) {
+    bvec2 axis_active = greaterThan(cell, vec2(1e-5));
+    vec2 safe_cell = mix(vec2(1.0), cell, axis_active);
+    vec2 half_span = max(count - 1.0, 0.0) * 0.5;
+    vec2 xz = local.xz;
+    vec2 id = round(xz / safe_cell);
+    vec2 o = mix(vec2(0.0), sign(xz - safe_cell * id), axis_active);
+
+    float d = 1e30;
+    for (int j = 0; j < 2; ++j) {
+        for (int i = 0; i < 2; ++i) {
+            vec2 rid = clamp(id + vec2(i, j) * o, -half_span, half_span);
+            vec2 r = mix(xz, xz - safe_cell * rid, axis_active);
+            vec3 candidate = vec3(r.x, local.y, r.y);
+            d = min(d, evaluate_primitive_at(index, type, candidate, prim_params, expr_scale));
+        }
+    }
+    return d;
+}
+
 // Transforms world point p into primitive index's own local space (world
 // position subtracted, then rotated by the inverse of its rotation, exactly
 // like primitive_sdf() below does internally before evaluating a shape
@@ -351,44 +554,30 @@ float primitive_sdf(int index, vec3 p) {
         vec4 inverse_rotation = vec4(-prim.rotation.xyz, prim.rotation.w);
         local = rotate_by_quat(local, inverse_rotation);
     }
-    // Resolved *after* the rotation above, at this exact sample point --
-    // see resolve_params()/evaluate_expr() for what "resolved" means (a
-    // parametric attribute's formula is evaluated fresh per sample, not
-    // once per primitive, so a tapered/twisted shape's parameter genuinely
-    // varies along it). The max() guards division by a zero expr_scale
-    // (only possible if an uploaded primitive somehow left it unset).
-    vec4 params = resolve_params(index, prim.params, local,
-                                 max(prim.expr_scale.x, 1e-6));
-    if (type == 0) {
-        return sphere_sdf(local, params.x);
-    } else if (type == 1) {
-        return box_sdf(local, params.xyz);
-    } else if (type == 2) {
-        return plane_sdf(local, params.x);
-    } else if (type == 3) {
-        return torus_sdf(local, params.x, params.y);
-    } else if (type == 4) {
-        return capped_cylinder_sdf(local, params.x, params.y);
-    } else if (type == 5) {
-        return capped_cone_sdf(local, params.x, params.y, params.z);
-    } else if (type == 6) {
-        return round_box_sdf(local, params.xyz, params.w);
-    } else if (type == 7) {
-        return box_frame_sdf(local, params.xyz, params.w);
-    } else if (type == 8) {
-        return octahedron_sdf(local, params.x);
-    } else if (type == 9) {
-        return pyramid_sdf(local, params.x);
-    } else if (type == 10) {
-        return hex_prism_sdf(local, params.x, params.y);
-    } else if (type == 11) {
-        return round_cone_sdf(local, params.x, params.y, params.z);
-    } else if (type == 12) {
-        return capsule_sdf(local, params.x, params.y);
-    } else if (type == 13) {
-        return link_sdf(local, params.x, params.y, params.z);
+    // Domain repetition (see repeat_*() above) happens here, in the
+    // primitive's own local space, before params/the shape function are
+    // evaluated -- each repeat_*() mode internally resolves params and
+    // evaluates the shape once per repeated candidate point itself (see
+    // evaluate_primitive_at()), rather than this function doing it once up
+    // front, so a parametric-attribute formula still varies correctly per
+    // repeated instance. The max() inside evaluate_primitive_at() guards
+    // division by a zero expr_scale (only possible if an uploaded primitive
+    // somehow left it unset).
+    int repeat_mode = int(prim.repeat_mode_cell.x);
+    if (repeat_mode == REPEAT_INFINITE) {
+        return repeat_infinite(index, type, local, prim.params, prim.expr_scale.x,
+                               prim.repeat_mode_cell.yzw);
+    } else if (repeat_mode == REPEAT_LIMITED) {
+        return repeat_limited(index, type, local, prim.params, prim.expr_scale.x,
+                              prim.repeat_mode_cell.yzw, prim.repeat_count.xyz);
+    } else if (repeat_mode == REPEAT_ROTATIONAL) {
+        return repeat_rotational(index, type, local, prim.params, prim.expr_scale.x,
+                                 int(prim.repeat_count.x));
+    } else if (repeat_mode == REPEAT_RECTANGULAR) {
+        return repeat_rectangular(index, type, local, prim.params, prim.expr_scale.x,
+                                  prim.repeat_mode_cell.yw, prim.repeat_count.xz);
     }
-    return ellipsoid_sdf(local, params.xyz);
+    return evaluate_primitive_at(index, type, local, prim.params, prim.expr_scale.x);
 }
 
 // Polynomial smooth union (Inigo Quilez) -- blends a and b together across

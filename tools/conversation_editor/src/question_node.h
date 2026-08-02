@@ -88,6 +88,14 @@ public:
   // ConnectionItem attached there actually starts/ends.
   QPointF side_scene_pos(Side side) const;
 
+  // Current total content height (see layout_content()'s comment), at
+  // least kMinHeight -- the actual on-screen height of this box right now,
+  // as opposed to boundingRect()'s height which also includes the side
+  // handle padding. Public so layout code (e.g. graph_scene.cpp's place())
+  // can space rows of nodes apart by however tall each one actually grew
+  // to fit its content, instead of guessing with a fixed constant.
+  qreal content_height() const { return layout_content(nullptr, nullptr); }
+
   // The side (if any) within kSideGrabRadius of local_pos -- GraphScene
   // checks this (via a mapFromScene()'d press position) to decide whether
   // a press starts a new connection from that specific side, or (this
@@ -146,7 +154,6 @@ private:
   // so the two can never disagree about how tall the box is.
   qreal layout_content(QRectF *question_rect_out,
                        std::vector<QRectF> *answer_rects_out) const;
-  qreal content_height() const { return layout_content(nullptr, nullptr); }
 
   // Node-local (unmapped) position of side's midpoint, given the box's
   // *current* content_height() -- the shared basis side_scene_pos()/

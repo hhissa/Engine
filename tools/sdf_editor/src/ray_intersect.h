@@ -260,6 +260,119 @@ inline glm::vec4 resolve_params(const SdfPrimitiveDef &primitive,
   return params;
 }
 
+// Domain repetition (Inigo Quilez, https://iquilezles.org/articles/
+// sdfrepetition/) -- mirrors repeat_infinite()/repeat_limited()/
+// repeat_rotational()/repeat_rectangular() in Builtin.SdfSceneCommon.inc.glsl
+// exactly (same neighbour-checked, clamped-id technique; see that file's
+// comments for the reasoning), so gizmo-picking a repeated primitive in the
+// editor finds the same nearest instance the GPU renders. Called once per
+// raymarch_primitive() sample point below, taking the place of a plain
+// resolve_params()+sdf::evaluate() call.
+inline f32 evaluate_repeated(const SdfPrimitiveDef &primitive,
+                             const CompiledParamExprs &compiled, glm::vec3 local) {
+  auto eval_at = [&](glm::vec3 r) {
+    glm::vec4 params = resolve_params(primitive, compiled, r);
+    return sdf::evaluate(primitive.type, params, r);
+  };
+
+  switch (primitive.repetition_mode) {
+  case SdfRepetitionMode::Infinite: {
+    glm::vec3 cell = primitive.repetition_cell;
+    glm::bvec3 active(cell.x > 1e-5f, cell.y > 1e-5f, cell.z > 1e-5f);
+    glm::vec3 safe_cell(active.x ? cell.x : 1.0f, active.y ? cell.y : 1.0f,
+                       active.z ? cell.z : 1.0f);
+    glm::vec3 id = glm::round(local / safe_cell);
+    glm::vec3 sgn = glm::sign(local - safe_cell * id);
+    glm::vec3 o(active.x ? sgn.x : 0.0f, active.y ? sgn.y : 0.0f,
+               active.z ? sgn.z : 0.0f);
+
+    f32 d = std::numeric_limits<f32>::max();
+    for (int k = 0; k < 2; ++k) {
+      for (int j = 0; j < 2; ++j) {
+        for (int i = 0; i < 2; ++i) {
+          glm::vec3 rid = id + glm::vec3(i, j, k) * o;
+          glm::vec3 r(active.x ? local.x - safe_cell.x * rid.x : local.x,
+                     active.y ? local.y - safe_cell.y * rid.y : local.y,
+                     active.z ? local.z - safe_cell.z * rid.z : local.z);
+          d = std::min(d, eval_at(r));
+        }
+      }
+    }
+    return d;
+  }
+  case SdfRepetitionMode::Limited: {
+    glm::vec3 cell = primitive.repetition_cell;
+    glm::vec3 count = primitive.repetition_count;
+    glm::bvec3 active(cell.x > 1e-5f, cell.y > 1e-5f, cell.z > 1e-5f);
+    glm::vec3 safe_cell(active.x ? cell.x : 1.0f, active.y ? cell.y : 1.0f,
+                       active.z ? cell.z : 1.0f);
+    glm::vec3 half_span = glm::max(count - 1.0f, 0.0f) * 0.5f;
+    glm::vec3 id = glm::round(local / safe_cell);
+    glm::vec3 sgn = glm::sign(local - safe_cell * id);
+    glm::vec3 o(active.x ? sgn.x : 0.0f, active.y ? sgn.y : 0.0f,
+               active.z ? sgn.z : 0.0f);
+
+    f32 d = std::numeric_limits<f32>::max();
+    for (int k = 0; k < 2; ++k) {
+      for (int j = 0; j < 2; ++j) {
+        for (int i = 0; i < 2; ++i) {
+          glm::vec3 rid = glm::clamp(id + glm::vec3(i, j, k) * o, -half_span, half_span);
+          glm::vec3 r(active.x ? local.x - safe_cell.x * rid.x : local.x,
+                     active.y ? local.y - safe_cell.y * rid.y : local.y,
+                     active.z ? local.z - safe_cell.z * rid.z : local.z);
+          d = std::min(d, eval_at(r));
+        }
+      }
+    }
+    return d;
+  }
+  case SdfRepetitionMode::Rotational: {
+    int n = static_cast<int>(std::lround(primitive.repetition_count.x));
+    if (n < 2) {
+      return eval_at(local);
+    }
+    f32 sector = 6.283185307f / static_cast<f32>(n);
+    f32 angle = std::atan2(local.z, local.x);
+    f32 id = std::floor(angle / sector);
+
+    f32 d = std::numeric_limits<f32>::max();
+    for (int i = 0; i < 2; ++i) {
+      f32 a = sector * (id + static_cast<f32>(i));
+      f32 c = std::cos(a);
+      f32 s = std::sin(a);
+      glm::vec3 r(c * local.x + s * local.z, local.y, -s * local.x + c * local.z);
+      d = std::min(d, eval_at(r));
+    }
+    return d;
+  }
+  case SdfRepetitionMode::Rectangular: {
+    glm::vec2 cell(primitive.repetition_cell.x, primitive.repetition_cell.z);
+    glm::vec2 count(primitive.repetition_count.x, primitive.repetition_count.z);
+    glm::bvec2 active(cell.x > 1e-5f, cell.y > 1e-5f);
+    glm::vec2 safe_cell(active.x ? cell.x : 1.0f, active.y ? cell.y : 1.0f);
+    glm::vec2 half_span = glm::max(count - 1.0f, 0.0f) * 0.5f;
+    glm::vec2 xz(local.x, local.z);
+    glm::vec2 id = glm::round(xz / safe_cell);
+    glm::vec2 sgn = glm::sign(xz - safe_cell * id);
+    glm::vec2 o(active.x ? sgn.x : 0.0f, active.y ? sgn.y : 0.0f);
+
+    f32 d = std::numeric_limits<f32>::max();
+    for (int j = 0; j < 2; ++j) {
+      for (int i = 0; i < 2; ++i) {
+        glm::vec2 rid = glm::clamp(id + glm::vec2(i, j) * o, -half_span, half_span);
+        glm::vec2 r(active.x ? xz.x - safe_cell.x * rid.x : xz.x,
+                   active.y ? xz.y - safe_cell.y * rid.y : xz.y);
+        d = std::min(d, eval_at(glm::vec3(r.x, local.y, r.y)));
+      }
+    }
+    return d;
+  }
+  case SdfRepetitionMode::None:
+  default:
+    return eval_at(local);
+  }
+}
+
 // Sphere-traces along origin+dir*t against primitive's distance function,
 // in its own local space (world position subtracted, then rotated by the
 // inverse of primitive.rotation -- skipped for Plane, which never rotates,
@@ -288,8 +401,7 @@ inline std::optional<f32> raymarch_primitive(const SdfPrimitiveDef &primitive,
   f32 t = 0.0f;
   for (int i = 0; i < kMaxSteps; ++i) {
     glm::vec3 p = local_origin + local_dir * t;
-    glm::vec4 params = resolve_params(primitive, compiled, p);
-    f32 d = sdf::evaluate(primitive.type, params, p);
+    f32 d = evaluate_repeated(primitive, compiled, p);
     if (std::fabs(d) < kSurfaceEpsilon) {
       return t;
     }

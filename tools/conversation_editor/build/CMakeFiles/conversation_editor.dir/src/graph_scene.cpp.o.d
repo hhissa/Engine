@@ -1,6 +1,7 @@
 CMakeFiles/conversation_editor.dir/src/graph_scene.cpp.o: \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/graph_scene.cpp \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/graph_scene.h \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/connection_item.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/question_node.h \
   /usr/include/qt6/QtWidgets/QGraphicsObject \
   /usr/include/qt6/QtWidgets/qgraphicsitem.h \
@@ -446,6 +447,7 @@ CMakeFiles/conversation_editor.dir/src/graph_scene.cpp.o: \
   /usr/include/qt6/QtGui/qrgba64.h /usr/include/qt6/QtGui/qimage.h \
   /usr/include/qt6/QtGui/qpixelformat.h /usr/include/qt6/QtCore/QRectF \
   /usr/include/qt6/QtCore/QString /usr/include/qt6/QtCore/QStringList \
+  /usr/include/qt6/QtWidgets/QGraphicsPathItem \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/resources/conversation.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/resources/../defines.h \
   /usr/include/qt6/QtWidgets/QGraphicsScene \
@@ -453,8 +455,8 @@ CMakeFiles/conversation_editor.dir/src/graph_scene.cpp.o: \
   /usr/include/qt6/QtGui/qbrush.h /usr/include/qt6/QtGui/qfont.h \
   /usr/include/qt6/QtCore/qendian.h /usr/include/qt6/QtGui/qpen.h \
   /usr/include/qt6/QtCore/QPointF \
-  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/connection_item.h \
-  /usr/include/qt6/QtWidgets/QGraphicsPathItem \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/core/logger.h \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/core/../defines.h \
   /usr/include/qt6/QtGui/QColor \
   /usr/include/qt6/QtWidgets/QGraphicsSceneMouseEvent \
   /usr/include/qt6/QtWidgets/qgraphicssceneevent.h \

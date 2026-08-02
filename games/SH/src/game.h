@@ -7,6 +7,7 @@
 #include <renderer/renderer_types.inl>
 
 #include <optional>
+#include <vector>
 
 // Named, fully-specified combinations of loaded scenery/model -- see
 // SHGame::apply_scene_state(). Add a new enumerator here (and a matching
@@ -21,6 +22,11 @@ enum class SceneState {
   // lights), matching what that dialogue option used to do directly via
   // renderer_clear_scenes() before it was folded into this state system.
   DoorScene1,
+  DoorScene2,
+  Scars1,
+  Scars2,
+  Scars3,
+  Scars4,
 };
 
 class SHGame : public Game {
@@ -53,13 +59,15 @@ private:
   u32 width_ = 0;
   u32 height_ = 0;
 
-  SceneHandle scene_ = kInvalidSceneHandle;
-  SceneHandle light1_ = kInvalidSceneHandle;
-  SceneHandle light2_ = kInvalidSceneHandle;
-
-  SceneHandle overheadLights_ = kInvalidSceneHandle;
-
-  SceneHandle room = kInvalidSceneHandle;
+  // Every scene handle apply_scene_state() has currently loaded (the man/
+  // room/lights for Normal, just the door for DoorScene1, etc.) -- nothing
+  // here ever needs to address one of them individually after loading, so
+  // apply_scene_state() just appends whatever each state's case loads and
+  // tears the whole batch down uniformly on the next call. If some future
+  // state needs to reach back into one specific piece (e.g. flicker just
+  // one light), give that one its own named SceneHandle member instead --
+  // don't try to make this vector do both jobs.
+  std::vector<SceneHandle> loaded_scenes_;
 
   // Which SceneState is currently loaded -- nullopt only before the very
   // first apply_scene_state() call (see initialize()), so that call always

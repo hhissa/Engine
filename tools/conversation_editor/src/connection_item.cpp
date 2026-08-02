@@ -30,10 +30,19 @@ QPointF outward_direction(QuestionNode::Side side) {
 } // namespace
 
 ConnectionItem::ConnectionItem(QuestionNode *source, QuestionNode::Side source_side,
-                              QuestionNode *target, QuestionNode::Side target_side)
+                              QuestionNode *target, QuestionNode::Side target_side,
+                              Kind kind)
     : source_(source), target_(target), source_side_(source_side),
-      target_side_(target_side) {
-  setPen(QPen(QColor(150, 150, 160), 2.0));
+      target_side_(target_side), kind_(kind) {
+  // Loop connections get a distinct amber dashed look -- visually separate
+  // from a plain grey/solid follow-up edge, since a Loop connection reads
+  // very differently on the graph (a jump-back, not a nesting) and is often
+  // drawn crossing back over other edges.
+  if (kind_ == Kind::Loop) {
+    setPen(QPen(QColor(230, 160, 60), 2.0, Qt::DashLine));
+  } else {
+    setPen(QPen(QColor(150, 150, 160), 2.0));
+  }
   setZValue(0.0); // draw under nodes
   update_path();
 }

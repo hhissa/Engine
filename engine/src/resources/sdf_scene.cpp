@@ -56,6 +56,23 @@ bool parse_primitive_type(const std::string &value, SdfPrimitiveType &out) {
   return true;
 }
 
+bool parse_repetition_mode(const std::string &value, SdfRepetitionMode &out) {
+  if (value == "none") {
+    out = SdfRepetitionMode::None;
+  } else if (value == "infinite") {
+    out = SdfRepetitionMode::Infinite;
+  } else if (value == "limited") {
+    out = SdfRepetitionMode::Limited;
+  } else if (value == "rotational") {
+    out = SdfRepetitionMode::Rotational;
+  } else if (value == "rectangular") {
+    out = SdfRepetitionMode::Rectangular;
+  } else {
+    return false;
+  }
+  return true;
+}
+
 bool parse_vec3(const std::string &value, glm::vec3 &out) {
   std::istringstream iss(value);
   glm::vec3 v;
@@ -243,6 +260,27 @@ std::optional<SdfScene> load_sdf_scene(std::string_view path) {
                path, value, line_number);
         } else {
           current_primitive.param_expressions[static_cast<size_t>(slot)] = formula;
+        }
+      } else if (key == "repetition") {
+        if (!parse_repetition_mode(value, current_primitive.repetition_mode)) {
+          KWARN("'{}': unknown repetition mode '{}' at line {}.", path, value,
+               line_number);
+        }
+      } else if (key == "repetition_cell") {
+        glm::vec3 v;
+        if (parse_vec3(value, v)) {
+          current_primitive.repetition_cell = v;
+        } else {
+          KWARN("'{}': malformed repetition_cell '{}' at line {}.", path,
+               value, line_number);
+        }
+      } else if (key == "repetition_count") {
+        glm::vec3 v;
+        if (parse_vec3(value, v)) {
+          current_primitive.repetition_count = v;
+        } else {
+          KWARN("'{}': malformed repetition_count '{}' at line {}.", path,
+               value, line_number);
         }
       } else if (key == "material") {
         current_primitive.material_name = value;

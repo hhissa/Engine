@@ -48,6 +48,22 @@ LayerOperation to_layer_operation(SdfLayerOperation operation) {
 LightType to_light_type(SdfLightType type) {
   return type == SdfLightType::Point ? LightType::Point : LightType::Directional;
 }
+
+RepetitionMode to_repetition_mode(SdfRepetitionMode mode) {
+  switch (mode) {
+  case SdfRepetitionMode::Infinite:
+    return RepetitionMode::Infinite;
+  case SdfRepetitionMode::Limited:
+    return RepetitionMode::Limited;
+  case SdfRepetitionMode::Rotational:
+    return RepetitionMode::Rotational;
+  case SdfRepetitionMode::Rectangular:
+    return RepetitionMode::Rectangular;
+  case SdfRepetitionMode::None:
+  default:
+    return RepetitionMode::None;
+  }
+}
 } // namespace
 
 GeometryConfig GeometryConfig::sphere(std::string name, glm::vec3 position,
@@ -105,6 +121,9 @@ Geometry &GeometrySystem::acquire(const GeometryConfig &config,
     geometry.params = config.params;
     geometry.extra_param = config.extra_param;
     geometry.param_expressions = config.param_expressions;
+    geometry.repetition_mode = config.repetition_mode;
+    geometry.repetition_cell = config.repetition_cell;
+    geometry.repetition_count = config.repetition_count;
     geometry.material_name = config.material_name;
     geometry.material = &material_system_->acquire(config.material_name, true);
     entry.geometry = std::move(geometry);
@@ -319,6 +338,9 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
       config.params = primitive_def.params;
       config.extra_param = primitive_def.extra_param;
       config.param_expressions = primitive_def.param_expressions;
+      config.repetition_mode = to_repetition_mode(primitive_def.repetition_mode);
+      config.repetition_cell = primitive_def.repetition_cell;
+      config.repetition_count = primitive_def.repetition_count;
       config.material_name = primitive_def.material_name;
 
       Geometry &geometry = acquire(config, auto_release);

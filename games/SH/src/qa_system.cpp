@@ -63,6 +63,8 @@ QASystem::Entry to_entry(const ConversationQuestion &question) {
   entry.question = question.text;
   entry.answer_lines = question.answer_lines;
   entry.tag = question.tag;
+  entry.shared_id = question.shared_id;
+  entry.loop_target = question.loop_target;
   entry.follow_ups.reserve(question.follow_ups.size());
   for (const ConversationQuestion &child : question.follow_ups) {
     entry.follow_ups.push_back(to_entry(child));
@@ -76,12 +78,22 @@ ConversationHandle QASystem::load_conversation(std::string_view path) {
   if (!parsed) {
     return kInvalidConversationHandle; // load_conversation_file() already logged why
   }
+  // parsed may contain question_ref= stand-ins for a question shared
+  // across more than one attachment point (see resources/conversation.h's
+  // file format comment) -- resolve those into a plain, fully-expanded
+  // tree first, so to_entry() below never has to know sharing was ever
+  // involved.
+  Conversation resolved = resolve_shared_questions(*parsed);
 
   ConversationHandle handle = next_conversation_handle_++;
-  for (const ConversationQuestion &question : parsed->questions) {
+  for (const ConversationQuestion &question : resolved.questions) {
     entries_.push_back(to_entry(question));
     entry_handles_.push_back(handle);
   }
+  // entries_ may have just reallocated (invalidating any pointer into a
+  // follow_ups vector nested inside it), so loop_targets_ has to be rebuilt
+  // fresh rather than merely extended -- see rebuild_loop_targets().
+  rebuild_loop_targets();
 
   KDEBUG("Loaded conversation '{}' ({} top-level question(s)) as handle {}.",
         path, parsed->questions.size(), handle);
@@ -129,6 +141,7 @@ void QASystem::unload_conversation(ConversationHandle handle) {
       entry_handles_.erase(entry_handles_.begin() + static_cast<ptrdiff_t>(i));
     }
   }
+  rebuild_loop_targets(); // handle's entries (and their ids) are gone now
 }
 
 namespace {
@@ -210,6 +223,38 @@ void QASystem::apply_layer_scene_state() {
   }
 }
 
+void QASystem::index_loop_targets(std::vector<Entry> &list,
+                                  std::vector<std::vector<Entry> *> ancestors,
+                                  std::vector<std::optional<std::string>> ancestor_tags,
+                                  std::optional<std::string> layer_tag) {
+  for (size_t i = 0; i < list.size(); ++i) {
+    Entry &entry = list[i];
+    if (entry.shared_id) {
+      auto [it, inserted] = loop_targets_.emplace(
+          *entry.shared_id, LoopTarget{&list, i, ancestors, ancestor_tags, layer_tag});
+      if (!inserted) {
+        KWARN("QASystem: duplicate id '{}' across loaded conversations -- "
+             "keeping the first found as the loop_to= target.",
+             *entry.shared_id);
+      }
+    }
+    if (!entry.follow_ups.empty()) {
+      std::vector<std::vector<Entry> *> child_ancestors = ancestors;
+      child_ancestors.push_back(&list);
+      std::vector<std::optional<std::string>> child_tags = ancestor_tags;
+      child_tags.push_back(layer_tag);
+      std::optional<std::string> child_layer_tag = entry.tag ? entry.tag : layer_tag;
+      index_loop_targets(entry.follow_ups, std::move(child_ancestors),
+                         std::move(child_tags), std::move(child_layer_tag));
+    }
+  }
+}
+
+void QASystem::rebuild_loop_targets() {
+  loop_targets_.clear();
+  index_loop_targets(entries_, {}, {}, std::nullopt);
+}
+
 void QASystem::update() {
   if (entries_.empty()) {
     return;
@@ -245,7 +290,28 @@ void QASystem::update() {
         // for the exact policy), updating current_layer_tag_ to match
         // wherever navigation lands, then apply whichever scene state that
         // leaves current -- see apply_layer_scene_state().
-        if (!answered.follow_ups.empty()) {
+        if (answered.loop_target) {
+          // Jump straight to the loop_to= target's own location, exactly
+          // as if the player had navigated there normally -- see
+          // rebuild_loop_targets()/index_loop_targets(). Takes priority
+          // over follow_ups/popping below (a looping question isn't
+          // expected to also have follow_ups of its own -- see
+          // resources/conversation.h's file format comment).
+          auto it = loop_targets_.find(*answered.loop_target);
+          if (it != loop_targets_.end()) {
+            const LoopTarget &target = it->second;
+            current_list_ = target.list;
+            list_stack_.assign(target.ancestors.begin(), target.ancestors.end());
+            layer_tag_stack_.assign(target.ancestor_tags.begin(),
+                                    target.ancestor_tags.end());
+            current_layer_tag_ = target.layer_tag;
+            cursor_ = target.index;
+          } else {
+            KWARN("QASystem: question '{}' has loop_to='{}' with no "
+                 "matching id= anywhere currently loaded.",
+                 answered.question, *answered.loop_target);
+          }
+        } else if (!answered.follow_ups.empty()) {
           list_stack_.push_back(current_list_);
           layer_tag_stack_.push_back(current_layer_tag_);
           if (answered.tag) {

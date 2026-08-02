@@ -638,6 +638,11 @@ void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
     // rest of the model scaled -- visibly mangling anything authored with
     // parametric attributes (e.g. man.sdf's tapered capsule limbs).
     geometry->param_expr_scale *= factor;
+    // repetition_cell is a length (cell spacing) too, so it must shrink/grow
+    // in lockstep with the primitive -- left alone, scaling a scene down
+    // would leave repeated instances at their old, now-relatively-larger
+    // spacing. repetition_count is a plain instance count and never scales.
+    geometry->repetition_cell *= factor;
     // The texture's own world-space tiling frequency is a length too, and
     // needs to shrink/grow with the primitive the same way -- accumulated
     // per-Geometry rather than scaling geometry->material->texture_scale

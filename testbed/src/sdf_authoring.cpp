@@ -45,6 +45,22 @@ const char *to_string(SdfLayerOperation operation) {
   return operation == SdfLayerOperation::Subtraction ? "subtraction" : "union";
 }
 
+const char *to_string(SdfRepetitionMode mode) {
+  switch (mode) {
+  case SdfRepetitionMode::Infinite:
+    return "infinite";
+  case SdfRepetitionMode::Limited:
+    return "limited";
+  case SdfRepetitionMode::Rotational:
+    return "rotational";
+  case SdfRepetitionMode::Rectangular:
+    return "rectangular";
+  case SdfRepetitionMode::None:
+  default:
+    return "none";
+  }
+}
+
 const char *to_string(SdfLightType type) {
   return type == SdfLightType::Point ? "point" : "directional";
 }
@@ -136,6 +152,17 @@ bool save_scene(std::string_view path, const SdfScene &scene) {
         if (!formula.empty()) {
           file << "        param_expr=" << slot << ' ' << formula << "\n";
         }
+      }
+      // Only emitted when actually repeated -- keeps every file authored
+      // before this existed byte-for-byte unchanged, same convention as
+      // param_expr= above.
+      if (primitive.repetition_mode != SdfRepetitionMode::None) {
+        file << "        repetition=" << to_string(primitive.repetition_mode) << "\n";
+        file << "        repetition_cell=";
+        write_vec3(file, primitive.repetition_cell);
+        file << "\n        repetition_count=";
+        write_vec3(file, primitive.repetition_count);
+        file << "\n";
       }
       file << "        material=" << primitive.material_name << "\n";
       file << "    }\n";

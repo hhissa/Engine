@@ -293,6 +293,32 @@ PrimitiveTypeSpec type_spec_for(SdfPrimitiveType type) {
   }
   return {true, true, {"Value"}};
 }
+
+// Wraps a fresh QFormLayout in a checkable QGroupBox and adds it to
+// parent_layout, returning the form so the caller keeps building rows into
+// it exactly like a plain, non-collapsible QFormLayout would -- splits what
+// used to be one long flat "New Primitive"/"New Volumetric" form into
+// several independently collapsible sections instead (clicking a section's
+// title checkbox shows/hides its rows), so related fields (Transform,
+// Repetition, Material & Texture, ...) read as one visually distinct group
+// and a section nobody's using right now can be tucked away. Every section
+// starts expanded by default (see `expanded`) so nothing that was always
+// visible before this existed becomes hidden by default.
+QFormLayout *add_collapsible_section(QVBoxLayout *parent_layout, const QString &title,
+                                     bool expanded = true) {
+  auto *box = new QGroupBox(title);
+  box->setCheckable(true);
+  box->setChecked(expanded);
+  auto *box_layout = new QVBoxLayout(box);
+  auto *content = new QWidget();
+  content->setVisible(expanded);
+  auto *content_form = new QFormLayout(content);
+  content_form->setContentsMargins(0, 0, 0, 0);
+  box_layout->addWidget(content);
+  QObject::connect(box, &QGroupBox::toggled, content, &QWidget::setVisible);
+  parent_layout->addWidget(box);
+  return content_form;
+}
 } // namespace
 
 SdfEditorWindow::SdfEditorWindow() {
@@ -373,8 +399,10 @@ SdfEditorWindow::SdfEditorWindow() {
   // running scene contents.
   auto *right_panel = new QVBoxLayout();
 
-  auto *form_group = new QGroupBox("New Primitive");
-  auto *form = new QFormLayout(form_group);
+  auto *primitives_tab = new QWidget();
+  auto *primitives_layout = new QVBoxLayout(primitives_tab);
+
+  QFormLayout *form = add_collapsible_section(primitives_layout, "Layer");
 
   operation_combo_ = new QComboBox();
   operation_combo_->addItem("Union");
@@ -389,6 +417,8 @@ SdfEditorWindow::SdfEditorWindow() {
   connect(smoothness_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
          this, &SdfEditorWindow::on_live_edit_changed);
   form->addRow("Smoothness:", smoothness_spin_);
+
+  form = add_collapsible_section(primitives_layout, "Transform");
 
   pos_x_ = new QDoubleSpinBox();
   pos_y_ = new QDoubleSpinBox();
@@ -421,6 +451,72 @@ SdfEditorWindow::SdfEditorWindow() {
   rot_row->addWidget(rot_z_);
   form->addRow("Rotation (x, y, z):", rot_row);
 
+  form = add_collapsible_section(primitives_layout, "Repetition", /*expanded=*/false);
+
+  // Domain repetition (see https://iquilezles.org/articles/sdfrepetition/
+  // and SdfPrimitiveDef::repetition_mode's comment) -- added in exactly
+  // SdfRepetitionMode's own enum order, same "row index == enum value"
+  // convention type_list_ uses (see update_field_enablement()/
+  // populate_fields_from_selection()/apply_fields_to_primitive()).
+  repetition_combo_ = new QComboBox();
+  repetition_combo_->addItem("None");
+  repetition_combo_->addItem("Infinite");
+  repetition_combo_->addItem("Limited");
+  repetition_combo_->addItem("Rotational");
+  repetition_combo_->addItem("Rectangular");
+  repetition_combo_->setToolTip(
+      "Evaluates this shape at repeated copies of the sample point instead "
+      "of just once.\n"
+      "None: a plain, unrepeated primitive.\n"
+      "Infinite: repeats forever every Repeat Cell unit along each axis "
+      "whose cell value is > 0; an axis left at 0 doesn't repeat.\n"
+      "Limited: like Infinite, but capped to Repeat Count copies per axis "
+      "(a 3D box grid).\n"
+      "Rotational: Repeat Count X evenly-spaced copies around this "
+      "primitive's own local Y axis (combine with Rotation above to repeat "
+      "around any axis).\n"
+      "Rectangular: a 2D grid confined to the local XZ plane (Repeat Cell/"
+      "Count X and Z; Y is left alone) -- the common 'tile the ground' "
+      "case; use Limited for a full 3D grid instead.");
+  connect(repetition_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+         this, &SdfEditorWindow::on_repetition_mode_changed);
+  form->addRow("Repetition:", repetition_combo_);
+
+  repeat_cell_x_ = new QDoubleSpinBox();
+  repeat_cell_y_ = new QDoubleSpinBox();
+  repeat_cell_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin : {repeat_cell_x_, repeat_cell_y_, repeat_cell_z_}) {
+    spin->setRange(0.0, 100.0);
+    spin->setSingleStep(0.1);
+    spin->setValue(1.0);
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_live_edit_changed);
+  }
+  auto *repeat_cell_row = new QHBoxLayout();
+  repeat_cell_row->addWidget(repeat_cell_x_);
+  repeat_cell_row->addWidget(repeat_cell_y_);
+  repeat_cell_row->addWidget(repeat_cell_z_);
+  form->addRow("Repeat Cell (x, y, z):", repeat_cell_row);
+
+  repeat_count_x_ = new QDoubleSpinBox();
+  repeat_count_y_ = new QDoubleSpinBox();
+  repeat_count_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin : {repeat_count_x_, repeat_count_y_, repeat_count_z_}) {
+    spin->setDecimals(0);
+    spin->setRange(1.0, 64.0);
+    spin->setSingleStep(1.0);
+    spin->setValue(1.0);
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_live_edit_changed);
+  }
+  auto *repeat_count_row = new QHBoxLayout();
+  repeat_count_row->addWidget(repeat_count_x_);
+  repeat_count_row->addWidget(repeat_count_y_);
+  repeat_count_row->addWidget(repeat_count_z_);
+  form->addRow("Repeat Count (x, y, z):", repeat_count_row);
+
+  form = add_collapsible_section(primitives_layout, "Shape Parameters");
+
   // Generic per-type scalar parameters -- labeled/shown per the current
   // type's PrimitiveTypeSpec (see update_field_enablement()). Each also
   // gets an optional formula field (see param_expr_edit_) that, when
@@ -446,6 +542,8 @@ SdfEditorWindow::SdfEditorWindow() {
     param_label_[i] = new QLabel();
     form->addRow(param_label_[i], param_row);
   }
+
+  form = add_collapsible_section(primitives_layout, "Material && Texture");
 
   colour_button_ = new QPushButton("Choose...");
   colour_button_->setStyleSheet(
@@ -523,6 +621,8 @@ SdfEditorWindow::SdfEditorWindow() {
          &SdfEditorWindow::on_live_edit_changed);
   form->addRow("Texture Rotation:", texture_rotation_spin_);
 
+  form = add_collapsible_section(primitives_layout, "Emissive && Rendering", /*expanded=*/false);
+
   emissive_colour_button_ = new QPushButton("Choose...");
   emissive_colour_button_->setStyleSheet(
       QString("background-color: %1;").arg(emissive_colour_.name()));
@@ -556,10 +656,6 @@ SdfEditorWindow::SdfEditorWindow() {
          &SdfEditorWindow::on_live_edit_changed);
   form->addRow("", pixelation_exempt_check_);
 
-  auto *primitives_tab = new QWidget();
-  auto *primitives_layout = new QVBoxLayout(primitives_tab);
-  primitives_layout->addWidget(form_group);
-
   auto *add_row = new QHBoxLayout();
   auto *add_button = new QPushButton("Add Primitive");
   connect(add_button, &QPushButton::clicked, this,
@@ -574,6 +670,26 @@ SdfEditorWindow::SdfEditorWindow() {
          &SdfEditorWindow::on_new_layer_clicked);
   add_row->addWidget(new_layer_button_);
   primitives_layout->addLayout(add_row);
+
+  auto *layer_clipboard_row = new QHBoxLayout();
+  copy_layer_button_ = new QPushButton("Copy Layer");
+  copy_layer_button_->setToolTip(
+      "Copies the selected row's layer (every primitive in it, deep-copied) "
+      "onto an in-memory clipboard -- select any primitive within a layer, "
+      "or the layer row itself.");
+  connect(copy_layer_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_copy_layer_clicked);
+  layer_clipboard_row->addWidget(copy_layer_button_);
+  paste_layer_button_ = new QPushButton("Paste Layer");
+  paste_layer_button_->setEnabled(false); // enabled once something's been copied
+  paste_layer_button_->setToolTip(
+      "Appends a fresh copy of the last-copied layer -- every primitive "
+      "gets a newly generated unique name, so pasting repeatedly never "
+      "collides with the original or an earlier paste.");
+  connect(paste_layer_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_paste_layer_clicked);
+  layer_clipboard_row->addWidget(paste_layer_button_);
+  primitives_layout->addLayout(layer_clipboard_row);
 
   primitives_layout->addWidget(new QLabel("Scene Contents"));
   contents_tree_ = new ContentsTreeWidget();
@@ -694,8 +810,8 @@ SdfEditorWindow::SdfEditorWindow() {
   volumetrics_root_layout->addLayout(volumetric_type_panel, /*stretch=*/1);
 
   auto *volumetric_right_panel = new QVBoxLayout();
-  auto *volumetric_form_group = new QGroupBox("New Volumetric");
-  auto *volumetric_form = new QFormLayout(volumetric_form_group);
+  QFormLayout *volumetric_form =
+      add_collapsible_section(volumetric_right_panel, "Transform");
 
   volumetric_pos_x_ = new QDoubleSpinBox();
   volumetric_pos_y_ = new QDoubleSpinBox();
@@ -730,6 +846,8 @@ SdfEditorWindow::SdfEditorWindow() {
   volumetric_rot_row->addWidget(volumetric_rot_z_);
   volumetric_form->addRow("Rotation (x, y, z):", volumetric_rot_row);
 
+  volumetric_form = add_collapsible_section(volumetric_right_panel, "Shape Parameters");
+
   for (int i = 0; i < 4; ++i) {
     volumetric_param_spin_[i] = new QDoubleSpinBox();
     volumetric_param_spin_[i]->setRange(0.001, 100.0);
@@ -742,6 +860,9 @@ SdfEditorWindow::SdfEditorWindow() {
     volumetric_param_label_[i] = new QLabel();
     volumetric_form->addRow(volumetric_param_label_[i], volumetric_param_spin_[i]);
   }
+
+  volumetric_form =
+      add_collapsible_section(volumetric_right_panel, "Material, Texture && Glow");
 
   volumetric_colour_button_ = new QPushButton("Choose...");
   volumetric_colour_button_->setStyleSheet(
@@ -813,8 +934,6 @@ SdfEditorWindow::SdfEditorWindow() {
          QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
          &SdfEditorWindow::on_volumetric_field_changed);
   volumetric_form->addRow("Density:", volumetric_density_spin_);
-
-  volumetric_right_panel->addWidget(volumetric_form_group);
 
   auto *add_volumetric_button = new QPushButton("Add Volumetric");
   connect(add_volumetric_button, &QPushButton::clicked, this,
@@ -909,6 +1028,29 @@ void SdfEditorWindow::update_field_enablement() {
       param_spin_[i]->setEnabled(param_expr_edit_[i]->text().isEmpty());
     }
   }
+
+  // Repetition (see SdfRepetitionMode's comment) -- repeat_cell_*_/
+  // repeat_count_*_ are shared across every mode, so which of the 6 is
+  // actually meaningful (and therefore enabled, rather than hidden -- same
+  // "stays visible but greyed" convention pos_*_/rot_*_ use for Plane
+  // above) depends on the currently-chosen mode. Combo row index matches
+  // SdfRepetitionMode's own enum order exactly.
+  auto repetition_mode = static_cast<SdfRepetitionMode>(repetition_combo_->currentIndex());
+  bool cell_relevant = repetition_mode == SdfRepetitionMode::Infinite ||
+                      repetition_mode == SdfRepetitionMode::Limited ||
+                      repetition_mode == SdfRepetitionMode::Rectangular;
+  bool count_relevant = repetition_mode == SdfRepetitionMode::Limited ||
+                       repetition_mode == SdfRepetitionMode::Rotational ||
+                       repetition_mode == SdfRepetitionMode::Rectangular;
+  bool is_rotational = repetition_mode == SdfRepetitionMode::Rotational;
+  bool is_rectangular = repetition_mode == SdfRepetitionMode::Rectangular;
+
+  repeat_cell_x_->setEnabled(cell_relevant);
+  repeat_cell_y_->setEnabled(cell_relevant && !is_rectangular); // Rectangular locks Y
+  repeat_cell_z_->setEnabled(cell_relevant);
+  repeat_count_x_->setEnabled(count_relevant); // also n for Rotational
+  repeat_count_y_->setEnabled(count_relevant && !is_rotational && !is_rectangular);
+  repeat_count_z_->setEnabled(count_relevant && !is_rotational);
 }
 
 std::string SdfEditorWindow::ensure_material() const {
@@ -1100,6 +1242,15 @@ void SdfEditorWindow::on_add_clicked() {
     added->param_expressions[i] = param_expr_edit_[i]->text().toStdString();
   }
 
+  added->repetition_mode =
+      static_cast<SdfRepetitionMode>(repetition_combo_->currentIndex());
+  added->repetition_cell = glm::vec3(static_cast<f32>(repeat_cell_x_->value()),
+                                     static_cast<f32>(repeat_cell_y_->value()),
+                                     static_cast<f32>(repeat_cell_z_->value()));
+  added->repetition_count = glm::vec3(static_cast<f32>(repeat_count_x_->value()),
+                                      static_cast<f32>(repeat_count_y_->value()),
+                                      static_cast<f32>(repeat_count_z_->value()));
+
   refresh_contents_list();
   sync_viewport_scene();
 }
@@ -1168,6 +1319,55 @@ void SdfEditorWindow::on_new_layer_clicked() {
   // Select the new (empty) layer row -- on_contents_tree_selection_changed()
   // then sets active_layer_index_ to it, so the very next Add Primitive
   // click adds into it instead of starting yet another layer.
+  for (int i = 0; i < contents_tree_->topLevelItemCount(); ++i) {
+    QTreeWidgetItem *layer_item = contents_tree_->topLevelItem(i);
+    if (layer_item->data(0, kLayerIndexRole).toInt() ==
+        static_cast<int>(scene_.layers.size()) - 1) {
+      contents_tree_->setCurrentItem(layer_item);
+      break;
+    }
+  }
+}
+
+void SdfEditorWindow::on_copy_layer_clicked() {
+  if (active_layer_index_ < 0 ||
+      active_layer_index_ >= static_cast<int>(scene_.layers.size())) {
+    return; // selection doesn't unambiguously name one layer -- see
+           // active_layer_index_'s own comment for exactly when that's true
+  }
+  layer_clipboard_ = scene_.layers[active_layer_index_]; // deep copy --
+                                                        // SdfLayerDef owns
+                                                        // its primitives[]
+                                                        // outright
+  paste_layer_button_->setEnabled(true);
+}
+
+void SdfEditorWindow::on_paste_layer_clicked() {
+  if (!layer_clipboard_) {
+    return;
+  }
+  // Deep copy, then rename the layer AND every primitive inside it to a
+  // fresh, globally unique name -- GeometrySystem::acquire() (engine-side)
+  // keys purely off name, so pasting the clipboard's names verbatim would
+  // silently bump the *original* layer/primitives' reference counts instead
+  // of registering new geometry, discarding whichever position/params the
+  // pasted copy was actually given (see on_add_clicked()'s own comment on
+  // next_primitive_id_ for the exact same hazard). Reusing next_layer_id_/
+  // next_primitive_id_ -- the same monotonic counters on_new_layer_clicked()/
+  // on_add_clicked() already draw from -- keeps every name in the scene
+  // unique regardless of whether it came from Add, New Layer, or Paste.
+  SdfLayerDef pasted = *layer_clipboard_;
+  pasted.name = "layer" + std::to_string(next_layer_id_++);
+  for (SdfPrimitiveDef &primitive : pasted.primitives) {
+    primitive.name = "primitive" + std::to_string(next_primitive_id_++);
+  }
+  scene_.layers.push_back(std::move(pasted));
+
+  refresh_contents_list();
+  sync_viewport_scene();
+
+  // Select the newly pasted layer row -- mirrors on_new_layer_clicked()'s
+  // own selection of a freshly added layer.
   for (int i = 0; i < contents_tree_->topLevelItemCount(); ++i) {
     QTreeWidgetItem *layer_item = contents_tree_->topLevelItem(i);
     if (layer_item->data(0, kLayerIndexRole).toInt() ==
@@ -1625,6 +1825,14 @@ void SdfEditorWindow::populate_fields_from_selection(int layer_index,
     param_expr_edit_[i]->setText(QString::fromStdString(primitive.param_expressions[i]));
   }
 
+  repetition_combo_->setCurrentIndex(static_cast<int>(primitive.repetition_mode));
+  repeat_cell_x_->setValue(primitive.repetition_cell.x);
+  repeat_cell_y_->setValue(primitive.repetition_cell.y);
+  repeat_cell_z_->setValue(primitive.repetition_cell.z);
+  repeat_count_x_->setValue(primitive.repetition_count.x);
+  repeat_count_y_->setValue(primitive.repetition_count.y);
+  repeat_count_z_->setValue(primitive.repetition_count.z);
+
   ParsedMaterial material = parse_material_file(primitive.material_name);
   colour_ = material.colour;
   texture_name_ = material.texture_name;
@@ -1685,6 +1893,17 @@ void SdfEditorWindow::apply_fields_to_primitive(int layer_index, int primitive_i
   primitive.params = glm::vec3(raw_params[0], raw_params[1], raw_params[2]);
   primitive.extra_param = raw_params[3];
 
+  primitive.repetition_mode =
+      static_cast<SdfRepetitionMode>(repetition_combo_->currentIndex());
+  primitive.repetition_cell =
+      glm::vec3(static_cast<f32>(repeat_cell_x_->value()),
+               static_cast<f32>(repeat_cell_y_->value()),
+               static_cast<f32>(repeat_cell_z_->value()));
+  primitive.repetition_count =
+      glm::vec3(static_cast<f32>(repeat_count_x_->value()),
+               static_cast<f32>(repeat_count_y_->value()),
+               static_cast<f32>(repeat_count_z_->value()));
+
   primitive.material_name = ensure_material();
 }
 
@@ -1715,6 +1934,12 @@ void SdfEditorWindow::on_live_edit_changed() {
 void SdfEditorWindow::on_param_expr_changed() {
   update_field_enablement(); // re-grey param_spin_[i] to match which
                             // param_expr_edit_[i] now have text
+  on_live_edit_changed();
+}
+
+void SdfEditorWindow::on_repetition_mode_changed() {
+  update_field_enablement(); // re-grey repeat_cell_*_/repeat_count_*_ to
+                            // match the newly chosen mode
   on_live_edit_changed();
 }
 

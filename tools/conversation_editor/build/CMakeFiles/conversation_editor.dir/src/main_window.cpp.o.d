@@ -459,17 +459,20 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: \
   /usr/include/qt6/QtWidgets/QMainWindow \
   /usr/include/qt6/QtWidgets/qmainwindow.h \
   /usr/include/qt6/QtWidgets/qtabwidget.h /usr/include/qt6/QtCore/QPoint \
-  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/conversation_io.h \
-  /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/resources/conversation.h \
-  /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/resources/../defines.h \
-  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/graph_scene.h \
+  /usr/include/qt6/QtCore/QPointF \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/connection_item.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/question_node.h \
   /usr/include/qt6/QtWidgets/QGraphicsObject \
   /usr/include/qt6/QtWidgets/qgraphicsitem.h \
   /usr/include/qt6/QtGui/qpainterpath.h /usr/include/qt6/QtCore/QRectF \
   /usr/include/qt6/QtCore/QString /usr/include/qt6/QtCore/QStringList \
+  /usr/include/qt6/QtWidgets/QGraphicsPathItem \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/conversation_io.h \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/resources/conversation.h \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/resources/../defines.h \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/graph_scene.h \
   /usr/include/qt6/QtWidgets/QGraphicsScene \
-  /usr/include/qt6/QtCore/QPointF /usr/include/qt6/QtWidgets/QFileDialog \
+  /usr/include/qt6/QtGui/QAction /usr/include/qt6/QtWidgets/QFileDialog \
   /usr/include/qt6/QtWidgets/qfiledialog.h \
   /usr/include/qt6/QtCore/qdir.h /usr/include/qt6/QtCore/qdirlisting.h \
   /usr/include/qt6/QtCore/qfiledevice.h \
@@ -521,6 +524,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: \
   /usr/include/qt6/QtWidgets/qstyle.h \
   /usr/include/qt6/QtWidgets/qtabbar.h \
   /usr/include/qt6/QtWidgets/qrubberband.h \
+  /usr/include/qt6/QtWidgets/QMenu /usr/include/qt6/QtWidgets/qmenu.h \
   /usr/include/qt6/QtWidgets/QMessageBox \
   /usr/include/qt6/QtWidgets/qmessagebox.h \
   /usr/include/qt6/QtWidgets/qdialogbuttonbox.h \

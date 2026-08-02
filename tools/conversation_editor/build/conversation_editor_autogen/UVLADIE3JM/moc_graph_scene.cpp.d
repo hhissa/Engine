@@ -2,6 +2,7 @@
   /home/bumbandit/Projects/Engine/tools/conversation_editor/build/conversation_editor_autogen/moc_predefs.h \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/conversation.h \
+  /home/bumbandit/Projects/Engine/tools/conversation_editor/src/connection_item.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/question_node.h \
   /usr/include/alloca.h \
   /usr/include/asm-generic/bitsperlong.h \
@@ -455,6 +456,7 @@
   /usr/include/qt6/QtGui/qtransform.h \
   /usr/include/qt6/QtGui/qwindowdefs.h \
   /usr/include/qt6/QtWidgets/QGraphicsObject \
+  /usr/include/qt6/QtWidgets/QGraphicsPathItem \
   /usr/include/qt6/QtWidgets/QGraphicsScene \
   /usr/include/qt6/QtWidgets/qgraphicsitem.h \
   /usr/include/qt6/QtWidgets/qgraphicsscene.h \

@@ -70,6 +70,11 @@
 // e.g. "param_expr=1 0.1 + 0.1*p.y"). A slot with no param_expr line just
 // uses its plain constant, same as before parametric attributes existed.
 //
+// Any primitive may also carry "repetition=<mode>" (none/infinite/limited/
+// rotational/rectangular; omitted means none), "repetition_cell=x y z", and
+// "repetition_count=x y z" -- see SdfRepetitionMode/SdfPrimitiveDef::
+// repetition_mode's comments for what each mode does with cell/count.
+//
 
 // Sphere/Box/Plane keep their own named keys (radius=/half_extents=/
 // height=) below for backward compatibility with older files; every other
@@ -124,6 +129,21 @@ enum class SdfPrimitiveType : u32 {
 enum class SdfLayerOperation : u32 {
   Union = 0,
   Subtraction = 1,
+};
+
+// Domain repetition (Inigo Quilez, https://iquilezles.org/articles/
+// sdfrepetition/): evaluates a primitive's shape at one or more repeated
+// copies of the local-space sample point instead of just the point itself,
+// applied after position/rotation (see SdfPrimitiveDef::repetition_mode's
+// comment for exactly what each mode does, and primitive_sdf()/repeat_*() in
+// Builtin.SdfSceneCommon.inc.glsl for the actual per-mode point-folding
+// math).
+enum class SdfRepetitionMode : u32 {
+  None = 0,
+  Infinite = 1,
+  Limited = 2,
+  Rotational = 3,
+  Rectangular = 4,
 };
 
 // A Directional light has no position -- it shines uniformly from
@@ -193,6 +213,30 @@ struct SdfPrimitiveDef {
   // pick (ray_intersect.h) -- not stored here, since this struct mirrors
   // the on-disk/authored form, not a derived one.
   std::array<std::string, 4> param_expressions;
+  // Domain repetition -- see SdfRepetitionMode's comment for the technique,
+  // and the meaning of repetition_cell/repetition_count below for each mode.
+  // Applied in this primitive's own local space, after position/rotation --
+  // a repeated primitive can still be positioned/oriented as a whole exactly
+  // like an unrepeated one.
+  //   None (default): unrepeated -- repetition_cell/repetition_count are
+  //     ignored entirely.
+  //   Infinite: repeats forever every repetition_cell.axis units, per axis
+  //     independently -- an axis with repetition_cell.axis <= 0 is left
+  //     unrepeated. repetition_count is ignored.
+  //   Limited: same as Infinite, but capped to repetition_count.axis copies
+  //     per axis (a 3D box grid) -- an axis with repetition_count.axis <= 1
+  //     keeps exactly one, centered instance.
+  //   Rotational: repetition_count.x (rounded, >= 2) evenly-spaced copies
+  //     around this primitive's own local Y axis -- compose with `rotation`
+  //     to repeat around any axis/orientation instead. repetition_cell and
+  //     repetition_count.y/z are ignored.
+  //   Rectangular: a 2D grid confined to the local XZ plane (Y untouched) --
+  //     repetition_cell.xz spacing, repetition_count.xz copies; the .y
+  //     component of both is ignored. The common "tile the ground" case; use
+  //     Limited instead for a full 3D grid.
+  SdfRepetitionMode repetition_mode = SdfRepetitionMode::None;
+  glm::vec3 repetition_cell{1.0f};
+  glm::vec3 repetition_count{1.0f};
   std::string material_name;
 };
 

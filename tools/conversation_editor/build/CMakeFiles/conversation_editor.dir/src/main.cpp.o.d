@@ -459,6 +459,7 @@ CMakeFiles/conversation_editor.dir/src/main.cpp.o: \
   /usr/include/qt6/QtWidgets/QMainWindow \
   /usr/include/qt6/QtWidgets/qmainwindow.h \
   /usr/include/qt6/QtWidgets/qtabwidget.h /usr/include/qt6/QtCore/QPoint \
+  /usr/include/qt6/QtCore/QPointF \
   /usr/include/qt6/QtWidgets/QApplication \
   /usr/include/qt6/QtWidgets/qapplication.h \
   /usr/include/qt6/QtCore/qcoreapplication.h \
