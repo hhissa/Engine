@@ -1,0 +1,6 @@
+#material file
+
+version=0.1
+name=qt_vol_colour_aa0000ff_ts060
+diffuse_colour=0.666667 0 0 1
+texture_scale=0.6

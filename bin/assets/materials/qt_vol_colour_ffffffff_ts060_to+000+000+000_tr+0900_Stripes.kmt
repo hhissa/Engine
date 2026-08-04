@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_vol_colour_ffffffff_ts060_to+000+000+000_tr+0900_Stripes
+diffuse_colour=1 1 1 1
+texture_scale=0.6
+texture_rotation=0.15708
+diffuse_map_name=Stripes

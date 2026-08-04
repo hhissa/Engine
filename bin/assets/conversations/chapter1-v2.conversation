@@ -25,10 +25,10 @@ question "Say hello to the cameras!" {
                     tag=Normal
                     answer=Cool.
 
-                    question "Alright then, let's get started." {
+                    question "Alright, the questions." {
                         id=shared1
                         tag=Normal
-                        answer=Yeah, I've gotta see Herve after this.
+                        answer=Let's do it!
 
                         question "Where do you cut?" {
                             tag=Normal
@@ -52,11 +52,96 @@ question "Say hello to the cameras!" {
 
                             question "Why your thighs?" {
                                 tag=Normal
+                                answer=Because...
+                                answer=It's just less visible that way.
+
+                                question "Why do you care if it's visible?" {
+                                    tag=Normal
+                                    answer=Let me tell you a story about a deer.
+
+                                    question "Okay." {
+                                        tag=DeerScene
+                                        answer=A deer gets caught in a bear trap.
+                                        answer=In immense pain, the deer breaks away from the trap, leaving it's leg behind.
+                                        answer=Anyway, the deer, through sheer luck, lives.
+                                        answer=To the deer this is a great triumph.
+                                        answer=But none of the other deer will know of his triumph, only his lack of limb.
+                                        answer=Thats why i care if its visible.
+                                        answer=I don't want to be defined by my missing limbs.
+                                    }
+                                }
                             }
                         }
 
                         question "When did you first start cutting?" {
                             tag=Normal
+                            answer=I started cutting three years ago, when i was 19.
+
+                            question "Why did you start cutting?" {
+                                tag=Normal
+                                answer=I wanted the external to match the internal.
+                                answer=I was in so much pain back then.
+                                answer=And I felt as if I needed my body to reflect that inner pain.
+
+                                question "Go on." {
+                                    tag=Scars1
+                                    answer=I started small.
+                                    answer=A cut here and there, hidden at the top of my thighs.
+                                    answer=I'd be lying if I said it didn't provide some comfort.
+                                    answer=At first that is.
+
+                                    question "Just at first?" {
+                                        tag=Scars2
+                                        answer=Soon it became an addiction.
+                                        answer=I would cut everyday.
+                                        answer=I was running out of real estate.
+                                        answer=Over time, my thighs started to match my inner state more and more.
+                                        answer=But the comfort it provided was less and less.
+
+                                        question "So what did you do?" {
+                                            tag=Scars3
+                                            answer=The only thing i could do.
+                                            answer=I kept cutting.
+                                            answer=Hoping the comfort would come back...
+                                            answer=it never did.
+
+                                            question "..." {
+                                                tag=Scars4
+                                                answer=Anyway, eventually my thighs started looking... hmm...
+                                                answer=I guess like a blind man tried to play tic tac toe on them.
+                                                answer=Eventually, I stopped.
+
+                                                question "I have a few questions." {
+                                                    tag=Normal
+                                                    answer=Shoot.
+
+                                                    question "Do you miss it? The cutting?" {
+                                                        tag=Normal
+                                                        answer=Ofcourse.
+                                                        answer=But it gets easier.
+                                                        answer=I used to miss it everyday.
+                                                        answer=Now I only miss it when something bad happens to me.
+                                                    }
+
+                                                    question "How did you stop?" {
+                                                        tag=Normal
+                                                        answer=Well, it's not something you can do on your own.
+                                                        answer=You need something drastic.
+                                                        answer=For me, it was my attempt.
+                                                        answer=After that I was hospitalized.
+                                                        answer=I got the help I needed.
+                                                        answer=I met people who were just like me.
+                                                        answer=When I saw what I was doing to myself on someone else...
+                                                        answer=On people I started to care about...
+                                                        answer=I felt disgusted with myself.
+                                                        answer=ever since then I never did it again.
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         question "Do you have a favourite scar?" {
@@ -122,89 +207,94 @@ question "Say hello to the cameras!" {
                                                         answer=I'll never forget the look on her face.
                                                         answer=It was the last thing I remember seeing before I passed out for good.
 
-                                                        question "Why did you do it? Why try to end your life?" {
+                                                        question "Thank you for sharing that with me." {
                                                             tag=Normal
-                                                            answer=You know people think gravity is a undiscriminating force.
-                                                            answer=That it affects all people the same way.
-                                                            answer=This isn't true.
+                                                            answer=...
 
-                                                            question "What do you mean?" {
+                                                            question "Why did you do it? Why try to end your life?" {
                                                                 tag=Normal
-                                                                answer=When you're sick with something like this.
-                                                                answer=The force of gravity is stronger.
-                                                                answer=Everything is more difficult.
-                                                                answer=And so you're left with two options.
-                                                                answer=You can wake up everyday, and fight against a force of nature.
-                                                                answer=Or buckle.
-                                                                answer=Its not a battle you can win, you know.
-                                                                answer=It's just something you can survive.
-                                                            }
-                                                        }
+                                                                answer=You know people think gravity is a undiscriminating force.
+                                                                answer=That it affects all people the same way.
+                                                                answer=This isn't true.
 
-                                                        question "I'm so sorry Herve." {
-                                                            tag=Normal
-                                                            answer=Don't be.
-                                                            answer=I'm doing great now.
-                                                            answer=I'm happy.
-                                                        }
-
-                                                        question "Do you regret it?" {
-                                                            tag=Normal
-                                                            answer=A part of me does.
-                                                            answer=The other part of me believes that i deserved to have that happen to me.
-                                                            answer=Don't misunderstand me, I would never attempt it again.
-
-                                                            question "But?" {
-                                                                tag=Normal
-                                                                answer=I just know that what happened to me happened for a reason.
-                                                                answer=That no matter how difficult it was me that chose to give up.
-
-                                                                question "And that means you deserved it?" {
+                                                                question "What do you mean?" {
                                                                     tag=Normal
-                                                                    answer=You wouldn't get it.
-                                                                    answer=Lets move on?
+                                                                    answer=When you're sick with something like this.
+                                                                    answer=The force of gravity is stronger.
+                                                                    answer=Everything is more difficult.
+                                                                    answer=And so you're left with two options.
+                                                                    answer=You can wake up everyday, and fight against a force of nature.
+                                                                    answer=Or buckle.
+                                                                    answer=Its not a battle you can win, you know.
+                                                                    answer=It's just something you can survive.
+                                                                }
+                                                            }
 
-                                                                    question "Okay, but before we do I want to tell you something." {
+                                                            question "I'm so sorry Herve." {
+                                                                tag=Normal
+                                                                answer=Don't be.
+                                                                answer=I'm doing great now.
+                                                                answer=I'm happy.
+                                                            }
+
+                                                            question "Do you regret it?" {
+                                                                tag=Normal
+                                                                answer=A part of me does.
+                                                                answer=The other part of me believes that i deserved to have that happen to me.
+                                                                answer=Don't misunderstand me, I would never attempt it again.
+
+                                                                question "But?" {
+                                                                    tag=Normal
+                                                                    answer=I just know that what happened to me happened for a reason.
+                                                                    answer=That no matter how difficult it was me that chose to give up.
+
+                                                                    question "And that means you deserved it?" {
                                                                         tag=Normal
-                                                                        answer=What's that?
+                                                                        answer=You wouldn't get it.
+                                                                        answer=Lets move on?
 
-                                                                        question "You should be kinder to yourself." {
+                                                                        question "Okay, but before we do I want to tell you something." {
                                                                             tag=Normal
-                                                                            answer=...
+                                                                            answer=What's that?
 
-                                                                            question "No one deserves that." {
+                                                                            question "You should be kinder to yourself." {
                                                                                 tag=Normal
-                                                                                answer=Thank you.
-                                                                                answer=Now let's move on.
+                                                                                answer=...
+
+                                                                                question "No one deserves that." {
+                                                                                    tag=Normal
+                                                                                    answer=Thank you.
+                                                                                    answer=Now let's move on.
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
                                                                 }
                                                             }
-                                                        }
 
-                                                        question "Was your sister okay?" {
-                                                            tag=Normal
-                                                            answer=Not at first no, she was inconsolable.
-                                                            answer=It took her a couple days to re-adjust.
-                                                            answer=Pretty soon, she was back to normal.
-                                                            answer=That's one thing they don't tell you about suicide.
-
-                                                            question "What's that?" {
+                                                            question "Was your sister okay?" {
                                                                 tag=Normal
-                                                                answer=You know, I don't think I've fully processed it yet.
-                                                                answer=My suicide...
-                                                                answer=but the world doesn't stop so you can process.
-                                                                answer=and people don't wait for you.
-                                                                answer=By the time I was out of the hospital...
-                                                                answer=Anyway, she had already processed it.
-                                                            }
-                                                        }
+                                                                answer=Not at first no, she was inconsolable.
+                                                                answer=It took her a couple days to re-adjust.
+                                                                answer=Pretty soon, she was back to normal.
+                                                                answer=That's one thing they don't tell you about suicide.
 
-                                                        question "We dont have to talk about this anymore." {
-                                                            tag=Normal
-                                                            loop_to=shared1
-                                                            answer=Thank you.
+                                                                question "What's that?" {
+                                                                    tag=Normal
+                                                                    answer=You know, I don't think I've fully processed it yet.
+                                                                    answer=My suicide...
+                                                                    answer=but the world doesn't stop so you can process.
+                                                                    answer=and people don't wait for you.
+                                                                    answer=By the time I was out of the hospital...
+                                                                    answer=Anyway, she had already processed it.
+                                                                }
+                                                            }
+
+                                                            question "We dont have to talk about this anymore." {
+                                                                tag=Normal
+                                                                loop_to=shared1
+                                                                answer=Thank you.
+                                                            }
                                                         }
                                                     }
                                                 }

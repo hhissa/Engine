@@ -190,8 +190,8 @@ layer layer9 {
 
     primitive primitive30 {
         type=capsule
-        position=0.62 -1.02 -3.1
-        rotation=0 0 -1.20218
+        position=0.615299 -1.02 -3.10411
+        rotation=0 0 -1.20213
         params=0.04 0.3 0 0
         material=qt_colour_ffffffff_ts400_to+180+210+000_tr+18000_white
     }

@@ -1,6 +1,6 @@
 #sdf scene file
 version=0.1
-ambient=0.15
+ambient=0.35
 
 layer layer0 {
     operation=union
@@ -10,7 +10,7 @@ layer layer0 {
         type=box
         position=0 0 0
         rotation=0 0 0
-        half_extents=1 1 0.1
+        half_extents=2 2 0.1
         material=qt_colour_ffffffff_ts200_to-090+090+000_tr+0000_bump_10_moderate_three_large_bump_10_moderate_three_large_diffuse
     }
 }

@@ -1,0 +1,9 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts400_to+180+150+000_tr+18000_deer
+diffuse_colour=1 1 1 1
+texture_scale=4
+texture_offset=1.8 1.5 0
+texture_rotation=3.14159
+diffuse_map_name=deer
