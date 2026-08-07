@@ -1,0 +1,76 @@
+#sdf scene file
+version=0.1
+ambient=0.15
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive primitive2 {
+        type=sphere
+        position=2.0954 -0.3 0
+        rotation=0 0 0
+        radius=0.4
+        material=qt_colour_ffffffff_ts060_white
+    }
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive primitive4 {
+        type=torus
+        position=0.74 0.39 0
+        rotation=1.5708 0 0
+        params=0.7 0.1 0 0
+        material=qt_colour_ffffffff_ts060_white
+    }
+}
+
+layer layer2 {
+    operation=subtraction
+    smoothness=0
+
+    primitive primitive5 {
+        type=box
+        position=-0.02 0.39 0
+        rotation=0 0 0
+        half_extents=0.7 0.8 0.2
+        material=qt_colour_ffffffff_ts060
+    }
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0
+
+    primitive primitive9 {
+        type=sphere
+        position=0 -0.183277 0
+        rotation=0 0 0
+        radius=0.4
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive10 {
+        type=sphere
+        position=0 1.02 0
+        rotation=0 0 0
+        radius=0.4
+        material=qt_colour_ffffffff_ts060_white
+    }
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0
+
+    primitive primitive7 {
+        type=sphere
+        position=2.13641 1.02 0
+        rotation=0 0 0
+        radius=0.4
+        material=qt_colour_ffffffff_ts060_white
+    }
+}

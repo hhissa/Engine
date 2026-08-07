@@ -50,6 +50,16 @@ struct Primitive {
     // X/Z only). Rotational: x = copy count n. Ignored entirely whenever
     // repeat_mode_cell.x == REPEAT_NONE or REPEAT_INFINITE.
     vec4 repeat_count;
+    // Domain deformation (Inigo Quilez, https://iquilezles.org/articles/
+    // distfunctions/ "Deforming" section) -- see evaluate_primitive_at()
+    // below for exactly how each is applied. x = twist (radians per
+    // world-unit of local Y), y = bend (radians per world-unit of local
+    // X), z = displace_amplitude (a length), w = displace_frequency (a
+    // sin() rate). All zero-init to 0 except this engine's own
+    // displace_frequency default of 20 -- see rebuild_static_scene(),
+    // engine-side -- meaning a volumetric primitive (which never sets this
+    // field) gets deform = (0,0,0,0), i.e. no deformation at all.
+    vec4 deform;
 };
 
 layout(binding = SDF_PRIMITIVE_BUFFER_BINDING) readonly buffer PrimitiveBuffer {
@@ -388,10 +398,48 @@ float evaluate_shape(int type, vec3 local, vec4 params) {
 // then evaluates its shape there -- the one place every repeat_*() function
 // below actually samples the primitive, so a formula-driven param (e.g.
 // radius = "0.1 + 0.1*p.y") varies per repeated instance rather than being
-// computed once at the original, unrepeated point.
+// computed once at the original, unrepeated point. Also the one place
+// domain deformation (see Primitive::deform above) is applied, for exactly
+// the same reason -- so a repeated instance is deformed the same way as an
+// unrepeated one instead of the warp only ever affecting whichever single
+// candidate point primitive_sdf() used to call this with directly.
+//
+// Order (Inigo Quilez, https://iquilezles.org/articles/distfunctions/
+// "Deforming"): twist warps r.xz by an angle proportional to r.y, then
+// bend warps the twisted result's .xy by an angle proportional to its own
+// (already-twisted) x -- so the two compose, matching
+// opCheapBend(opTwist(primitive)) -- then the shape is evaluated at that
+// final warped point. Displacement is instead a post-evaluation offset
+// added to the returned distance, computed from the *original* r (not the
+// twisted/bent point) -- mirrors opDisplace(primitive, p)'s own p being
+// whatever its caller passed in, unmodified by any operator primitive
+// itself might further wrap. Both are approximate (non-exact) distance
+// perturbations -- see the article's own warning -- but this engine's
+// primary render pass marches a coarse baked voxel field rather than
+// sphere-tracing the analytic distance directly (see
+// Builtin.RaymarchVoxelize.comp.glsl), which is far more tolerant of that
+// than a naive real-time sphere-tracer would be.
 float evaluate_primitive_at(int index, int type, vec3 r, vec4 prim_params, float expr_scale) {
     vec4 params = resolve_params(index, prim_params, r, max(expr_scale, 1e-6));
-    return evaluate_shape(type, r, params);
+
+    vec4 deform = primitives[index].deform;
+    vec3 q = r;
+    if (deform.x != 0.0) { // twist, around local Y
+        float c = cos(deform.x * q.y);
+        float s = sin(deform.x * q.y);
+        q = vec3(c * q.x + s * q.z, q.y, -s * q.x + c * q.z);
+    }
+    if (deform.y != 0.0) { // bend, around local Z
+        float c = cos(deform.y * q.x);
+        float s = sin(deform.y * q.x);
+        q = vec3(c * q.x + s * q.y, -s * q.x + c * q.y, q.z);
+    }
+
+    float d = evaluate_shape(type, q, params);
+    if (deform.z != 0.0) { // displacement
+        d += deform.z * sin(deform.w * r.x) * sin(deform.w * r.y) * sin(deform.w * r.z);
+    }
+    return d;
 }
 
 // Infinite repetition every cell.axis units, independently per axis -- an
