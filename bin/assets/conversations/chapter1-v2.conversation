@@ -61,6 +61,7 @@ question "Say hello to the cameras!" {
 
                                     question "Okay." {
                                         tag=DeerScene
+                                        loop_to=shared1
                                         answer=A deer gets caught in a bear trap.
                                         answer=In immense pain, the deer breaks away from the trap, leaving it's leg behind.
                                         answer=Anyway, the deer, through sheer luck, lives.
@@ -144,16 +145,24 @@ question "Say hello to the cameras!" {
                             }
                         }
 
-                        question "Do you have a favourite scar?" {
-                            tag=Normal
-                        }
-
-                        question "When was the last time you cut?" {
-                            tag=Normal
-                        }
-
                         question "Do you have a diagnosis?" {
-                            tag=Normal
+                            tag=BipolarScene
+                            answer=Yeah, I'm bipolar.
+
+                            question "What does that mean?" {
+                                tag=BipolarScene
+                                answer=It means sometimes my brain sets it self on fire.
+                                answer=I get real worked up.
+                                answer=I start thinking real stupid things.
+
+                                question "Like what?" {
+                                    tag=BipolarScene
+                                    answer=Like people are following me.
+                                    answer=Like I'm god.
+                                    answer=Like I have super powers.
+                                    answer=Sometimes I hallucinate but that's not super common.
+                                }
+                            }
                         }
 
                         question "Have you ever attempted suicide?" {
@@ -301,6 +310,29 @@ question "Say hello to the cameras!" {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        question "That's all I wanted to ask." {
+                            tag=Normal
+                            answer=Okay I just have one more thing to say.
+                            answer=Please save me.
+
+                            question "What?" {
+                                tag=NormalFace
+                                answer=You can't save anyone.
+                                answer=No matter how hard you try Herve will always die.
+                                answer=Try again.
+                                answer=Try to save the next one.
+
+                                question "How?" {
+                                    tag=NormalFace
+                                    ending
+                                    ending_text=Herve is gone.
+                                    ending_text=But there will be another face across the room, another set of answers to sit with.
+                                    ending_text=Ask better questions.
+                                    answer=Ask better questions.
                                 }
                             }
                         }

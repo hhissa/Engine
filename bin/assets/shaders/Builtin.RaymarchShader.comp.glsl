@@ -707,8 +707,15 @@ void main() {
         // 0.25-unit cell onto whatever it touches. Falls back to the brick
         // material only if the analytic scene is somehow empty here (e.g.
         // a stale field mid-edit).
+        // UNBOUNDED_BOUNDING_RADIUS -- unlike the voxelize pass's fine-
+        // sample loop, there's no cheap prior guarantee here that the
+        // scene's true nearest distance at p is small (a single per-pixel
+        // hit-point query, not a whole brick already known to sit near a
+        // baked surface), so scene_map()'s cull pre-check must stay
+        // disabled -- see its own comment for why that's required for
+        // correctness.
         int analytic_material;
-        scene_map(p, push.layer_count, analytic_material);
+        scene_map(p, push.layer_count, UNBOUNDED_BOUNDING_RADIUS, analytic_material);
         if (analytic_material >= 0) {
             hit_material = analytic_material;
         }

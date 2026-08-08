@@ -1,0 +1,184 @@
+#conversation file
+version=0.1
+
+question "Thanks for doing this. I know it's not easy." {
+    tag=Normal
+    answer=I almost didn't show up. I sat in my car for twenty minutes.
+    answer=But I'm here. So. Let's just do it before I change my mind.
+
+    question "Take your time. There's no rush." {
+        tag=Normal
+        answer=There's always a rush. There's always something in my head telling me to hurry up and get this over with.
+        answer=Sorry. I don't mean to snap at you. I don't do this. Talk. Not like this, not out loud.
+
+        question "Can you tell me a little about yourself?" {
+            tag=Normal
+            answer=Mara. Twenty-four. I sell books to people who mostly don't read them.
+            answer=That's it. That's the whole resume. I don't really know what else you want from me yet.
+
+            question "Let's start from the beginning, whenever you're ready." {
+                tag=Normal
+                answer=Okay.
+                answer=God. Okay. Where does this even start.
+
+                question "Were you ever formally diagnosed with anything?" {
+                    tag=Normal
+                    answer=Psychosis, eventually, once enough people had watched me long enough to agree on a word for it.
+                    answer=Before that it was just "an episode." Like I was a TV show that had gone a bit strange for one week.
+                    answer=I actually thought I was dying, the first time. Not going mad. Dying. My body just kept sending me these signals and none of them made sense.
+
+                    question "What happened when you actually went to hospital?" {
+                        tag=HospitalScene
+                        answer=I hid under my bed for most of the first day. I genuinely thought that was a reasonable plan.
+                        answer=It was a mixed ward. Loud, all hours, someone always crying two beds down. I tried to walk out twice. They stopped me both times.
+                        answer=I remember lying there not totally sure if I was dead or just very tired. That's not a metaphor. I mean I actually wasn't sure.
+                    }
+                }
+
+                question "What did the voices say to you?" {
+                    tag=VoicesScene
+                    answer=At first I thought it was coming from outside. Like someone was talking just past the window. I actually got up and checked.
+                    answer=It took embarrassingly long to understand it was coming from inside my own head. You don't want that to be true, so you don't let yourself land on it.
+                    answer=Mostly it just narrated me. What I was doing, how badly I was doing it. Sometimes it told me I was worthless and nobody would care either way.
+
+                    question "Did anyone believe you, back then?" {
+                        tag=Normal
+                        answer=Not at first. My mom thought I was being dramatic. My roommate thought I was on something.
+                        answer=One doctor actually laughed, not at me exactly, just -- surprised, I think. It still felt like being laughed at.
+                        answer=Someone else's family called mine "dangerous." Said it like it was obvious. Like I was a dog that had bitten someone.
+
+                        question "How did your mom find out how bad it really was?" {
+                            tag=Normal
+                            answer=She hugged me too hard. That's it. That's the whole story.
+                            answer=I flinched and she grabbed my wrist before I could pull it back in time.
+                            answer=We didn't talk for three days after. Then she just started leaving food outside my door, like I was something wild she was trying to coax back in.
+                        }
+                    }
+                }
+
+                question "What do you do now, instead?" {
+                    tag=Normal
+                    answer=Little mechanisms. Things I made up myself, in my own head, to argue back with the voice when it starts.
+                    answer=Keeping the noise down helps. Real noise, I mean -- when everything's loud outside, it's louder inside too.
+                    answer=I got back into drawing. It's not therapy, nobody's paying me for it, it just -- gives the day a shape. That's all I need some days. A shape.
+
+                    question "That still counts. You know that, right?" {
+                        tag=Normal
+                        answer=I don't know anything, honestly. Not for certain.
+                        answer=But thanks. I'll try to believe you, just for tonight.
+                    }
+                }
+
+                question "What's the closest you ever came?" {
+                    tag=NormalFace
+                    answer=...
+                    answer=I haven't said this part out loud before. Not once, to anyone.
+                    answer=There was a night the voice wasn't just narrating anymore. It was very specific about what it wanted me to do.
+                    answer=My roommate came home three hours early because her date cancelled on her. That's the only reason I'm sitting here right now. A cancelled date.
+
+                    question "You don't have to say anything else if you don't want to." {
+                        tag=NormalFace
+                        answer=No, I -- I want to. I don't think I've ever gotten to finish this sentence before.
+                        answer=I wasn't trying to disappear quietly. I think some part of me was hoping somebody would stop me before I finished.
+                        answer=Nobody tells you how much of it is just... waiting. Waiting to be caught.
+
+                        question "I'm glad she came home early." {
+                            tag=Normal
+                            answer=Yeah.
+                            answer=Me too. Most days. Not all of them, if I'm being honest with you right now. But most.
+                        }
+                    }
+                }
+
+                question "Why did you do this to yourself?" {
+                    tag=Normal
+                    sets=Insensitive
+                    answer=...
+                    answer=Wow. Okay.
+                    answer=I didn't "do it to myself" like I spilled a drink. Something in my own head told me to, and I believed it. That's not the same thing.
+
+                    question "Sorry. That came out wrong." {
+                        tag=Normal
+                        ending
+                        ending_text=Mara said it was fine. It wasn't fine.
+                        ending_text=She kept answering. Shorter every time.
+                        ending_text=By the end she was just watching the door.
+                        answer=It's fine. Can we just get through the rest of this?
+                    }
+                }
+
+                question "What was actually going on for you, before?" {
+                    tag=Normal
+                    sets=Caring
+                    answer=Before what. Before all of it, or before the specific night you're too polite to ask about yet.
+                    answer=Fine. Before. I was failing out of school. My parents were splitting up and both insisting, separately, that they weren't.
+                    answer=And underneath all of it, quietly, this feeling that I was being watched and narrated and judged by something that was never going to stop.
+
+                    question "What did it feel like, right before?" {
+                        tag=Normal
+                        answer=Static. Like every bad thing about myself turned up to the same volume at once, all screaming together, and then that voice underneath all of it agreeing with every word.
+                        answer=And then, right before -- it went quiet. For a second. Just one second.
+                        answer=Nobody tells you that's the addictive part. Not the pain. The quiet.
+
+                        question "And after?" {
+                            tag=Normal
+                            answer=Guilty. Immediately. Every single time, no exceptions, ever.
+                            answer=And relieved, which somehow made the guilt so much worse. You're not supposed to feel relieved about this. I still don't know what to do with that.
+
+                            question "Did anyone know, back then?" {
+                                tag=Normal
+                                answer=Not for a long time. I got good at it. Sleeves, excuses, changing the subject a half-second before anyone looked too close.
+                                answer=You get scarily good at lying to people who love you. Nobody warns you about that part either.
+
+                                question "Who found out first?" {
+                                    tag=Normal
+                                    answer=My roommate. She saw my arm when I forgot to lock the bathroom door. Just for a second, but a second was enough.
+                                    answer=I told her it was the cat. We don't have a cat. We have never had a cat.
+                                    answer=She didn't believe me for one second. She just sat down on the floor next to me and didn't say anything at all.
+
+                                    question "That sounds like it mattered." {
+                                        tag=Normal
+                                        answer=It did. More than she'll ever know, because I never actually told her that either.
+                                        answer=Nobody had ever just stayed before. Everyone else tried to fix it right there on the spot, like I was a problem to be solved before dinner got cold.
+
+                                        question "Do you still hear it, now?" {
+                                            tag=NormalFace
+                                            answer=Sometimes. I'm not going to sit here and lie to you and say it's gone.
+                                            answer=Quieter, though. It doesn't get to drive anymore, it just sits in the back seat, muttering.
+                                            answer=I don't think it ever fully leaves. I've stopped waiting to win some final fight against it and started just -- managing it. Day by day. Barely, some days. But every day, so far.
+
+                                            question "Thank you for telling me that." {
+                                                tag=NormalFace
+                                                answer=Thank you for actually listening. Really listening, not just waiting for your turn to say something comforting back.
+                                                answer=Most people ask so they can stop feeling awkward about not having asked. You didn't do that. You let it be uncomfortable.
+
+                                                question "I want to know. What would actually help you right now?" {
+                                                    tag=NormalFace
+                                                    ending
+                                                    ending_text=Mara is still here.
+                                                    ending_text=Not fixed. Not finished. Not okay, not really. Still here.
+                                                    ending_text=Sometimes that's what a better question actually buys someone.
+                                                    answer=Honestly? This. Somebody asking, and then actually staying long enough to hear the answer. And believing me while I gave it.
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                question "I think that's all I need to ask." {
+                    tag=Normal
+                    ending
+                    requires_not=Caring
+                    ending_text=Mara thanked me and left the way she came in -- guarded, unreadable.
+                    ending_text=I don't know what happened to her after that.
+                    ending_text=I keep thinking about the questions I didn't ask.
+                    answer=Okay. Thank you for your time.
+                }
+            }
+        }
+    }
+}
