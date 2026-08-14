@@ -46,10 +46,33 @@ struct Primitive {
     // zero-init default (None) for a volumetric primitive, which never
     // repeats -- see rebuild_static_scene(), engine-side.
     vec4 repeat_mode_cell;
-    // Limited/Rectangular: instance count per axis (X/Y/Z; Rectangular uses
-    // X/Z only). Rotational: x = copy count n. Ignored entirely whenever
-    // repeat_mode_cell.x == REPEAT_NONE or REPEAT_INFINITE.
+    // xyz: Limited/Rectangular: instance count per axis (X/Y/Z; Rectangular
+    // uses X/Z only). Rotational: x = copy count n. Ignored entirely
+    // whenever repeat_mode_cell.x == REPEAT_NONE or REPEAT_INFINITE.
+    // w: a conservative world-space bounding-sphere radius around
+    // position_type.xyz, precomputed engine-side (see
+    // VulkanRaymarchShader::rebuild_static_scene()'s compute_bounding_
+    // radius()) -- how far this primitive's own surface (and, if
+    // repeated, its farthest repeated copy) can possibly reach. scene_map()
+    // below uses this for a cheap pre-check that skips the full
+    // primitive_sdf() evaluation (rotation, domain repetition, deformation,
+    // shape function, parametric-attribute VM) wherever it plainly can't
+    // matter. UNBOUNDED_BOUNDING_RADIUS (see below) means "never skip this
+    // one" -- used for a Plane, an infinitely-repeating primitive, or one
+    // with any active parametric-attribute formula, none of which have a
+    // safe static bound. Was unused padding before this field existed;
+    // repurposed rather than growing every GpuPrimitive by another vec4.
     vec4 repeat_count;
+    // Domain deformation (Inigo Quilez, https://iquilezles.org/articles/
+    // distfunctions/ "Deforming" section) -- see evaluate_primitive_at()
+    // below for exactly how each is applied. x = twist (radians per
+    // world-unit of local Y), y = bend (radians per world-unit of local
+    // X), z = displace_amplitude (a length), w = displace_frequency (a
+    // sin() rate). All zero-init to 0 except this engine's own
+    // displace_frequency default of 20 -- see rebuild_static_scene(),
+    // engine-side -- meaning a volumetric primitive (which never sets this
+    // field) gets deform = (0,0,0,0), i.e. no deformation at all.
+    vec4 deform;
 };
 
 layout(binding = SDF_PRIMITIVE_BUFFER_BINDING) readonly buffer PrimitiveBuffer {
@@ -342,6 +365,15 @@ vec3 rotate_by_quat(vec3 v, vec4 q) {
 // instead of being computed once at the original point.
 // ---------------------------------------------------------------------------
 
+// Sentinel Primitive::repeat_count.w value meaning "this primitive has no
+// safe static bound -- scene_map()'s cull_radius pre-check must never skip
+// it." Must exceed any cull_radius a caller could plausibly pass (the
+// voxelize pass's fine-sample loop uses a value on the order of a handful
+// of world units -- see Builtin.RaymarchVoxelize.comp.glsl -- so this only
+// needs to clear that by a wide margin, not represent literal infinity).
+// Matches VulkanRaymarchShader::kUnboundedBoundingRadius engine-side.
+const float UNBOUNDED_BOUNDING_RADIUS = 1e8;
+
 const int REPEAT_NONE = 0;
 const int REPEAT_INFINITE = 1;
 const int REPEAT_LIMITED = 2;
@@ -388,10 +420,48 @@ float evaluate_shape(int type, vec3 local, vec4 params) {
 // then evaluates its shape there -- the one place every repeat_*() function
 // below actually samples the primitive, so a formula-driven param (e.g.
 // radius = "0.1 + 0.1*p.y") varies per repeated instance rather than being
-// computed once at the original, unrepeated point.
+// computed once at the original, unrepeated point. Also the one place
+// domain deformation (see Primitive::deform above) is applied, for exactly
+// the same reason -- so a repeated instance is deformed the same way as an
+// unrepeated one instead of the warp only ever affecting whichever single
+// candidate point primitive_sdf() used to call this with directly.
+//
+// Order (Inigo Quilez, https://iquilezles.org/articles/distfunctions/
+// "Deforming"): twist warps r.xz by an angle proportional to r.y, then
+// bend warps the twisted result's .xy by an angle proportional to its own
+// (already-twisted) x -- so the two compose, matching
+// opCheapBend(opTwist(primitive)) -- then the shape is evaluated at that
+// final warped point. Displacement is instead a post-evaluation offset
+// added to the returned distance, computed from the *original* r (not the
+// twisted/bent point) -- mirrors opDisplace(primitive, p)'s own p being
+// whatever its caller passed in, unmodified by any operator primitive
+// itself might further wrap. Both are approximate (non-exact) distance
+// perturbations -- see the article's own warning -- but this engine's
+// primary render pass marches a coarse baked voxel field rather than
+// sphere-tracing the analytic distance directly (see
+// Builtin.RaymarchVoxelize.comp.glsl), which is far more tolerant of that
+// than a naive real-time sphere-tracer would be.
 float evaluate_primitive_at(int index, int type, vec3 r, vec4 prim_params, float expr_scale) {
     vec4 params = resolve_params(index, prim_params, r, max(expr_scale, 1e-6));
-    return evaluate_shape(type, r, params);
+
+    vec4 deform = primitives[index].deform;
+    vec3 q = r;
+    if (deform.x != 0.0) { // twist, around local Y
+        float c = cos(deform.x * q.y);
+        float s = sin(deform.x * q.y);
+        q = vec3(c * q.x + s * q.z, q.y, -s * q.x + c * q.z);
+    }
+    if (deform.y != 0.0) { // bend, around local Z
+        float c = cos(deform.y * q.x);
+        float s = sin(deform.y * q.x);
+        q = vec3(c * q.x + s * q.y, -s * q.x + c * q.y, q.z);
+    }
+
+    float d = evaluate_shape(type, q, params);
+    if (deform.z != 0.0) { // displacement
+        d += deform.z * sin(deform.w * r.x) * sin(deform.w * r.y) * sin(deform.w * r.z);
+    }
+    return d;
 }
 
 // Infinite repetition every cell.axis units, independently per axis -- an
@@ -635,7 +705,28 @@ float smooth_subtraction(float cutter, float base, float k, out float h) {
 // side of the very last combine (-1 if the scene is empty), used to pick
 // a material -- at brick-allocation time in the voxelize pass, and again
 // per-pixel at hit points in the render pass.
-float scene_map(vec3 p, int layer_count, out int nearest_primitive) {
+//
+// cull_radius is a cheap-pre-check budget, not a scene radius: a primitive
+// is skipped entirely (never even reaching primitive_sdf()'s rotation/
+// domain-repetition/deformation/shape-function/parametric-VM work) once
+// its bounding sphere (Primitive::repeat_count.w) provably can't bring it
+// within cull_radius of p. This is safe regardless of primitive/layer fold
+// order: a shape's SDF is never smaller (in magnitude, for a point outside
+// its bounding sphere) than the bounding sphere's own signed distance --
+// standard bounding-volume-SDF reasoning (see e.g. Inigo Quilez's
+// "bounding" article) -- so a primitive with `distance(p, position) -
+// bounding_radius > cull_radius` genuinely has `primitive_sdf(idx, p) >
+// cull_radius` too, and folding a value that large into a union/
+// subtraction already at or below cull_radius changes nothing (smooth_
+// union()/smooth_subtraction() both collapse to an exact hard min/max once
+// the two operands are farther apart than the blend smoothness -- see
+// their own comments) as long as the caller's cull_radius is itself a
+// genuine upper bound on the scene's true nearest distance at p (callers
+// that can't guarantee that, e.g. the render pass's single-point per-pixel
+// query, pass UNBOUNDED_BOUNDING_RADIUS instead, disabling the check
+// entirely -- see the callers in Builtin.RaymarchVoxelize.comp.glsl/
+// Builtin.RaymarchShader.comp.glsl for which do which and why).
+float scene_map(vec3 p, int layer_count, float cull_radius, out int nearest_primitive) {
     float running = 1e30;
     int running_material = -1;
 
@@ -648,6 +739,16 @@ float scene_map(vec3 p, int layer_count, out int nearest_primitive) {
 
         for (int i = 0; i < count; ++i) {
             int idx = start + i;
+
+            float bounding_radius = primitives[idx].repeat_count.w;
+            if (bounding_radius < UNBOUNDED_BOUNDING_RADIUS) {
+                float closest_possible =
+                    distance(p, primitives[idx].position_type.xyz) - bounding_radius;
+                if (closest_possible > cull_radius) {
+                    continue; // can't matter here -- skip the expensive evaluation
+                }
+            }
+
             float d = primitive_sdf(idx, p);
 
             float h;

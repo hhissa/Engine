@@ -1,0 +1,217 @@
+#conversation file
+version=0.1
+
+question "There's a lot of chairs in here." {
+    tag=Room_01
+    answer=Is there?
+    answer=...
+    answer=Huh. Yeah.
+
+    question "Sit anywhere." {
+        tag=Room_01
+        answer=I'll stand here.
+        answer=Sorry — do you want me to start?
+
+        question "Say your name." {
+            tag=Room_01
+            answer=Alex. I'm twenty-eight.
+            answer=I don't really know what else you want. I've never done anything.
+
+            question "You're here about someone." {
+                tag=Room_01
+                answer=...
+                answer=Yeah.
+                answer=Do we do that bit now or is there a run-up?
+
+                question "There's a run-up if you want one." {
+                    tag=Room_01
+                    answer=No. Let's just.
+                    answer=His name was Sam. Four years in September.
+
+                    question "Alright. Questions." {
+                        id=shared1
+                        tag=Room_01
+                        answer=Go on.
+
+                        question "How did you meet?" {
+                            tag=Room_02
+                            answer=Nothing story. Someone's kitchen at a party neither of us wanted to be at.
+                            answer=And still we met… a sea of people and still we met.
+
+                            question "You've said that before." {
+                                tag=Room_02
+                                answer=Every day for four years, in my head.
+                                answer=It's the only part I let myself have. The meeting bit.
+                                answer=We were parallel lines that found a reason to converge.
+
+                                question "What was he like?" {
+                                    tag=Room_02
+                                    answer=He could make you feel confident in yourself.
+                                    answer=Not by saying anything. He just looked at you like you were already fine and you'd go along with it.
+                                    answer=I was so sad back then.. Always so sullen but i met someone who was kind enough to share their happiness with me.
+
+                                    question "Share it how?" {
+                                        tag=Room_02
+                                        loop_to=shared1
+                                        answer=He'd just give it away. He had loads and he never checked what he had left.
+                                        answer=I've thought about that a lot since.
+                                        answer=I never once asked him if he had enough for himself.
+                                    }
+                                }
+                            }
+                        }
+
+                        question "When did you last see him?" {
+                            tag=Room_03
+                            answer=A Thursday.
+                            answer=You never know when itll be the last time.
+
+                            question "Tell me about it." {
+                                tag=Room_03
+                                answer=It was nothing. That's what I need you to understand. It was completely nothing.
+                                answer=We got chips. He was annoyed about his car. I was on my phone for part of it.
+                                answer=He hugged me outside the shop, which he did every time, and I did the thing where you pat someone's back twice to end it.
+
+                                question "You've thought about that pat." {
+                                    tag=Room_03
+                                    answer=Four years.
+                                    answer=Two pats. Like I had somewhere to be.
+                                    answer=I didn't have anywhere to be. I went home and watched telly.
+
+                                    question "You couldn't have known." {
+                                        tag=Room_03
+                                        answer=I know that.
+                                        answer=Everyone says it and it's true and it doesn't touch the thing at all.
+                                        answer=Someone has to leave first this is a very old story there is no other version of this story.
+
+                                        question "..." {
+                                            tag=Room_03
+                                            loop_to=shared1
+                                            answer=I tell myself that when it's bad. It helps about as much as anything else, which is not much.
+                                            answer=Somebody was always going to go first. It was always going to be one of us stood there.
+                                            answer=It just wasn't supposed to be at twenty-four.
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        question "What happened to you after?" {
+                            tag=Room_04
+                            answer=I stopped.
+                            answer=Not dramatically. I went to the funeral, I was good at the funeral, everyone said how well I was doing.
+                            answer=Then about five months later I stopped.
+
+                            question "Stopped how?" {
+                                tag=Room_04
+                                answer=Work, phone, door.
+                                answer=And there was one night.
+                                answer=I'm not doing details. Is that alright.
+
+                                question "That's alright." {
+                                    tag=Room_04
+                                    answer=Everywhere.
+                                    answer=Not just the usual places people do. Everywhere I could reach.
+                                    answer=Like I was trying to make the outside match, or make it visible, or — I don't know. I've had four years and I still can't finish that sentence.
+
+                                    question "Did anyone find you?" {
+                                        tag=Room_04
+                                        answer=Eventually.
+                                        answer=My neighbour, weirdly. Not anyone I'd have picked.
+
+                                        question "Where were your friends?" {
+                                            tag=Room_04
+                                            answer=...
+                                            answer=That's the question, isn't it.
+                                            answer=They were where I'd left them. They'd all been ringing for months and I'd not picked up, and then they stopped ringing, which is what happens.
+
+                                            question "Do you blame them?" {
+                                                tag=Room_04
+                                                loop_to=shared1
+                                                answer=No.
+                                                answer=I want violently and I wait, nothing good has happened because i have willed it.
+                                                answer=I've never once asked anyone for anything. Then I'm surprised when it doesn't arrive.
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        question "You're good to people though." {
+                            tag=Room_04
+                            answer=I'm the person everyone rings.
+                            answer=Three in the morning, doesn't matter, I'll get up and drive.
+                            answer=I've talked two people through the worst nights of their lives and both of them are still here.
+
+                            question "That's not nothing." {
+                                tag=Room_04
+                                answer=It's not nothing.
+                                answer=It's also — sorry, this'll sound like self-pity and I hate self-pity.
+
+                                question "Say it anyway." {
+                                    tag=Room_05
+                                    answer=Nobody drives to me.
+                                    answer=I've got the number of everyone I've ever helped. Not one of them has my bad nights in their diary.
+                                    answer=I'm not owed it. I've never told any of them I have bad nights. So it's my own doing and it's still true.
+
+                                    question "You could tell them." {
+                                        tag=Room_05
+                                        loop_to=shared1
+                                        answer=And be the one who needs something.
+                                        answer=I've got exactly one thing left that I'm good at and that's being the one who doesn't.
+                                    }
+                                }
+                            }
+                        }
+
+                        question "Does it get better?" {
+                            tag=Room_05
+                            answer=Attachment is the root of all misery.
+
+                            question "Do you believe it?" {
+                                tag=Room_05
+                                answer=I believed it for about two years. I built a whole life out of it.
+                                answer=Don't get close, don't get hurt. Very tidy. Very cheap.
+                                answer=Then I worked out what it actually meant, which is that the answer to loving somebody is to never do it again.
+
+                                question "And now?" {
+                                    tag=Room_05
+                                    loop_to=shared1
+                                    answer=There will be a piece of him in me always.
+                                    answer=The only thing you can do is stop adding people, which is what I've done, and it's not the same as being free.
+                                }
+                            }
+                        }
+
+                        question "That's all I wanted to ask." {
+                            tag=Room_05
+                            answer=Right.
+                            answer=...
+                            answer=Can I ask you something. Off the record.
+
+                            question "Go on." {
+                                tag=Room_05
+                                answer=Is he in it? The film.
+                                answer=Because he's not one of your people, he never did anything like this, he was the happy one. He was the happiest person I've ever met.
+                                answer=I just want him mentioned somewhere. That's all. I don't need it to be about him.
+
+                                question "He's in it." {
+                                    tag=Room_05
+                                    ending
+                                    ending_text=Alex will drive to anyone. Three in the morning, any distance, no questions.
+                                    ending_text=Nobody has their number for that. They have never given it out and they never will, and both of those are choices, and neither of them feels like one.
+                                    ending_text=A sea of people, and still they met. Somebody had to leave first. There is no other version of this story.
+                                    answer=...
+                                    answer=Okay.
+                                    answer=Thanks. That's — yeah.
+                                    answer=Sam. It's Sam. With an m.
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

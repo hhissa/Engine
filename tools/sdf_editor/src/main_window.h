@@ -51,19 +51,22 @@ private slots:
   // more than one primitive, rather than on_add_clicked()'s implicit "no
   // active layer -> make a fresh one" fallback.
   void on_new_layer_clicked();
-  // Connected to copy_layer_button_'s clicked -- deep-copies active_layer_
-  // index_'s SdfLayerDef into layer_clipboard_ (see its own comment) and
-  // enables paste_layer_button_. No-op (clipboard left as whatever it was)
-  // if active_layer_index_ doesn't unambiguously name one layer -- see its
-  // own comment for exactly when that's true.
+  // Connected to copy_layer_button_'s clicked -- deep-copies every layer
+  // touched by contents_tree_'s current selection into layer_clipboard_ (see
+  // its own comment): a selected layer row contributes itself, a selected
+  // primitive row contributes its parent layer, and layers are deduplicated
+  // so selecting several primitives in the same layer still copies it once
+  // (same "touched layers" rule on_remove_clicked() already uses). Enables
+  // paste_layer_button_. No-op (clipboard left as whatever it was) if
+  // nothing is selected.
   void on_copy_layer_clicked();
   // Connected to paste_layer_button_'s clicked -- appends a deep copy of
-  // layer_clipboard_ to scene_.layers, with a freshly generated unique name
-  // for the layer itself and for every primitive inside it (see
-  // on_paste_layer_clicked()'s own body for why that's essential, not just
-  // tidy), then selects the new layer row. No-op if layer_clipboard_ is
-  // empty (nothing copied yet -- the button stays disabled in that case,
-  // but this guards direct calls too).
+  // every layer in layer_clipboard_ to scene_.layers, with a freshly
+  // generated unique name for each layer itself and for every primitive
+  // inside it (see on_paste_layer_clicked()'s own body for why that's
+  // essential, not just tidy), then selects every newly pasted layer row.
+  // No-op if layer_clipboard_ is empty (nothing copied yet -- the button
+  // stays disabled in that case, but this guards direct calls too).
   void on_paste_layer_clicked();
   void on_pick_colour_clicked();
   // Connected to emissive_colour_button_'s clicked -- mirrors
@@ -330,12 +333,13 @@ private:
   QPushButton *copy_layer_button_ = nullptr;
   QPushButton *paste_layer_button_ = nullptr;
   // Set by on_copy_layer_clicked(), read by on_paste_layer_clicked() --
-  // nullopt means "nothing copied yet" (paste_layer_button_ stays disabled
-  // the whole time it is). A plain value, not a pointer/index into scene_:
-  // copying takes a snapshot independent of whatever scene_.layers does
-  // afterward (edits, removals, even loading an entirely different scene),
-  // exactly what a clipboard should survive.
-  std::optional<SdfLayerDef> layer_clipboard_;
+  // empty means "nothing copied yet" (paste_layer_button_ stays disabled the
+  // whole time it is). One entry per distinct layer the selection touched,
+  // in ascending scene_.layers index order at copy time. Plain values, not
+  // pointers/indices into scene_: copying takes a snapshot independent of
+  // whatever scene_.layers does afterward (edits, removals, even loading an
+  // entirely different scene), exactly what a clipboard should survive.
+  std::vector<SdfLayerDef> layer_clipboard_;
   QComboBox *operation_combo_ = nullptr;
   QDoubleSpinBox *smoothness_spin_ = nullptr;
   QDoubleSpinBox *pos_x_ = nullptr;
@@ -371,6 +375,14 @@ private:
   QDoubleSpinBox *repeat_count_x_ = nullptr;
   QDoubleSpinBox *repeat_count_y_ = nullptr;
   QDoubleSpinBox *repeat_count_z_ = nullptr;
+  // Domain deformation (see SdfPrimitiveDef::twist/bend/displace_amplitude/
+  // displace_frequency) -- all default to their identity/no-op value
+  // (0, matching the struct default, except displace_frequency_spin_
+  // which defaults to 20 the same way the struct does).
+  QDoubleSpinBox *twist_spin_ = nullptr;
+  QDoubleSpinBox *bend_spin_ = nullptr;
+  QDoubleSpinBox *displace_amplitude_spin_ = nullptr;
+  QDoubleSpinBox *displace_frequency_spin_ = nullptr;
   QPushButton *colour_button_ = nullptr;
   QPushButton *texture_button_ = nullptr;
   QPushButton *texture_clear_button_ = nullptr;

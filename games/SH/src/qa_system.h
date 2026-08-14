@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Identifies one load_conversation() call's worth of top-level questions
@@ -97,7 +98,10 @@ constexpr ConversationHandle kInvalidConversationHandle = 0;
 // list builds *upward* from there -- so the bottom of the block stays in
 // exactly the same place no matter how many questions are registered;
 // only the top (where row 0 lands) moves further up as more are added.
-// See render()'s screen_height parameter.
+// Long question/answer text wraps onto further lines rather than running
+// off the right edge (see text_wrap.h's wrap_text()), which the same
+// upward-building layout absorbs for free -- a wrapped entry just costs
+// more rows. See render()'s screen_width/screen_height parameters.
 //
 // update() reads input and must be called once per frame from the game's
 // update(); render() queues its text via renderer_draw_text() and must be
@@ -148,6 +152,28 @@ public:
     // "past the last answer line" handling and the class comment's note
     // on looping.
     std::optional<std::string> loop_target;
+
+    // Flag names this question requires set/unset to be selectable at all
+    // -- copied from ConversationQuestion::requires_flags/
+    // requires_not_flags (see resources/conversation.h's file format
+    // comment). Checked by entry_visible() below; a question failing
+    // either check is skipped entirely by navigation and render(), as if
+    // it weren't in the list.
+    std::vector<std::string> requires_flags;
+    std::vector<std::string> requires_not_flags;
+    // Flag names set (in flags_ below), permanently, the instant this
+    // question is asked -- copied from ConversationQuestion::sets_flags.
+    std::vector<std::string> sets_flags;
+    // Copied from ConversationQuestion::is_ending -- see update()'s "past
+    // the last answer line" handling and set_on_ending_reached() below.
+    bool is_ending = false;
+    // Copied from ConversationQuestion::ending_lines -- this ending's own
+    // outro text (see resources/conversation.h's `ending_text=` lines),
+    // meaningful only when is_ending is true. set_on_ending_reached()'s
+    // callback is handed the whole Entry, so it can read this directly to
+    // show a per-ending outro instead of one generic message shared by
+    // every ending.
+    std::vector<std::string> ending_lines;
   };
 
   // Appends a new top-level question and returns a reference to it -- pass
@@ -241,7 +267,7 @@ public:
   // the scene back to its base state once the player has exhausted a
   // branch:
   //
-  //   qa_.set_on_returned_to_root([this] { apply_scene_state(SceneState::Normal); });
+  //   qa_.set_on_returned_to_root([this] { apply_scene_state(SceneState::TheoRoom1); });
   void set_on_returned_to_root(std::function<void()> callback);
 
   // Attaches callback as the fallback scene state -- fired from update()
@@ -251,7 +277,7 @@ public:
   // introductory question is answered, before any of its (possibly
   // tagged) follow-ups have been picked:
   //
-  //   qa_.set_base_scene_state([this] { apply_scene_state(SceneState::Normal); });
+  //   qa_.set_base_scene_state([this] { apply_scene_state(SceneState::TheoRoom1); });
   void set_base_scene_state(std::function<void()> callback);
 
   // Registers callback under name -- fired from update() the instant a
@@ -263,26 +289,105 @@ public:
   // declares a symbolic name, game code says what that name means, and
   // QASystem itself never interprets it. E.g.:
   //
-  //   qa_.register_scene_state("DoorScene",
-  //                            [this] { apply_scene_state(SceneState::DoorScene); });
+  //   qa_.register_scene_state("Room_01",
+  //                            [this] { apply_scene_state(SceneState::TheoRoom1); });
   //
   // Unlike set_on_selected(), this has nothing to do with any particular
   // Entry -- name -> callback is stored independently of entries_/
   // follow_ups, so call order relative to load_conversation() doesn't
-  // matter, and a registered name keeps working across an
-  // unload_conversation()/load_conversation() of a different file. Logs a
-  // warning (but still overwrites) if name was already registered -- doing
-  // so silently would hide what's almost certainly a content mistake (two
-  // different questions/files meaning to use two different names,
-  // colliding by accident).
+  // matter. Tag names only need to be unique among whatever's currently
+  // registered, though -- see clear_scene_states() below for the intended
+  // way to free a name back up (e.g. so every chapter's .conversation file
+  // can reuse the same small set of tag names, like "Room_01".."Room_05",
+  // without colliding with one another). Logs a warning (but still
+  // overwrites) if name is already registered *and wasn't cleared first* --
+  // that's almost certainly a content mistake (two questions/files meaning
+  // to use two different names, colliding by accident) rather than an
+  // intentional handoff.
   void register_scene_state(std::string_view name, std::function<void()> callback);
+
+  // Forgets every name->callback registered via register_scene_state() so
+  // far, freeing all of them back up to be registered again under a new
+  // meaning -- e.g. game code re-registering "Room_01".."Room_05" against a
+  // different chapter's own scenes each time a new .conversation file is
+  // loaded, without register_scene_state()'s duplicate-name warning firing
+  // on what's actually an intentional handoff rather than a content
+  // mistake. Called from unload_conversation() below for exactly that
+  // reason -- mirrors flags_ being cleared there too. Does not touch
+  // base_scene_state_/on_returned_to_root_/on_ending_reached_ (see
+  // set_base_scene_state()/set_on_returned_to_root()/
+  // set_on_ending_reached()) -- those aren't name-keyed, so they're
+  // typically registered once and left alone across every chapter.
+  void clear_scene_states();
+
+  // Attaches callback as the "any question was just asked" hook -- fired
+  // from update() every time Enter is pressed on a question in the list
+  // (right after that Entry's `asked` flag is set), regardless of which
+  // question it was or whether it has a tag. Unlike set_on_selected() (one
+  // specific question) or register_scene_state() (one specific tag), this
+  // fires for every single question across every currently loaded
+  // conversation -- meant for a generic "the player just made progress"
+  // signal (e.g. game code autosaving via asked_flags() below) that
+  // shouldn't need a callback wired to each individual question.
+  void set_on_any_asked(std::function<void()> callback);
+
+  // Returns entries_'s (and, recursively, every follow_ups vector nested
+  // inside it) `asked` flags, flattened via a depth-first pre-order walk:
+  // each entry's own flag, then its follow_ups' flags (recursively),
+  // before moving to the next sibling. Meant to be persisted verbatim
+  // (e.g. to a save file) and handed back to apply_asked_flags() below --
+  // the traversal order is otherwise not meaningful on its own.
+  std::vector<bool> asked_flags() const;
+
+  // Applies a previously-captured asked_flags() result back onto the
+  // currently loaded entries_, using the exact same depth-first pre-order
+  // walk -- so this only makes sense right after loading the same
+  // conversation(s) asked_flags() was captured from, in the same order.
+  // Logs a warning and does nothing if flags.size() doesn't match the
+  // number of entries currently loaded (e.g. a save from before a
+  // .conversation file was edited) rather than guess at a partial
+  // application. Does not touch navigation state (current_list_, cursor_,
+  // etc.) -- the view stays wherever it already was; callers that want to
+  // land back at the top level after applying a save should do so
+  // themselves (e.g. by calling this right after load_conversation(),
+  // before the player has navigated anywhere).
+  void apply_asked_flags(const std::vector<bool> &flags);
+
+  // Returns every currently-set flag name (see Entry::requires_flags/
+  // sets_flags above), in unspecified order -- meant to be persisted
+  // verbatim and handed back to apply_flags() below, mirroring
+  // asked_flags()/apply_asked_flags()'s own pattern exactly, just without
+  // needing a traversal since flags_ is already a flat set.
+  std::vector<std::string> flags() const;
+
+  // Applies a previously-captured flags() result -- replaces flags_
+  // outright (not merged with whatever's already set), so this only makes
+  // sense right after loading, before the player has asked anything new.
+  void apply_flags(const std::vector<std::string> &flags);
+
+  // Attaches callback as the "an ending was just reached" hook -- fired
+  // from update() the instant an Entry::is_ending question's answer
+  // finishes (see the class comment's "past the last answer line" section
+  // and resources/conversation.h's `ending` marker), in place of the
+  // normal follow_ups/pop-up/loop_to handling: reaching an ending stops
+  // dialogue navigation right where it is rather than continuing to
+  // browse, leaving it up to callback to decide what happens next (e.g.
+  // showing an outro and leaving the chapter). The finished Entry itself
+  // is passed through so callback can inspect its tag/text if it wants a
+  // distinct reaction per ending -- reusing the existing tag dispatch
+  // (register_scene_state() below) rather than a second naming scheme
+  // just for endings.
+  void set_on_ending_reached(std::function<void(const Entry &)> callback);
 
   void update();
 
-  // screen_height is the current framebuffer height (screen pixels) --
-  // needed to anchor the block to the bottom of the screen; see the class
-  // comment.
-  void render(u32 screen_height) const;
+  // screen_width/screen_height are the current framebuffer size (screen
+  // pixels) -- screen_height anchors the block to the bottom of the screen
+  // (see the class comment), screen_width bounds how wide a question/
+  // answer line is allowed to get before wrap_text() (text_wrap.h) breaks
+  // it onto a further line, so long .conversation-authored text doesn't
+  // run off the right edge.
+  void render(u32 screen_width, u32 screen_height) const;
 
 private:
   enum class State {
@@ -347,6 +452,33 @@ private:
 
   // See set_base_scene_state() above.
   std::function<void()> base_scene_state_;
+
+  // Every flag name currently set -- see flags()/apply_flags() and
+  // Entry::requires_flags/requires_not_flags/sets_flags above. Presence in
+  // this set means "set"; there's no explicit false/unset state to track
+  // (a flag either has been set or hasn't), and no `unsets=` to remove one
+  // once set.
+  std::unordered_set<std::string> flags_;
+
+  // True if every one of entry.requires_flags is in flags_ and none of
+  // entry.requires_not_flags is -- an entry failing this is skipped
+  // entirely by visible_indices() below, navigation, and render(), as if
+  // it weren't in the list at all (not just grayed out/unselectable).
+  bool entry_visible(const Entry &entry) const;
+
+  // Indices into list of every entry currently passing entry_visible(),
+  // in list order -- the single source of truth update()'s Up/Down/
+  // cursor-reset handling and render()'s row layout both go through, so
+  // the two can never disagree about which rows exist right now. list is
+  // small (a conversation's question count), so this is recomputed fresh
+  // wherever needed rather than cached.
+  std::vector<size_t> visible_indices(const std::vector<Entry> &list) const;
+
+  // See set_on_ending_reached() above.
+  std::function<void(const Entry &)> on_ending_reached_;
+
+  // See set_on_any_asked() above.
+  std::function<void()> on_any_asked_;
 
   // See register_scene_state() above.
   std::unordered_map<std::string, std::function<void()>> scene_states_;

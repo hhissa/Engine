@@ -85,6 +85,14 @@ struct GeometryConfig {
   glm::vec3 params{1.0f}; // Per-type meaning -- see SdfPrimitiveDef::params
                          // (sdf_scene.h), which this mirrors exactly.
   f32 extra_param = 0.0f; // See SdfPrimitiveDef::extra_param.
+  // Domain deformation -- see SdfPrimitiveDef::twist/bend/
+  // displace_amplitude/displace_frequency's comment (sdf_scene.h); mirrored
+  // here verbatim, exactly like every other primitive attribute in this
+  // struct.
+  f32 twist = 0.0f;
+  f32 bend = 0.0f;
+  f32 displace_amplitude = 0.0f;
+  f32 displace_frequency = 20.0f;
   // Optional per-slot formula overriding the corresponding params.x/y/z/
   // extra_param constant -- see SdfPrimitiveDef::param_expressions. Source
   // text only; VulkanRaymarchShader::rebuild_static_scene() compiles it
@@ -125,6 +133,16 @@ struct Geometry {
   glm::vec3 rotation{0.0f}; // Euler angles, radians -- see GeometryConfig.
   glm::vec3 params{1.0f};
   f32 extra_param = 0.0f; // See GeometryConfig::extra_param.
+  // Domain deformation -- see GeometryConfig::twist/bend/
+  // displace_amplitude/displace_frequency above. twist/bend/
+  // displace_frequency are rates (radians, or a sin() argument multiplier,
+  // per world-unit) so scale_scene() divides them by its factor to keep
+  // the same *visual* twist/bend/ripple density regardless of scale;
+  // displace_amplitude is a length, scaled up like params/extra_param.
+  f32 twist = 0.0f;
+  f32 bend = 0.0f;
+  f32 displace_amplitude = 0.0f;
+  f32 displace_frequency = 20.0f;
   std::array<std::string, 4> param_expressions; // See GeometryConfig::param_expressions.
   // Accumulated uniform scale applied to the param_expressions above (only
   // -- plain params/extra_param are scaled directly). A formula computes a

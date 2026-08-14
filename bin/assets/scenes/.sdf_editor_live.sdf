@@ -4,170 +4,22 @@ ambient=0.15
 
 layer layer0 {
     operation=union
-    smoothness=0.05
+    smoothness=0
 
     primitive primitive0 {
         type=sphere
-        position=0 -0.921637 0
+        position=0 -3.56308 0
         rotation=0 0 0
         radius=0.5
         material=qt_colour_ffffffff_ts060_white
     }
 
-    primitive primitive4 {
+    primitive primitive1 {
         type=ellipsoid
-        position=0 -0.588032 0
+        position=0 -3.35 0
         rotation=0 0 0
         params=0.5 0.5 0.5 0
-        param_expr=0 0.4-0.2*p.y
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer1 {
-    operation=subtraction
-    smoothness=0.1
-
-    primitive primitive6 {
-        type=ellipsoid
-        position=-0.219566 -0.908032 -0.42
-        rotation=0 0 0
-        params=0.15 0.1 0.1 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer3 {
-    operation=union
-    smoothness=0.05
-
-    primitive primitive11 {
-        type=capsule
-        position=0.02 -0.738032 -0.51
-        rotation=-0.328296 0 0
-        params=0.05 0.1 0 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive12 {
-        type=sphere
-        position=-0.0374563 -0.643239 -0.51
-        rotation=-0.328296 0 0
-        radius=0.05
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive13 {
-        type=sphere
-        position=0.06 -0.648032 -0.51
-        rotation=-0.328296 0 0
-        radius=0.05
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer4 {
-    operation=subtraction
-    smoothness=0.1
-
-    primitive primitive15 {
-        type=ellipsoid
-        position=0.00200585 -0.449212 -0.515402
-        rotation=0 0 0
-        params=0.2 0.1 0.2 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer6 {
-    operation=union
-    smoothness=0.25
-
-    primitive primitive16 {
-        type=sphere
-        position=0.72 -0.908032 0
-        rotation=0 0 0.420799
-        radius=0.5
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive17 {
-        type=ellipsoid
-        position=0.579386 -0.602589 0
-        rotation=0 -0 0.420875
-        params=0.5 0.5 0.5 0
-        param_expr=0 0.4-0.2*p.y
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer7 {
-    operation=subtraction
-    smoothness=0.1
-
-    primitive primitive18 {
-        type=ellipsoid
-        position=0.215438 -0.928686 -0.42
-        rotation=0 0 -0.0551421
-        params=0.15 0.1 0.1 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive19 {
-        type=ellipsoid
-        position=0.993433 -0.835845 -0.42
-        rotation=0 -0 0.329752
-        params=0.15 0.1 0.1 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive24 {
-        type=ellipsoid
-        position=0.57 -0.978032 -0.42
-        rotation=0 0 0.329693
-        params=0.15 0.1 0.1 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer8 {
-    operation=union
-    smoothness=0.05
-
-    primitive primitive20 {
-        type=capsule
-        position=0.727533 -0.73333 -0.51
-        rotation=-0.328296 3.72529e-09 0.309642
-        params=0.05 0.1 0 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive21 {
-        type=sphere
-        position=0.643924 -0.660552 -0.51
-        rotation=-0.328296 3.72529e-09 0.309642
-        radius=0.05
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive22 {
-        type=sphere
-        position=0.738206 -0.635421 -0.51
-        rotation=-0.328296 3.72529e-09 0.309642
-        radius=0.05
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer9 {
-    operation=subtraction
-    smoothness=0.1
-
-    primitive primitive23 {
-        type=ellipsoid
-        position=0.549441 -0.449212 -0.515402
-        rotation=0 -0 0.233032
-        params=0.2 0.1 0.2 0
+        param_expr=0 0.4
         material=qt_colour_ffffffff_ts060_white
     }
 }

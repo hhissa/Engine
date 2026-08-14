@@ -472,7 +472,10 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/../../engine/src/resources/../defines.h \
   /home/bumbandit/Projects/Engine/tools/conversation_editor/src/graph_scene.h \
   /usr/include/qt6/QtWidgets/QGraphicsScene \
-  /usr/include/qt6/QtGui/QAction /usr/include/qt6/QtWidgets/QFileDialog \
+  /usr/include/qt6/QtGui/QAction /usr/include/qt6/QtWidgets/QCheckBox \
+  /usr/include/qt6/QtWidgets/qcheckbox.h \
+  /usr/include/qt6/QtWidgets/qabstractbutton.h \
+  /usr/include/qt6/QtWidgets/QFileDialog \
   /usr/include/qt6/QtWidgets/qfiledialog.h \
   /usr/include/qt6/QtCore/qdir.h /usr/include/qt6/QtCore/qdirlisting.h \
   /usr/include/qt6/QtCore/qfiledevice.h \
@@ -530,7 +533,6 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: \
   /usr/include/qt6/QtWidgets/qdialogbuttonbox.h \
   /usr/include/qt6/QtGui/QPainter /usr/include/qt6/QtWidgets/QPushButton \
   /usr/include/qt6/QtWidgets/qpushbutton.h \
-  /usr/include/qt6/QtWidgets/qabstractbutton.h \
   /usr/include/qt6/QtWidgets/QScrollBar \
   /usr/include/qt6/QtWidgets/qscrollbar.h \
   /usr/include/qt6/QtWidgets/QSizePolicy \

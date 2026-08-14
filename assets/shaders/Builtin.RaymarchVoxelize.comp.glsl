@@ -81,8 +81,27 @@ layout(binding = 4) buffer BrickPrimitiveBuffer {
 
 layout(push_constant) uniform PushConstants {
     int layer_count;
+    // Largest smoothness value across every currently-registered layer --
+    // see CULL_RADIUS below. Computed once engine-side in
+    // rebuild_static_scene() (it's a scene-wide property, not a per-layer
+    // one, so a single scalar suffices).
+    float max_smoothness;
 } push;
 
+// scene_map()'s cull_radius for the fine per-voxel loop below (see main()) --
+// how far from a fine sample point a primitive can matter, given this brick
+// was only ever allocated because the coarse per-cell test (which itself
+// evaluates every primitive with no cull -- see main()'s first scene_map()
+// call) found the true scene surface within half_diagonal of the cell
+// *center*. CULL_RADIUS_CELLS is deliberately generous slack over the
+// tightest bound that reasoning actually requires (half_diagonal, plus how
+// far a fine sample can sit from that center -- on the order of one more
+// cell -- plus max_smoothness): a too-tight cull_radius risks silently
+// dropping a primitive that genuinely still mattered (a hole in the baked
+// surface), while an overly generous one just evaluates a few more
+// primitives than strictly necessary -- a far cheaper mistake to make.
+// Tighten it only with real profiling + visual verification behind it.
+const float CULL_RADIUS_CELLS = 6.0;
 
 void main() {
     ivec3 cell = ivec3(gl_GlobalInvocationID);
@@ -95,8 +114,12 @@ void main() {
     vec3 cell_min = vec3(-BOUNDS) + vec3(cell) * COARSE_CELL_SIZE;
     vec3 cell_center = cell_min + vec3(COARSE_CELL_SIZE * 0.5);
 
+    // No cull here -- this is the one evaluation per cell that actually
+    // decides whether a brick exists at all, so it has to see the whole
+    // scene regardless of distance.
     int nearest_primitive;
-    float center_dist = scene_map(cell_center, push.layer_count, nearest_primitive);
+    float center_dist = scene_map(cell_center, push.layer_count,
+                                  UNBOUNDED_BOUNDING_RADIUS, nearest_primitive);
 
     // Conservative test: the surface might cross this cell if the SDF at
     // its center is within the cell's half-diagonal (sqrt(3)/2 * size) of
@@ -113,6 +136,7 @@ void main() {
             brick_primitive[int(brick_index)] = nearest_primitive;
 
             float voxel_size = COARSE_CELL_SIZE / float(BRICK_DIM);
+            float cull_radius = COARSE_CELL_SIZE * CULL_RADIUS_CELLS + push.max_smoothness;
             // Local index range is -1..BRICK_DIM inclusive (the apron),
             // mapped to storage index range 0..BRICK_APRON_DIM-1 via +1.
             for (int vz = -1; vz <= BRICK_DIM; ++vz) {
@@ -120,7 +144,8 @@ void main() {
                     for (int vx = -1; vx <= BRICK_DIM; ++vx) {
                         vec3 voxel_pos = cell_min + (vec3(vx, vy, vz) + 0.5) * voxel_size;
                         int unused_nearest;
-                        float d = scene_map(voxel_pos, push.layer_count, unused_nearest);
+                        float d = scene_map(voxel_pos, push.layer_count, cull_radius,
+                                            unused_nearest);
                         ivec3 store = ivec3(vx, vy, vz) + ivec3(1);
                         int local_index = store.x + store.y * BRICK_APRON_DIM + store.z * BRICK_APRON_DIM * BRICK_APRON_DIM;
                         bricks[int(brick_index) * BRICK_VOXEL_COUNT + local_index] = d;

@@ -4,6 +4,7 @@
 #include <QPoint>
 #include <QPointF>
 
+class QCheckBox;
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
@@ -105,6 +106,31 @@ private slots:
   // QuestionNode::tag()/resources/conversation.h's file format).
   void on_tag_changed();
 
+  // Mirror on_answer_lines_changed()/on_add_answer_line_clicked()/
+  // on_remove_answer_line_clicked() exactly, one trio per flag list (see
+  // QuestionNode::requires_flags()/requires_not_flags()/sets_flags()).
+  void on_requires_flags_changed();
+  void on_add_requires_flag_clicked();
+  void on_remove_requires_flag_clicked();
+  void on_requires_not_flags_changed();
+  void on_add_requires_not_flag_clicked();
+  void on_remove_requires_not_flag_clicked();
+  void on_sets_flags_changed();
+  void on_add_sets_flag_clicked();
+  void on_remove_sets_flag_clicked();
+
+  // Connected to ending_checkbox_'s stateChanged -- mirrors
+  // on_tag_changed()'s pattern for a bool instead of a string (see
+  // QuestionNode::is_ending()).
+  void on_ending_changed();
+
+  // Mirror on_answer_lines_changed()/on_add_answer_line_clicked()/
+  // on_remove_answer_line_clicked() exactly, for this ending's own outro
+  // text (see QuestionNode::ending_lines()).
+  void on_ending_lines_changed();
+  void on_add_ending_line_clicked();
+  void on_remove_ending_line_clicked();
+
 private:
   void populate_fields_from_selection(QuestionNode *node);
   void set_fields_enabled(bool enabled);
@@ -119,6 +145,22 @@ private:
   // Optional symbolic name a game's dialogue system can react to (see
   // QuestionNode::tag()) -- empty means no tag.
   QLineEdit *tag_edit_ = nullptr;
+
+  // Flag names this question requires set/unset to be selectable, and sets
+  // when asked (see QuestionNode::requires_flags()/requires_not_flags()/
+  // sets_flags()) -- same QListWidget-with-Add/Remove-buttons pattern as
+  // answers_list_ above, one list each.
+  QListWidget *requires_list_ = nullptr;
+  QListWidget *requires_not_list_ = nullptr;
+  QListWidget *sets_list_ = nullptr;
+  // Whether this question is a story ending (see QuestionNode::is_ending()).
+  QCheckBox *ending_checkbox_ = nullptr;
+  // This ending's own outro text (see QuestionNode::ending_lines()) --
+  // same QListWidget-with-Add/Remove-buttons pattern as answers_list_
+  // above, shown/editable regardless of ending_checkbox_'s state (nothing
+  // here enforces the pairing -- see QuestionNode::ending_lines()'s own
+  // comment).
+  QListWidget *ending_lines_list_ = nullptr;
 
   // Guards populate_fields_from_selection()'s setText()/etc. calls against
   // re-entering on_question_text_changed()/on_answer_lines_changed() --

@@ -3165,6 +3165,7 @@ CMakeFiles/conversation_editor.dir/src/main.cpp.o: /home/bumbandit/Projects/Engi
   /usr/include/math.h \
   /usr/include/pthread.h \
   /usr/include/qt6/QtCore/QPoint \
+  /usr/include/qt6/QtCore/QPointF \
   /usr/include/qt6/QtCore/q17memory.h \
   /usr/include/qt6/QtCore/q20bit.h \
   /usr/include/qt6/QtCore/q20functional.h \
@@ -3894,6 +3895,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projec
   /usr/include/qt6/QtCore/qversiontagging.h \
   /usr/include/qt6/QtCore/qxptype_traits.h \
   /usr/include/qt6/QtCore/qyieldcpu.h \
+  /usr/include/qt6/QtGui/QAction \
   /usr/include/qt6/QtGui/QPainter \
   /usr/include/qt6/QtGui/QTransform \
   /usr/include/qt6/QtGui/QWheelEvent \
@@ -3942,6 +3944,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projec
   /usr/include/qt6/QtGui/qvector2d.h \
   /usr/include/qt6/QtGui/qvectornd.h \
   /usr/include/qt6/QtGui/qwindowdefs.h \
+  /usr/include/qt6/QtWidgets/QCheckBox \
   /usr/include/qt6/QtWidgets/QFileDialog \
   /usr/include/qt6/QtWidgets/QFormLayout \
   /usr/include/qt6/QtWidgets/QGraphicsObject \
@@ -3956,6 +3959,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projec
   /usr/include/qt6/QtWidgets/QLineEdit \
   /usr/include/qt6/QtWidgets/QListWidget \
   /usr/include/qt6/QtWidgets/QMainWindow \
+  /usr/include/qt6/QtWidgets/QMenu \
   /usr/include/qt6/QtWidgets/QMessageBox \
   /usr/include/qt6/QtWidgets/QPushButton \
   /usr/include/qt6/QtWidgets/QScrollBar \
@@ -3969,6 +3973,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projec
   /usr/include/qt6/QtWidgets/qabstractslider.h \
   /usr/include/qt6/QtWidgets/qabstractspinbox.h \
   /usr/include/qt6/QtWidgets/qboxlayout.h \
+  /usr/include/qt6/QtWidgets/qcheckbox.h \
   /usr/include/qt6/QtWidgets/qdialog.h \
   /usr/include/qt6/QtWidgets/qdialogbuttonbox.h \
   /usr/include/qt6/QtWidgets/qfiledialog.h \
@@ -3987,6 +3992,7 @@ CMakeFiles/conversation_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projec
   /usr/include/qt6/QtWidgets/qlistview.h \
   /usr/include/qt6/QtWidgets/qlistwidget.h \
   /usr/include/qt6/QtWidgets/qmainwindow.h \
+  /usr/include/qt6/QtWidgets/qmenu.h \
   /usr/include/qt6/QtWidgets/qmessagebox.h \
   /usr/include/qt6/QtWidgets/qpushbutton.h \
   /usr/include/qt6/QtWidgets/qrubberband.h \
@@ -4731,6 +4737,14 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 
 /usr/lib/libgraphite2.so.3:
 
+/usr/lib/libfreetype.so.6:
+
+/usr/lib/libfontconfig.so.1:
+
+/usr/lib/libexpat.so.1:
+
+/usr/lib/libdouble-conversion.so.3:
+
 /usr/include/qt6/QtWidgets/QLineEdit:
 
 /usr/include/bits/struct_rwlock.h:
@@ -4946,8 +4960,6 @@ CMakeFiles/conversation_editor.dir/src/connection_item.cpp.o:
 /usr/include/qt6/QtCore/qlogging.h:
 
 /usr/include/bits/stdint-uintn.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QEvdevTabletPluginTargets.cmake:
 
 /usr/include/qt6/QtCore/qline.h:
 
@@ -5621,6 +5633,14 @@ conversation_editor_autogen/moc_predefs.h:
 
 /usr/include/c++/16/bits/stl_tree.h:
 
+/usr/include/qt6/QtWidgets/qcheckbox.h:
+
+/usr/lib/libdbus-1.so.3:
+
+/usr/include/bits/stdint-intn.h:
+
+/usr/include/c++/16/cerrno:
+
 /usr/lib/cmake/Qt6Gui/Qt6QVkKhrDisplayIntegrationPluginAdditionalTargetInfo.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QMinimalIntegrationPluginTargetsPrecheck.cmake:
@@ -5964,10 +5984,6 @@ conversation_editor_autogen/moc_predefs.h:
 /usr/lib/cmake/Qt6/Qt6Dependencies.cmake:
 
 /usr/include/bits/types/__sigset_t.h:
-
-/usr/lib/libgomp.so.1:
-
-/usr/include/c++/16/bits/streambuf_iterator.h:
 
 /usr/include/c++/16/bits/unique_ptr.h:
 
@@ -6379,6 +6395,10 @@ CMakeFiles/conversation_editor.dir/src/question_node.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandFullScreenShellV1IntegrationPluginAdditionalTargetInfo.cmake:
 
+/usr/lib/cmake/Qt6Gui/Qt6QEvdevTabletPluginTargets.cmake:
+
+/usr/include/qt6/QtGui/QAction:
+
 /usr/lib/cmake/Qt6Gui/Qt6QGtk3ThemePluginTargets.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QICOPluginAdditionalTargetInfo.cmake:
@@ -6558,8 +6578,6 @@ CMakeFiles/conversation_editor.dir/src/conversation_io.cpp.o:
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandIviShellIntegrationPluginTargets-relwithdebinfo.cmake:
-
-/usr/lib/libdouble-conversion.so.3:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandQtShellIntegrationPluginTargets.cmake:
 
@@ -6869,12 +6887,6 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 
 /usr/include/qt6/QtCore/qdirlisting.h:
 
-/usr/include/bits/stdint-intn.h:
-
-/usr/include/c++/16/cerrno:
-
-/usr/lib/libdbus-1.so.3:
-
 /usr/include/qt6/QtCore/qfile.h:
 
 /usr/include/qt6/QtCore/qfileinfo.h:
@@ -6893,6 +6905,8 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 
 /usr/include/qt6/QtGui/qscreen.h:
 
+/usr/include/qt6/QtWidgets/QCheckBox:
+
 /usr/include/c++/16/bits/charconv.h:
 
 /usr/include/qt6/QtWidgets/QFileDialog:
@@ -6900,6 +6914,12 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 /usr/include/qt6/QtWidgets/QGroupBox:
 
 /usr/include/qt6/QtWidgets/QInputDialog:
+
+/usr/lib/libgomp.so.1:
+
+/usr/include/c++/16/bits/streambuf_iterator.h:
+
+/usr/include/qt6/QtWidgets/QMenu:
 
 /usr/include/qt6/QtWidgets/QPushButton:
 
@@ -6934,6 +6954,8 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 /usr/include/qt6/QtWidgets/qlayout.h:
 
 /usr/include/qt6/QtWidgets/qlayoutitem.h:
+
+/usr/include/qt6/QtWidgets/qmenu.h:
 
 /usr/include/qt6/QtWidgets/qscrollbar.h:
 
@@ -6974,9 +6996,3 @@ conversation_editor_autogen/UVLADIE3JM/moc_graph_scene.cpp:
 /usr/lib/libbrotlidec.so.1:
 
 /usr/lib/libbz2.so.1.0:
-
-/usr/lib/libexpat.so.1:
-
-/usr/lib/libfontconfig.so.1:
-
-/usr/lib/libfreetype.so.6:

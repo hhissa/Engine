@@ -1,0 +1,205 @@
+#conversation file
+version=0.1
+
+question "Is here alright? By the lamp?" {
+    tag=Room_01
+    answer=Here's fine. Everywhere's fine.
+    answer=Sorry, the place is a state. I didn't know if you'd actually come.
+
+    question "Why wouldn't I?" {
+        tag=Room_01
+        answer=People say things.
+        answer=Anyway. You're here. Hi.
+
+        question "Introduce yourself?" {
+            tag=Room_01
+            answer=Thiago. Twenty-four.
+            answer=Two years on T. Which is going great except for this.
+
+            question "Except for what?" {
+                tag=Room_01
+                answer=The hair. Look at it.
+                answer=Nobody tells you that bit. They tell you the voice and the shoulders and the good stuff.
+                answer=Nobody sits you down and says, by the way, you'll get exactly what you asked for and then start losing your hair like your uncle.
+
+                question "Alright. Questions." {
+                    id=shared1
+                    tag=Room_01
+                    answer=Okay. Be gentle, I'm delicate.
+
+                    question "Are you?" {
+                        tag=Room_01
+                        answer=No.
+                        answer=I'm strong, Ill figure it out…but i always cry first.
+                        answer=That's the actual order. Every time. Cry, then figure it out. Never once been able to swap them round.
+                    }
+
+                    question "Tell me about your arms." {
+                        tag=Room_02
+                        answer=Arms, yeah.
+                        answer=Do you ever catch yourself pushing your finger into a bruise. Because even though it hurts the pain sends feedback, the pain is information.
+
+                        question "Information about what?" {
+                            tag=Room_02
+                            answer=That there's something there. That you're not making it up.
+                            answer=Half of this is being told you're making it up. By doctors, by family, by yourself mostly.
+                            answer=You press it and it answers back. Nothing else answers back.
+
+                            question "Nothing?" {
+                                tag=Room_02
+                                loop_to=shared1
+                                answer=All the feelings you suppress turn into illness.
+                                answer=I've been suppressing since I was about eleven, so you can do the maths on that.
+                            }
+                        }
+                    }
+
+                    question "You said people say things. About you." {
+                        tag=Room_02
+                        answer=Not about me exactly. About people like me.
+                        answer=I don't read it any more. I did for about a year and it was like drinking from a tap you know is bad.
+
+                        question "Does it get to you?" {
+                            tag=Room_02
+                            answer=Everytime i trusted someone i ended up hurt, so finally i stopped trusting everybody. I would never be hurt again.
+
+                            question "How's that working out?" {
+                                tag=Room_02
+                                answer=...
+                                answer=Ha.
+                                answer=Yeah. Fair.
+                                answer=Turns out you can't switch it off in one direction only. You go quiet with everyone.
+
+                                question "Even the good ones?" {
+                                    tag=Room_03
+                                    loop_to=shared1
+                                    answer=Especially the good ones. They're the ones that can actually do damage.
+                                    answer=You can be perfectly safe and completely alone and those are not two separate things, they're the same thing wearing different coats.
+                                }
+                            }
+                        }
+                    }
+
+                    question "Is there someone special in your life?" {
+                        tag=Room_03
+                        answer=...
+                        answer=How did you—
+                        answer=Right. The phone's face-down. That's a tell, is it.
+
+                        question "It's face-down and you've looked at it four times." {
+                            tag=Room_03
+                            answer=Five.
+                            answer=Seven months. Ended in March.
+                            answer=He isnt going to call, I should get stoned and go to bed.
+
+                            question "Is that tonight's plan?" {
+                                tag=Room_03
+                                answer=That's every night's plan. That's the whole plan.
+                                answer=I say it out loud like it's a decision. It's not a decision, it's a weather report.
+
+                                question "Do you want him to call?" {
+                                    tag=Room_03
+                                    answer=No.
+                                    answer=...
+                                    answer=Yes. Obviously yes.
+                                    answer=He was kind to me for a bit and I hadn't had that and I don't think I knew what it was going to do to me when it stopped.
+
+                                    question "What did it do?" {
+                                        tag=Room_04
+                                        loop_to=shared1
+                                        answer=Made everything before it look worse.
+                                        answer=That's the thing nobody warns you about kindness. It shows you the size of the room you'd been living in.
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    question "Tell me about the pills." {
+                        tag=Room_04
+                        answer=...
+                        answer=Okay.
+                        answer=Two years ago. I'm not going to do the details, is that alright.
+
+                        question "That's alright." {
+                            tag=Room_04
+                            answer=Thanks.
+                            answer=I can't help but remember the state nobody found me in.
+
+                            question "Say that again?" {
+                                tag=Room_04
+                                answer=Nobody found me.
+                                answer=That's the bit. I woke up. On my own. Sunday afternoon, sun coming through, and the flat exactly how I'd left it.
+                                answer=I'd sort of assumed there'd be someone. Not rescue, I don't mean rescue. Just — someone.
+
+                                question "What did you do?" {
+                                    tag=Room_04
+                                    answer=I cleaned up.
+                                    answer=I got a bin bag and I cleaned up and I went to work on the Monday.
+                                    answer=Nobody has ever known about it except a nurse I saw once and now you.
+
+                                    question "Why tell me?" {
+                                        tag=Room_05
+                                        answer=Why do people want me to clear my mind out, why do you want to forget about it, you can't just ignore everything like you gotta figure some shit out.
+                                        answer=Everyone in my life wants me over it. My mum says move on like it's a bus.
+                                        answer=You're the first person who's sat down and asked me to go back into it on purpose.
+
+                                        question "Does that help?" {
+                                            tag=Room_05
+                                            loop_to=shared1
+                                            answer=I don't know yet.
+                                            answer=Ask me in a week.
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    question "Do you think you're a good person?" {
+                        tag=Room_05
+                        answer=No.
+                        answer=I speak about kindess but I've hurt people.
+
+                        question "Who?" {
+                            tag=Room_05
+                            answer=My sister, mostly. My mum.
+                            answer=Not on purpose. That's almost worse. I wasn't cruel, I was just gone for about three years.
+                            answer=You can do a lot of damage by being absent. Nobody counts that as damage.
+
+                            question "Have you told them?" {
+                                tag=Room_05
+                                loop_to=shared1
+                                answer=No.
+                                answer=You'd have to explain where you were, and I don't know where I was.
+                            }
+                        }
+                    }
+
+                    question "That's all I wanted to ask." {
+                        tag=Room_05
+                        answer=Oh.
+                        answer=Right, no, that's — that's fine.
+
+                        question "Are you okay?" {
+                            tag=Room_05
+                            answer=All this has been pretty overwhelming, you know; I don't get out much and i thnk i really needed this, so thank you, i had a really good time.
+
+                            question "..." {
+                                tag=Room_05
+                                ending
+                                ending_text=They said they had a good time. They meant it, entirely, and that is the saddest sentence anyone says in this project.
+                                ending_text=The phone did not light up once in the whole hour.
+                                ending_text=They will get stoned and go to bed, exactly as forecast, and tomorrow will be a Tuesday.
+                                answer=Sorry. That's a weird thing to say about this.
+                                answer=I can come back if you want. I mean — if you need more. For the film.
+                                answer=...
+                                answer=Yeah. Anyway. Night.
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

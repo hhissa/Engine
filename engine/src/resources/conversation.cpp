@@ -112,6 +112,33 @@ void parse_question_body(const std::vector<std::string> &lines, size_t &pos,
       question.loop_target = trim(trimmed.substr(eq + 1));
       continue;
     }
+    // Gating/consequence flags -- see the file format comment's "require --
+    // or forbid -- one or more flags" section. Repeatable, like answer=,
+    // rather than single-assign like tag=/id=/loop_to=.
+    if (eq != std::string::npos && trimmed.compare(0, eq, "requires_not") == 0) {
+      question.requires_not_flags.push_back(trim(trimmed.substr(eq + 1)));
+      continue;
+    }
+    if (eq != std::string::npos && trimmed.compare(0, eq, "requires") == 0) {
+      question.requires_flags.push_back(trim(trimmed.substr(eq + 1)));
+      continue;
+    }
+    if (eq != std::string::npos && trimmed.compare(0, eq, "sets") == 0) {
+      question.sets_flags.push_back(trim(trimmed.substr(eq + 1)));
+      continue;
+    }
+    // A bare marker (no '=', no value) -- see the file format comment's
+    // "marked as an ending" section.
+    if (trimmed == "ending") {
+      question.is_ending = true;
+      continue;
+    }
+    // This ending's own outro text -- see the file format comment's
+    // "marked as an ending" section. Repeatable, like answer=.
+    if (eq != std::string::npos && trimmed.compare(0, eq, "ending_text") == 0) {
+      question.ending_lines.push_back(trim(trimmed.substr(eq + 1)));
+      continue;
+    }
 
     KWARN("'{}': unexpected line at {}: '{}'.", path, line_number, trimmed);
   }
@@ -236,6 +263,11 @@ ConversationQuestion resolve_question(
   resolved.answer_lines = question.answer_lines;
   resolved.tag = question.tag;
   resolved.loop_target = question.loop_target;
+  resolved.requires_flags = question.requires_flags;
+  resolved.requires_not_flags = question.requires_not_flags;
+  resolved.sets_flags = question.sets_flags;
+  resolved.is_ending = question.is_ending;
+  resolved.ending_lines = question.ending_lines;
   if (preserve_shared_id) {
     resolved.shared_id = question.shared_id;
   }

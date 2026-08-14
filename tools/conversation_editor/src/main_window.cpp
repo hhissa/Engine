@@ -7,6 +7,7 @@
 #include <resources/conversation.h>
 
 #include <QAction>
+#include <QCheckBox>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -180,6 +181,92 @@ ConversationEditorWindow::ConversationEditorWindow() {
   answer_button_row->addWidget(remove_answer_button);
   form->addRow("", answer_button_row);
 
+  requires_list_ = new QListWidget();
+  requires_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  requires_list_->setToolTip(
+      "Flag names this question requires ALL of to be set before it's "
+      "even selectable in-game (see `requires=`).");
+  connect(requires_list_, &QListWidget::itemChanged, this,
+         &ConversationEditorWindow::on_requires_flags_changed);
+  form->addRow("Requires:", requires_list_);
+  auto *requires_button_row = new QHBoxLayout();
+  auto *add_requires_button = new QPushButton("Add Flag");
+  auto *remove_requires_button = new QPushButton("Remove Flag");
+  connect(add_requires_button, &QPushButton::clicked, this,
+         &ConversationEditorWindow::on_add_requires_flag_clicked);
+  connect(remove_requires_button, &QPushButton::clicked, this,
+         &ConversationEditorWindow::on_remove_requires_flag_clicked);
+  requires_button_row->addWidget(add_requires_button);
+  requires_button_row->addWidget(remove_requires_button);
+  form->addRow("", requires_button_row);
+
+  requires_not_list_ = new QListWidget();
+  requires_not_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  requires_not_list_->setToolTip(
+      "Flag names this question requires ALL of to be UNset before it's "
+      "even selectable in-game (see `requires_not=`).");
+  connect(requires_not_list_, &QListWidget::itemChanged, this,
+         &ConversationEditorWindow::on_requires_not_flags_changed);
+  form->addRow("Requires Not:", requires_not_list_);
+  auto *requires_not_button_row = new QHBoxLayout();
+  auto *add_requires_not_button = new QPushButton("Add Flag");
+  auto *remove_requires_not_button = new QPushButton("Remove Flag");
+  connect(add_requires_not_button, &QPushButton::clicked, this,
+         &ConversationEditorWindow::on_add_requires_not_flag_clicked);
+  connect(remove_requires_not_button, &QPushButton::clicked, this,
+         &ConversationEditorWindow::on_remove_requires_not_flag_clicked);
+  requires_not_button_row->addWidget(add_requires_not_button);
+  requires_not_button_row->addWidget(remove_requires_not_button);
+  form->addRow("", requires_not_button_row);
+
+  sets_list_ = new QListWidget();
+  sets_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  sets_list_->setToolTip(
+      "Flag names set the instant this question is asked in-game (see "
+      "`sets=`).");
+  connect(sets_list_, &QListWidget::itemChanged, this,
+         &ConversationEditorWindow::on_sets_flags_changed);
+  form->addRow("Sets:", sets_list_);
+  auto *sets_button_row = new QHBoxLayout();
+  auto *add_sets_button = new QPushButton("Add Flag");
+  auto *remove_sets_button = new QPushButton("Remove Flag");
+  connect(add_sets_button, &QPushButton::clicked, this,
+         &ConversationEditorWindow::on_add_sets_flag_clicked);
+  connect(remove_sets_button, &QPushButton::clicked, this,
+         &ConversationEditorWindow::on_remove_sets_flag_clicked);
+  sets_button_row->addWidget(add_sets_button);
+  sets_button_row->addWidget(remove_sets_button);
+  form->addRow("", sets_button_row);
+
+  ending_checkbox_ = new QCheckBox();
+  ending_checkbox_->setToolTip(
+      "Marks this question as a story ending (see the bare `ending` "
+      "line) -- reaching it stops dialogue navigation instead of "
+      "continuing to browse follow-ups.");
+  connect(ending_checkbox_, &QCheckBox::checkStateChanged, this,
+         &ConversationEditorWindow::on_ending_changed);
+  form->addRow("Ending:", ending_checkbox_);
+
+  ending_lines_list_ = new QListWidget();
+  ending_lines_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  ending_lines_list_->setToolTip(
+      "This ending's own outro text (see `ending_text=`), shown one line "
+      "at a time once dialogue reaches it -- only meaningful when "
+      "Ending is checked above.");
+  connect(ending_lines_list_, &QListWidget::itemChanged, this,
+         &ConversationEditorWindow::on_ending_lines_changed);
+  form->addRow("Ending Text:", ending_lines_list_);
+  auto *ending_lines_button_row = new QHBoxLayout();
+  auto *add_ending_line_button = new QPushButton("Add Line");
+  auto *remove_ending_line_button = new QPushButton("Remove Line");
+  connect(add_ending_line_button, &QPushButton::clicked, this,
+         &ConversationEditorWindow::on_add_ending_line_clicked);
+  connect(remove_ending_line_button, &QPushButton::clicked, this,
+         &ConversationEditorWindow::on_remove_ending_line_clicked);
+  ending_lines_button_row->addWidget(add_ending_line_button);
+  ending_lines_button_row->addWidget(remove_ending_line_button);
+  form->addRow("", ending_lines_button_row);
+
   side_panel->addWidget(form_group);
   auto *hint_label = new QLabel(
       "Hover a node to reveal its 4 side handles, then drag one to "
@@ -300,11 +387,37 @@ void ConversationEditorWindow::populate_fields_from_selection(QuestionNode *node
       auto *item = new QListWidgetItem(line, answers_list_);
       item->setFlags(item->flags() | Qt::ItemIsEditable);
     }
+    requires_list_->clear();
+    for (const QString &flag : node->requires_flags()) {
+      auto *item = new QListWidgetItem(flag, requires_list_);
+      item->setFlags(item->flags() | Qt::ItemIsEditable);
+    }
+    requires_not_list_->clear();
+    for (const QString &flag : node->requires_not_flags()) {
+      auto *item = new QListWidgetItem(flag, requires_not_list_);
+      item->setFlags(item->flags() | Qt::ItemIsEditable);
+    }
+    sets_list_->clear();
+    for (const QString &flag : node->sets_flags()) {
+      auto *item = new QListWidgetItem(flag, sets_list_);
+      item->setFlags(item->flags() | Qt::ItemIsEditable);
+    }
+    ending_checkbox_->setChecked(node->is_ending());
+    ending_lines_list_->clear();
+    for (const QString &line : node->ending_lines()) {
+      auto *item = new QListWidgetItem(line, ending_lines_list_);
+      item->setFlags(item->flags() | Qt::ItemIsEditable);
+    }
     set_fields_enabled(true);
   } else {
     question_edit_->clear();
     tag_edit_->clear();
     answers_list_->clear();
+    requires_list_->clear();
+    requires_not_list_->clear();
+    sets_list_->clear();
+    ending_checkbox_->setChecked(false);
+    ending_lines_list_->clear();
     set_fields_enabled(false);
   }
 
@@ -315,6 +428,11 @@ void ConversationEditorWindow::set_fields_enabled(bool enabled) {
   question_edit_->setEnabled(enabled);
   tag_edit_->setEnabled(enabled);
   answers_list_->setEnabled(enabled);
+  requires_list_->setEnabled(enabled);
+  requires_not_list_->setEnabled(enabled);
+  sets_list_->setEnabled(enabled);
+  ending_checkbox_->setEnabled(enabled);
+  ending_lines_list_->setEnabled(enabled);
 }
 
 void ConversationEditorWindow::on_question_text_changed() {
@@ -365,4 +483,154 @@ void ConversationEditorWindow::on_remove_answer_line_clicked() {
   }
   delete answers_list_->takeItem(answers_list_->row(item));
   on_answer_lines_changed();
+}
+
+namespace {
+// Rebuilds a QStringList from every row of list -- shared by the three
+// flag-list on_X_changed() slots below, mirroring
+// on_answer_lines_changed()'s own single-list version.
+QStringList flags_from_list(QListWidget *list) {
+  QStringList flags;
+  for (int i = 0; i < list->count(); ++i) {
+    flags << list->item(i)->text();
+  }
+  return flags;
+}
+} // namespace
+
+void ConversationEditorWindow::on_requires_flags_changed() {
+  if (populating_fields_ || !selected_node_) {
+    return;
+  }
+  selected_node_->set_requires_flags(flags_from_list(requires_list_));
+}
+
+void ConversationEditorWindow::on_add_requires_flag_clicked() {
+  if (!selected_node_) {
+    return;
+  }
+  bool ok = false;
+  QString text = QInputDialog::getText(this, "Add Required Flag", "Flag name:",
+                                       QLineEdit::Normal, QString(), &ok);
+  if (!ok) {
+    return;
+  }
+  auto *item = new QListWidgetItem(text, requires_list_);
+  item->setFlags(item->flags() | Qt::ItemIsEditable);
+  on_requires_flags_changed(); // itemChanged doesn't fire for a freshly
+                               // inserted item, only edits to an existing one
+}
+
+void ConversationEditorWindow::on_remove_requires_flag_clicked() {
+  QListWidgetItem *item = requires_list_->currentItem();
+  if (!item) {
+    return;
+  }
+  delete requires_list_->takeItem(requires_list_->row(item));
+  on_requires_flags_changed();
+}
+
+void ConversationEditorWindow::on_requires_not_flags_changed() {
+  if (populating_fields_ || !selected_node_) {
+    return;
+  }
+  selected_node_->set_requires_not_flags(flags_from_list(requires_not_list_));
+}
+
+void ConversationEditorWindow::on_add_requires_not_flag_clicked() {
+  if (!selected_node_) {
+    return;
+  }
+  bool ok = false;
+  QString text = QInputDialog::getText(this, "Add Forbidden Flag", "Flag name:",
+                                       QLineEdit::Normal, QString(), &ok);
+  if (!ok) {
+    return;
+  }
+  auto *item = new QListWidgetItem(text, requires_not_list_);
+  item->setFlags(item->flags() | Qt::ItemIsEditable);
+  on_requires_not_flags_changed();
+}
+
+void ConversationEditorWindow::on_remove_requires_not_flag_clicked() {
+  QListWidgetItem *item = requires_not_list_->currentItem();
+  if (!item) {
+    return;
+  }
+  delete requires_not_list_->takeItem(requires_not_list_->row(item));
+  on_requires_not_flags_changed();
+}
+
+void ConversationEditorWindow::on_sets_flags_changed() {
+  if (populating_fields_ || !selected_node_) {
+    return;
+  }
+  selected_node_->set_sets_flags(flags_from_list(sets_list_));
+}
+
+void ConversationEditorWindow::on_add_sets_flag_clicked() {
+  if (!selected_node_) {
+    return;
+  }
+  bool ok = false;
+  QString text = QInputDialog::getText(this, "Add Set Flag", "Flag name:",
+                                       QLineEdit::Normal, QString(), &ok);
+  if (!ok) {
+    return;
+  }
+  auto *item = new QListWidgetItem(text, sets_list_);
+  item->setFlags(item->flags() | Qt::ItemIsEditable);
+  on_sets_flags_changed();
+}
+
+void ConversationEditorWindow::on_remove_sets_flag_clicked() {
+  QListWidgetItem *item = sets_list_->currentItem();
+  if (!item) {
+    return;
+  }
+  delete sets_list_->takeItem(sets_list_->row(item));
+  on_sets_flags_changed();
+}
+
+void ConversationEditorWindow::on_ending_changed() {
+  if (populating_fields_ || !selected_node_) {
+    return;
+  }
+  selected_node_->set_is_ending(ending_checkbox_->isChecked());
+}
+
+void ConversationEditorWindow::on_ending_lines_changed() {
+  if (populating_fields_ || !selected_node_) {
+    return;
+  }
+  QStringList lines;
+  for (int i = 0; i < ending_lines_list_->count(); ++i) {
+    lines << ending_lines_list_->item(i)->text();
+  }
+  selected_node_->set_ending_lines(lines);
+}
+
+void ConversationEditorWindow::on_add_ending_line_clicked() {
+  if (!selected_node_) {
+    return;
+  }
+  bool ok = false;
+  QString text = QInputDialog::getText(this, "Add Ending Line", "Line text:",
+                                       QLineEdit::Normal, QString(), &ok);
+  if (!ok) {
+    return;
+  }
+  auto *item = new QListWidgetItem(text, ending_lines_list_);
+  item->setFlags(item->flags() | Qt::ItemIsEditable);
+  on_ending_lines_changed(); // itemChanged doesn't fire for a freshly
+                            // inserted item, only edits to an existing one
+}
+
+void ConversationEditorWindow::on_remove_ending_line_clicked() {
+  QListWidgetItem *item = ending_lines_list_->currentItem();
+  if (!item) {
+    return;
+  }
+  delete ending_lines_list_->takeItem(ending_lines_list_->row(item));
+  on_ending_lines_changed();
 }

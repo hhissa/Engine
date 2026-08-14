@@ -1,0 +1,215 @@
+#conversation file
+version=0.1
+
+question "Is the smoke a problem for the mic?" {
+    tag=Room_01
+    answer=You tell me. You're the one with the equipment.
+    answer=I can open the window. I won't, but I can.
+
+    question "Leave it." {
+        tag=Room_01
+        answer=Good.
+        answer=Right. What do you want.
+
+        question "Say your name for the tape." {
+            tag=Room_01
+            answer=Theo.
+            answer=Do you want the rest of it? The list?
+
+            question "Go on." {
+                tag=Room_01
+                answer=Twenty-six. Bipolar. Live with my mum and dad in the room I grew up in.
+                answer=I smoke and I read and that's most of it.
+                answer=I have to admit, I have not done my best. My current situation is a direct result of my incompetence.
+
+                question "That's a hard thing to say about yourself." {
+                    tag=Room_01
+                    answer=It's not hard, it's just true.
+                    answer=People get funny when you say it. They want to argue.
+                    answer=I'd rather have it said and out of the way than spend an hour being talked out of it.
+
+                    question "Alright. Questions." {
+                        id=shared1
+                        tag=Room_01
+                        answer=Go on then.
+
+                        question "What do you do all day?" {
+                            tag=Room_01
+                            answer=Read. Smoke. Sometimes both.
+                            answer=I get up about two. My mum leaves food outside the door if I've had a bad week.
+
+                            question "Does that bother you?" {
+                                tag=Room_01
+                                answer=Should it?
+                                answer=...
+                                answer=Yeah. It bothers me.
+                                answer=I never really did develop into a real person.
+
+                                question "What does a real person look like?" {
+                                    tag=Room_02
+                                    answer=Somebody who does things.
+                                    answer=I don't mean big things. Somebody who gets a haircut on purpose.
+                                    answer=I've been the same for eight years and I keep expecting it to change on its own.
+
+                                    question "Can it?" {
+                                        tag=Room_02
+                                        loop_to=shared1
+                                        answer=I just wonder, can people really change. What does it take to change.
+                                        answer=Nobody's ever given me a straight answer on that.
+                                    }
+                                }
+                            }
+
+                            question "What are you reading?" {
+                                tag=Room_01
+                                loop_to=shared1
+                                answer=Three at once. I never finish any of them.
+                                answer=I like the first eighty pages of everything.
+                                answer=After that you have to commit and I'm not built for it.
+                            }
+                        }
+
+                        question "The long sleeves." {
+                            tag=Room_02
+                            answer=...
+                            answer=Yeah.
+
+                            question "Is that for me or for you?" {
+                                tag=Room_02
+                                answer=For my mum, mostly.
+                                answer=She's seen. She's seen them all. But there's a difference between knowing and having it in the room with you at dinner.
+
+                                question "Wrists?" {
+                                    tag=Room_02
+                                    answer=Wrists.
+                                    answer=You've done your homework or you've done this before.
+
+                                    question "Why there?" {
+                                        tag=Room_02
+                                        loop_to=shared1
+                                        answer=Because it means something. Everyone knows what it means.
+                                        answer=That's the honest answer and it makes me sound worse than I am.
+                                        answer=You want the pain to be legible. You want someone to read it right first time.
+                                    }
+                                }
+                            }
+                        }
+
+                        question "Tell me about the drinking and the weed." {
+                            tag=Room_03
+                            answer=Every day. Both. Has been for years.
+                            answer=I'd say I've got it under control but you'd write that down and it'd look stupid on the page.
+
+                            question "What does it do for you?" {
+                                tag=Room_03
+                                answer="Once you have tasted flight, you will walk this earth forever with your eyes turned skyward, and you will always long to return."
+
+                                question "That's not yours." {
+                                    tag=Room_03
+                                    answer=No. But it's the truest thing anyone ever wrote about getting high and nobody wrote it about getting high.
+                                    answer=That's the trick of it. You get about four good months at the start.
+                                    answer=You spend the next eight years trying to get back to a place that isn't there any more.
+
+                                    question "So why keep going?" {
+                                        tag=Room_03
+                                        loop_to=shared1
+                                        answer=Because the alternative is this room with nothing in it.
+                                        answer=I'd have done better in a wilder world.
+                                        answer=I was built for something that doesn't exist. Somewhere you could just go and be useful and dangerous and tired.
+                                    }
+                                }
+                            }
+                        }
+
+                        question "What's a bad night like?" {
+                            tag=Room_03
+                            answer=Long.
+                            answer=I don't sleep on the up ones. Three, four days sometimes.
+                            answer=That's when it happens, mostly. Not when I'm low. Everyone gets that wrong.
+
+                            question "Why then?" {
+                                tag=Room_03
+                                loop_to=shared1
+                                answer=Because low, you can't be bothered. Low, you just lie there.
+                                answer=Up, you've got ideas and energy and no brakes.
+                                answer=You get very sure of things at four in the morning.
+                            }
+                        }
+
+                        question "Have you ever wanted to die?" {
+                            tag=Room_04
+                            answer=...
+                            answer=I have this dream. I killed myself and went to heaven. Heaven is nice and all; it's really good in heaven. But I regret it because I wanted to live longer on earth.
+
+                            question "How often do you have it?" {
+                                tag=Room_04
+                                answer=Every few months.
+                                answer=It's always the same. Heaven's fine. That's what gets me. Heaven's completely fine.
+                                answer=And I'm stood there thinking, I've made a mistake, and there's nobody to tell.
+
+                                question "What do you take from that?" {
+                                    tag=Room_04
+                                    answer=That I want to be here.
+                                    answer=Which is a nice thing to find out in your sleep and no use at all at two in the afternoon.
+
+                                    question "It's some use." {
+                                        tag=Room_04
+                                        loop_to=shared1
+                                        answer=...
+                                        answer=Maybe.
+                                        answer=I'll take it. Put it on the pile.
+                                    }
+                                }
+                            }
+                        }
+
+                        question "Do you think about the future?" {
+                            tag=Room_04
+                            answer=Not really. Not properly.
+                            answer=I do a thing though. I catch myself doing it.
+
+                            question "What thing?" {
+                                tag=Room_04
+                                answer=I'm not experiencing anything special but in 6 months time, ill be nostalgic for this time for some reason.
+                                answer=Sat here. Curtains shut. Nothing happening.
+                                answer=And I know that in half a year I'll want it back.
+
+                                question "Why?" {
+                                    tag=Room_05
+                                    loop_to=shared1
+                                    answer=Because it'll be over and things that are over get a nice light on them.
+                                    answer=I've been nostalgic for every bad year I've had.
+                                    answer=I don't know what that says. Nothing good.
+                                }
+                            }
+                        }
+
+                        question "That's all I wanted to ask." {
+                            tag=Room_05
+                            answer=Right.
+                            answer=...
+                            answer=Can I say one thing? It's not for the film.
+
+                            question "Go on." {
+                                tag=Room_05
+                                answer=I know how this looks. Grown man, parents' house, sleeves down, three books he'll never finish.
+                                answer=I'm aware. I'm the most aware person you'll meet all year. That's the problem with me.
+                                answer=Awareness doesn't do anything. It just means you get to watch.
+
+                                question "..." {
+                                    tag=Room_05
+                                    ending
+                                    ending_text=The window was shut the entire time.
+                                    ending_text=In six months he will think about this afternoon and want it back, and he already knows he will, and that changes nothing at all.
+                                    ending_text=He walks you down. He says see you then, and he means it, and he doesn't know when.
+                                    answer=Anyway.
+                                    answer=Shut the door on your way, my dad's asleep.
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

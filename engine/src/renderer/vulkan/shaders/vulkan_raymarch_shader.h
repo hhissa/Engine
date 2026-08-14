@@ -293,7 +293,13 @@ private:
   // bake_probes()'s reads -- previously implicit (a separate command
   // buffer's own submit+vkQueueWaitIdle), now explicit since both share
   // one command buffer with no queue idle between them.
-  void voxelize(VulkanCommandBuffer &cmd, u32 layer_count);
+  //
+  // max_smoothness is the largest LayerOperation smoothness across every
+  // currently-registered layer -- forwarded to the shader as a push
+  // constant, where it widens scene_map()'s per-voxel cull_radius (see
+  // Builtin.RaymarchVoxelize.comp.glsl's own comment) so a smooth blend
+  // can't be truncated by a primitive the cull pre-check wrongly dropped.
+  void voxelize(VulkanCommandBuffer &cmd, u32 layer_count, f32 max_smoothness);
 
   // Reads back brick_counter_buffer_ (see voxelize()) and warns if the
   // brick pool overflowed. Split out from voxelize() itself because the

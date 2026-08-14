@@ -1,0 +1,178 @@
+#conversation file
+version=0.1
+
+question "Thanks for doing this on your lunch." {
+    tag=Room_01
+    answer=It's fine. I don't eat it anyway.
+
+    question "Say your name for me." {
+        tag=Room_01
+        answer=Diego. Thirty-three.
+        answer=Operations. I've been here nine years.
+
+        question "What does operations mean?" {
+            tag=Room_01
+            answer=Do you actually want to know?
+            answer=...
+            answer=No, I like that. Nobody asks that either.
+            answer=I check that things other people did were done. That's it. That's the job.
+
+            question "Alright. Questions." {
+                id=shared1
+                tag=Room_01
+                answer=Go on.
+
+                question "How long have you been unwell?" {
+                    tag=Room_01
+                    answer=Depends what you count.
+                    answer=Diagnosed at twenty-two. But I'd say sixteen, if we're being honest, and nobody ever is.
+
+                    question "What have you tried?" {
+                        tag=Room_02
+                        answer=Everything. Genuinely everything, and I know everyone says that.
+                        answer=Eleven medications. Four therapists. A day programme.
+                        answer=Then ECT. Two courses.
+
+                        question "Did it work?" {
+                            tag=Room_02
+                            answer=A bit. For a while.
+                            answer=They tell you about the memory thing beforehand. You nod. You don't understand it until there's a gap where a summer was.
+
+                            question "What did you lose?" {
+                                tag=Room_02
+                                answer=Two thousand and nineteen, mostly.
+                                answer=My sister got married that year. I've seen the photos. I'm in them, I look fine, I'm holding a drink.
+                                answer=I've got nothing. Not a second of it.
+
+                                question "Was it worth it?" {
+                                    tag=Room_02
+                                    loop_to=shared1
+                                    answer=That's the question I've been doing sums on for four years.
+                                    answer=I traded a wedding for about eight good months.
+                                    answer=And I'd probably do it again, which tells you what the eight months were worth to me.
+                                }
+                            }
+                        }
+                    }
+                }
+
+                question "What's a normal day?" {
+                    tag=Room_03
+                    answer=Up at six forty. Train. Here by eight.
+                    answer=Emails, the standup, the two o'clock. Train back.
+                    answer=Something out of the freezer. Telly I'm not watching. Bed.
+
+                    question "That sounds like most people's." {
+                        tag=Room_03
+                        answer=It is most people's. That's what I keep saying to the doctor.
+                        answer=I'm not in a ditch. I turn up. Nine years, never had a sick day for this.
+                        answer=Everything feels like nothing.
+
+                        question "Explain that one." {
+                            tag=Room_03
+                            answer=Its like nothing fills me up anymore.
+                            answer=Food, holidays, the good news when it comes. All of it goes in and there's no — it doesn't land.
+                            answer=The world doesn't feel real anymore.
+
+                            question "Since when?" {
+                                tag=Room_03
+                                loop_to=shared1
+                                answer=I can't date it. That's the bit that frightens me when I let it.
+                                answer=There's no before I can point at. I have never really been able to figure out where my life begins and where it ends… what its all about.
+                            }
+                        }
+                    }
+                }
+
+                question "Do you think about dying?" {
+                    tag=Room_04
+                    answer=every night, just before bed I have the same exact thought. Please let me stay asleep. I never want to wake up again.
+
+                    question "Every night?" {
+                        tag=Room_04
+                        answer=Every night for about six years.
+                        answer=It's not dramatic. It's like checking you've locked the door.
+                        answer=And then the alarm goes and I get up and I get the train.
+
+                        question "Have you told anyone that?" {
+                            tag=Room_04
+                            answer=I've told the doctor. She wrote it down.
+                            answer=They ask you a slightly different question. They ask about plans, about intent. And I say no, honestly no, and that's true.
+                            answer=So it goes in the low-risk pile and I get another appointment in eleven weeks.
+
+                            question "Is low-risk right?" {
+                                tag=Room_04
+                                answer=Probably.
+                                answer=I cant help but think if i did it, i wouldnt have to go into the office tomorrow.
+
+                                question "That's a horrible way to think about it." {
+                                    tag=Room_04
+                                    loop_to=shared1
+                                    answer=Is it?
+                                    answer=Whats the point in carrying on like this. i know what it is. where its going.
+                                    answer=I'm not being morbid. I'm being accurate. I can see the next thirty years from here and there's nothing in them.
+                                }
+                            }
+                        }
+                    }
+                }
+
+                question "What would you change?" {
+                    tag=Room_05
+                    answer=I just want to go back and do it all differently.
+
+                    question "Differently how?" {
+                        tag=Room_05
+                        answer=I don't know. That's the stupid part.
+                        answer=I say it like there's a specific junction I'd take, and there isn't. There's no one thing I'd undo.
+                        answer=I'd just like to have been somebody else the whole way through.
+
+                        question "Is there anything you'd keep?" {
+                            tag=Room_05
+                            answer=...
+                            answer=My sister.
+                            answer=We're not close. She rings on Sundays and I'm on the phone about nine minutes.
+                            answer=But she rings. Nine years, every Sunday, and I've never once rung her first.
+
+                            question "You could ring her first." {
+                                tag=Room_05
+                                loop_to=shared1
+                                answer=I know.
+                                answer=I've known that for nine years.
+                            }
+                        }
+                    }
+                }
+
+                question "That's all I wanted to ask." {
+                    tag=Room_05
+                    answer=Right.
+                    answer=Is that useful? For what you're doing?
+
+                    question "It is." {
+                        tag=Room_05
+                        answer=Only I've not really given you anything, have I.
+
+                        question "That's the story." {
+                            tag=Room_05
+                            answer=...
+                            answer=Hm.
+                            answer=I have nothing left to say.
+
+                            question "..." {
+                                tag=Room_05
+                                ending
+                                ending_text=The two o'clock is in eleven minutes. He will be on time for it. He has been on time for nine years.
+                                ending_text=Tonight he will lie down and think the same thought he has thought every night for six years, and then the alarm will go at six forty.
+                                ending_text=His sister will ring on Sunday. He will be on the phone about nine minutes.
+                                answer=Sorry. That came out worse than I meant it.
+                                answer=I meant it's your turn. I've run out.
+                                answer=...
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

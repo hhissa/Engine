@@ -251,7 +251,15 @@ void SceneViewport::mousePressEvent(QMouseEvent *event) {
   }
   if (event->button() == Qt::LeftButton) {
     QPointF pos = event->position();
-    GizmoAxis axis = hit_test_gizmo(pos);
+    // Ctrl held always means "additive-select," never "drag the gizmo" --
+    // skip the hit-test entirely so a ctrl-click on/near the gizmo (common
+    // once something's selected: the gizmo sits right where you're likely
+    // to be ctrl-clicking a neighbouring/overlapping primitive from another
+    // layer) still reaches mouseReleaseEvent's pick_at() instead of being
+    // swallowed as a drag start.
+    GizmoAxis axis = event->modifiers().testFlag(Qt::ControlModifier)
+                         ? GizmoAxis::None
+                         : hit_test_gizmo(pos);
     if (axis != GizmoAxis::None) {
       begin_gizmo_drag(axis, pos);
     }

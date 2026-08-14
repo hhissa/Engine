@@ -270,9 +270,36 @@ inline glm::vec4 resolve_params(const SdfPrimitiveDef &primitive,
 // resolve_params()+sdf::evaluate() call.
 inline f32 evaluate_repeated(const SdfPrimitiveDef &primitive,
                              const CompiledParamExprs &compiled, glm::vec3 local) {
+  // Domain deformation -- mirrors evaluate_primitive_at() in
+  // Builtin.SdfSceneCommon.inc.glsl exactly (same twist-then-bend order,
+  // same "displacement uses the pre-warp point" rule), so gizmo-picking a
+  // deformed primitive lands on the same warped surface the GPU renders,
+  // not its undeformed shape.
   auto eval_at = [&](glm::vec3 r) {
+    // Parametric-attribute formulas (resolve_params()) are resolved at the
+    // *pre*-warp point r, same as GLSL -- only the shape function itself
+    // (sdf::evaluate() below) sees the twisted/bent point q.
     glm::vec4 params = resolve_params(primitive, compiled, r);
-    return sdf::evaluate(primitive.type, params, r);
+
+    glm::vec3 q = r;
+    if (primitive.twist != 0.0f) {
+      f32 c = std::cos(primitive.twist * q.y);
+      f32 s = std::sin(primitive.twist * q.y);
+      q = glm::vec3(c * q.x + s * q.z, q.y, -s * q.x + c * q.z);
+    }
+    if (primitive.bend != 0.0f) {
+      f32 c = std::cos(primitive.bend * q.x);
+      f32 s = std::sin(primitive.bend * q.x);
+      q = glm::vec3(c * q.x + s * q.y, -s * q.x + c * q.y, q.z);
+    }
+    f32 d = sdf::evaluate(primitive.type, params, q);
+    if (primitive.displace_amplitude != 0.0f) {
+      d += primitive.displace_amplitude *
+          std::sin(primitive.displace_frequency * r.x) *
+          std::sin(primitive.displace_frequency * r.y) *
+          std::sin(primitive.displace_frequency * r.z);
+    }
+    return d;
   };
 
   switch (primitive.repetition_mode) {

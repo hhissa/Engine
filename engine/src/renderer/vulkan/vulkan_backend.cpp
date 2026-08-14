@@ -631,6 +631,17 @@ void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
     geometry->position *= factor;
     geometry->params *= factor;
     geometry->extra_param *= factor;
+    // twist/bend/displace_frequency are rates (radians, or a sin()
+    // argument multiplier, per world-unit) -- dividing by factor keeps the
+    // same *visual* twist/bend/ripple density as the primitive grows or
+    // shrinks, exactly like param_expr_scale below does for a
+    // parametric-attribute formula's own per-world-unit rate.
+    // displace_amplitude is a length (an added distance), so it scales up
+    // like params/extra_param above instead.
+    geometry->twist /= factor;
+    geometry->bend /= factor;
+    geometry->displace_amplitude *= factor;
+    geometry->displace_frequency /= factor;
     // Slots driven by a param_expression formula ignore the plain constant
     // scaled above -- their scale accumulates here instead, applied GPU-side
     // as s*f(p/s) (see Geometry::param_expr_scale). Without this, scaling a

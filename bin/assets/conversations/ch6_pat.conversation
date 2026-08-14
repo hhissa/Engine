@@ -1,0 +1,176 @@
+#conversation file
+version=0.1
+
+question "Say your name for the tape." {
+    tag=Room_01
+    answer=Pat. Thirty-two.
+    answer=I know what you've been told about me, so we can skip that part if you like.
+
+    question "Tell me what you think I've been told." {
+        tag=Room_01
+        answer=The thing I did.
+        answer=That's how I get introduced. That's the whole of me in one line and I've stopped fighting it.
+
+        question "It isn't the whole of you." {
+            tag=Room_01
+            answer=No. But it's the bit that travels.
+
+            question "Alright. Questions." {
+                id=shared1
+                tag=Room_01
+                answer=Go on.
+
+                question "What did you do?" {
+                    tag=Room_02
+                    answer=I castrated myself. Six years ago. I was twenty-six.
+                    answer=That's it. That's the sentence. I'm not doing more than that.
+
+                    question "Why not?" {
+                        tag=Room_02
+                        answer=I choose not to explain myself to anyone.
+                        answer=I've explained it to four psychiatrists, a tribunal and my mother. It didn't help any of us.
+                        answer=You can have the fact. The reasons were mine and they've gone anyway.
+
+                        question "Gone how?" {
+                            tag=Room_02
+                            answer=I was sure. I've never been so sure.
+                            answer=Now there's no sense in it at all. I've read the notes. They read like somebody else.
+                            answer=All sins are attempts to fill voids.
+
+                            question "Is that what it was?" {
+                                tag=Room_02
+                                loop_to=shared1
+                                answer=I think everything I've ever done has been that.
+                                answer=Something was wrong-shaped in me and I kept trying to pack it.
+                                answer=I must kill the fear of being seen. That was the whole of it, back then. That was the entire argument.
+                            }
+                        }
+                    }
+                }
+
+                question "Tell me about the fear of being seen." {
+                    tag=Room_02
+                    answer=You'd have to have had it.
+                    answer=It isn't shyness. Shyness is being worried about what people think.
+                    answer=This is being certain there's something visible on you and everyone is choosing not to mention it.
+
+                    question "Is it still there?" {
+                        tag=Room_03
+                        loop_to=shared1
+                        answer=Quieter.
+                        answer=I just want to disappear somewhere beautiful.
+                        answer=That's what it's turned into. Not hiding. Just — going somewhere with a view and not being in anyone's eyeline.
+                    }
+                }
+
+                question "Tell me about Kit." {
+                    tag=Room_03
+                    answer=Kit.
+                    answer=Ward three. She was in the bed by the door and I was by the window and neither of us spoke for eleven days.
+
+                    question "What changed?" {
+                        tag=Room_03
+                        answer=She asked me if I wanted half a Twix.
+                        answer=That's it. That's the founding of the whole thing.
+                        answer=Eleven days of nothing and then half a Twix and we've been in each other's lives four years.
+
+                        question "What's she like?" {
+                            tag=Room_03
+                            answer=Funnier than me. Meaner than me, in a good way.
+                            answer=She's the only person who's never once looked at me carefully.
+                            answer=Everyone else does the look. Even my mum does the look. Kit just talks to me like I'm a bloke in a chair.
+
+                            question "Do you see anyone else?" {
+                                tag=Room_03
+                                answer=No.
+                                answer=That's not sad, before you write it down as sad. I've got one and she's good.
+                                answer=Most people have got forty and none of them would drive over.
+
+                                question "Would she drive over?" {
+                                    tag=Room_04
+                                    loop_to=shared1
+                                    answer=She has. Twice.
+                                    answer=Once at half two in the morning from thirty miles.
+                                    answer=She never mentioned it after. Not once. That's the thing about her.
+                                }
+                            }
+                        }
+                    }
+                }
+
+                question "You've tried again. Since." {
+                    tag=Room_04
+                    answer=...
+                    answer=Yeah.
+
+                    question "Tell me about it?" {
+                        tag=Room_04
+                        answer=No.
+                        answer=Two years ago. Nothing worked… I'm still here by no means proud of my inability to die.
+
+                        question "Why aren't you proud?" {
+                            tag=Room_04
+                            answer=Because of what I'd already done to get out of it.
+                            answer=I gave up something enormous. I paid the largest thing I had.
+                            answer=And then two years ago I was back at it anyway, so what was any of it for.
+
+                            question "That's not how it works." {
+                                tag=Room_04
+                                answer=I know how it works. I've had it explained by professionals.
+                                answer=It doesn't touch the feeling. The feeling is that I paid and I didn't get the thing.
+                                answer=I accept it but ill probably never be okay with it.
+
+                                question "What's the difference?" {
+                                    tag=Room_05
+                                    loop_to=shared1
+                                    answer=Accepting is you stop arguing with it.
+                                    answer=Okay is you stop minding.
+                                    answer=I've done the first one. Six years. The second one's not coming and I've stopped waiting for the post.
+                                }
+                            }
+                        }
+                    }
+                }
+
+                question "What do you want now?" {
+                    tag=Room_05
+                    answer=...
+                    answer=More than anything I want to… I want to live but i don't know how.
+
+                    question "What's the part you don't know?" {
+                        tag=Room_05
+                        answer=All of it. The ordinary bits.
+                        answer=How you get a job when there's six years missing. How you meet anyone. How you have a conversation where it doesn't come up.
+                        answer=I'm thirty-two and I don't know how to do a Tuesday.
+
+                        question "You're doing this." {
+                            tag=Room_05
+                            answer=This is easy. You asked me questions and I answered them.
+                            answer=Nobody has to do anything after.
+
+                            question "Kit does." {
+                                tag=Room_05
+                                loop_to=shared1
+                                answer=...
+                                answer=Yeah.
+                                answer=Yeah, alright. Kit does.
+                            }
+                        }
+                    }
+                }
+
+                question "That's all I wanted to ask." {
+                    tag=Room_05
+                    answer=Right.
+                    answer=Was that alright? I've not done one before.
+
+                    question "It was." {
+                        tag=Room_05
+                        answer=Only I've been thinking the whole time — you're going to put me last, aren't you.
+                        answer=Because of the thing. You put the worst one last.
+                    }
+                }
+            }
+        }
+    }
+}

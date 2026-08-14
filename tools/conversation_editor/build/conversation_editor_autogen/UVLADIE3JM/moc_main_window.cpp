@@ -109,7 +109,20 @@ template <> constexpr inline auto ConversationEditorWindow::qt_create_metaobject
         "on_answer_lines_changed",
         "on_add_answer_line_clicked",
         "on_remove_answer_line_clicked",
-        "on_tag_changed"
+        "on_tag_changed",
+        "on_requires_flags_changed",
+        "on_add_requires_flag_clicked",
+        "on_remove_requires_flag_clicked",
+        "on_requires_not_flags_changed",
+        "on_add_requires_not_flag_clicked",
+        "on_remove_requires_not_flag_clicked",
+        "on_sets_flags_changed",
+        "on_add_sets_flag_clicked",
+        "on_remove_sets_flag_clicked",
+        "on_ending_changed",
+        "on_ending_lines_changed",
+        "on_add_ending_line_clicked",
+        "on_remove_ending_line_clicked"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -137,6 +150,32 @@ template <> constexpr inline auto ConversationEditorWindow::qt_create_metaobject
         QtMocHelpers::SlotData<void()>(13, 2, QMC::AccessPrivate, QMetaType::Void),
         // Slot 'on_tag_changed'
         QtMocHelpers::SlotData<void()>(14, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_requires_flags_changed'
+        QtMocHelpers::SlotData<void()>(15, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_add_requires_flag_clicked'
+        QtMocHelpers::SlotData<void()>(16, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_remove_requires_flag_clicked'
+        QtMocHelpers::SlotData<void()>(17, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_requires_not_flags_changed'
+        QtMocHelpers::SlotData<void()>(18, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_add_requires_not_flag_clicked'
+        QtMocHelpers::SlotData<void()>(19, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_remove_requires_not_flag_clicked'
+        QtMocHelpers::SlotData<void()>(20, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_sets_flags_changed'
+        QtMocHelpers::SlotData<void()>(21, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_add_sets_flag_clicked'
+        QtMocHelpers::SlotData<void()>(22, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_remove_sets_flag_clicked'
+        QtMocHelpers::SlotData<void()>(23, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_ending_changed'
+        QtMocHelpers::SlotData<void()>(24, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_ending_lines_changed'
+        QtMocHelpers::SlotData<void()>(25, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_add_ending_line_clicked'
+        QtMocHelpers::SlotData<void()>(26, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_remove_ending_line_clicked'
+        QtMocHelpers::SlotData<void()>(27, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -171,6 +210,19 @@ void ConversationEditorWindow::qt_static_metacall(QObject *_o, QMetaObject::Call
         case 8: _t->on_add_answer_line_clicked(); break;
         case 9: _t->on_remove_answer_line_clicked(); break;
         case 10: _t->on_tag_changed(); break;
+        case 11: _t->on_requires_flags_changed(); break;
+        case 12: _t->on_add_requires_flag_clicked(); break;
+        case 13: _t->on_remove_requires_flag_clicked(); break;
+        case 14: _t->on_requires_not_flags_changed(); break;
+        case 15: _t->on_add_requires_not_flag_clicked(); break;
+        case 16: _t->on_remove_requires_not_flag_clicked(); break;
+        case 17: _t->on_sets_flags_changed(); break;
+        case 18: _t->on_add_sets_flag_clicked(); break;
+        case 19: _t->on_remove_sets_flag_clicked(); break;
+        case 20: _t->on_ending_changed(); break;
+        case 21: _t->on_ending_lines_changed(); break;
+        case 22: _t->on_add_ending_line_clicked(); break;
+        case 23: _t->on_remove_ending_line_clicked(); break;
         default: ;
         }
     }
@@ -195,14 +247,14 @@ int ConversationEditorWindow::qt_metacall(QMetaObject::Call _c, int _id, void **
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 11)
+        if (_id < 24)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 11;
+        _id -= 24;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 11)
+        if (_id < 24)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 11;
+        _id -= 24;
     }
     return _id;
 }

@@ -20,6 +20,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QItemSelectionModel>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QPushButton>
@@ -514,6 +515,59 @@ SdfEditorWindow::SdfEditorWindow() {
   repeat_count_row->addWidget(repeat_count_y_);
   repeat_count_row->addWidget(repeat_count_z_);
   form->addRow("Repeat Count (x, y, z):", repeat_count_row);
+
+  form = add_collapsible_section(primitives_layout, "Deformation", /*expanded=*/false);
+
+  // Domain deformation (Inigo Quilez, https://iquilezles.org/articles/
+  // distfunctions/ "Deforming" section) -- see SdfPrimitiveDef::twist/
+  // bend/displace_amplitude/displace_frequency. All default to their
+  // identity/no-op value, so a freshly added primitive renders unwarped
+  // until one of these is actually touched.
+  twist_spin_ = new QDoubleSpinBox();
+  twist_spin_->setRange(-50.0, 50.0);
+  twist_spin_->setSingleStep(0.1);
+  twist_spin_->setValue(0.0);
+  twist_spin_->setToolTip(
+      "Radians of rotation per world-unit of local Y, around local Y -- "
+      "twists the shape like a wrung-out cloth. 0 = no twist.");
+  connect(twist_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Twist:", twist_spin_);
+
+  bend_spin_ = new QDoubleSpinBox();
+  bend_spin_->setRange(-50.0, 50.0);
+  bend_spin_->setSingleStep(0.1);
+  bend_spin_->setValue(0.0);
+  bend_spin_->setToolTip(
+      "Radians of rotation per world-unit of local X, around local Z -- "
+      "bends the shape along X, applied after Twist. 0 = no bend.");
+  connect(bend_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Bend:", bend_spin_);
+
+  displace_amplitude_spin_ = new QDoubleSpinBox();
+  displace_amplitude_spin_->setRange(-10.0, 10.0);
+  displace_amplitude_spin_->setSingleStep(0.01);
+  displace_amplitude_spin_->setValue(0.0);
+  displace_amplitude_spin_->setToolTip(
+      "Added straight onto the shape's distance as amplitude * "
+      "sin(f*x)*sin(f*y)*sin(f*z) (f = Displace Frequency) -- a rippled/"
+      "bumpy surface perturbation. 0 = no displacement, regardless of "
+      "frequency.");
+  connect(displace_amplitude_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+         this, &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Displace Amplitude:", displace_amplitude_spin_);
+
+  displace_frequency_spin_ = new QDoubleSpinBox();
+  displace_frequency_spin_->setRange(0.0, 200.0);
+  displace_frequency_spin_->setSingleStep(1.0);
+  displace_frequency_spin_->setValue(20.0);
+  displace_frequency_spin_->setToolTip(
+      "The sin() rate in Displace Amplitude's formula -- higher means a "
+      "finer ripple pattern. Has no effect while Displace Amplitude is 0.");
+  connect(displace_frequency_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+         this, &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Displace Frequency:", displace_frequency_spin_);
 
   form = add_collapsible_section(primitives_layout, "Shape Parameters");
 
@@ -1330,20 +1384,35 @@ void SdfEditorWindow::on_new_layer_clicked() {
 }
 
 void SdfEditorWindow::on_copy_layer_clicked() {
-  if (active_layer_index_ < 0 ||
-      active_layer_index_ >= static_cast<int>(scene_.layers.size())) {
-    return; // selection doesn't unambiguously name one layer -- see
-           // active_layer_index_'s own comment for exactly when that's true
+  QList<QTreeWidgetItem *> selected = contents_tree_->selectedItems();
+  if (selected.isEmpty()) {
+    return;
   }
-  layer_clipboard_ = scene_.layers[active_layer_index_]; // deep copy --
-                                                        // SdfLayerDef owns
-                                                        // its primitives[]
-                                                        // outright
+
+  // Same "touched layers" rule on_remove_clicked() uses: a selected layer
+  // row contributes itself, a selected primitive row contributes its parent
+  // layer -- a std::set both dedupes (several primitives in one layer still
+  // copy it once) and gives ascending scene_.layers index order for free.
+  std::set<int> touched_layers;
+  for (QTreeWidgetItem *item : selected) {
+    touched_layers.insert(item->parent()
+                               ? item->parent()->data(0, kLayerIndexRole).toInt()
+                               : item->data(0, kLayerIndexRole).toInt());
+  }
+
+  layer_clipboard_.clear();
+  layer_clipboard_.reserve(touched_layers.size());
+  for (int index : touched_layers) {
+    layer_clipboard_.push_back(scene_.layers[index]); // deep copy --
+                                                       // SdfLayerDef owns
+                                                       // its primitives[]
+                                                       // outright
+  }
   paste_layer_button_->setEnabled(true);
 }
 
 void SdfEditorWindow::on_paste_layer_clicked() {
-  if (!layer_clipboard_) {
+  if (layer_clipboard_.empty()) {
     return;
   }
   // Deep copy, then rename the layer AND every primitive inside it to a
@@ -1356,25 +1425,37 @@ void SdfEditorWindow::on_paste_layer_clicked() {
   // next_primitive_id_ -- the same monotonic counters on_new_layer_clicked()/
   // on_add_clicked() already draw from -- keeps every name in the scene
   // unique regardless of whether it came from Add, New Layer, or Paste.
-  SdfLayerDef pasted = *layer_clipboard_;
-  pasted.name = "layer" + std::to_string(next_layer_id_++);
-  for (SdfPrimitiveDef &primitive : pasted.primitives) {
-    primitive.name = "primitive" + std::to_string(next_primitive_id_++);
+  int first_pasted_index = static_cast<int>(scene_.layers.size());
+  for (const SdfLayerDef &copied : layer_clipboard_) {
+    SdfLayerDef pasted = copied;
+    pasted.name = "layer" + std::to_string(next_layer_id_++);
+    for (SdfPrimitiveDef &primitive : pasted.primitives) {
+      primitive.name = "primitive" + std::to_string(next_primitive_id_++);
+    }
+    scene_.layers.push_back(std::move(pasted));
   }
-  scene_.layers.push_back(std::move(pasted));
 
   refresh_contents_list();
   sync_viewport_scene();
 
-  // Select the newly pasted layer row -- mirrors on_new_layer_clicked()'s
-  // own selection of a freshly added layer.
+  // Select every newly pasted layer row -- mirrors on_new_layer_clicked()'s
+  // own selection of a freshly added layer, extended to the whole batch.
+  contents_tree_->clearSelection();
+  QTreeWidgetItem *first_pasted_item = nullptr;
   for (int i = 0; i < contents_tree_->topLevelItemCount(); ++i) {
     QTreeWidgetItem *layer_item = contents_tree_->topLevelItem(i);
-    if (layer_item->data(0, kLayerIndexRole).toInt() ==
-        static_cast<int>(scene_.layers.size()) - 1) {
-      contents_tree_->setCurrentItem(layer_item);
-      break;
+    if (layer_item->data(0, kLayerIndexRole).toInt() >= first_pasted_index) {
+      layer_item->setSelected(true);
+      if (!first_pasted_item) {
+        first_pasted_item = layer_item;
+      }
     }
+  }
+  if (first_pasted_item) {
+    // NoUpdate -- setCurrentItem() otherwise re-collapses the selection down
+    // to just this one item under ExtendedSelection.
+    contents_tree_->setCurrentItem(first_pasted_item, 0,
+                                    QItemSelectionModel::NoUpdate);
   }
 }
 
@@ -1833,6 +1914,11 @@ void SdfEditorWindow::populate_fields_from_selection(int layer_index,
   repeat_count_y_->setValue(primitive.repetition_count.y);
   repeat_count_z_->setValue(primitive.repetition_count.z);
 
+  twist_spin_->setValue(primitive.twist);
+  bend_spin_->setValue(primitive.bend);
+  displace_amplitude_spin_->setValue(primitive.displace_amplitude);
+  displace_frequency_spin_->setValue(primitive.displace_frequency);
+
   ParsedMaterial material = parse_material_file(primitive.material_name);
   colour_ = material.colour;
   texture_name_ = material.texture_name;
@@ -1903,6 +1989,11 @@ void SdfEditorWindow::apply_fields_to_primitive(int layer_index, int primitive_i
       glm::vec3(static_cast<f32>(repeat_count_x_->value()),
                static_cast<f32>(repeat_count_y_->value()),
                static_cast<f32>(repeat_count_z_->value()));
+
+  primitive.twist = static_cast<f32>(twist_spin_->value());
+  primitive.bend = static_cast<f32>(bend_spin_->value());
+  primitive.displace_amplitude = static_cast<f32>(displace_amplitude_spin_->value());
+  primitive.displace_frequency = static_cast<f32>(displace_frequency_spin_->value());
 
   primitive.material_name = ensure_material();
 }

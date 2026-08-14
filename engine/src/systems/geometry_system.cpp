@@ -120,6 +120,10 @@ Geometry &GeometrySystem::acquire(const GeometryConfig &config,
     geometry.rotation = config.rotation;
     geometry.params = config.params;
     geometry.extra_param = config.extra_param;
+    geometry.twist = config.twist;
+    geometry.bend = config.bend;
+    geometry.displace_amplitude = config.displace_amplitude;
+    geometry.displace_frequency = config.displace_frequency;
     geometry.param_expressions = config.param_expressions;
     geometry.repetition_mode = config.repetition_mode;
     geometry.repetition_cell = config.repetition_cell;
@@ -337,6 +341,10 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
       config.rotation = primitive_def.rotation;
       config.params = primitive_def.params;
       config.extra_param = primitive_def.extra_param;
+      config.twist = primitive_def.twist;
+      config.bend = primitive_def.bend;
+      config.displace_amplitude = primitive_def.displace_amplitude;
+      config.displace_frequency = primitive_def.displace_frequency;
       config.param_expressions = primitive_def.param_expressions;
       config.repetition_mode = to_repetition_mode(primitive_def.repetition_mode);
       config.repetition_cell = primitive_def.repetition_cell;

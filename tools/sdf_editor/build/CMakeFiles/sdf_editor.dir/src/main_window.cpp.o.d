@@ -732,6 +732,7 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: \
   /usr/include/qt6/QtWidgets/QMessageBox \
   /usr/include/qt6/QtWidgets/qmessagebox.h \
   /usr/include/qt6/QtWidgets/qdialogbuttonbox.h \
+  /usr/include/qt6/QtCore/QItemSelectionModel \
   /usr/include/qt6/QtWidgets/QTreeWidgetItem \
   /usr/include/qt6/QtWidgets/QPushButton \
   /usr/include/qt6/QtWidgets/qpushbutton.h \

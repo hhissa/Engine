@@ -15,12 +15,12 @@ TestbedGame::TestbedGame() {
 
 b8 TestbedGame::initialize() {
   KDEBUG("TestbedGame::initialize() called!");
-  camera_.set_position(glm::vec3(0.0f, 0.0f, -3.0f));
+  camera_.set_position(glm::vec3(0.0f, 1.1f, -2.6f));
 
   // Example scene load -- see renderer_load_scene()'s doc comment.
   // Multiple scenes can be loaded concurrently; each renderer_load_scene()
   // call returns its own independent handle.
-  demo_scene_ = renderer_load_scene("assets/scenes/demo_scene.sdf");
+  demo_scene_ = renderer_load_scene("assets/scenes/man_sitting.sdf");
 
   return true;
 }

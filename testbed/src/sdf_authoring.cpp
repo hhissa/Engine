@@ -164,6 +164,18 @@ bool save_scene(std::string_view path, const SdfScene &scene) {
         write_vec3(file, primitive.repetition_count);
         file << "\n";
       }
+      // Only emitted when actually deformed -- same "keeps old files
+      // unchanged" reasoning as repetition above. displace_frequency
+      // defaults to 20 (not 0, see SdfPrimitiveDef's own comment), so its
+      // own check is against that default, not 0.
+      if (primitive.twist != 0.0f || primitive.bend != 0.0f ||
+          primitive.displace_amplitude != 0.0f ||
+          primitive.displace_frequency != 20.0f) {
+        file << "        twist=" << primitive.twist << "\n";
+        file << "        bend=" << primitive.bend << "\n";
+        file << "        displace_amplitude=" << primitive.displace_amplitude << "\n";
+        file << "        displace_frequency=" << primitive.displace_frequency << "\n";
+      }
       file << "        material=" << primitive.material_name << "\n";
       file << "    }\n";
     }

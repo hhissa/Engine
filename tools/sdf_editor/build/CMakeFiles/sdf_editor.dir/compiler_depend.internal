@@ -4318,6 +4318,7 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o
  /usr/include/qt6/QtCore/QElapsedTimer
  /usr/include/qt6/QtCore/QEvent
  /usr/include/qt6/QtCore/QFileInfo
+ /usr/include/qt6/QtCore/QItemSelectionModel
  /usr/include/qt6/QtCore/QMargins
  /usr/include/qt6/QtCore/QObject
  /usr/include/qt6/QtCore/QPoint

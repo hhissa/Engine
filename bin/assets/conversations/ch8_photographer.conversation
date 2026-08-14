@@ -1,0 +1,261 @@
+#conversation file
+version=0.1
+
+question "Say something so I can check the levels." {
+    tag=Room_01
+    answer=...
+    answer=I've said that eleven hundred times and never once had to answer it.
+
+    question "Say anything." {
+        tag=Room_01
+        answer=Right.
+        answer=It's the fourteenth. This is for nobody.
+
+        question "Introduce yourself." {
+            tag=Room_01
+            answer=Thirty-four.
+            answer=I photograph people who hurt themselves.
+            answer=That's the caption. That's all any of them got in the end. A caption.
+
+            question "Why did you do it?" {
+                tag=Room_01
+                answer=I told everyone it was a book.
+                answer=There was going to be an essay at the front.
+
+                question "That's not an answer." {
+                    tag=Room_02
+                    answer=No.
+                    answer=I did it because I wanted somebody to say the thing that would work.
+                    answer=Seven people. I asked them everything I could think of.
+
+                    question "Alright. Questions." {
+                        id=shared1
+                        tag=Room_02
+                        answer=...
+                        answer=Go on then.
+
+                        question "Where do you hurt yourself?" {
+                            tag=Room_02
+                            answer=I don't.
+                            answer=And four years in that doesn't make me the well one in the room.
+
+                            question "Then what were you doing in those rooms?" {
+                                tag=Room_02
+                                loop_to=shared1
+                                answer=Looking for myself in other people and calling it work.
+                                answer=Theresa clocked it in an afternoon. Bad back, cup of tea, straight through me.
+                            }
+                        }
+
+                        question "What used to keep you going?" {
+                            tag=Room_03
+                            answer=The project.
+                            answer=Getting up, the drive, the setting up of the lights. Somewhere to be.
+                            answer=What used to keep me alive is now killing me… I don't want to live like that anymore.
+
+                            question "Say more." {
+                                tag=Room_03
+                                answer=It was scaffolding. It held me up a good while and I'm not sorry I built it.
+                                answer=You're supposed to take scaffolding down though. You're not supposed to move into it.
+                                answer=Four years living in a structure I put up around a hole.
+
+                                question "So take it down." {
+                                    tag=Room_03
+                                    loop_to=shared1
+                                    answer=Then what's holding the hole open.
+                                    answer=...
+                                    answer=Nothing. That's the answer. Nothing's holding it open. It's a shape I got used to.
+                                }
+                            }
+                        }
+
+                        question "What did you learn from them?" {
+                            tag=Room_03
+                            answer=Not what I went in for.
+
+                            question "Theo?" {
+                                tag=Room_03
+                                loop_to=shared1
+                                answer=That awareness isn't the same as movement.
+                                answer=He could see his whole situation perfectly from inside it and it did him no good at all.
+                                answer=I've been doing that. With a better job.
+                            }
+
+                            question "Thiago?" {
+                                tag=Room_03
+                                loop_to=shared1
+                                answer=They thanked me. At the end, in that flat, with the phone face-down.
+                                answer=I took an hour off them and they thanked me for it and meant it.
+                                answer=I've never worked out what to do with that. It's the heaviest thing anyone gave me.
+                            }
+
+                            question "Alex?" {
+                                tag=Room_03
+                                loop_to=shared1
+                                answer=That some people will drive to anyone at three in the morning and have never given out their own number.
+                                answer=I recognised it and I didn't say so.
+                                answer=That's the one I'd go back for.
+                            }
+
+                            question "Diego?" {
+                                tag=Room_03
+                                loop_to=shared1
+                                answer=That it doesn't have to look like anything.
+                                answer=Nine years, never a sick day, on time for the two o'clock, thinking the same thought every night since he was twenty-seven.
+                                answer=There's no photograph of that. I tried. I got a man in a meeting room.
+                            }
+
+                            question "Mel?" {
+                                tag=Room_03
+                                loop_to=shared1
+                                answer=That she's stood on a landing for years waiting to be a creature that can be looked at.
+                                answer=And I sat there with the one machine in the world for looking at people.
+                                answer=I never turned it round. Not once. I could have shown her the screen.
+                            }
+
+                            question "Pat?" {
+                                tag=Room_03
+                                loop_to=shared1
+                                answer=That accepting a thing and being okay with it are different, and you might only ever get the first.
+                                answer=I've been holding out for okay.
+                                answer=Skin can heal. Clothes can be changed. Neither is your identity. He knew that. He'd paid for it.
+                            }
+
+                            question "Theresa?" {
+                                tag=Room_04
+                                loop_to=shared1
+                                answer=That I'm here to understand myself, not be understood.
+                                answer=I've still got her cup.
+                            }
+                        }
+
+                        question "What are you frightened of?" {
+                            tag=Room_04
+                            answer=That it doesn't get better and I've spent four years assembling the proof.
+
+                            question "Is that what you found?" {
+                                tag=Room_04
+                                answer=No.
+                                answer=That's the thing. I went looking for proof and kept getting handed the opposite and not writing it down.
+                                answer=Theresa's sixty-eight and free. Pat's got Kit. Thiago had a good time.
+
+                                question "You only kept the dark bits." {
+                                    tag=Room_04
+                                    answer=I kept the bits that matched.
+                                    answer=The world has ended for me so many times and still began again in the morning.
+                                    answer=Every one of them said a version of that and I filed it under coping.
+
+                                    question "Why?" {
+                                        tag=Room_04
+                                        loop_to=shared1
+                                        answer=Because if they were alright then I'd no excuse to still be sat in this chair.
+                                    }
+                                }
+                            }
+                        }
+
+                        question "What do you actually want?" {
+                            tag=Room_04
+                            answer=...
+                            answer=To stop.
+                            answer=Not the way people mean it in my film. To stop doing this.
+
+                            question "Then stop." {
+                                tag=Room_04
+                                answer=Even when you fall apart the world keeps spinning.
+                                answer=I've used that as a threat for four years. Nobody's coming, nothing waits, get on with it.
+                                answer=It isn't a threat though. It's permission.
+
+                                question "How is it permission?" {
+                                    tag=Room_05
+                                    loop_to=shared1
+                                    answer=Because if it doesn't stop for me falling apart, it doesn't stop for me putting the camera down either.
+                                    answer=Nobody's checking. There's no ledger.
+                                    answer=I made the ledger.
+                                }
+                            }
+                        }
+
+                        question "Do you regret any of it?" {
+                            tag=Room_05
+                            answer=If you went back and fixed all your mistakes you would erase who you are.
+                            answer=I accept and appreciate what i went through.
+
+                            question "Do you? Really?" {
+                                tag=Room_05
+                                answer=Not on a Tuesday.
+                                answer=But I'd sooner be the man who got it wrong for four years and knows it than the one who never sat down with anybody.
+                                answer=Seven people let me into their afternoons. That happened. That's not nothing, even done for the wrong reason.
+
+                                question "What's the right reason?" {
+                                    tag=Room_05
+                                    loop_to=shared1
+                                    answer=To be in the room.
+                                    answer=That's it. There isn't a better one and I've spent four years looking.
+                                }
+                            }
+                        }
+
+                        question "[Put the camera down.]" {
+                            id=shared2
+                            tag=Room_05
+                            answer=...
+                            answer=Okay.
+                            answer=Okay.
+
+                            question "..." {
+                                tag=Room_05
+                                answer=It's still running. It'll go till the battery does.
+                                answer=Let it. It can film the chair.
+
+                                question "What now?" {
+                                    tag=Room_05
+                                    answer=You are art. Create yourself over and over.
+                                    answer=I put that on a wall in the edit suite two years ago and never once applied it to me.
+                                    answer=Over and over. Not properly, once, at the end. Badly, every morning.
+
+                                    question "Starting when?" {
+                                        tag=Room_05
+                                        answer=If you stay here any longer you might miss your whole life.
+
+                                        question "Are you brave enough?" {
+                                            tag=Room_05
+                                            answer=No.
+                                            answer=You only have to be brave enough, no amount of fear will save you.
+                                            answer=That's the trick and it's a rotten one. You don't get to stop being frightened first.
+                                            answer=Frightened isn't the obstacle. Frightened's the weather.
+
+                                            question "Then go." {
+                                                tag=Room_05
+                                                ending
+                                                ending_text=He puts the camera down. It keeps running, because that is what cameras do, and it films a chair and a window and a wall.
+                                                ending_text=Seven people sat in that chair and none of them gave him the sentence, because there is no sentence, because a sentence is not what a person is for.
+                                                ending_text=The world has ended for him a number of times and each time it began again in the morning without being asked.
+                                                ending_text=It will do it again tomorrow. That is not a promise and it is not a comfort. It is only what mornings do.
+                                                ending_text=Become the light.
+                                                ending_text=Take your meds.
+                                                ending_text=Go and see somebody. Bring the cup back.
+                                                answer=Right.
+                                                answer=...
+                                                answer=Theresa wants her cup back.
+                                                answer=I'll start with that.
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        question "That's all I wanted to ask." {
+                            tag=Room_05
+                            loop_to=shared2
+                            answer=No it isn't.
+                            answer=You've spent all afternoon avoiding the one thing you can actually do about any of it.
+                            answer=It's in your hands. It's been in your hands the whole time.
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

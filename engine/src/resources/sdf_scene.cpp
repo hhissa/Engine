@@ -282,6 +282,14 @@ std::optional<SdfScene> load_sdf_scene(std::string_view path) {
           KWARN("'{}': malformed repetition_count '{}' at line {}.", path,
                value, line_number);
         }
+      } else if (key == "twist") {
+        current_primitive.twist = std::stof(value);
+      } else if (key == "bend") {
+        current_primitive.bend = std::stof(value);
+      } else if (key == "displace_amplitude") {
+        current_primitive.displace_amplitude = std::stof(value);
+      } else if (key == "displace_frequency") {
+        current_primitive.displace_frequency = std::stof(value);
       } else if (key == "material") {
         current_primitive.material_name = value;
       } else {

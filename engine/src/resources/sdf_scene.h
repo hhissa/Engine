@@ -202,6 +202,33 @@ struct SdfPrimitiveDef {
   // params so every other type's existing `params.x/y/z` reads didn't need
   // touching.
   f32 extra_param = 0.0f;
+  // Domain deformation (Inigo Quilez, https://iquilezles.org/articles/
+  // distfunctions/ "Deforming" section) -- warps this primitive's own
+  // local-space sample point before its shape function runs (twist/bend)
+  // or perturbs the resulting distance (displacement), applied in that
+  // order: twist, then bend, then the shape, then + displacement. All
+  // default to their identity/no-op value, so an existing file with none
+  // of these lines renders exactly as before.
+  //   twist: radians of rotation per world-unit of local Y, around local Y
+  //     (rotates local.xz by twist*local.y). 0 = no twist.
+  //   bend: radians of rotation per world-unit of local X, around local Z
+  //     (rotates local.xy by bend*local.x, applied after twist). 0 = no bend.
+  //   displace_amplitude: added straight onto the shape's distance as
+  //     displace_amplitude * sin(f*x)*sin(f*y)*sin(f*z) (f =
+  //     displace_frequency below), evaluated at the *pre*-twist/bend local
+  //     point -- an approximate, non-exact perturbation (Quilez's own
+  //     "Warning!" on that article: this breaks the distance field's
+  //     Lipschitz-1 guarantee), same caveat as Twist/Bend above. 0 = no
+  //     displacement, regardless of displace_frequency.
+  //   displace_frequency: the sin() rate above. Defaults to 20 (this
+  //     engine's stand-in for "a reasonable ripple density", matching
+  //     Quilez's own example) purely so a freshly nonzero
+  //     displace_amplitude alone already looks like something -- has no
+  //     effect while displace_amplitude is 0.
+  f32 twist = 0.0f;
+  f32 bend = 0.0f;
+  f32 displace_amplitude = 0.0f;
+  f32 displace_frequency = 20.0f;
   // Optional "parametric attribute" per params slot (index 0/1/2 ->
   // params.x/y/z, index 3 -> extra_param): a formula in p.x/p.y/p.z
   // (evaluated at the primitive's own local-space sample point -- see

@@ -1,0 +1,192 @@
+#conversation file
+version=0.1
+
+question "Is it alright if I sit here?" {
+    tag=Room_01
+    answer=Anywhere. It's all the same.
+    answer=I don't have people round. You're the first in a long time.
+
+    question "How long?" {
+        tag=Room_01
+        answer=A lot has happened you know.
+
+        question "Are you all alone?" {
+            tag=Room_01
+            answer=Yes.
+            answer=I like being alone.
+
+            question "Do you?" {
+                tag=Room_01
+                answer=...
+                answer=That's a rude question.
+                answer=...
+                answer=No. But I like it more than the other thing.
+
+                question "What's the other thing?" {
+                    tag=Room_01
+                    answer=Being looked at.
+                    answer=Being out there and having people work out what I am from the outside of me.
+
+                    question "Alright. Questions." {
+                        id=shared1
+                        tag=Room_01
+                        answer=Go on. I've got all day. I've got every day.
+
+                        question "Say your name." {
+                            tag=Room_01
+                            loop_to=shared1
+                            answer=Mel. Thirty-one.
+                            answer=Three years in this flat. Two of them without going out the front door.
+                            answer=Food comes. Everything comes. It's easier now than it would have been.
+                        }
+
+                        question "What's your diagnosis?" {
+                            tag=Room_01
+                            answer=Schizophrenia.
+                            answer=I say it plain because people go funny if you hedge it.
+
+                            question "Does it frighten you?" {
+                                tag=Room_02
+                                answer=No.
+                                answer=It frightens other people. That's most of what it does now.
+                                answer=They took away my fear, my anger. I roam this world free of worldly shackles. I'm happy and im clean. Finally clean.
+
+                                question "Who took it away?" {
+                                    tag=Room_02
+                                    loop_to=shared1
+                                    answer=The tablets. The people. The years.
+                                    answer=You put that on a poster and it sounds lovely.
+                                    answer=It's less lovely from in here. Free of shackles and also free of most other things.
+                                }
+                            }
+                        }
+
+                        question "Can you tell me about the worst of it?" {
+                            tag=Room_02
+                            answer=...
+                            answer=You mean the stomach.
+
+                            question "Yes." {
+                                tag=Room_02
+                                answer=There was something growing in me.
+                                answer=I want to say that properly, because people say I thought there was, and at the time there was no thought in it. There was a fact in my stomach.
+
+                                question "What did it feel like?" {
+                                    tag=Room_03
+                                    answer=Heavy. Warm. Moving at night.
+                                    answer=I could feel where the edges of it were.
+                                    answer=The only true enemy of my body is death, the only true enemy of my soul is my body.
+
+                                    question "So the body was the problem." {
+                                        tag=Room_03
+                                        answer=The body was hosting it. So the body had to be opened.
+                                        answer=That was the reasoning. It was very good reasoning. It held together completely.
+                                        answer=I'm not going to describe what I did. I don't think you want it and I know I don't.
+
+                                        question "I don't want it." {
+                                            tag=Room_03
+                                            answer=Good.
+                                            answer=Afterwards I got to the hallway. I don't remember choosing to.
+                                            answer=Carpet tiles. I remember the carpet tiles very well. Grey with little flecks.
+
+                                            question "Who found you?" {
+                                                tag=Room_03
+                                                answer=A man from four doors down. I've never learned his name.
+                                                answer=I've thought about knocking. Three years. I've got as far as the mat twice.
+
+                                                question "Why haven't you?" {
+                                                    tag=Room_04
+                                                    loop_to=shared1
+                                                    answer=Because he'd have to be reminded that it happened.
+                                                    answer=He's got a nice life. There's a bike in his hallway.
+                                                    answer=I'm not putting me back into it.
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        question "Is it still there? The thing in your stomach?" {
+                            tag=Room_04
+                            answer=No.
+                            answer=...
+                            answer=Not the way it was.
+
+                            question "Meaning?" {
+                                tag=Room_04
+                                answer=I know it wasn't real. I can tell you it wasn't real and mean it.
+                                answer=I still don't sleep on that side.
+
+                                question "Does that trouble you?" {
+                                    tag=Room_04
+                                    loop_to=shared1
+                                    answer=No.
+                                    answer=I've stopped needing the two halves to agree. They live in the same flat now, like me and the walls.
+                                }
+                            }
+                        }
+
+                        question "Do you want anything?" {
+                            tag=Room_04
+                            answer=...
+                            answer=That's a good question. Nobody asks what I want. They ask what I need and then they bring it.
+
+                            question "So what do you want?" {
+                                tag=Room_04
+                                answer=I will be reborn someday, I will be made into a new creature.
+
+                                question "When?" {
+                                    tag=Room_05
+                                    loop_to=shared1
+                                    answer=Someday.
+                                    answer=I've been saying someday for three years and I've noticed that I have.
+                                }
+                            }
+                        }
+
+                        question "Do you think about dying?" {
+                            tag=Room_05
+                            answer=Not the way you're asking.
+                            answer=In the end the tall grass will claim us all.
+
+                            question "That doesn't sound frightening when you say it." {
+                                tag=Room_05
+                                loop_to=shared1
+                                answer=It isn't. It's the one part I've got completely straight.
+                                answer=Everything goes. The bike in his hallway goes. This flat goes.
+                                answer=It's the waiting that's difficult. I've never been any good at the waiting.
+                            }
+                        }
+
+                        question "That's all I wanted to ask." {
+                            tag=Room_05
+                            answer=Already?
+                            answer=...
+                            answer=Right.
+
+                            question "Thank you, Mel." {
+                                tag=Room_05
+                                answer=Will you shut the front door properly. It sticks.
+                                answer=And — this is silly.
+
+                                question "Go on." {
+                                    tag=Room_05
+                                    ending
+                                    ending_text=She did not leave the flat today. She has not left it in two years and she will not leave it tomorrow.
+                                    ending_text=Somewhere down the hall a man with a bike in his hallway is having a nice evening. He has no idea.
+                                    ending_text=Someday she will be made into a new creature. She has been saying someday for three years and she has noticed that she has.
+                                    answer=Stand outside for a minute before you go down.
+                                    answer=Just on the landing. Where the carpet is.
+                                    answer=...
+                                    answer=No reason. I just like knowing someone's there.
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

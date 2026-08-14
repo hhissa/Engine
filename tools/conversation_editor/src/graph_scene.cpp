@@ -109,6 +109,31 @@ QuestionNode *place(GraphScene &scene, const ConversationQuestion &question,
     }
     node->set_answer_lines(lines);
     node->set_tag(source->tag ? QString::fromStdString(*source->tag) : QString());
+    {
+      QStringList requires_flags;
+      for (const std::string &flag : source->requires_flags) {
+        requires_flags << QString::fromStdString(flag);
+      }
+      node->set_requires_flags(requires_flags);
+      QStringList requires_not_flags;
+      for (const std::string &flag : source->requires_not_flags) {
+        requires_not_flags << QString::fromStdString(flag);
+      }
+      node->set_requires_not_flags(requires_not_flags);
+      QStringList sets_flags;
+      for (const std::string &flag : source->sets_flags) {
+        sets_flags << QString::fromStdString(flag);
+      }
+      node->set_sets_flags(sets_flags);
+    }
+    node->set_is_ending(source->is_ending);
+    {
+      QStringList ending_lines;
+      for (const std::string &line : source->ending_lines) {
+        ending_lines << QString::fromStdString(line);
+      }
+      node->set_ending_lines(ending_lines);
+    }
     built_nodes[source] = node;
 
     if (source->shared_id) {
@@ -195,6 +220,19 @@ ConversationQuestion to_question(const GraphScene &scene, QuestionNode *node,
   }
   if (!node->tag().isEmpty()) {
     question.tag = node->tag().toStdString();
+  }
+  for (const QString &flag : node->requires_flags()) {
+    question.requires_flags.push_back(flag.toStdString());
+  }
+  for (const QString &flag : node->requires_not_flags()) {
+    question.requires_not_flags.push_back(flag.toStdString());
+  }
+  for (const QString &flag : node->sets_flags()) {
+    question.sets_flags.push_back(flag.toStdString());
+  }
+  question.is_ending = node->is_ending();
+  for (const QString &line : node->ending_lines()) {
+    question.ending_lines.push_back(line.toStdString());
   }
   if (is_shared) {
     question.shared_id = shared_it->second;

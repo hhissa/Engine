@@ -1,4 +1,5 @@
 #include "qa_system.h"
+#include "text_wrap.h"
 
 #include <core/input.h>
 #include <core/logger.h>
@@ -16,6 +17,11 @@ namespace {
 // everything above it is stacked from there, so that anchor never moves
 // as questions are added/removed.
 constexpr f32 kListX = 32.0f;
+// Mirrors kListX on the right -- how far a question/answer line is allowed
+// to run before wrap_text() (text_wrap.h) breaks it onto a further line,
+// so long .conversation-authored text can't run off the right edge of the
+// screen.
+constexpr f32 kRightMargin = 32.0f;
 constexpr f32 kBottomMargin = 32.0f;
 constexpr f32 kLineSpacing = 28.0f;
 // Gap between the question list's last row and the hint line below it.
@@ -23,6 +29,11 @@ constexpr f32 kAnswerGap = 48.0f;
 // Gap between the answer line and its own "[Enter] continue" hint below
 // it -- tighter than kAnswerGap since these two lines belong together.
 constexpr f32 kAnswerHintGap = 36.0f;
+// Estimated width of the "> "/"  " cursor marker prefixed to every
+// question line (see render() below) -- subtracted from the available
+// wrap width so a wrapped question's continuation lines (indented to
+// align under the marker, not past it) don't budget space for it twice.
+constexpr f32 kMarkerWidth = 2.0f * kAverageCharWidth;
 
 // Question colours: bright while unasked, permanently darkened once asked,
 // and a warm highlight on whichever line the cursor is on.
@@ -65,6 +76,11 @@ QASystem::Entry to_entry(const ConversationQuestion &question) {
   entry.tag = question.tag;
   entry.shared_id = question.shared_id;
   entry.loop_target = question.loop_target;
+  entry.requires_flags = question.requires_flags;
+  entry.requires_not_flags = question.requires_not_flags;
+  entry.sets_flags = question.sets_flags;
+  entry.is_ending = question.is_ending;
+  entry.ending_lines = question.ending_lines;
   entry.follow_ups.reserve(question.follow_ups.size());
   for (const ConversationQuestion &child : question.follow_ups) {
     entry.follow_ups.push_back(to_entry(child));
@@ -134,6 +150,18 @@ void QASystem::unload_conversation(ConversationHandle handle) {
   state_ = State::QuestionList;
   cursor_ = 0;
   answer_line_ = 0;
+  // Flags are conversation-scoped -- a fresh begin_chapter_playing() always
+  // unloads the previous conversation first (see game_menus.cpp), so this
+  // is what keeps flags_ from leaking across chapters/fresh restarts;
+  // Continue's apply_flags() (called after the following
+  // load_conversation()) puts a saved chapter's flags back afterward.
+  flags_.clear();
+  // Scene-state tags are conversation-scoped too -- frees up whatever
+  // names handle's chapter registered (e.g. "Room_01".."Room_05") so the
+  // next chapter's begin_chapter_playing() can register the same names
+  // again against its own scenes without register_scene_state()'s
+  // duplicate-name warning firing. See clear_scene_states()'s own comment.
+  clear_scene_states();
 
   for (size_t i = entries_.size(); i-- > 0;) {
     if (entry_handles_[i] == handle) {
@@ -178,6 +206,97 @@ void QASystem::set_on_returned_to_root(std::function<void()> callback) {
   on_returned_to_root_ = std::move(callback);
 }
 
+void QASystem::set_on_any_asked(std::function<void()> callback) {
+  on_any_asked_ = std::move(callback);
+}
+
+namespace {
+// Depth-first pre-order walk shared by asked_flags()/apply_asked_flags() --
+// each entry's own flag before its follow_ups', in load/add order, exactly
+// mirroring how to_entry()/index_loop_targets() already walk the same tree
+// shape. Appends to (rather than returning) out_flags so the recursive
+// case doesn't need to concatenate vectors.
+void collect_asked_flags(const std::vector<QASystem::Entry> &list,
+                         std::vector<bool> &out_flags) {
+  for (const QASystem::Entry &entry : list) {
+    out_flags.push_back(entry.asked);
+    collect_asked_flags(entry.follow_ups, out_flags);
+  }
+}
+
+// Mirrors collect_asked_flags()'s traversal to write flags back instead of
+// reading them -- next_flag is an in/out cursor into flags shared across
+// the whole recursive walk. Returns false (and stops early) the instant
+// flags runs out, so a size mismatch can't read out of bounds.
+bool apply_asked_flags_recursive(std::vector<QASystem::Entry> &list,
+                                 const std::vector<bool> &flags,
+                                 size_t &next_flag) {
+  for (QASystem::Entry &entry : list) {
+    if (next_flag >= flags.size()) {
+      return false;
+    }
+    entry.asked = flags[next_flag++];
+    if (!apply_asked_flags_recursive(entry.follow_ups, flags, next_flag)) {
+      return false;
+    }
+  }
+  return true;
+}
+} // namespace
+
+std::vector<bool> QASystem::asked_flags() const {
+  std::vector<bool> flags;
+  collect_asked_flags(entries_, flags);
+  return flags;
+}
+
+void QASystem::apply_asked_flags(const std::vector<bool> &flags) {
+  size_t next_flag = 0;
+  bool ok = apply_asked_flags_recursive(entries_, flags, next_flag);
+  if (!ok || next_flag != flags.size()) {
+    KWARN("QASystem::apply_asked_flags: flags.size() ({}) doesn't match the "
+         "number of currently loaded entries -- ignoring (stale save vs. "
+         "an edited conversation file?).",
+         flags.size());
+  }
+}
+
+std::vector<std::string> QASystem::flags() const {
+  return std::vector<std::string>(flags_.begin(), flags_.end());
+}
+
+void QASystem::apply_flags(const std::vector<std::string> &flags) {
+  flags_ = std::unordered_set<std::string>(flags.begin(), flags.end());
+}
+
+void QASystem::set_on_ending_reached(std::function<void(const Entry &)> callback) {
+  on_ending_reached_ = std::move(callback);
+}
+
+bool QASystem::entry_visible(const Entry &entry) const {
+  for (const std::string &flag : entry.requires_flags) {
+    if (!flags_.contains(flag)) {
+      return false;
+    }
+  }
+  for (const std::string &flag : entry.requires_not_flags) {
+    if (flags_.contains(flag)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::vector<size_t> QASystem::visible_indices(const std::vector<Entry> &list) const {
+  std::vector<size_t> visible;
+  for (size_t i = 0; i < list.size(); ++i) {
+    if (entry_visible(list[i])) {
+      visible.push_back(i);
+    }
+  }
+  return visible;
+}
+
 void QASystem::set_base_scene_state(std::function<void()> callback) {
   base_scene_state_ = std::move(callback);
 }
@@ -192,6 +311,8 @@ void QASystem::register_scene_state(std::string_view name,
   }
   scene_states_[key] = std::move(callback);
 }
+
+void QASystem::clear_scene_states() { scene_states_.clear(); }
 
 void QASystem::fire_scene_state(const Entry &entry) {
   if (!entry.tag) {
@@ -262,14 +383,40 @@ void QASystem::update() {
 
   if (state_ == State::QuestionList) {
     std::vector<Entry> &list = *current_list_;
-    if (key_pressed(input::Key::Up) && cursor_ > 0) {
-      --cursor_;
+    std::vector<size_t> visible = visible_indices(list);
+    if (!visible.empty()) {
+      // Where cursor_ currently sits within the visible sequence -- used to
+      // step to its visible neighbor below rather than the raw-index
+      // neighbor, which could be a hidden (flag-gated) entry. Falls back to
+      // 0 if cursor_ itself isn't visible right now (shouldn't normally
+      // happen -- see the Enter guard below -- but a flag change elsewhere
+      // could in principle make the previously-visible cursor entry hidden
+      // between frames).
+      auto it = std::find(visible.begin(), visible.end(), cursor_);
+      size_t visible_pos = it != visible.end()
+                              ? static_cast<size_t>(it - visible.begin())
+                              : 0;
+      if (key_pressed(input::Key::Up) && visible_pos > 0) {
+        cursor_ = visible[visible_pos - 1];
+      }
+      if (key_pressed(input::Key::Down) && visible_pos + 1 < visible.size()) {
+        cursor_ = visible[visible_pos + 1];
+      }
     }
-    if (key_pressed(input::Key::Down) && cursor_ + 1 < list.size()) {
-      ++cursor_;
-    }
-    if (key_pressed(input::Key::Enter)) {
+    if (key_pressed(input::Key::Enter) && entry_visible(list[cursor_])) {
       list[cursor_].asked = true; // permanent -- never cleared
+      // Flags this question sets are applied the same instant, before
+      // on_selected/the tag reaction fire below -- so either can already
+      // see the consequence of this question having been asked (e.g. a
+      // registered scene state that itself checks game-side state
+      // influenced by a flag wouldn't need to, but on_selected reaching
+      // back into game code might reasonably expect flags_ to be current).
+      for (const std::string &flag : list[cursor_].sets_flags) {
+        flags_.insert(flag);
+      }
+      if (on_any_asked_) {
+        on_any_asked_();
+      }
       if (list[cursor_].on_selected) {
         list[cursor_].on_selected();
       }
@@ -290,6 +437,23 @@ void QASystem::update() {
         // for the exact policy), updating current_layer_tag_ to match
         // wherever navigation lands, then apply whichever scene state that
         // leaves current -- see apply_layer_scene_state().
+        if (answered.is_ending) {
+          // Highest priority -- an ending question isn't expected to also
+          // have follow_ups/loop_to= of its own (same convention loop_to=
+          // itself already follows), so reaching one stops navigation
+          // right where it is instead of continuing the follow_ups/
+          // pop-up/loop_to dance below. No apply_layer_scene_state() call
+          // either -- there's no "list about to show" to pick a layer tag
+          // for; it's up to on_ending_reached_ to decide what happens
+          // next.
+          if (on_ending_reached_) {
+            on_ending_reached_(answered);
+          }
+          state_ = State::QuestionList; // must reset, or a further Enter
+                                        // re-increments answer_line_ and
+                                        // re-fires this
+          return;
+        }
         if (answered.loop_target) {
           // Jump straight to the loop_to= target's own location, exactly
           // as if the player had navigated there normally -- see
@@ -323,11 +487,13 @@ void QASystem::update() {
             current_layer_tag_ = answered.tag;
           }
           current_list_ = &answered.follow_ups;
-          cursor_ = 0;
+          std::vector<size_t> visible = visible_indices(*current_list_);
+          cursor_ = visible.empty() ? 0 : visible.front();
         } else if (!list_stack_.empty()) {
-          bool all_asked = std::all_of(
-              current_list_->begin(), current_list_->end(),
-              [](const Entry &e) { return e.asked; });
+          std::vector<size_t> visible = visible_indices(*current_list_);
+          bool all_asked = std::all_of(visible.begin(), visible.end(), [this](size_t i) {
+            return (*current_list_)[i].asked;
+          });
           // Keep popping up one level at a time -- not just once -- for as
           // long as the level just landed on is *also* fully asked (this
           // happens whenever the question whose follow-ups we just
@@ -341,7 +507,8 @@ void QASystem::update() {
             list_stack_.pop_back();
             current_layer_tag_ = layer_tag_stack_.back();
             layer_tag_stack_.pop_back();
-            cursor_ = 0;
+            std::vector<size_t> popped_visible = visible_indices(*current_list_);
+            cursor_ = popped_visible.empty() ? 0 : popped_visible.front();
             if (current_list_ == &entries_) {
               // Nowhere further up to pop to -- list_stack_ is empty here
               // per its invariant, so the loop ends regardless.
@@ -350,9 +517,8 @@ void QASystem::update() {
               }
               break;
             }
-            all_asked = std::all_of(
-                current_list_->begin(), current_list_->end(),
-                [](const Entry &e) { return e.asked; });
+            all_asked = std::all_of(popped_visible.begin(), popped_visible.end(),
+                                    [this](size_t i) { return (*current_list_)[i].asked; });
           }
           // else (loop never entered/exited early): unanswered siblings
           // remain at wherever we ended up -- stay there with cursor_ and
@@ -367,20 +533,32 @@ void QASystem::update() {
   }
 }
 
-void QASystem::render(u32 screen_height) const {
+void QASystem::render(u32 screen_width, u32 screen_height) const {
   // Built bottom-up (see the class comment): start from the fixed bottom
   // anchor and work upward, so the anchor itself never depends on how many
-  // questions are in the currently-displayed list.
+  // questions are in the currently-displayed list. max_text_width bounds
+  // how wide any wrapped line below is allowed to get -- see kListX/
+  // kRightMargin.
   f32 hint_y = static_cast<f32>(screen_height) - kBottomMargin;
+  f32 max_text_width = static_cast<f32>(screen_width) - kListX - kRightMargin;
 
   if (state_ == State::Answer) {
     // The question list is hidden entirely while an answer is showing --
-    // only the answer line and its own hint are drawn.
-    f32 answer_y = hint_y - kAnswerHintGap;
+    // only the answer line(s) and its own hint are drawn. A long answer
+    // line wraps onto further lines above answer_bottom_y, growing
+    // upward -- same "bottom edge never moves" reasoning as the question
+    // list's own row stacking below, just per-wrapped-line instead of
+    // per-entry.
+    f32 answer_bottom_y = hint_y - kAnswerHintGap;
     const Entry &entry = (*current_list_)[cursor_];
     if (answer_line_ < entry.answer_lines.size()) {
-      renderer_draw_text(entry.answer_lines[answer_line_],
-                         glm::vec2(kListX, answer_y), kAnswer);
+      std::vector<std::string> wrapped =
+          wrap_text(entry.answer_lines[answer_line_], max_text_width);
+      for (size_t i = 0; i < wrapped.size(); ++i) {
+        f32 line_y = answer_bottom_y -
+            static_cast<f32>(wrapped.size() - 1 - i) * kLineSpacing;
+        renderer_draw_text(wrapped[i], glm::vec2(kListX, line_y), kAnswer);
+      }
     }
     renderer_draw_text("[Enter] continue", glm::vec2(kListX, hint_y), kHint);
     return;
@@ -390,14 +568,22 @@ void QASystem::render(u32 screen_height) const {
                      glm::vec2(kListX, hint_y), kHint);
   f32 list_bottom_y = hint_y - kAnswerGap;
 
-  // Row i's y works backward from the list's fixed bottom, so the last row
-  // always lands at list_bottom_y and earlier rows stack upward -- the top
-  // of the block is the only part that moves as the list's size changes
-  // (including when it swaps between the top-level list and a follow-up
-  // one), exactly the "aligned regardless of count" property the bottom
-  // anchor is for.
+  // Wrap every visible entry's question text up front, into (prefixed
+  // text, colour) rows -- a wrapped entry now consumes more than one row,
+  // so the bottom-up stacking below works in units of individual *rows*
+  // rather than *entries*. Only the first wrapped line of an entry gets
+  // the "> "/"  " cursor marker; continuation lines get "  " so they stay
+  // indented to align under the first line's text rather than under the
+  // marker.
   const std::vector<Entry> &list = *current_list_;
-  for (size_t i = 0; i < list.size(); ++i) {
+  std::vector<size_t> visible = visible_indices(list);
+  struct Row {
+    std::string text;
+    glm::vec4 colour;
+  };
+  std::vector<Row> rows;
+  for (size_t n = 0; n < visible.size(); ++n) {
+    size_t i = visible[n];
     const Entry &entry = list[i];
     bool on_cursor = i == cursor_;
 
@@ -406,9 +592,24 @@ void QASystem::render(u32 screen_height) const {
       colour = kCursor;
     }
 
-    std::string line = std::string(on_cursor ? "> " : "  ") + entry.question;
+    std::vector<std::string> wrapped =
+        wrap_text(entry.question, max_text_width - kMarkerWidth);
+    for (size_t w = 0; w < wrapped.size(); ++w) {
+      std::string marker = (w == 0) ? (on_cursor ? "> " : "  ") : "  ";
+      rows.push_back({marker + wrapped[w], colour});
+    }
+  }
+
+  // Row position k (k's own position within the flattened row sequence,
+  // not its source entry's index) works backward from the list's fixed
+  // bottom, so the last row always lands at list_bottom_y and earlier
+  // ones stack upward -- same "aligned regardless of count" property the
+  // bottom anchor is for, now measured in wrapped rows so a flag-gated
+  // (hidden) entry, or an entry that happened to wrap onto fewer/more
+  // lines, never leaves a gap or an overlap.
+  for (size_t k = 0; k < rows.size(); ++k) {
     f32 row_y =
-        list_bottom_y - static_cast<f32>(list.size() - 1 - i) * kLineSpacing;
-    renderer_draw_text(line, glm::vec2(kListX, row_y), colour);
+        list_bottom_y - static_cast<f32>(rows.size() - 1 - k) * kLineSpacing;
+    renderer_draw_text(rows[k].text, glm::vec2(kListX, row_y), rows[k].colour);
   }
 }

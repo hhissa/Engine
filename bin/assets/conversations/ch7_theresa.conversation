@@ -1,0 +1,175 @@
+#conversation file
+version=0.1
+
+question "Let's start with your name." {
+    tag=Room_01
+    answer=Theresa. Sixty-nine in March.
+    answer=And before you ask it the polite way — yes. A long time ago. Yes.
+
+    question "Alright. Questions." {
+        id=shared1
+        tag=Room_01
+        answer=Go on, love.
+
+        question "When did it start?" {
+            tag=Room_01
+            answer=Nineteen and it went on into my thirties, on and off.
+            answer=Different world. You didn't have a word for it. You had a cardigan.
+
+            question "What did people think it was?" {
+                tag=Room_02
+                answer=Nerves. Attention. Wickedness, once, from a priest.
+                answer=If the world was a little kinder to me when i was trying to get better it could've been different.
+
+                question "Different how?" {
+                    tag=Room_02
+                    answer=Shorter.
+                    answer=I'd have got here in eight years instead of fifteen.
+                    answer=I got here in the end, mind. But I did most of it in the dark and I didn't have to.
+
+                    question "Are you angry about that?" {
+                        tag=Room_02
+                        loop_to=shared1
+                        answer=I was. For about a decade.
+                        answer=Anger's heavy and I've a bad back.
+                    }
+                }
+            }
+
+            question "Can I see?" {
+                tag=Room_02
+                answer=...
+                answer=No.
+                answer=Not because I'm ashamed. There's barely anything to look at now, that's the truth of it. Time takes them.
+                answer=A big part of who i am is what i don't talk about.
+
+                question "Sorry." {
+                    tag=Room_02
+                    loop_to=shared1
+                    answer=Don't be sorry, you're doing your job.
+                    answer=But you'll ask everyone that and one day somebody'll say yes when they didn't want to.
+                    answer=Just — mind that.
+                }
+            }
+
+            question "How did you stop?" {
+                tag=Room_03
+                answer=Slowly. Boringly. No moment.
+                answer=Everyday in life is the first time, everyday is new.
+
+                question "That sounds like a lot of work." {
+                    tag=Room_03
+                    answer=It is. It's the whole job.
+                    answer=You don't get to bank it. You can't do a good Tuesday and take Wednesday off.
+                    answer=I think life is like a book, you cant look at all the content at once, only page by page.
+
+                    question "Did you ever want to skip ahead?" {
+                        tag=Room_03
+                        loop_to=shared1
+                        answer=Constantly. Everyone does.
+                        answer=Everytime i get closer to the answer the question changes.
+                        answer=You spend twenty years wanting to know if you'll be alright, and then you're alright, and it turns out the question was never that.
+                    }
+                }
+            }
+
+            question "What was the question?" {
+                tag=Room_03
+                answer=Whether I could stand my own company.
+                answer=That's it. That's the whole of it. Everything else was decoration.
+
+                question "And can you?" {
+                    tag=Room_03
+                    loop_to=shared1
+                    answer=Most days.
+                    answer=A wounded deer leaps the highest.
+                    answer=That's not a comfort, by the way. People use it as one and it isn't. It's a warning about what it costs to jump like that.
+                }
+            }
+
+            question "Do you still think about it?" {
+                tag=Room_04
+                answer=Every so often. Less than you'd think.
+                answer=And if they call it madness, I'm finally able to be free.
+
+                question "Free of what?" {
+                    tag=Room_04
+                    answer=Of caring which word they use.
+                    answer=Mad, ill, delicate, difficult. I've been all four on paper.
+                    answer=At sixty-eight you find out none of them were about you. They were filing systems.
+
+                    question "That took a long time." {
+                        tag=Room_04
+                        loop_to=shared1
+                        answer=It did.
+                        answer=You can only watch.
+                        answer=That's the bit nobody tells you about other people. You can love them and feed them and drive them about. You can't do it for them.
+                    }
+                }
+            }
+
+            question "Is that what you'd tell someone starting out?" {
+                tag=Room_04
+                answer=No. I'd not say any of this to them.
+                answer=They don't need my forty years. They need somebody to sit with them till Thursday.
+
+                question "What would you say?" {
+                    tag=Room_04
+                    answer=I have something that makes me feel better. Okay repeat after me: AAAAAAAAAAAAAAAHHHHH.
+
+                    question "...what?" {
+                        tag=Room_04
+                        answer=Go on.
+                        answer=I'm serious. I do it at the sink. The woman next door thinks I'm at the bird feeder.
+
+                        question "AAAAAAAAAAAAAAAHHHHH" {
+                            tag=Room_05
+                            loop_to=shared1
+                            answer=THERE you are.
+                            answer=...
+                            answer=See. That's the most honest thing you've done since you got here, and you've had a camera on you the whole time.
+                        }
+
+                        question "I'd rather not." {
+                            tag=Room_05
+                            loop_to=shared1
+                            answer=No, you'd rather ask the questions.
+                            answer=That's alright. That's how you've decided to get through it and it's not the worst way.
+                            answer=I did the same for years. Mine was baking.
+                        }
+                    }
+                }
+            }
+
+            question "That's all I wanted to ask." {
+                tag=Room_05
+                answer=Is it.
+                answer=Sit down a minute. You've not touched that tea.
+
+                question "I should get going." {
+                    tag=Room_05
+                    answer=You're here to understand yourself not be understood.
+                    answer=I've watched you all afternoon. You've asked me thirty questions and not one of them was about me really.
+
+                    question "..." {
+                        tag=Room_05
+                        answer=Don't look like that. It's not a telling-off.
+                        answer=Whoever it is you're carrying about — you'll not find them in my kitchen. I've looked, there's only the one of me.
+
+                        question "How did you know?" {
+                            tag=Room_05
+                            ending
+                            ending_text=She looks directly into the lens. She is the only one who does it, and she does it once.
+                            ending_text=You came for a subject and she gave you an afternoon, a cup of tea you did not drink, and a question you have been avoiding for a long time.
+                            ending_text=Life is long. She would like to see where you go.
+                            answer=Because I've been you, love. Bad at it, in a cardigan, in nineteen seventy-six.
+                            answer=...
+                            answer=Now. Ill be fine and youll be fine, life is long, I want to see you again, see where you go so stick around.
+                            answer=Take the tea with you. Bring the cup back. That's how I'll know.
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -30,6 +30,21 @@ void write_question(std::ostream &out, const ConversationQuestion &question,
     // isn't expected to have any -- see graph_scene.cpp's to_question()).
     out << pad << "    loop_to=" << *question.loop_target << "\n";
   }
+  for (const std::string &flag : question.requires_flags) {
+    out << pad << "    requires=" << flag << "\n";
+  }
+  for (const std::string &flag : question.requires_not_flags) {
+    out << pad << "    requires_not=" << flag << "\n";
+  }
+  for (const std::string &flag : question.sets_flags) {
+    out << pad << "    sets=" << flag << "\n";
+  }
+  if (question.is_ending) {
+    out << pad << "    ending\n";
+  }
+  for (const std::string &line : question.ending_lines) {
+    out << pad << "    ending_text=" << line << "\n";
+  }
   for (const std::string &answer : question.answer_lines) {
     out << pad << "    answer=" << answer << "\n";
   }

@@ -88,6 +88,7 @@ constexpr f32 kDefaultLightIntensity = 0.85f;
 // Matches Builtin.RaymarchVoxelize.comp.glsl's push constant block.
 struct VoxelizePushConstants {
   i32 layer_count;
+  f32 max_smoothness; // See voxelize()'s own comment.
 };
 
 // Matches Builtin.ProbeBake.comp.glsl's push constant block.
@@ -231,10 +232,19 @@ struct GpuPrimitive {
   // left untouched for a volumetric, which never repeats, see
   // rebuild_static_scene() below); yzw = Geometry::repetition_cell.xyz.
   f32 repeat_mode_cell[4];
-  // Geometry::repetition_count.xyz; w unused padding, kept as a full vec4 so
-  // the std430 layout stays a whole number of vec4s on both sides, matching
-  // every other GPU-side struct here.
+  // xyz = Geometry::repetition_count.xyz. w = a conservative world-space
+  // bounding-sphere radius around position_type.xyz (or
+  // kUnboundedBoundingRadius -- see that constant's comment), computed by
+  // compute_bounding_radius() below and used by scene_map()'s cull_radius
+  // pre-check (Builtin.SdfSceneCommon.inc.glsl) to skip evaluating a
+  // primitive that plainly can't matter at a given sample point. Was
+  // unused padding before that field existed; repurposed rather than
+  // growing every GpuPrimitive by another vec4.
   f32 repeat_count[4];
+  // Domain deformation -- see Geometry::twist/bend/displace_amplitude/
+  // displace_frequency's comment. x = twist, y = bend, z =
+  // displace_amplitude, w = displace_frequency.
+  f32 deform[4];
 };
 
 // Matches the `Layer` struct in Builtin.RaymarchVoxelize.comp.glsl.
@@ -278,6 +288,148 @@ struct GpuParamExpr {
   f32 operand[kMaxExprInstructions]{};
   i32 instruction_count = 0;
 };
+
+// See GpuPrimitive::repeat_count's comment and Builtin.SdfSceneCommon.inc.
+// glsl's UNBOUNDED_BOUNDING_RADIUS, which this must exceed (both sides just
+// need it comfortably larger than any cull_radius voxelize()'s fine-sample
+// loop could plausibly pass, not literal infinity).
+constexpr f32 kUnboundedBoundingRadius = 1e8f;
+
+// A conservative world-space bounding-sphere radius, centered at
+// geometry.position, for scene_map()'s cull_radius pre-check (see
+// GpuPrimitive::repeat_count.w's comment) -- deliberately generous rather
+// than tight (e.g. a sphere enclosing a Box's corners, not its faces):
+// wrongly excluding a primitive that still mattered would leave a hole in
+// the baked surface, a far worse failure than an under-tight bound that
+// just culls slightly less aggressively than it could.
+//
+// Returns kUnboundedBoundingRadius (never cull) for:
+//  - a Plane, which has no finite extent at all;
+//  - a primitive with RepetitionMode::Infinite, likewise unbounded;
+//  - a primitive with any active parametric-attribute formula (see
+//    Geometry::param_expressions) -- a formula's actual runtime value can
+//    differ arbitrarily from params' plain-constant fallback (see
+//    resolve_params() in Builtin.SdfSceneCommon.inc.glsl), so no bound
+//    derived from that fallback would be safe.
+// Otherwise combines a per-type local bound (mirroring evaluate_shape()'s
+// dispatch in Builtin.SdfSceneCommon.inc.glsl -- params/extra_param have
+// the exact same per-type meaning there) with however much farther a
+// finite domain repetition (Limited/Rectangular) or displacement can push
+// the surface outward -- see the inline comments below for why Rotational
+// repetition and twist/bend need no such allowance.
+f32 compute_bounding_radius(const Geometry &geometry) {
+  if (geometry.type == PrimitiveType::Plane ||
+      geometry.repetition_mode == RepetitionMode::Infinite) {
+    return kUnboundedBoundingRadius;
+  }
+  for (const std::string &expr : geometry.param_expressions) {
+    if (!expr.empty()) {
+      return kUnboundedBoundingRadius;
+    }
+  }
+
+  const glm::vec3 &p = geometry.params;
+  f32 local_bound;
+  switch (geometry.type) {
+  case PrimitiveType::Sphere:
+    local_bound = p.x;
+    break;
+  case PrimitiveType::Box:
+    local_bound = glm::length(p);
+    break;
+  case PrimitiveType::Torus:
+    local_bound = p.x + p.y; // major_radius + minor_radius
+    break;
+  case PrimitiveType::CappedCylinder:
+    local_bound = glm::length(glm::vec2(p.x, p.y)); // radius, half_height
+    break;
+  case PrimitiveType::CappedCone:
+    // half_height=p.x, r1=p.y, r2=p.z
+    local_bound = glm::length(glm::vec2(std::max(p.y, p.z), p.x));
+    break;
+  case PrimitiveType::RoundBox:
+    local_bound = glm::length(p) + geometry.extra_param; // + corner_radius
+    break;
+  case PrimitiveType::BoxFrame:
+    // edge_thickness (extra_param) insets, never extends outward.
+    local_bound = glm::length(p);
+    break;
+  case PrimitiveType::Octahedron:
+    local_bound = p.x; // vertices sit exactly at distance s along each axis
+    break;
+  case PrimitiveType::Pyramid:
+    // Base is a fixed unit square (half-extent 0.5) at local y=0, apex at
+    // y=h -- see pyramid_sdf()'s own comment. 0.7071068 = the base's own
+    // half-diagonal (its corners' distance from the position/base-center
+    // origin) -- every point of a convex pyramid lies within the convex
+    // hull of its 4 base corners + apex, so the farther of these two
+    // bounds covers the whole shape.
+    local_bound = std::max(0.7071068f, p.x);
+    break;
+  case PrimitiveType::HexPrism:
+    // inradius=p.x, half_height=p.y; 1.1547005 = 2/sqrt(3), the
+    // inradius->circumradius factor for a regular hexagon.
+    local_bound = glm::length(glm::vec2(p.x * 1.1547005f, p.y));
+    break;
+  case PrimitiveType::RoundCone:
+    // r1=p.x, r2=p.y, half_height=p.z
+    local_bound = glm::length(glm::vec2(std::max(p.x, p.y), p.z));
+    break;
+  case PrimitiveType::Capsule:
+    local_bound = p.x + p.y; // radius + half_height
+    break;
+  case PrimitiveType::Link:
+    // half_length=p.x, r1=p.y, r2=p.z -- generous (sum, not the tighter
+    // achievable combination) is fine given this function's own bias.
+    local_bound = p.x + p.y + p.z;
+    break;
+  case PrimitiveType::Ellipsoid:
+    local_bound = std::max({p.x, p.y, p.z});
+    break;
+  default:
+    // Plane is handled (returned) above and never reaches here; a future
+    // PrimitiveType added without a case here falls back to this same
+    // generous Ellipsoid-style bound rather than failing to compile --
+    // less protective than an exhaustive switch, but a missing case here
+    // only costs cull effectiveness (worst case, that type is never
+    // culled), not correctness.
+    local_bound = std::max({p.x, p.y, p.z});
+    break;
+  }
+
+  // Domain repetition (see repeat_*() in Builtin.SdfSceneCommon.inc.glsl)
+  // spreads copies of the same local shape across a finite span -- widen
+  // the bound to cover the farthest copy's own reach, not just the
+  // original instance's. Infinite is handled (unbounded) above; None and
+  // Rotational need no widening at all -- rotating the sample point around
+  // the primitive's own local Y axis preserves its distance from the
+  // origin exactly (a rotation matrix, however parameter-dependent its
+  // angle, can't change a vector's length), so a rotationally-repeated
+  // instance never reaches farther than the unrepeated one.
+  f32 repeat_reach = 0.0f;
+  if (geometry.repetition_mode == RepetitionMode::Limited) {
+    glm::vec3 half_span =
+        glm::max(geometry.repetition_count - 1.0f, 0.0f) * 0.5f;
+    repeat_reach = glm::length(half_span * geometry.repetition_cell);
+  } else if (geometry.repetition_mode == RepetitionMode::Rectangular) {
+    // X/Z only -- see repeat_rectangular()'s own comment (Y is always left
+    // untouched by this mode).
+    glm::vec2 count_xz(geometry.repetition_count.x, geometry.repetition_count.z);
+    glm::vec2 cell_xz(geometry.repetition_cell.x, geometry.repetition_cell.z);
+    glm::vec2 half_span = glm::max(count_xz - 1.0f, 0.0f) * 0.5f;
+    repeat_reach = glm::length(half_span * cell_xz);
+  }
+
+  // Displacement (see evaluate_primitive_at()'s own comment in Builtin.
+  // SdfSceneCommon.inc.glsl) perturbs the returned distance directly, by
+  // up to +-displace_amplitude -- the true surface can sit that much
+  // farther out than the undisplaced shape. Twist/bend need no equivalent
+  // allowance: both warp the sample point by rotating two of its
+  // components (the rotation angle is parameter-dependent, but any
+  // rotation matrix preserves vector length), so neither can move a
+  // point's distance from the shape's own origin at all.
+  return local_bound + repeat_reach + std::abs(geometry.displace_amplitude);
+}
 } // namespace
 
 VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
@@ -1025,6 +1177,12 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   // primitives from the snapshot.
   u32 index = 0;
   u32 layer_count = std::min(static_cast<u32>(scene_layers.size()), kMaxLayers);
+  // Largest smoothness across every registered layer -- see voxelize()'s
+  // own comment for why the fine-sample loop's cull_radius needs this
+  // (a smooth blend can reach beyond either operand's own bounding
+  // sphere, by up to its smoothness, so cull_radius has to account for
+  // whichever layer blends the widest).
+  f32 max_smoothness = 0.0f;
   for (u32 layer_i = 0; layer_i < layer_count; ++layer_i) {
     u32 layer_start = index;
 
@@ -1077,7 +1235,12 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       prim.repeat_count[0] = geometry.repetition_count.x;
       prim.repeat_count[1] = geometry.repetition_count.y;
       prim.repeat_count[2] = geometry.repetition_count.z;
-      prim.repeat_count[3] = 0.0f;
+      prim.repeat_count[3] = compute_bounding_radius(geometry);
+
+      prim.deform[0] = geometry.twist;
+      prim.deform[1] = geometry.bend;
+      prim.deform[2] = geometry.displace_amplitude;
+      prim.deform[3] = geometry.displace_frequency;
 
       // Compile each slot's "parametric attribute" formula, if it has one
       // -- an empty string (the default) or a compile failure both just
@@ -1152,6 +1315,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     gpu_layer.op_smoothness[1] = scene_layers[layer_i].smoothness;
     gpu_layer.range[0] = static_cast<i32>(layer_start);
     gpu_layer.range[1] = static_cast<i32>(index - layer_start);
+    max_smoothness = std::max(max_smoothness, scene_layers[layer_i].smoothness);
   }
 
   // Volumetric "light shaft" primitives -- appended directly after every
@@ -1376,7 +1540,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   // overhead on top of its actual GPU work).
   auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
       *context_, context_->device.graphics_command_pool);
-  voxelize(*cmd, layer_count);
+  voxelize(*cmd, layer_count, max_smoothness);
   bake_probes(*cmd, static_cast<u32>(light_count_));
   VulkanCommandBuffer::end_single_use(*context_,
                                       context_->device.graphics_command_pool,
@@ -1483,7 +1647,8 @@ void record_compute_buffer_barriers(VkCommandBuffer cmd,
 }
 } // namespace
 
-void VulkanRaymarchShader::voxelize(VulkanCommandBuffer &cmd, u32 layer_count) {
+void VulkanRaymarchShader::voxelize(VulkanCommandBuffer &cmd, u32 layer_count,
+                                    f32 max_smoothness) {
   // Zero the brick allocation counter before the shader's atomicAdd calls.
   vkCmdFillBuffer(cmd.handle(), brick_counter_buffer_->handle(), 0,
                  sizeof(u32), 0);
@@ -1506,7 +1671,7 @@ void VulkanRaymarchShader::voxelize(VulkanCommandBuffer &cmd, u32 layer_count) {
                          voxelize_pipeline_->layout(), 0, 1, &voxelize_set_, 0,
                          nullptr);
 
-  VoxelizePushConstants push_constants{static_cast<i32>(layer_count)};
+  VoxelizePushConstants push_constants{static_cast<i32>(layer_count), max_smoothness};
   vkCmdPushConstants(cmd.handle(), voxelize_pipeline_->layout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0,
                     sizeof(VoxelizePushConstants), &push_constants);

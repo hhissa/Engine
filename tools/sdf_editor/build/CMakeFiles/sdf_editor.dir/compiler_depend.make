@@ -4312,6 +4312,7 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projects/Engine
   /usr/include/qt6/QtCore/QElapsedTimer \
   /usr/include/qt6/QtCore/QEvent \
   /usr/include/qt6/QtCore/QFileInfo \
+  /usr/include/qt6/QtCore/QItemSelectionModel \
   /usr/include/qt6/QtCore/QMargins \
   /usr/include/qt6/QtCore/QObject \
   /usr/include/qt6/QtCore/QPoint \
@@ -5772,6 +5773,8 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
 /usr/include/qt6/QtCore/qcalendar.h:
 
 /usr/include/qt6/QtCore/QSignalBlocker:
+
+/usr/include/qt6/QtCore/QItemSelectionModel:
 
 /usr/include/qt6/QtCore/QFileInfo:
 

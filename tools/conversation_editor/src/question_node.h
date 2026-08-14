@@ -83,6 +83,37 @@ public:
   QString tag() const { return tag_; }
   void set_tag(QString tag);
 
+  // Flag names this question requires set/unset before it's selectable at
+  // all in the game (see resources/conversation.h's `requires=`/
+  // `requires_not=` lines/ConversationQuestion::requires_flags/
+  // requires_not_flags) -- empty means unconditionally selectable, the
+  // common case. Same "stored for conversation_io.cpp, not painted on the
+  // node face" treatment as tag() above.
+  QStringList requires_flags() const { return requires_flags_; }
+  void set_requires_flags(QStringList flags);
+  QStringList requires_not_flags() const { return requires_not_flags_; }
+  void set_requires_not_flags(QStringList flags);
+
+  // Flag names set the instant this question is asked in-game (see
+  // `sets=`/ConversationQuestion::sets_flags).
+  QStringList sets_flags() const { return sets_flags_; }
+  void set_sets_flags(QStringList flags);
+
+  // Whether this question is a story ending (see the bare `ending` line/
+  // ConversationQuestion::is_ending).
+  bool is_ending() const { return is_ending_; }
+  void set_is_ending(bool is_ending);
+
+  // This ending's own outro text (see resources/conversation.h's
+  // `ending_text=` lines/ConversationQuestion::ending_lines) -- only
+  // meaningful when is_ending() is true, same as ending_text= itself is
+  // only meaningful alongside a bare `ending` line, but stored/settable
+  // regardless (nothing here enforces that pairing -- see conversation.h's
+  // own comment). Same "stored for conversation_io.cpp, not painted on the
+  // node face" treatment as answer_lines() above.
+  QStringList ending_lines() const { return ending_lines_; }
+  void set_ending_lines(QStringList lines);
+
   // Scene-space position of the midpoint of one of this box's four sides
   // (accounting for its current, content-dependent height) -- where a
   // ConnectionItem attached there actually starts/ends.
@@ -163,6 +194,11 @@ private:
   QString question_ = QStringLiteral("New question");
   QStringList answer_lines_;
   QString tag_;
+  QStringList requires_flags_;
+  QStringList requires_not_flags_;
+  QStringList sets_flags_;
+  bool is_ending_ = false;
+  QStringList ending_lines_;
 
   bool hovered_ = false;
   std::array<int, kSideCount> side_connection_count_{};

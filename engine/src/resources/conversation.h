@@ -102,6 +102,58 @@
 // it needs the id/ref structure to reconstruct the merge point rather than
 // flatten it away).
 //
+// A question can also require -- or forbid -- one or more flags being set
+// before it's even selectable, and can set flags of its own the instant
+// it's asked (the same "reaction shot" timing `tag=` already dispatches
+// on), so an earlier choice can gate, unlock, or hide a later question
+// instead of every question always being reachable:
+//
+//   question "Ask about the scar." {
+//       sets=AskedAboutScar
+//       answer=It's from a long time ago.
+//   }
+//
+//   question "Ask about it again." {
+//       requires=AskedAboutScar
+//       answer=I already told you.
+//   }
+//
+//   question "Ask about something else." {
+//       requires_not=AskedAboutScar
+//       answer=Sure, what do you want to know?
+//   }
+//
+// `requires=`/`requires_not=`/`sets=` may each appear more than once on the
+// same question (like `answer=`) -- `requires=`/`requires_not=` are AND-only
+// (every named flag must be set / every named flag must be unset for the
+// question to be selectable at all; there's no OR or nested expression
+// syntax), and a flag name is otherwise opaque to this parser, the same way
+// `tag=`'s name is -- whatever sets/checks it is content-defined, not
+// built in. A flag, once set, stays set for the rest of the conversation
+// (there's no `unsets=`).
+//
+// A question can also be marked as an ending -- a bare `ending` line (no
+// `=`, no value) instead of a `key=value` line, optionally paired with one
+// or more `ending_text=` lines (same repeatable, one-per-line convention as
+// `answer=`) giving that specific ending its own outro text:
+//
+//   question "Walk away." {
+//       requires=AskedAboutScar
+//       answer=You leave without another word.
+//       ending
+//       ending_text=You never come back.
+//       ending_text=Some things are better left unsaid.
+//   }
+//
+// Reaching an ending question (see ConversationQuestion::is_ending) means
+// something distinct from an ordinary leaf running out of follow-ups --
+// this parser only records the marker and ending_lines; a dialogue system
+// (see SH's QASystem::update()) decides what actually happens once one is
+// reached, e.g. displaying ending_lines on its own outro screen instead of
+// a single generic message shared by every ending. `ending_text=` with no
+// `ending` marker on the same question is accepted but meaningless (no
+// consumer looks at it unless is_ending is also true).
+//
 // A question further down the chain can also *loop back* to an
 // already-authored question instead of leading further down or dead-ending
 // -- e.g. a "Let's go back to that" option that returns the player to an
@@ -170,6 +222,25 @@ struct ConversationQuestion {
   // (never expanded/copied) by resolve_shared_questions(), unlike
   // question_ref= stand-ins -- see that function's own comment.
   std::optional<std::string> loop_target;
+
+  // Flag names this question requires to be set (requires_flags) or unset
+  // (requires_not_flags) before it's selectable at all -- see the file
+  // format comment above. Empty means unconditionally selectable (the
+  // common case). AND-only: every named flag must match for the question
+  // to be visible.
+  std::vector<std::string> requires_flags;
+  std::vector<std::string> requires_not_flags;
+  // Flag names set (permanently, for the rest of the conversation) the
+  // instant this question is asked -- see the file format comment above.
+  std::vector<std::string> sets_flags;
+  // True if this question was written with a bare `ending` line -- see the
+  // file format comment above.
+  bool is_ending = false;
+  // This ending's own outro text, one element per `ending_text=` line, in
+  // file order -- see the file format comment above. Empty unless the
+  // question has at least one `ending_text=` line, regardless of is_ending
+  // (a consumer should only look at this when is_ending is also true).
+  std::vector<std::string> ending_lines;
 };
 
 struct Conversation {

@@ -150,6 +150,26 @@ void QuestionNode::set_tag(QString tag) {
   tag_ = std::move(tag);
 }
 
+void QuestionNode::set_requires_flags(QStringList flags) {
+  requires_flags_ = std::move(flags); // same "not painted" treatment as tag_
+}
+
+void QuestionNode::set_requires_not_flags(QStringList flags) {
+  requires_not_flags_ = std::move(flags);
+}
+
+void QuestionNode::set_sets_flags(QStringList flags) {
+  sets_flags_ = std::move(flags);
+}
+
+void QuestionNode::set_is_ending(bool is_ending) {
+  is_ending_ = is_ending;
+}
+
+void QuestionNode::set_ending_lines(QStringList lines) {
+  ending_lines_ = std::move(lines);
+}
+
 QPointF QuestionNode::side_local_pos(Side side) const {
   qreal h = content_height();
   switch (side) {
