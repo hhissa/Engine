@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts300_to+040+000+000_tr+0000
+diffuse_colour=1 1 1 1
+texture_scale=3
+texture_offset=0.4 0 0

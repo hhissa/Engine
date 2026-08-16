@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts090_dark_brown_wood_texture_background_with_design_space
+diffuse_colour=1 1 1 1
+texture_scale=0.9
+diffuse_map_name=dark_brown_wood_texture_background_with_design_space
