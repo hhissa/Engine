@@ -34,16 +34,9 @@
 // One invocation per probe (PROBE_DIM^3 total).
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
-// Must match COARSE_DIM/BRICK_DIM/BOUNDS etc. in Builtin.RaymarchShader.
-// comp.glsl/Builtin.RaymarchVoxelize.comp.glsl exactly -- these describe
-// the baked field this pass marches gather rays against, not this pass's
-// own probe grid (see PROBE_DIM below for that).
-const int COARSE_DIM = 128;
-const int BRICK_DIM = 8;
-const int BRICK_APRON_DIM = BRICK_DIM + 2;
-const int BRICK_VOXEL_COUNT = BRICK_APRON_DIM * BRICK_APRON_DIM * BRICK_APRON_DIM;
-const float BOUNDS = 16.0;
-const float COARSE_CELL_SIZE = (2.0 * BOUNDS) / float(COARSE_DIM);
+// Describes the baked field this pass marches gather rays against, not this
+// pass's own probe grid (see PROBE_DIM below for that).
+#include "Builtin.SdfFieldConfig.inc.glsl"
 // Gather rays use a coarser hit tolerance and a shorter march cap than the
 // primary camera ray (MAX_DIST=128/SURF_DIST=0.001 in the render pass): GI
 // doesn't need pixel-precision convergence, and a gather ray only ever

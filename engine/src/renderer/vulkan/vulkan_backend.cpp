@@ -348,6 +348,8 @@ void VulkanRendererBackend::on_resized(u16 width, u16 height) {
 b8 VulkanRendererBackend::begin_frame(f32 delta_time) {
   VulkanDevice &device = context_.device;
 
+  maybe_recenter_origin();
+
   // A batch of scene mutations (load_scene()/translate_scene()/etc. -- see
   // scene_dirty_'s comment) may have piled up since the last frame; rebake
   // at most once here rather than once per call.
@@ -416,6 +418,22 @@ b8 VulkanRendererBackend::begin_frame(f32 delta_time) {
       context_.graphics_command_buffers[context_.image_index].get();
   command_buffer->reset();
   command_buffer->begin(FALSE, FALSE, FALSE);
+
+  // Phase 3b: camera-driven chunk streaming, budgeted into this same
+  // frame's command buffer -- see VulkanRaymarchShader::update_streaming()'s
+  // own comment for why this replaces rebake()'s vkDeviceWaitIdle for the
+  // chunked field instead of stalling. A no-op call (cheap: just
+  // tick()+update() with an empty Plan) whenever nothing needs loading/
+  // evicting this frame, so this is safe to call unconditionally every
+  // frame regardless of scene_dirty_ above.
+  context_.raymarch_shader->update_streaming(*command_buffer, camera_.position());
+
+  // Phase 5: cascade GI recenter/rebake, recorded AFTER update_streaming()
+  // above -- a cascade bake gathers against the chunked field, so it must
+  // see this frame's chunk load/evict budget already recorded (same
+  // ordering reasoning as update_gi_cascade()'s own comment). A no-op call
+  // most frames, same as update_streaming() above.
+  context_.raymarch_shader->update_gi_cascade(*command_buffer, camera_.position());
 
   // Dynamic state
   VkViewport viewport{};
@@ -515,6 +533,10 @@ void VulkanRendererBackend::translate_scene(SceneHandle handle,
     } else {
       geometry->position += delta;
     }
+    // See GeometrySystem::mark_dirty()'s comment -- a mutation made through
+    // find()'s returned pointer, like this one, is invisible to
+    // GeometrySystem unless the caller (here) reports it explicitly.
+    context_.geometry_system->mark_dirty(name);
   }
   for (const std::string &name : it->second.volumetric_names) {
     Volumetric *volumetric = context_.geometry_system->find_volumetric(name);
@@ -571,6 +593,7 @@ void VulkanRendererBackend::rotate_scene(SceneHandle handle,
     geometry->position = scene_rotation * geometry->position;
     geometry->rotation =
         glm::eulerAngles(scene_rotation * glm::quat(geometry->rotation));
+    context_.geometry_system->mark_dirty(name);
   }
   for (const std::string &name : it->second.volumetric_names) {
     Volumetric *volumetric = context_.geometry_system->find_volumetric(name);
@@ -667,6 +690,7 @@ void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
     // no equivalent line here: an angle is scale-invariant.
     geometry->texture_offset_scale *= factor;
 
+    context_.geometry_system->mark_dirty(name);
     touched_layers.insert(geometry->layer);
   }
   for (const std::string &name : it->second.volumetric_names) {
@@ -789,6 +813,10 @@ void VulkanRendererBackend::set_grid_visible(b8 visible) {
   context_.raymarch_shader->set_grid_visible(visible);
 }
 
+void VulkanRendererBackend::set_chunked_field_enabled(b8 enabled) {
+  context_.raymarch_shader->set_chunked_field_enabled(enabled);
+}
+
 void VulkanRendererBackend::set_bloom_enabled(b8 enabled) {
   context_.raymarch_shader->set_bloom_enabled(enabled);
 }
@@ -835,6 +863,53 @@ void VulkanRendererBackend::set_skybox(std::string_view texture_name) {
 
 void VulkanRendererBackend::disable_skybox() {
   context_.raymarch_shader->disable_skybox();
+}
+
+void VulkanRendererBackend::set_floating_origin_enabled(b8 enabled) {
+  floating_origin_enabled_ = enabled;
+}
+
+glm::vec3 VulkanRendererBackend::consume_origin_shift() {
+  glm::vec3 shift = pending_origin_shift_;
+  pending_origin_shift_ = glm::vec3(0.0f);
+  return shift;
+}
+
+void VulkanRendererBackend::maybe_recenter_origin() {
+  if (!floating_origin_enabled_) {
+    return;
+  }
+
+  glm::vec3 camera_pos = camera_.position();
+  if (glm::length(camera_pos) < floating_origin_recenter_threshold_) {
+    return;
+  }
+
+  // Every render-space position moves by -camera_pos, so the camera itself
+  // lands exactly at the render-space origin (where the baked field's fixed
+  // [-BOUNDS,BOUNDS] cube is centered); world_origin_offset_ absorbs the
+  // opposite correction so render_space + world_origin_offset_ (the true
+  // absolute position) is unchanged for everything shifted -- a pure change
+  // of representation, not a real move.
+  glm::vec3 shift = -camera_pos;
+  context_.geometry_system->shift_all(shift);
+  camera_.shift(shift);
+  world_origin_offset_ -= glm::dvec3(camera_pos);
+  pending_origin_shift_ += shift;
+
+  KINFO("Floating origin recenter: render space shifted by ({}, {}, {}) "
+       "(camera had drifted {} units from origin).",
+       shift.x, shift.y, shift.z, glm::length(camera_pos));
+
+  // Today's baked field is one fixed-position [-BOUNDS,BOUNDS] cube in
+  // render space (see Builtin.RaymarchVoxelize.comp.glsl) -- its already-
+  // baked brick contents are tied to every primitive's *old* render-space
+  // position, so (unlike the per-chunk field a later phase introduces,
+  // where a resident chunk's baked content is translation-invariant and
+  // only its placement metadata needs updating) this recenter needs an
+  // ordinary full rebake, exactly like any other scene edit, to re-bake the
+  // field against everyone's new render-space positions.
+  scene_dirty_ = true;
 }
 
 b8 VulkanRendererBackend::end_frame(f32 delta_time) {

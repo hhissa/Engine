@@ -37,6 +37,33 @@ const float COARSE_CELL_SIZE = (2.0 * BOUNDS) / float(COARSE_DIM);
 const int CHUNK_COARSE_DIM = 16;
 const int CHUNK_CELL_COUNT = CHUNK_COARSE_DIM * CHUNK_COARSE_DIM * CHUNK_COARSE_DIM;
 const float CHUNK_WORLD_SIZE = float(CHUNK_COARSE_DIM) * COARSE_CELL_SIZE;
+
+// A chunk's own brick resolution -- deliberately NOT BRICK_DIM above, even
+// though every level uses the SAME cell layout otherwise. Every clip level
+// shares this one value, but a level's own cell (chunk_level_world_size(
+// level)/CHUNK_COARSE_DIM) grows 2x per level while this doesn't -- so a
+// coarse level's voxel_size (cell_size/CHUNK_BRICK_DIM) grows right along
+// with it, e.g. level 4 at kNumLevels=5 has cell_size=4.0 -> voxel_size=
+// 4.0/8=0.5 at the OLD BRICK_DIM=8. A primitive thinner than that spacing
+// (routine for architectural detail -- thin walls, panels, a repeated
+// ceiling's own ridges) doesn't just render blocky there, it can fail to
+// show a surface crossing between adjacent voxel samples AT ALL, reading
+// as the geometry going missing/losing hits specifically as the camera
+// moves far enough that it falls under a coarser level's responsibility --
+// a real, reported symptom, not a hypothetical one. Doubled to 16 here
+// (voxel_size=4.0/16=0.25 at that same level 4, matching the fixed-cube
+// field's own uniform resolution) so every level -- especially the
+// coarser ones this problem is specific to -- stays fine enough for
+// ordinary architectural-scale detail. Kept as its OWN constant (not
+// raising BRICK_DIM itself) so the fixed-cube field sdf_editor's
+// synchronous-authoring fallback and every game rely on keeps its
+// existing memory footprint exactly -- only the chunked field's own
+// separate brick pool (chunk_brick_pool_buffer_ engine-side) pays for
+// this. Must match kChunkBrickDim in vulkan_raymarch_shader.cpp exactly.
+const int CHUNK_BRICK_DIM = 16;
+const int CHUNK_BRICK_APRON_DIM = CHUNK_BRICK_DIM + 2;
+const int CHUNK_BRICK_VOXEL_COUNT =
+    CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM;
 // The toroidal chunk-lookup table's side length (see ChunkTableBuffer,
 // Builtin.ChunkedFieldCommon.inc.glsl) -- CHUNK_TABLE_DIM^3 total slots,
 // each holding either -1 (no resident chunk) or the gpu_slot of whichever

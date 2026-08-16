@@ -2,6 +2,9 @@
 #include "../core/logger.h"
 #include "../resources/sdf_scene.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace {
 PrimitiveType to_primitive_type(SdfPrimitiveType type) {
   switch (type) {
@@ -103,6 +106,153 @@ GeometryConfig GeometryConfig::plane(std::string name, f32 height,
   return config;
 }
 
+f32 geometry_bounding_radius(const Geometry &geometry) noexcept {
+  if (geometry.type == PrimitiveType::Plane ||
+      geometry.repetition_mode == RepetitionMode::Infinite) {
+    return kUnboundedBoundingRadius;
+  }
+  for (const std::string &expr : geometry.param_expressions) {
+    if (!expr.empty()) {
+      return kUnboundedBoundingRadius;
+    }
+  }
+
+  const glm::vec3 &p = geometry.params;
+  f32 local_bound;
+  switch (geometry.type) {
+  case PrimitiveType::Sphere:
+    local_bound = p.x;
+    break;
+  case PrimitiveType::Box:
+    local_bound = glm::length(p);
+    break;
+  case PrimitiveType::Torus:
+    local_bound = p.x + p.y; // major_radius + minor_radius
+    break;
+  case PrimitiveType::CappedCylinder:
+    local_bound = glm::length(glm::vec2(p.x, p.y)); // radius, half_height
+    break;
+  case PrimitiveType::CappedCone:
+    // half_height=p.x, r1=p.y, r2=p.z
+    local_bound = glm::length(glm::vec2(std::max(p.y, p.z), p.x));
+    break;
+  case PrimitiveType::RoundBox:
+    local_bound = glm::length(p) + geometry.extra_param; // + corner_radius
+    break;
+  case PrimitiveType::BoxFrame:
+    // edge_thickness (extra_param) insets, never extends outward.
+    local_bound = glm::length(p);
+    break;
+  case PrimitiveType::Octahedron:
+    local_bound = p.x; // vertices sit exactly at distance s along each axis
+    break;
+  case PrimitiveType::Pyramid: {
+    // Base is a square of half-extent p.y at local y=0 (0 or unset ->
+    // 0.5, the old hardcoded value, for scenes saved before this param
+    // existed -- see pyramid_sdf()'s own fallback in Builtin.
+    // SdfSceneCommon.inc.glsl), apex at y=h=p.x. 1.4142136 = sqrt(2), the
+    // half-diagonal-to-half-extent ratio for a square (its corners'
+    // distance from the position/base-center origin) -- every point of a
+    // convex pyramid lies within the convex hull of its 4 base corners +
+    // apex, so the farther of these two bounds covers the whole shape.
+    f32 base_half_extent = p.y > 0.0f ? p.y : 0.5f;
+    local_bound = std::max(base_half_extent * 1.4142136f, p.x);
+    break;
+  }
+  case PrimitiveType::HexPrism:
+    // inradius=p.x, half_height=p.y; 1.1547005 = 2/sqrt(3), the
+    // inradius->circumradius factor for a regular hexagon.
+    local_bound = glm::length(glm::vec2(p.x * 1.1547005f, p.y));
+    break;
+  case PrimitiveType::RoundCone:
+    // r1=p.x, r2=p.y, half_height=p.z
+    local_bound = glm::length(glm::vec2(std::max(p.x, p.y), p.z));
+    break;
+  case PrimitiveType::Capsule:
+    local_bound = p.x + p.y; // radius + half_height
+    break;
+  case PrimitiveType::Link:
+    // half_length=p.x, r1=p.y, r2=p.z -- generous (sum, not the tighter
+    // achievable combination) is fine given this function's own bias.
+    local_bound = p.x + p.y + p.z;
+    break;
+  case PrimitiveType::Ellipsoid:
+    local_bound = std::max({p.x, p.y, p.z});
+    break;
+  default:
+    // Plane is handled (returned) above and never reaches here; a future
+    // PrimitiveType added without a case here falls back to this same
+    // generous Ellipsoid-style bound rather than failing to compile --
+    // less protective than an exhaustive switch, but a missing case here
+    // only costs cull effectiveness (worst case, that type is never
+    // culled), not correctness.
+    local_bound = std::max({p.x, p.y, p.z});
+    break;
+  }
+
+  // Domain repetition (see repeat_*() in Builtin.SdfSceneCommon.inc.glsl)
+  // spreads copies of the same local shape across a finite span -- widen
+  // the bound to cover the farthest copy's own reach, not just the
+  // original instance's. Infinite is handled (unbounded) above; None and
+  // Rotational need no widening at all -- rotating the sample point around
+  // the primitive's own local Y axis preserves its distance from the
+  // origin exactly (a rotation matrix, however parameter-dependent its
+  // angle, can't change a vector's length), so a rotationally-repeated
+  // instance never reaches farther than the unrepeated one.
+  f32 repeat_reach = 0.0f;
+  if (geometry.repetition_mode == RepetitionMode::Limited) {
+    glm::vec3 half_span =
+        glm::max(geometry.repetition_count - 1.0f, 0.0f) * 0.5f;
+    repeat_reach = glm::length(half_span * geometry.repetition_cell);
+  } else if (geometry.repetition_mode == RepetitionMode::Rectangular) {
+    // X/Z only -- see repeat_rectangular()'s own comment (Y is always left
+    // untouched by this mode).
+    glm::vec2 count_xz(geometry.repetition_count.x, geometry.repetition_count.z);
+    glm::vec2 cell_xz(geometry.repetition_cell.x, geometry.repetition_cell.z);
+    glm::vec2 half_span = glm::max(count_xz - 1.0f, 0.0f) * 0.5f;
+    repeat_reach = glm::length(half_span * cell_xz);
+  }
+
+  // Displacement (see evaluate_primitive_at()'s own comment in Builtin.
+  // SdfSceneCommon.inc.glsl) perturbs the returned distance directly, by
+  // up to +-displace_amplitude -- the true surface can sit that much
+  // farther out than the undisplaced shape. Twist/bend need no equivalent
+  // allowance: both warp the sample point by rotating two of its
+  // components (the rotation angle is parameter-dependent, but any
+  // rotation matrix preserves vector length), so neither can move a
+  // point's distance from the shape's own origin at all.
+  return local_bound + repeat_reach + std::abs(geometry.displace_amplitude);
+}
+
+std::vector<ChunkKey> chunks_touched_by(const Geometry &geometry,
+                                        f32 chunk_size) {
+  std::vector<ChunkKey> touched;
+  if (chunk_size <= 0.0f) {
+    return touched;
+  }
+  f32 radius = geometry_bounding_radius(geometry);
+  if (radius >= kUnboundedBoundingRadius) {
+    return touched;
+  }
+
+  glm::vec3 min_corner = geometry.position - glm::vec3(radius);
+  glm::vec3 max_corner = geometry.position + glm::vec3(radius);
+  glm::ivec3 min_chunk(glm::floor(min_corner / chunk_size));
+  glm::ivec3 max_chunk(glm::floor(max_corner / chunk_size));
+
+  touched.reserve(static_cast<size_t>(max_chunk.x - min_chunk.x + 1) *
+                  (max_chunk.y - min_chunk.y + 1) *
+                  (max_chunk.z - min_chunk.z + 1));
+  for (i32 cz = min_chunk.z; cz <= max_chunk.z; ++cz) {
+    for (i32 cy = min_chunk.y; cy <= max_chunk.y; ++cy) {
+      for (i32 cx = min_chunk.x; cx <= max_chunk.x; ++cx) {
+        touched.push_back(ChunkKey{0, cx, cy, cz});
+      }
+    }
+  }
+  return touched;
+}
+
 GeometrySystem::GeometrySystem(MaterialSystem &material_system)
     : material_system_(&material_system) {}
 
@@ -131,6 +281,7 @@ Geometry &GeometrySystem::acquire(const GeometryConfig &config,
     geometry.material_name = config.material_name;
     geometry.material = &material_system_->acquire(config.material_name, true);
     entry.geometry = std::move(geometry);
+    mark_dirty(config.name);
 
     KTRACE("Geometry '{}' registered.", config.name);
   }
@@ -160,6 +311,7 @@ void GeometrySystem::release(std::string_view name) {
         layer_ref_counts_[layer] > 0) {
       --layer_ref_counts_[layer];
     }
+    mark_dirty(name);
     geometries_.erase(it);
   }
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../systems/chunk_streaming_manager.h"
 #include "../../camera.h"
 #include "../vulkan_buffer.h"
 #include "../vulkan_compute_pipeline.h"
@@ -117,6 +118,32 @@ public:
   // dispatch could still be reading them.
   void rebake();
 
+  // Phase 3b: the camera-driven streaming entry point -- call once per
+  // frame (see VulkanRendererBackend::begin_frame(), right after
+  // maybe_recenter_origin(), before render_to()) with the camera's current
+  // render-space position. Drives chunk_streaming_ (tick() + update()),
+  // then records up to kMaxChunkBakesPerFrame voxelize_chunk() calls and
+  // up to kMaxChunkBakesPerFrame evict_chunk() calls into cmd for whatever
+  // ChunkStreamingManager decided this frame -- bounded per frame so this
+  // never becomes a rebake()-style device-idle stall, unlike
+  // rebuild_static_scene()'s voxelize()/bake_probes() path (which
+  // rebake_synchronous_full()/sdf_editor still use unchanged). A no-op if
+  // nothing needs loading or evicting this frame (the common case once the
+  // camera settles).
+  void update_streaming(VulkanCommandBuffer &cmd, glm::vec3 camera_pos);
+
+  // Phase 5: recenters gi_cascade_center_ (in discrete whole-cell steps,
+  // classic terrain-clipmap texture behavior -- see
+  // kGiCascadeRecenterThreshold's comment, .cpp) if the camera has drifted
+  // far enough from it, and if so records a full bake_gi_cascade() (every
+  // bounce) into cmd for the new center. Call once per frame, right after
+  // update_streaming() (a cascade bake gathers against the chunked field,
+  // so it must be recorded after that frame's chunk load/evict budget --
+  // see this method's .cpp comment). A no-op most frames (the cascade only
+  // needs to move every kGiCascadeRecenterThreshold world units of camera
+  // travel, not every frame).
+  void update_gi_cascade(VulkanCommandBuffer &cmd, glm::vec3 camera_pos);
+
   // Marks which scene_textures/scene_diffuse_colours index (see
   // rebuild_static_scene() below) render_to() should draw a selection
   // outline around, or -1 for none. Just a push constant, applied the very
@@ -148,6 +175,20 @@ public:
   // render_to() call. Hidden by default -- it's an editor aid, so games
   // never see it unless they opt in; tools/sdf_editor turns it on.
   void set_grid_visible(b8 visible) noexcept { grid_visible_ = visible; }
+
+  // Phase 4: switches render_to()'s primary hit-test/normals/contact-AO/
+  // shadows (see Builtin.RaymarchShader.comp.glsl's sample_active_field()/
+  // chunked_shadow_march()) from the fixed-cube field every caller has
+  // always used onto the chunked/streamed field (see update_streaming(),
+  // reset_chunked_field()) instead. Just a push constant, takes effect the
+  // very next render_to() call, no rebake needed. Off by default -- so
+  // tools/sdf_editor and games/SH are completely unaffected unless a
+  // caller explicitly opts in (a game that actually wants to free-roam
+  // through a streamed world, once update_streaming() is being driven by
+  // its camera every frame -- see VulkanRendererBackend::begin_frame()).
+  void set_chunked_field_enabled(b8 enabled) noexcept {
+    chunked_field_enabled_ = enabled;
+  }
 
   // Enables/disables the bloom post-process (see the class comment's pass
   // 4 section). Just a push constant read by Builtin.PostComposite.
@@ -308,6 +349,162 @@ private:
   // submission's wait, not from inside voxelize().
   void check_brick_overflow();
 
+  // --- Chunked field (Phase 3a of the clipmap streaming work -- see
+  // ChunkKey/ChunkRecord, engine/src/systems/chunk_types.h). Deliberately
+  // NOT wired into rebuild_static_scene()/render_to() yet (a later phase's
+  // ChunkStreamingManager does that) -- these exist purely to prove the new
+  // chunk-addressed GPU scheme (toroidal chunk table -> per-chunk
+  // indirection sub-block -> shared brick pool via a free-list allocator)
+  // in isolation, on buffers fully separate from the working fixed-cube
+  // field above, before anything depends on it. ---
+
+  // Resets the chunked field to empty: fills chunk_table_buffer_ with -1
+  // (no chunk resident anywhere) and re-seeds chunk_brick_free_list_buffer_/
+  // chunk_brick_free_list_top_buffer_ to a full free pool ([0, 1, ...,
+  // kMaxChunkBricks-1], top = kMaxChunkBricks). Called once from the
+  // constructor; a later phase's ChunkStreamingManager calls this whenever
+  // it wants to discard every resident chunk (e.g. a floating-origin
+  // recenter large enough to invalidate the whole window).
+  void reset_chunked_field();
+
+  // Assigns world_chunk_coord to gpu_slot in the toroidal chunk table
+  // (see Builtin.ChunkedFieldCommon.inc.glsl's floor_mod3()) and records a
+  // Builtin.ChunkVoxelize.comp.glsl dispatch into cmd that bakes exactly
+  // that chunk's CHUNK_COARSE_DIM^3 cells into gpu_slot's indirection
+  // sub-block, reading the SAME currently-uploaded primitive_buffer_/
+  // layer_buffer_/param_expr_buffer_ the fixed-cube voxelizer reads (see
+  // this method's .cpp comment for why sharing those specific three is
+  // safe). Does not allocate/submit cmd itself, matching voxelize()'s own
+  // convention -- callers batch multiple chunk bakes into one command
+  // buffer/submission the same way rebuild_static_scene() does for
+  // voxelize()+bake_probes().
+  // level selects the clip level (0 = finest -- see chunk_level_world_size()
+  // .cpp) this chunk belongs to, both for sizing (a higher level's chunk
+  // covers more world space per cell) and for which of chunk_table_buffer_'s
+  // per-level sub-ranges gets the table write.
+  void voxelize_chunk(VulkanCommandBuffer &cmd, glm::ivec3 world_chunk_coord,
+                      u32 level, u32 gpu_slot, u32 layer_count,
+                      f32 max_smoothness);
+
+  // Records a single Builtin.ChunkedFieldDebugQuery.comp.glsl dispatch
+  // (one invocation, one sample_chunked_field() call at query_world_pos)
+  // into cmd, writing its result to chunk_debug_query_output_buffer_ for
+  // the caller to read back once cmd's submission has finished -- see
+  // debug_verify_chunked_field() below, this method's only real caller.
+  void query_chunked_field(VulkanCommandBuffer &cmd, glm::vec3 query_world_pos);
+
+  // Like query_chunked_field() above, but dispatches sample_clipmap_field()
+  // (multi-level selection) instead of the level-0-only sample_chunked_
+  // field() -- see debug_verify_multi_level_field(), this method's only
+  // real caller.
+  void query_clipmap_field(VulkanCommandBuffer &cmd, glm::vec3 query_world_pos,
+                           glm::vec3 camera_pos);
+
+  // Clears world_chunk_coord's entry out of the toroidal chunk table (CPU
+  // side, host-visible write -- mirrors voxelize_chunk()'s own table
+  // write, just to -1 instead of a slot) and records a Builtin.ChunkEvict.
+  // comp.glsl dispatch into cmd that frees gpu_slot's bricks back onto the
+  // shared free-list and clears its indirection sub-block -- the GPU-side
+  // half of ChunkStreamingManager::commit_evict(). The table write must
+  // happen here (not left to the caller): sample_chunked_field() resolves
+  // a query through the table *before* ever touching the indirection
+  // buffer, so leaving a stale table entry pointing at gpu_slot would
+  // silently resolve future queries to whatever unrelated chunk reuses
+  // that slot next, rather than "no chunk resident" -- exactly the class
+  // of bug this method exists to make impossible to forget. Caller
+  // (update_streaming()) owns the ring-delay that makes calling this safe.
+  // level must be the same clip level world_chunk_coord/gpu_slot were
+  // originally voxelize_chunk()'d with.
+  void evict_chunk(VulkanCommandBuffer &cmd, glm::ivec3 world_chunk_coord,
+                   u32 level, u32 gpu_slot);
+
+  // Phase 5: records kProbeBounceCount Builtin.ChunkProbeBake.comp.glsl
+  // dispatches into cmd, gathering around gi_cascade_center_ -- mirrors
+  // bake_probes()'s ping-pong bounce loop exactly (see its own comment),
+  // just targeting chunk_gi_probe_buffer_a_/_b_ and reading the chunked
+  // field instead. Only called by update_gi_cascade(), which owns deciding
+  // *when* a recenter (and therefore a rebake) is actually due.
+  void bake_gi_cascade(VulkanCommandBuffer &cmd, u32 light_count);
+
+  // One-shot, self-contained correctness check for the chunked field
+  // introduced above: uploads a single hand-placed test sphere directly
+  // into primitive_buffer_/layer_buffer_ (bypassing GeometrySystem
+  // entirely, since nothing may be registered yet this early), bakes the
+  // one chunk it lives in, then queries three points with independently,
+  // analytically hand-computed expected results (two points exactly on the
+  // sphere's surface, in different baked cells, and a point in a chunk
+  // that was never baked at all) and KERRORs on any mismatch, KINFOs on
+  // success. A live visual render isn't a reliable verification signal in
+  // this engine's actual target/test environments, so this buffer-level
+  // check is deliberately the primary one -- see this method's .cpp
+  // comment for the exact expected values, tolerance, and why the query
+  // points are exactly on the surface rather than merely near it. Not
+  // currently called by anything (Phase 3a verified it once, by hand, then
+  // removed the constructor's call to avoid paying this on every real
+  // startup) -- kept as a diagnostic a later phase can re-invoke on demand
+  // if this path's behavior is ever in doubt again.
+  void debug_verify_chunked_field();
+
+  // Phase 4 sibling of debug_verify_chunked_field() above: bakes one test
+  // sphere in a level-0 chunk and a second, independent test sphere in a
+  // level-1 chunk that's outside level 0's streaming window but inside
+  // level 1's, then queries via sample_clipmap_field() (not sample_
+  // chunked_field()) to confirm level selection actually falls through to
+  // level 1 for the second point instead of incorrectly reporting "empty"
+  // from level 0's failed lookup. Same one-shot, KERROR-on-mismatch/
+  // KINFO-on-success contract, same "not currently called by anything"
+  // status as debug_verify_chunked_field() -- see its own comment.
+  void debug_verify_multi_level_field();
+
+  // Regression test for the kNumLevels=3->5 fix (see kNumLevels's own
+  // comment): bakes one test sphere 40 units from the origin, in a chunk
+  // only level 3 or 4's streaming window reaches (levels 0-2 alone, the old
+  // config, could not) and queries it via sample_clipmap_field() to confirm
+  // the field's camera-relative reach actually extends past ~32 units now,
+  // not just that levels 3/4 exist and compile. Same one-shot, KERROR-on-
+  // mismatch/KINFO-on-success, "not currently called by anything" contract
+  // as debug_verify_chunked_field()/debug_verify_multi_level_field() above.
+  void debug_verify_extended_range_field();
+
+  // Regression test for update_streaming()'s dirty-chunk force-eviction fix
+  // (see its own comment) -- the actual bug report this fixes: sdf_editor's
+  // scene renders fine on first load but stops reflecting further edits
+  // while the camera stays put, because an already-Ready chunk was never
+  // re-baked just because the primitives inside it changed. Simulates
+  // several real frames via single-use command buffers (submitted and
+  // waited on synchronously, so ChunkStreamingManager's ring-delay advances
+  // exactly like live frames would) rather than a one-shot dispatch, since
+  // this bug is inherently about state that only resolves across several
+  // frames. Same one-shot, KERROR-on-mismatch/KINFO-on-success, "not
+  // currently called by anything" contract as the debug_verify_* methods
+  // above.
+  void debug_verify_dirty_rebake();
+
+  // Regression test for sample_clipmap_field()'s LOD cross-fade blend --
+  // bakes a level-0 chunk and its level-1 neighbor with deliberately
+  // different, precisely known values, then queries a point placed exactly
+  // in the middle of the blend zone and confirms the result is a genuine
+  // mix of both, not a hard cutoff to either side. Only meaningful with
+  // LOD_BLEND_FRACTION > 0 in Builtin.ChunkedFieldCommon.inc.glsl -- that
+  // constant now defaults to 0 (blending disabled) after a live editor
+  // test showed it corrupting fine repeated detail against a coarser
+  // level's under-resolved voxels (see its own comment for the full
+  // reasoning); with the default, this test correctly reports level 0's
+  // pure value and FAILs its own blended-value check, which is expected,
+  // not a regression. Same one-shot, KERROR-on-mismatch/KINFO-on-success,
+  // "not currently called by anything" contract as the debug_verify_*
+  // methods above.
+  void debug_verify_lod_blend();
+
+  // Regression test for kChunkBrickDim's fix (see its own comment) -- the
+  // actual reported bug: a primitive thinner than a coarse level's own
+  // voxel spacing can lose its surface crossing entirely between adjacent
+  // samples. Bakes a thin box at the coarsest clip level and queries
+  // exactly at its center, where the analytic answer is exactly known.
+  // Same one-shot, KERROR-on-mismatch/KINFO-on-success, "not currently
+  // called by anything" contract as the debug_verify_* methods above.
+  void debug_verify_thin_geometry_at_coarse_level();
+
   // Records the probe-bake (pass 2) compute dispatches -- kProbeBounceCount
   // of them, one per light bounce -- into cmd (does not allocate or submit
   // it; see voxelize()'s comment above for why). Alternates between
@@ -348,6 +545,119 @@ private:
   std::optional<VulkanBuffer> indirection_buffer_;
   std::optional<VulkanBuffer> brick_pool_buffer_;
   std::optional<VulkanBuffer> brick_counter_buffer_;
+
+  // --- Chunked field (Phase 3a) -- see reset_chunked_field()/
+  // voxelize_chunk()/debug_verify_chunked_field() above. Own pipelines,
+  // own descriptor pool, own buffers -- nothing here is shared with the
+  // fixed-cube field's Vulkan objects above except primitive_buffer_/
+  // layer_buffer_/param_expr_buffer_ (read-only scene-description inputs
+  // to both voxelizers -- see voxelize_chunk()'s comment). ---
+  VulkanShaderModule chunk_voxelize_stage_;
+  VkDescriptorSetLayout chunk_voxelize_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_voxelize_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> chunk_voxelize_pipeline_;
+
+  VulkanShaderModule chunk_debug_query_stage_;
+  VkDescriptorSetLayout chunk_debug_query_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_debug_query_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> chunk_debug_query_pipeline_;
+
+  // Phase 3b: frees an evicted chunk's bricks back onto the shared
+  // free-list -- see evict_chunk().
+  VulkanShaderModule chunk_evict_stage_;
+  VkDescriptorSetLayout chunk_evict_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_evict_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> chunk_evict_pipeline_;
+
+  // Phase 5: bakes the chunked field's single camera-centered GI cascade
+  // -- see bake_gi_cascade()/update_gi_cascade(). Ping-pong sets, same
+  // reasoning as probe_bake_set_/probe_bake_set_odd_ above (every bounce
+  // shares one command buffer, so a set rewritten mid-bake would
+  // retroactively corrupt an already-recorded earlier bounce's bind).
+  VulkanShaderModule chunk_probe_bake_stage_;
+  VkDescriptorSetLayout chunk_probe_bake_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_probe_bake_set_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_probe_bake_set_odd_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> chunk_probe_bake_pipeline_;
+
+  // Backs chunk_voxelize_set_/chunk_debug_query_set_/chunk_evict_set_/
+  // chunk_probe_bake_set_(_odd_) -- deliberately not descriptor_pool_
+  // below (which backs every
+  // fixed-cube-field set), so this still-unproven path's descriptor
+  // lifetime is fully decoupled from the working render pipeline's.
+  VkDescriptorPool chunk_descriptor_pool_ = VK_NULL_HANDLE;
+
+  // Phase 5: this cascade's current center, in RENDER space -- recentered
+  // in discrete whole-cell steps by update_gi_cascade() as the camera
+  // moves (see kGiCascadeRecenterThreshold's comment, .cpp). Starts at the
+  // origin; the first update_gi_cascade() call wherever the camera
+  // actually is will recenter it there before anything reads it.
+  glm::vec3 gi_cascade_center_{0.0f};
+
+  // Phase 5: the camera position update_gi_cascade() was most recently
+  // called with -- stashed because ChunkProbeBakePushConstants' camera_x/y/z
+  // (used for gather-ray origin, exactly like Builtin.ProbeBake.comp.glsl's
+  // own camera-relative gather rays) is bake_gi_cascade()'s to fill in, but
+  // its signature deliberately mirrors bake_probes()'s (no camera_pos
+  // parameter) since it's only ever called from update_gi_cascade(), which
+  // already has the current camera_pos in scope when it decides a bake is
+  // due.
+  glm::vec3 last_camera_pos_{0.0f};
+
+  // Phase 4: one ChunkStreamingManager per clip level (pure CPU bookkeeping,
+  // see chunk_streaming_manager.h -- owns no Vulkan object itself), each
+  // driving update_streaming()'s load/evict decisions for its own level
+  // against a disjoint slot_offset range of the shared chunk_indirection_
+  // buffer_/chunk_table_buffer_ (see kMaxResidentChunks/kNumLevels/
+  // kStreamRadiusChunks/kFramesInFlightDelay's own comments, .cpp). Sized
+  // to kNumLevels and populated in the constructor body (each entry needs
+  // a different slot_offset, not expressible as a single member-
+  // initializer-list construction).
+  std::vector<ChunkStreamingManager> chunk_streaming_levels_;
+
+  // A scene edit invalidates every already-Ready resident chunk's baked
+  // content (see update_streaming()'s own comment for why this queue
+  // exists and isn't just a live re-check of GeometrySystem::dirty_since_
+  // last_snapshot() every frame -- that would re-evict chunks the previous
+  // sweep had already refreshed, forever, instead of converging). Captured
+  // as {level, key} pairs in one sweep the frame a scene edit is first
+  // noticed, then drained a budget's worth per level per frame exactly like
+  // an ordinary boundary eviction, until empty.
+  std::vector<std::pair<u32, ChunkKey>> pending_forced_evictions_;
+
+  // CHUNK_TABLE_DIM^3 i32s, host-visible -- the CPU writes this directly
+  // (see reset_chunked_field()/voxelize_chunk()), the GPU only ever reads
+  // it (Builtin.ChunkedFieldCommon.inc.glsl's sample_chunked_field()).
+  std::optional<VulkanBuffer> chunk_table_buffer_;
+  // kMaxResidentChunks * kChunkCellCount i32s -- device-local, like
+  // indirection_buffer_ above; see voxelize_chunk().
+  std::optional<VulkanBuffer> chunk_indirection_buffer_;
+  // kMaxChunkBricks * kBrickVoxelCount f32s -- this field's own, separate,
+  // smaller brick pool (see Builtin.SdfFieldConfig.inc.glsl's comment on
+  // why it doesn't share brick_pool_buffer_ above).
+  std::optional<VulkanBuffer> chunk_brick_pool_buffer_;
+  std::optional<VulkanBuffer> chunk_brick_primitive_buffer_;
+  // Host-visible -- unconditional per-cell demand counter, zeroed before
+  // every voxelize_chunk() dispatch and read back afterward, exactly
+  // mirroring brick_counter_buffer_'s overflow-diagnostic role above (see
+  // its own comment) for this field's own, separate pool.
+  std::optional<VulkanBuffer> chunk_brick_demand_buffer_;
+  // The free-list stack (see Builtin.ChunkVoxelize.comp.glsl's
+  // BrickFreeListBuffer) and its top-of-stack pointer -- both host-visible
+  // since reset_chunked_field() (re-)initializes them directly from the
+  // CPU; the GPU only ever pops from them via atomicAdd.
+  std::optional<VulkanBuffer> chunk_brick_free_list_buffer_;
+  std::optional<VulkanBuffer> chunk_brick_free_list_top_buffer_;
+  // 12 bytes (float dist, float skip_dist, int material_index) -- see
+  // query_chunked_field()/debug_verify_chunked_field().
+  std::optional<VulkanBuffer> chunk_debug_query_output_buffer_;
+  // Phase 5: the chunked field's GI cascade, double-buffered exactly like
+  // probe_buffer_a_/probe_buffer_b_ above (same ping-pong bounce scheme --
+  // see bake_gi_cascade()). Fully separate objects from those, matching
+  // the "own everything" separation every other chunked-field buffer here
+  // already follows.
+  std::optional<VulkanBuffer> chunk_gi_probe_buffer_a_;
+  std::optional<VulkanBuffer> chunk_gi_probe_buffer_b_;
 
   // GeometrySystem's registered static primitives, uploaded for the
   // voxelize pass to bake (position/type/params per primitive, grouped
@@ -492,6 +802,9 @@ private:
   // See set_grid_visible() above.
   b8 grid_visible_ = false;
 
+  // See set_chunked_field_enabled() above.
+  b8 chunked_field_enabled_ = false;
+
   // See set_bloom_enabled()/set_vignette_enabled()/
   // set_pixelation_enabled()/set_pixelation_block_size() above.
   b8 bloom_enabled_ = true;
@@ -519,6 +832,15 @@ private:
   // Builtin.SdfSceneCommon.inc.glsl) folds exactly this many LayerBuffer
   // entries, matching what the voxelize pass baked.
   i32 layer_count_ = 0;
+  // The largest smoothness value across those same layers, computed once by
+  // rebuild_static_scene() and persisted here (unlike voxelize()'s own copy
+  // of this value, a plain local -- rebuild_static_scene() only runs on
+  // scene_dirty_, but update_streaming() needs this every frame it bakes a
+  // chunk, regardless of whether the scene just changed) so voxelize_chunk()
+  // calls from update_streaming() widen their cull_radius by the same
+  // amount voxelize()'s own dispatch does -- see Builtin.ChunkVoxelize.
+  // comp.glsl's CULL_RADIUS_CELLS-adjacent comment.
+  f32 max_smoothness_ = 0.0f;
 
   // The [volumetric_start_, volumetric_start_ + volumetric_count_) range
   // rebuild_static_scene() last appended GeometrySystem's registered

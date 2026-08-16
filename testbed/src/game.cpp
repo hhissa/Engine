@@ -28,6 +28,13 @@ b8 TestbedGame::initialize() {
 b8 TestbedGame::update(f32 dt) {
   delta_time = dt;
 
+  // Must run before camera_ is used/submitted below -- a floating-origin
+  // recenter (see RendererBackend::consume_origin_shift()'s comment) only
+  // shifts the renderer's own transient copy, since the renderer doesn't
+  // own this Camera. A no-op ((0,0,0)) whenever floating origin is
+  // disabled (the default), so this is safe to call unconditionally.
+  camera_.shift(renderer_consume_origin_shift());
+
   constexpr f32 kTurnRate = 1.0f;   // radians/sec
   constexpr f32 kMoveSpeed = 1.5f;  // units/sec -- tuned to this scene's
                                     // ~2-unit-radius bounding box, not

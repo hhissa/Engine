@@ -17,6 +17,14 @@
 namespace {
 constexpr std::string_view BUILTIN_SHADER_NAME_VOXELIZE =
     "Builtin.RaymarchVoxelize";
+constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_VOXELIZE =
+    "Builtin.ChunkVoxelize";
+constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_DEBUG_QUERY =
+    "Builtin.ChunkedFieldDebugQuery";
+constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_EVICT =
+    "Builtin.ChunkEvict";
+constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_PROBE_BAKE =
+    "Builtin.ChunkProbeBake";
 constexpr std::string_view BUILTIN_SHADER_NAME_PROBE_BAKE =
     "Builtin.ProbeBake";
 constexpr std::string_view BUILTIN_SHADER_NAME_RAYMARCH =
@@ -69,8 +77,17 @@ struct PushConstants {
                      // (a primary ray miss) instead of the flat two-colour
                      // gradient -- see set_skybox()/apply_skybox() in
                      // Builtin.RaymarchShader.comp.glsl.
+  i32 chunked_field_enabled; // Phase 4: nonzero to sample the chunked/
+                            // streamed field instead of the fixed-cube one
+                            // -- see set_chunked_field_enabled(). Off by
+                            // default.
+  f32 gi_cascade_center_x;
+  f32 gi_cascade_center_y;
+  f32 gi_cascade_center_z; // Phase 5: gi_cascade_center_'s current value --
+                          // see sample_gi_cascade() in Builtin.
+                          // RaymarchShader.comp.glsl.
 };
-// 4 vec4s + 9 scalars = 100 bytes -- comfortably within Vulkan's guaranteed
+// 4 vec4s + 13 scalars = 116 bytes -- comfortably within Vulkan's guaranteed
 // minimum push constant size of 128 bytes, so no device limit query is
 // needed here.
 
@@ -95,6 +112,52 @@ struct VoxelizePushConstants {
 struct ProbeBakePushConstants {
   i32 light_count;
   f32 ambient;
+};
+
+// Matches Builtin.ChunkVoxelize.comp.glsl's push constant block.
+struct ChunkVoxelizePushConstants {
+  i32 layer_count;
+  f32 max_smoothness;
+  i32 chunk_slot;
+  f32 chunk_world_min_x;
+  f32 chunk_world_min_y;
+  f32 chunk_world_min_z;
+  f32 chunk_cell_size;
+};
+
+// Matches Builtin.ChunkedFieldDebugQuery.comp.glsl's push constant block.
+struct ChunkDebugQueryPushConstants {
+  f32 query_x;
+  f32 query_y;
+  f32 query_z;
+  i32 use_clipmap;
+  f32 camera_x;
+  f32 camera_y;
+  f32 camera_z;
+};
+
+// Matches Builtin.ChunkedFieldDebugQuery.comp.glsl's DebugOutputBuffer.
+struct ChunkDebugQueryOutput {
+  f32 dist;
+  f32 skip_dist;
+  i32 material_index;
+};
+
+// Matches Builtin.ChunkEvict.comp.glsl's push constant block.
+struct ChunkEvictPushConstants {
+  i32 chunk_slot;
+};
+
+// Matches Builtin.ChunkProbeBake.comp.glsl's push constant block.
+struct ChunkProbeBakePushConstants {
+  i32 light_count;
+  f32 ambient;
+  f32 cascade_center_x;
+  f32 cascade_center_y;
+  f32 cascade_center_z;
+  f32 camera_x;
+  f32 camera_y;
+  f32 camera_z;
 };
 
 // Matches Builtin.BloomBlurH.comp.glsl's push constant block.
@@ -145,13 +208,15 @@ constexpr u32 kProbeBounceCount = 6;
 // runtime loop can never disagree about which buffer ends up "final".
 constexpr bool kProbeFinalInBufferB = (kProbeBounceCount % 2) == 1;
 
-// Sparse voxel field dimensions. Must match COARSE_DIM/BRICK_DIM/MAX_BRICKS
-// in both Builtin.RaymarchVoxelize.comp.glsl and
-// Builtin.RaymarchShader.comp.glsl exactly. kCoarseDim is scaled up from 16
-// in lockstep with BOUNDS (2.0 -> 16.0, 8x, in both of those files) so
-// COARSE_CELL_SIZE -- and therefore voxel resolution -- stays exactly what
-// it was before: only the world volume actually covered grows, not how
-// coarsely it's sampled.
+// Sparse voxel field dimensions. Must match COARSE_DIM/BRICK_DIM in
+// assets/shaders/Builtin.SdfFieldConfig.inc.glsl exactly -- that file is the
+// single shared source of truth on the GLSL side (included by every shader
+// that bakes or samples the field); C++ can't #include a GLSL file, so this
+// stays a documented manual sync point rather than a compiled one.
+// kCoarseDim is scaled up from 16 in lockstep with BOUNDS (2.0 -> 16.0, 8x,
+// in that file) so COARSE_CELL_SIZE -- and therefore voxel resolution --
+// stays exactly what it was before: only the world volume actually covered
+// grows, not how coarsely it's sampled.
 constexpr u32 kCoarseDim = 128;
 constexpr u32 kBrickDim = 8;
 // Each brick stores a 1-voxel apron on every side (evaluated directly from
@@ -179,6 +244,152 @@ constexpr u32 kBrickVoxelCount = kBrickApronDim * kBrickApronDim * kBrickApronDi
 // missing/stray chunks of surface. voxelize() reads the demand counter
 // back after every bake and KWARNs whenever demand exceeds this.
 constexpr u32 kMaxBricks = 262144;
+
+// Chunked field (Phase 3a). Must match CHUNK_COARSE_DIM/CHUNK_TABLE_DIM in
+// Builtin.SdfFieldConfig.inc.glsl exactly -- same manual-sync-point caveat
+// as kCoarseDim/kBrickDim above. Deliberately independent constants from
+// kCoarseDim/kMaxBricks above -- see that file's comment on why this field
+// shares no GPU buffer with the fixed-cube one.
+constexpr u32 kChunkCoarseDim = 16;
+constexpr u32 kChunkCellCount = kChunkCoarseDim * kChunkCoarseDim * kChunkCoarseDim;
+constexpr u32 kChunkTableDim = 16;
+// How many chunks' worth of indirection sub-blocks chunk_indirection_buffer_
+// reserves room for -- PER LEVEL (see kNumLevels below); the buffer's total
+// size is kNumLevels * kMaxResidentChunks. Each level's ChunkStreamingManager
+// instance (chunk_streaming_levels_) owns exactly this many slots, offset by
+// its own level*kMaxResidentChunks (see ChunkStreamingManager's slot_offset
+// constructor parameter).
+constexpr u32 kMaxResidentChunks = 64;
+// This field's own, separate, much smaller brick pool, SHARED across every
+// level (a brick is just a fixed-size voxel-data blob, level-agnostic --
+// what a level determines is how much world space one brick's voxels cover,
+// not the blob's own byte size). Must match MAX_BRICKS in Builtin.
+// ChunkVoxelize.comp.glsl/Builtin.ChunkEvict.comp.glsl exactly.
+// 5 levels (sizes 4/8/16/32/64) puts the coarsest level's own streaming
+// window radius (~1.5-2x its chunk size, see kStreamRadiusChunks) comfortably
+// past MAX_DIST in Builtin.RaymarchShader.comp.glsl (128.0) -- with only 3
+// levels (sizes 4/8/16) the coarsest window topped out around 24-32 units,
+// well short of MAX_DIST, so anything the raymarcher tried to reach beyond
+// that silently read as empty space (sample_clipmap_field() has no level
+// past the coarsest to fall through to) even though the ray itself kept
+// marching all the way to MAX_DIST looking for a hit.
+constexpr u32 kNumLevels = 5;
+// Per-level share of the shared pool. A level's own worst case is
+// kMaxResidentChunks (64) resident chunks x CHUNK_CELL_COUNT (16^3 = 4096)
+// cells = 262144 cells -- the ORIGINAL 4096 budgeted bricks for barely 1.6%
+// of that as "near-surface." kMaxBricks above budgets its own 128^3 = same
+// 262144-cell grid a proven-working 262144 bricks (100%, i.e. no sparsity
+// assumption at all -- see that constant's comment). Reported bug: bricks
+// failing to appear, specifically as the streamed window changed (i.e.
+// exactly when demand across every level is highest at once) -- matches
+// this engine's own prior kMaxBricks incident exactly (see its comment's
+// "The original value, 2048...rendered as random missing/stray chunks of
+// surface" history): Builtin.ChunkVoxelize.comp.glsl's free-list pop
+// silently leaves chunk_indirection at -1 once the shared pool is empty
+// ("a missing patch of surface, not a crash", per its own comment), and
+// architectural detail that isn't sparse relative to a coarse cell -- e.g.
+// a domain-repeated lattice of thin walls, whose near-surface shell can
+// span a large fraction of a chunk's cells at once -- routinely exceeded
+// the old 1.6% budget. Raised 4x (to 16384, ~6.25%) rather than all the way
+// to kMaxBricks' own 100% ratio: this pool already pays per-voxel for
+// CHUNK_BRICK_DIM=16's finer resolution (kChunkBrickApronDim below), so
+// matching kMaxBricks' ratio verbatim would cost several extra GB of
+// device-local VRAM on top of kMaxBricks' own ~1GB -- 4x is enough headroom
+// for the reported case while staying within this engine's "desktop GPU
+// target" budget (see kMaxBricks' own comment); raise further only if a
+// scene demonstrably still overflows this.
+constexpr u32 kMaxChunkBricksPerLevel = 16384;
+constexpr u32 kMaxChunkBricks = kMaxChunkBricksPerLevel * kNumLevels;
+// The chunked field's own brick resolution -- deliberately NOT kBrickDim
+// above, even though a chunk's cell layout otherwise mirrors the fixed-cube
+// field's. A clip level's own cell (chunk_level_world_size(level)/
+// kChunkCoarseDim) doubles every level, so its voxel_size (cell_size/
+// kChunkBrickDim) doubles right along with it -- at the old kBrickDim=8,
+// level 4 of 5 (cell_size=4.0) gave voxel_size=0.5, too coarse to resolve a
+// primitive thinner than that (routine for architectural detail -- thin
+// walls, panels, a repeated ceiling's own ridges): the surface crossing
+// between adjacent voxel samples can vanish entirely rather than just
+// looking blocky, reading as the geometry losing hits specifically once it
+// falls under a coarser level's responsibility -- a real, reported
+// symptom, not a hypothetical one. Doubled to 16 (voxel_size=4.0/16=0.25 at
+// that same level 4, matching the fixed-cube field's own uniform
+// resolution) so every level -- especially the coarser ones this problem
+// is specific to -- stays fine enough for ordinary architectural-scale
+// detail. Kept as its own constant (not raising kBrickDim itself) so
+// sdf_editor's synchronous-authoring fallback and every game keep the
+// fixed-cube field's existing ~1GB brick pool exactly as it was -- only
+// chunk_brick_pool_buffer_ below pays for this (roughly 455MB at this
+// value: kMaxChunkBricks * kChunkBrickVoxelCount * sizeof(f32)). Must
+// match CHUNK_BRICK_DIM in Builtin.SdfFieldConfig.inc.glsl exactly.
+constexpr u32 kChunkBrickDim = 16;
+constexpr u32 kChunkBrickApronDim = kChunkBrickDim + 2;
+constexpr u32 kChunkBrickVoxelCount =
+    kChunkBrickApronDim * kChunkBrickApronDim * kChunkBrickApronDim;
+// Must match Builtin.SdfFieldConfig.inc.glsl's COARSE_CELL_SIZE = (2.0 *
+// BOUNDS) / COARSE_DIM = 32.0 / 128.0 exactly -- the fine-voxel resolution
+// is shared between the fixed-cube and chunked fields (see that file's
+// comment), but only the chunked field's own C++ code (voxelize_chunk()/
+// debug_verify_chunked_field()) needs it as a value here; the fixed-cube
+// field never needed a C++-side copy since BOUNDS/COARSE_DIM only ever
+// mattered GLSL-side there.
+constexpr f32 kCoarseCellSize = 0.25f;
+constexpr f32 kChunkWorldSize = static_cast<f32>(kChunkCoarseDim) * kCoarseCellSize;
+
+// Phase 4: level L's chunk is 2^L times level 0's world size -- must match
+// Builtin.SdfFieldConfig.inc.glsl's chunk_level_world_size() exactly (same
+// doubling formula as chunk_world_size() in chunk_types.h, just resolved
+// with this file's own kChunkWorldSize as the level-0 base). Same chunk
+// *count* stays resident per level (kMaxResidentChunks, kStreamRadiusChunks
+// below), so total world coverage grows exponentially with level while the
+// per-level GPU memory cost stays flat -- the actual point of a clipmap.
+f32 chunk_level_world_size(u32 level) {
+  return kChunkWorldSize * static_cast<f32>(1u << level);
+}
+
+// Streaming policy, shared by every level (Phase 3b proved the load/evict/
+// ring-delay mechanics at a single level; Phase 4 just runs kNumLevels
+// independent instances of the same policy -- see chunk_streaming_levels_).
+// Chebyshev radius (in chunks) update_streaming() keeps loaded around the
+// camera, per level -- (2*1+1)^3 = 27 candidate chunks, safely under
+// kMaxResidentChunks (64) with headroom so the window doesn't thrash
+// against the slot cap right at its own edge.
+constexpr i32 kStreamRadiusChunks = 1;
+// Loads and evictions are budgeted separately per level (each dispatch is
+// cheap relative to a full rebake, but still real GPU work) -- this is the
+// "no vkDeviceWaitIdle stall" lever the plan calls for: spread over N
+// frames instead of one, at N x the latency to fully catch up after a big
+// camera jump. Applied per level, so total per-frame chunk work scales
+// with kNumLevels -- still far cheaper than one full rebake either way.
+constexpr u32 kMaxChunkBakesPerFrame = 2;
+// How many update_streaming() tick()s must pass after a load/evict before
+// that chunk's slot is trusted safe to reuse -- see ChunkStreamingManager's
+// header comment for exactly what hazard this guards against (two frames'
+// command buffers aren't completion-ordered relative to each other without
+// an explicit fence/barrier). Deliberately a fixed conservative constant
+// rather than wired to the real swapchain's max_frames_in_flight (typically
+// 1-2 for double/triple buffering): comfortably covers that in practice,
+// and avoids a new dependency from chunk_streaming_ (constructed before
+// context_->swapchain necessarily reflects its final image count) on
+// swapchain internals for a value where erring slightly high costs nothing
+// but a frame or two of extra latency, not correctness.
+constexpr u32 kFramesInFlightDelay = 3;
+
+// Phase 5: single camera-centered GI cascade for the chunked field (see
+// Builtin.ChunkProbeBake.comp.glsl) -- must match PROBE_DIM/
+// GI_CASCADE_CELL_SIZE there exactly. Deliberately just one cascade for
+// now (the plan's stated ideal is one per voxel clip level), matching this
+// whole effort's established "prove the mechanics with a smaller number
+// first" pattern (see kNumLevels=3, not 5) -- adding more is mechanical
+// repetition of this same one once it's verified, not a new design.
+constexpr u32 kGiProbeDim = 16;
+constexpr f32 kGiCascadeCellSize = 2.0f;
+// Recenter once the camera drifts more than half a cascade cell from the
+// cascade's current center -- classic terrain-clipmap texture behavior
+// (discrete whole-cell steps, not continuous tracking): keeps the probe
+// grid's own texel positions stable between recenters (each recenter
+// snaps to the nearest whole GI_CASCADE_CELL_SIZE multiple), which is what
+// avoids every single probe needing to move -- see update_gi_cascade().
+constexpr f32 kGiCascadeRecenterThreshold = kGiCascadeCellSize * 0.5f;
 
 // Cap on simultaneously baked static primitives. Must match
 // MAX_SCENE_PRIMITIVES in Builtin.RaymarchShader.comp.glsl exactly (that's
@@ -234,12 +445,12 @@ struct GpuPrimitive {
   f32 repeat_mode_cell[4];
   // xyz = Geometry::repetition_count.xyz. w = a conservative world-space
   // bounding-sphere radius around position_type.xyz (or
-  // kUnboundedBoundingRadius -- see that constant's comment), computed by
-  // compute_bounding_radius() below and used by scene_map()'s cull_radius
-  // pre-check (Builtin.SdfSceneCommon.inc.glsl) to skip evaluating a
-  // primitive that plainly can't matter at a given sample point. Was
-  // unused padding before that field existed; repurposed rather than
-  // growing every GpuPrimitive by another vec4.
+  // kUnboundedBoundingRadius -- see that constant's comment, geometry_
+  // system.h), computed by geometry_bounding_radius() and used by
+  // scene_map()'s cull_radius pre-check (Builtin.SdfSceneCommon.inc.glsl)
+  // to skip evaluating a primitive that plainly can't matter at a given
+  // sample point. Was unused padding before that field existed; repurposed
+  // rather than growing every GpuPrimitive by another vec4.
   f32 repeat_count[4];
   // Domain deformation -- see Geometry::twist/bend/displace_amplitude/
   // displace_frequency's comment. x = twist, y = bend, z =
@@ -289,153 +500,20 @@ struct GpuParamExpr {
   i32 instruction_count = 0;
 };
 
-// See GpuPrimitive::repeat_count's comment and Builtin.SdfSceneCommon.inc.
-// glsl's UNBOUNDED_BOUNDING_RADIUS, which this must exceed (both sides just
-// need it comfortably larger than any cull_radius voxelize()'s fine-sample
-// loop could plausibly pass, not literal infinity).
-constexpr f32 kUnboundedBoundingRadius = 1e8f;
-
-// A conservative world-space bounding-sphere radius, centered at
-// geometry.position, for scene_map()'s cull_radius pre-check (see
-// GpuPrimitive::repeat_count.w's comment) -- deliberately generous rather
-// than tight (e.g. a sphere enclosing a Box's corners, not its faces):
-// wrongly excluding a primitive that still mattered would leave a hole in
-// the baked surface, a far worse failure than an under-tight bound that
-// just culls slightly less aggressively than it could.
-//
-// Returns kUnboundedBoundingRadius (never cull) for:
-//  - a Plane, which has no finite extent at all;
-//  - a primitive with RepetitionMode::Infinite, likewise unbounded;
-//  - a primitive with any active parametric-attribute formula (see
-//    Geometry::param_expressions) -- a formula's actual runtime value can
-//    differ arbitrarily from params' plain-constant fallback (see
-//    resolve_params() in Builtin.SdfSceneCommon.inc.glsl), so no bound
-//    derived from that fallback would be safe.
-// Otherwise combines a per-type local bound (mirroring evaluate_shape()'s
-// dispatch in Builtin.SdfSceneCommon.inc.glsl -- params/extra_param have
-// the exact same per-type meaning there) with however much farther a
-// finite domain repetition (Limited/Rectangular) or displacement can push
-// the surface outward -- see the inline comments below for why Rotational
-// repetition and twist/bend need no such allowance.
-f32 compute_bounding_radius(const Geometry &geometry) {
-  if (geometry.type == PrimitiveType::Plane ||
-      geometry.repetition_mode == RepetitionMode::Infinite) {
-    return kUnboundedBoundingRadius;
-  }
-  for (const std::string &expr : geometry.param_expressions) {
-    if (!expr.empty()) {
-      return kUnboundedBoundingRadius;
-    }
-  }
-
-  const glm::vec3 &p = geometry.params;
-  f32 local_bound;
-  switch (geometry.type) {
-  case PrimitiveType::Sphere:
-    local_bound = p.x;
-    break;
-  case PrimitiveType::Box:
-    local_bound = glm::length(p);
-    break;
-  case PrimitiveType::Torus:
-    local_bound = p.x + p.y; // major_radius + minor_radius
-    break;
-  case PrimitiveType::CappedCylinder:
-    local_bound = glm::length(glm::vec2(p.x, p.y)); // radius, half_height
-    break;
-  case PrimitiveType::CappedCone:
-    // half_height=p.x, r1=p.y, r2=p.z
-    local_bound = glm::length(glm::vec2(std::max(p.y, p.z), p.x));
-    break;
-  case PrimitiveType::RoundBox:
-    local_bound = glm::length(p) + geometry.extra_param; // + corner_radius
-    break;
-  case PrimitiveType::BoxFrame:
-    // edge_thickness (extra_param) insets, never extends outward.
-    local_bound = glm::length(p);
-    break;
-  case PrimitiveType::Octahedron:
-    local_bound = p.x; // vertices sit exactly at distance s along each axis
-    break;
-  case PrimitiveType::Pyramid:
-    // Base is a fixed unit square (half-extent 0.5) at local y=0, apex at
-    // y=h -- see pyramid_sdf()'s own comment. 0.7071068 = the base's own
-    // half-diagonal (its corners' distance from the position/base-center
-    // origin) -- every point of a convex pyramid lies within the convex
-    // hull of its 4 base corners + apex, so the farther of these two
-    // bounds covers the whole shape.
-    local_bound = std::max(0.7071068f, p.x);
-    break;
-  case PrimitiveType::HexPrism:
-    // inradius=p.x, half_height=p.y; 1.1547005 = 2/sqrt(3), the
-    // inradius->circumradius factor for a regular hexagon.
-    local_bound = glm::length(glm::vec2(p.x * 1.1547005f, p.y));
-    break;
-  case PrimitiveType::RoundCone:
-    // r1=p.x, r2=p.y, half_height=p.z
-    local_bound = glm::length(glm::vec2(std::max(p.x, p.y), p.z));
-    break;
-  case PrimitiveType::Capsule:
-    local_bound = p.x + p.y; // radius + half_height
-    break;
-  case PrimitiveType::Link:
-    // half_length=p.x, r1=p.y, r2=p.z -- generous (sum, not the tighter
-    // achievable combination) is fine given this function's own bias.
-    local_bound = p.x + p.y + p.z;
-    break;
-  case PrimitiveType::Ellipsoid:
-    local_bound = std::max({p.x, p.y, p.z});
-    break;
-  default:
-    // Plane is handled (returned) above and never reaches here; a future
-    // PrimitiveType added without a case here falls back to this same
-    // generous Ellipsoid-style bound rather than failing to compile --
-    // less protective than an exhaustive switch, but a missing case here
-    // only costs cull effectiveness (worst case, that type is never
-    // culled), not correctness.
-    local_bound = std::max({p.x, p.y, p.z});
-    break;
-  }
-
-  // Domain repetition (see repeat_*() in Builtin.SdfSceneCommon.inc.glsl)
-  // spreads copies of the same local shape across a finite span -- widen
-  // the bound to cover the farthest copy's own reach, not just the
-  // original instance's. Infinite is handled (unbounded) above; None and
-  // Rotational need no widening at all -- rotating the sample point around
-  // the primitive's own local Y axis preserves its distance from the
-  // origin exactly (a rotation matrix, however parameter-dependent its
-  // angle, can't change a vector's length), so a rotationally-repeated
-  // instance never reaches farther than the unrepeated one.
-  f32 repeat_reach = 0.0f;
-  if (geometry.repetition_mode == RepetitionMode::Limited) {
-    glm::vec3 half_span =
-        glm::max(geometry.repetition_count - 1.0f, 0.0f) * 0.5f;
-    repeat_reach = glm::length(half_span * geometry.repetition_cell);
-  } else if (geometry.repetition_mode == RepetitionMode::Rectangular) {
-    // X/Z only -- see repeat_rectangular()'s own comment (Y is always left
-    // untouched by this mode).
-    glm::vec2 count_xz(geometry.repetition_count.x, geometry.repetition_count.z);
-    glm::vec2 cell_xz(geometry.repetition_cell.x, geometry.repetition_cell.z);
-    glm::vec2 half_span = glm::max(count_xz - 1.0f, 0.0f) * 0.5f;
-    repeat_reach = glm::length(half_span * cell_xz);
-  }
-
-  // Displacement (see evaluate_primitive_at()'s own comment in Builtin.
-  // SdfSceneCommon.inc.glsl) perturbs the returned distance directly, by
-  // up to +-displace_amplitude -- the true surface can sit that much
-  // farther out than the undisplaced shape. Twist/bend need no equivalent
-  // allowance: both warp the sample point by rotating two of its
-  // components (the rotation angle is parameter-dependent, but any
-  // rotation matrix preserves vector length), so neither can move a
-  // point's distance from the shape's own origin at all.
-  return local_bound + repeat_reach + std::abs(geometry.displace_amplitude);
-}
 } // namespace
 
 VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     : context_(&context),
       voxelize_stage_(context, BUILTIN_SHADER_NAME_VOXELIZE, "comp",
                      VK_SHADER_STAGE_COMPUTE_BIT),
+      chunk_voxelize_stage_(context, BUILTIN_SHADER_NAME_CHUNK_VOXELIZE, "comp",
+                           VK_SHADER_STAGE_COMPUTE_BIT),
+      chunk_debug_query_stage_(context, BUILTIN_SHADER_NAME_CHUNK_DEBUG_QUERY,
+                              "comp", VK_SHADER_STAGE_COMPUTE_BIT),
+      chunk_evict_stage_(context, BUILTIN_SHADER_NAME_CHUNK_EVICT, "comp",
+                        VK_SHADER_STAGE_COMPUTE_BIT),
+      chunk_probe_bake_stage_(context, BUILTIN_SHADER_NAME_CHUNK_PROBE_BAKE,
+                             "comp", VK_SHADER_STAGE_COMPUTE_BIT),
       probe_bake_stage_(context, BUILTIN_SHADER_NAME_PROBE_BAKE, "comp",
                        VK_SHADER_STAGE_COMPUTE_BIT),
       render_stage_(context, BUILTIN_SHADER_NAME_RAYMARCH, "comp",
@@ -444,7 +522,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                         VK_SHADER_STAGE_COMPUTE_BIT),
       post_composite_stage_(context, BUILTIN_SHADER_NAME_POST_COMPOSITE, "comp",
                            VK_SHADER_STAGE_COMPUTE_BIT) {
-  if (!voxelize_stage_.is_valid() || !probe_bake_stage_.is_valid() ||
+  if (!voxelize_stage_.is_valid() || !chunk_voxelize_stage_.is_valid() ||
+      !chunk_debug_query_stage_.is_valid() || !chunk_evict_stage_.is_valid() ||
+      !chunk_probe_bake_stage_.is_valid() ||
+      !probe_bake_stage_.is_valid() ||
       !render_stage_.is_valid() || !bloom_blur_h_stage_.is_valid() ||
       !post_composite_stage_.is_valid()) {
     KERROR("Unable to create shader module(s) for the raymarch field "
@@ -481,6 +562,78 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  // Chunked field (Phase 3a) -- see its own member declarations' comments.
+  // Own separate buffers throughout, none shared with the fixed-cube field
+  // above.
+  // Phase 4: NUM_CHUNK_LEVELS-partitioned -- level L's table/indirection
+  // sub-range starts at L*kChunkTableDim^3 / L*kMaxResidentChunks
+  // respectively (see voxelize_chunk()/evict_chunk()'s table-index math
+  // and chunk_streaming_levels_'s per-level slot_offset).
+  const u64 chunk_table_size = static_cast<u64>(kNumLevels) * kChunkTableDim *
+      kChunkTableDim * kChunkTableDim * sizeof(i32);
+  const u64 chunk_indirection_size = static_cast<u64>(kNumLevels) *
+      kMaxResidentChunks * kChunkCellCount * sizeof(i32);
+  const u64 chunk_brick_pool_size =
+      static_cast<u64>(kMaxChunkBricks) * kChunkBrickVoxelCount * sizeof(f32);
+  const u64 chunk_brick_primitive_size =
+      static_cast<u64>(kMaxChunkBricks) * sizeof(i32);
+
+  chunk_table_buffer_.emplace(*context_, chunk_table_size,
+                             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  chunk_indirection_buffer_.emplace(*context_, chunk_indirection_size,
+                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  chunk_brick_pool_buffer_.emplace(*context_, chunk_brick_pool_size,
+                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  chunk_brick_primitive_buffer_.emplace(*context_, chunk_brick_primitive_size,
+                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  chunk_brick_demand_buffer_.emplace(*context_, sizeof(u32),
+                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  chunk_brick_free_list_buffer_.emplace(
+      *context_, static_cast<u64>(kMaxChunkBricks) * sizeof(i32),
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  chunk_brick_free_list_top_buffer_.emplace(
+      *context_, sizeof(u32), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  chunk_debug_query_output_buffer_.emplace(
+      *context_, sizeof(ChunkDebugQueryOutput),
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  // Phase 5: the chunked field's GI cascade -- same size/usage pattern as
+  // probe_buffer_a_/probe_buffer_b_ above (device-local, buffer a gets
+  // TRANSFER_DST since bake_gi_cascade() zeroes it via vkCmdFillBuffer
+  // before bounce 0, exactly like bake_probes() does for probe_buffer_a_).
+  const u64 chunk_gi_probe_buffer_size =
+      static_cast<u64>(kGiProbeDim) * kGiProbeDim * kGiProbeDim * sizeof(f32) * 4;
+  chunk_gi_probe_buffer_a_.emplace(*context_, chunk_gi_probe_buffer_size,
+                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  chunk_gi_probe_buffer_b_.emplace(*context_, chunk_gi_probe_buffer_size,
+                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  if (!chunk_table_buffer_->is_valid() || !chunk_indirection_buffer_->is_valid() ||
+      !chunk_brick_pool_buffer_->is_valid() ||
+      !chunk_brick_primitive_buffer_->is_valid() ||
+      !chunk_brick_demand_buffer_->is_valid() ||
+      !chunk_brick_free_list_buffer_->is_valid() ||
+      !chunk_brick_free_list_top_buffer_->is_valid() ||
+      !chunk_debug_query_output_buffer_->is_valid() ||
+      !chunk_gi_probe_buffer_a_->is_valid() || !chunk_gi_probe_buffer_b_->is_valid()) {
+    KERROR("Failed to create chunked-field buffers.");
+    return;
+  }
 
   // GeometrySystem's registered scene: primitive_buffer_/
   // primitive_colour_buffer_ are written directly from the CPU (host
@@ -581,6 +734,221 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        context_->allocator,
                                        &voxelize_set_layout_));
 
+  // Chunked field (Phase 3a) -- its own descriptor set layouts/pool/sets,
+  // entirely separate from every layout/pool below (see chunk_
+  // descriptor_pool_'s own comment). chunk_voxelize_set_: {0=chunk_
+  // indirection, 1=chunk_brick_pool, 2=chunk_brick_demand, 3=brick_free_
+  // list, 4=brick_free_list_top, 5=primitive_buffer (shared, read-only --
+  // see voxelize_chunk()'s own comment), 6=chunk_brick_primitive,
+  // 7=layer_buffer (shared), 8=param_expr_buffer (shared)} -- must match
+  // Builtin.ChunkVoxelize.comp.glsl's bindings exactly.
+  VkDescriptorSetLayoutBinding chunk_voxelize_bindings[9]{};
+  for (u32 i = 0; i < 9; ++i) {
+    chunk_voxelize_bindings[i].binding = i;
+    chunk_voxelize_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    chunk_voxelize_bindings[i].descriptorCount = 1;
+    chunk_voxelize_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+  VkDescriptorSetLayoutCreateInfo chunk_voxelize_layout_info{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  chunk_voxelize_layout_info.bindingCount = 9;
+  chunk_voxelize_layout_info.pBindings = chunk_voxelize_bindings;
+  VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
+                                       &chunk_voxelize_layout_info,
+                                       context_->allocator,
+                                       &chunk_voxelize_set_layout_));
+
+  // chunk_debug_query_set_: {0=chunk_table, 1=chunk_indirection,
+  // 2=chunk_brick_pool, 3=chunk_brick_primitive, 4=debug_output} -- must
+  // match Builtin.ChunkedFieldDebugQuery.comp.glsl's bindings exactly.
+  VkDescriptorSetLayoutBinding chunk_debug_query_bindings[5]{};
+  for (u32 i = 0; i < 5; ++i) {
+    chunk_debug_query_bindings[i].binding = i;
+    chunk_debug_query_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    chunk_debug_query_bindings[i].descriptorCount = 1;
+    chunk_debug_query_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+  VkDescriptorSetLayoutCreateInfo chunk_debug_query_layout_info{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  chunk_debug_query_layout_info.bindingCount = 5;
+  chunk_debug_query_layout_info.pBindings = chunk_debug_query_bindings;
+  VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
+                                       &chunk_debug_query_layout_info,
+                                       context_->allocator,
+                                       &chunk_debug_query_set_layout_));
+
+  // chunk_evict_set_: {0=chunk_indirection, 1=brick_free_list,
+  // 2=brick_free_list_top} -- must match Builtin.ChunkEvict.comp.glsl's
+  // bindings exactly.
+  VkDescriptorSetLayoutBinding chunk_evict_bindings[3]{};
+  for (u32 i = 0; i < 3; ++i) {
+    chunk_evict_bindings[i].binding = i;
+    chunk_evict_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    chunk_evict_bindings[i].descriptorCount = 1;
+    chunk_evict_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+  VkDescriptorSetLayoutCreateInfo chunk_evict_layout_info{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  chunk_evict_layout_info.bindingCount = 3;
+  chunk_evict_layout_info.pBindings = chunk_evict_bindings;
+  VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
+                                       &chunk_evict_layout_info,
+                                       context_->allocator,
+                                       &chunk_evict_set_layout_));
+
+  // chunk_probe_bake_set_(_odd_): {0=chunk_table, 1=chunk_indirection,
+  // 2=chunk_brick_pool, 3=chunk_brick_primitive, 4=primitive_colour_buffer
+  // (shared, read-only), 5=light_buffer (shared, read-only), 6=Prev
+  // ProbeBuffer, 7=CurrProbeBuffer} -- must match Builtin.ChunkProbeBake.
+  // comp.glsl's bindings exactly. Same ping-pong-pair-of-fixed-sets scheme
+  // as probe_bake_set_/probe_bake_set_odd_ (see their own comment).
+  VkDescriptorSetLayoutBinding chunk_probe_bake_bindings[8]{};
+  for (u32 i = 0; i < 8; ++i) {
+    chunk_probe_bake_bindings[i].binding = i;
+    chunk_probe_bake_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    chunk_probe_bake_bindings[i].descriptorCount = 1;
+    chunk_probe_bake_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+  VkDescriptorSetLayoutCreateInfo chunk_probe_bake_layout_info{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  chunk_probe_bake_layout_info.bindingCount = 8;
+  chunk_probe_bake_layout_info.pBindings = chunk_probe_bake_bindings;
+  VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
+                                       &chunk_probe_bake_layout_info,
+                                       context_->allocator,
+                                       &chunk_probe_bake_set_layout_));
+
+  VkDescriptorPoolSize chunk_pool_size{};
+  chunk_pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  // chunk_voxelize_set_ + chunk_debug_query_set_ + chunk_evict_set_ +
+  // chunk_probe_bake_set_/_odd_ (x2, like probe_bake_set_/_odd_ above).
+  chunk_pool_size.descriptorCount = 9 + 5 + 3 + 8 * 2;
+  VkDescriptorPoolCreateInfo chunk_pool_info{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  chunk_pool_info.poolSizeCount = 1;
+  chunk_pool_info.pPoolSizes = &chunk_pool_size;
+  chunk_pool_info.maxSets = 5;
+  VK_CHECK(vkCreateDescriptorPool(context_->device.logical_device,
+                                  &chunk_pool_info, context_->allocator,
+                                  &chunk_descriptor_pool_));
+
+  VkDescriptorSetLayout chunk_layouts[5] = {
+      chunk_voxelize_set_layout_, chunk_debug_query_set_layout_,
+      chunk_evict_set_layout_, chunk_probe_bake_set_layout_,
+      chunk_probe_bake_set_layout_};
+  VkDescriptorSet chunk_sets[5];
+  VkDescriptorSetAllocateInfo chunk_alloc_info{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+  chunk_alloc_info.descriptorPool = chunk_descriptor_pool_;
+  chunk_alloc_info.descriptorSetCount = 5;
+  chunk_alloc_info.pSetLayouts = chunk_layouts;
+  VK_CHECK(vkAllocateDescriptorSets(context_->device.logical_device,
+                                    &chunk_alloc_info, chunk_sets));
+  chunk_voxelize_set_ = chunk_sets[0];
+  chunk_debug_query_set_ = chunk_sets[1];
+  chunk_evict_set_ = chunk_sets[2];
+  chunk_probe_bake_set_ = chunk_sets[3];
+  chunk_probe_bake_set_odd_ = chunk_sets[4];
+
+  VkDescriptorBufferInfo chunk_voxelize_buffer_infos[9] = {
+      {chunk_indirection_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_pool_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_demand_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_free_list_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_free_list_top_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {primitive_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_primitive_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {layer_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {param_expr_buffer_->handle(), 0, VK_WHOLE_SIZE},
+  };
+  VkWriteDescriptorSet chunk_voxelize_writes[9]{};
+  for (u32 i = 0; i < 9; ++i) {
+    chunk_voxelize_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    chunk_voxelize_writes[i].dstSet = chunk_voxelize_set_;
+    chunk_voxelize_writes[i].dstBinding = i;
+    chunk_voxelize_writes[i].descriptorCount = 1;
+    chunk_voxelize_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    chunk_voxelize_writes[i].pBufferInfo = &chunk_voxelize_buffer_infos[i];
+  }
+  vkUpdateDescriptorSets(context_->device.logical_device, 9,
+                        chunk_voxelize_writes, 0, nullptr);
+
+  VkDescriptorBufferInfo chunk_debug_query_buffer_infos[5] = {
+      {chunk_table_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_indirection_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_pool_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_primitive_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_debug_query_output_buffer_->handle(), 0, VK_WHOLE_SIZE},
+  };
+  VkWriteDescriptorSet chunk_debug_query_writes[5]{};
+  for (u32 i = 0; i < 5; ++i) {
+    chunk_debug_query_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    chunk_debug_query_writes[i].dstSet = chunk_debug_query_set_;
+    chunk_debug_query_writes[i].dstBinding = i;
+    chunk_debug_query_writes[i].descriptorCount = 1;
+    chunk_debug_query_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    chunk_debug_query_writes[i].pBufferInfo = &chunk_debug_query_buffer_infos[i];
+  }
+  vkUpdateDescriptorSets(context_->device.logical_device, 5,
+                        chunk_debug_query_writes, 0, nullptr);
+
+  VkDescriptorBufferInfo chunk_evict_buffer_infos[3] = {
+      {chunk_indirection_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_free_list_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_free_list_top_buffer_->handle(), 0, VK_WHOLE_SIZE},
+  };
+  VkWriteDescriptorSet chunk_evict_writes[3]{};
+  for (u32 i = 0; i < 3; ++i) {
+    chunk_evict_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    chunk_evict_writes[i].dstSet = chunk_evict_set_;
+    chunk_evict_writes[i].dstBinding = i;
+    chunk_evict_writes[i].descriptorCount = 1;
+    chunk_evict_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    chunk_evict_writes[i].pBufferInfo = &chunk_evict_buffer_infos[i];
+  }
+  vkUpdateDescriptorSets(context_->device.logical_device, 3, chunk_evict_writes,
+                        0, nullptr);
+
+  // chunk_probe_bake_set_ is bounce parity "write_to_b" (Prev=a_/Curr=b_);
+  // chunk_probe_bake_set_odd_ is the reverse -- same scheme as
+  // write_probe_bake_set() below, just for the chunked field's own probe
+  // buffers/bindings.
+  struct ChunkProbeBakeBufferBinding {
+    u32 binding;
+    VkBuffer buffer;
+  };
+  auto write_chunk_probe_bake_set = [&](VkDescriptorSet set, VkBuffer prev_buffer,
+                                        VkBuffer curr_buffer) {
+    ChunkProbeBakeBufferBinding bindings[8] = {
+        {0, chunk_table_buffer_->handle()},
+        {1, chunk_indirection_buffer_->handle()},
+        {2, chunk_brick_pool_buffer_->handle()},
+        {3, chunk_brick_primitive_buffer_->handle()},
+        {4, primitive_colour_buffer_->handle()},
+        {5, light_buffer_->handle()},
+        {6, prev_buffer},
+        {7, curr_buffer},
+    };
+    VkDescriptorBufferInfo buffer_infos[8];
+    VkWriteDescriptorSet writes[8]{};
+    for (u32 i = 0; i < 8; ++i) {
+      buffer_infos[i] = {bindings[i].buffer, 0, VK_WHOLE_SIZE};
+      writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      writes[i].dstSet = set;
+      writes[i].dstBinding = bindings[i].binding;
+      writes[i].descriptorCount = 1;
+      writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writes[i].pBufferInfo = &buffer_infos[i];
+    }
+    vkUpdateDescriptorSets(context_->device.logical_device, 8, writes, 0,
+                          nullptr);
+  };
+  write_chunk_probe_bake_set(chunk_probe_bake_set_, chunk_gi_probe_buffer_a_->handle(),
+                             chunk_gi_probe_buffer_b_->handle());
+  write_chunk_probe_bake_set(chunk_probe_bake_set_odd_,
+                             chunk_gi_probe_buffer_b_->handle(),
+                             chunk_gi_probe_buffer_a_->handle());
+
   // Descriptor set layout for pass 2 (render): the output image, read-only
   // access to indirection/brick_pool/brick_primitive, the static
   // primitives' diffuse tints, their textures (a small fixed-size array --
@@ -611,8 +979,20 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // a second fixed-size array exactly mirroring binding 6's scene_textures
   // but sampled purely for luminance by sample_scene_heights(), never for
   // colour.
-  VkDescriptorSetLayoutBinding render_bindings[15]{};
-  for (u32 i = 0; i < 15; ++i) {
+  // 15/16/17/18 (Phase 4): read-only access to the chunked/streamed field
+  // (chunk_table_buffer_/chunk_indirection_buffer_/chunk_brick_pool_
+  // buffer_/chunk_brick_primitive_buffer_) -- always bound (Vulkan
+  // requires every declared binding point at a valid buffer regardless of
+  // whether the shader's current push-constant-driven branch actually
+  // reads it -- same reasoning as binding 6/14's always-bound-but-maybe-
+  // unused texture slots), but Builtin.RaymarchShader.comp.glsl only
+  // actually samples through these when chunked_field_enabled_ is true
+  // (see set_chunked_field_enabled()) -- off by default, so nothing
+  // currently working changes unless a caller explicitly opts in. 19 =
+  // Phase 5's chunked-field GI cascade (see sample_gi_cascade()), same
+  // always-bound-but-conditionally-sampled reasoning.
+  VkDescriptorSetLayoutBinding render_bindings[20]{};
+  for (u32 i = 0; i < 20; ++i) {
     render_bindings[i].binding = i;
     render_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     render_bindings[i].descriptorCount = 1;
@@ -627,7 +1007,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
 
   VkDescriptorSetLayoutCreateInfo render_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  render_layout_info.bindingCount = 15;
+  render_layout_info.bindingCount = 20;
   render_layout_info.pBindings = render_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &render_layout_info, context_->allocator,
@@ -700,9 +1080,11 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // One pool backing all six sets.
   VkDescriptorPoolSize pool_sizes[3]{};
   pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  // voxelize's 7 + render's 11 + probe bake's 7 x2 (probe_bake_set_ and
-  // probe_bake_set_odd_ -- see their declaration comment).
-  pool_sizes[0].descriptorCount = 32;
+  // voxelize's 7 + render's 16 (11 + Phase 4's 4 chunked-field bindings +
+  // Phase 5's 1 GI cascade probe binding) + probe bake's 7 x2
+  // (probe_bake_set_ and probe_bake_set_odd_ -- see their declaration
+  // comment).
+  pool_sizes[0].descriptorCount = 37;
   pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   pool_sizes[1].descriptorCount = 6; // render's 1 + bloom blur h's 2 + post composite's 3
   pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -782,7 +1164,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   struct RenderBufferBinding {
     u32 binding;
     VkBuffer buffer;
-  } render_buffer_bindings[11] = {
+  } render_buffer_bindings[16] = {
       {1, indirection_buffer_->handle()},
       {2, brick_pool_buffer_->handle()},
       {3, light_buffer_->handle()},
@@ -795,10 +1177,18 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                : probe_buffer_a_->handle()},
       {11, pixelation_exempt_buffer_->handle()},
       {13, tex_transform_buffer_->handle()},
+      {15, chunk_table_buffer_->handle()},
+      {16, chunk_indirection_buffer_->handle()},
+      {17, chunk_brick_pool_buffer_->handle()},
+      {18, chunk_brick_primitive_buffer_->handle()},
+      // Same kProbeFinalInBufferB parity logic as binding 10 above, applied
+      // to the chunked field's own GI cascade buffers (Phase 5).
+      {19, kProbeFinalInBufferB ? chunk_gi_probe_buffer_b_->handle()
+                                : chunk_gi_probe_buffer_a_->handle()},
   };
 
-  VkDescriptorBufferInfo render_buffer_infos[11];
-  VkWriteDescriptorSet render_writes[12]{};
+  VkDescriptorBufferInfo render_buffer_infos[16];
+  VkWriteDescriptorSet render_writes[17]{};
   render_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   render_writes[0].dstSet = render_set_;
   render_writes[0].dstBinding = 0;
@@ -806,7 +1196,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   render_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   render_writes[0].pImageInfo = &render_image_info;
 
-  for (u32 i = 0; i < 11; ++i) {
+  for (u32 i = 0; i < 16; ++i) {
     render_buffer_infos[i] = {render_buffer_bindings[i].buffer, 0,
                               VK_WHOLE_SIZE};
     render_writes[i + 1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -817,7 +1207,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     render_writes[i + 1].pBufferInfo = &render_buffer_infos[i];
   }
 
-  vkUpdateDescriptorSets(context_->device.logical_device, 12, render_writes,
+  vkUpdateDescriptorSets(context_->device.logical_device, 17, render_writes,
                         0, nullptr);
 
   // Binding 12 (skybox_texture) starts pointed at the filler texture --
@@ -912,10 +1302,26 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       *context_, voxelize_stage_,
       std::vector<VkDescriptorSetLayout>{voxelize_set_layout_},
       sizeof(VoxelizePushConstants));
+  chunk_voxelize_pipeline_.emplace(
+      *context_, chunk_voxelize_stage_,
+      std::vector<VkDescriptorSetLayout>{chunk_voxelize_set_layout_},
+      sizeof(ChunkVoxelizePushConstants));
+  chunk_debug_query_pipeline_.emplace(
+      *context_, chunk_debug_query_stage_,
+      std::vector<VkDescriptorSetLayout>{chunk_debug_query_set_layout_},
+      sizeof(ChunkDebugQueryPushConstants));
+  chunk_evict_pipeline_.emplace(
+      *context_, chunk_evict_stage_,
+      std::vector<VkDescriptorSetLayout>{chunk_evict_set_layout_},
+      sizeof(ChunkEvictPushConstants));
   probe_bake_pipeline_.emplace(
       *context_, probe_bake_stage_,
       std::vector<VkDescriptorSetLayout>{probe_bake_set_layout_},
       sizeof(ProbeBakePushConstants));
+  chunk_probe_bake_pipeline_.emplace(
+      *context_, chunk_probe_bake_stage_,
+      std::vector<VkDescriptorSetLayout>{chunk_probe_bake_set_layout_},
+      sizeof(ChunkProbeBakePushConstants));
   render_pipeline_.emplace(*context_, render_stage_,
                            std::vector<VkDescriptorSetLayout>{render_set_layout_},
                            sizeof(PushConstants));
@@ -928,11 +1334,24 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       std::vector<VkDescriptorSetLayout>{post_composite_set_layout_},
       sizeof(PostCompositePushConstants));
 
-  if (!voxelize_pipeline_->is_valid() || !probe_bake_pipeline_->is_valid() ||
+  if (!voxelize_pipeline_->is_valid() || !chunk_voxelize_pipeline_->is_valid() ||
+      !chunk_debug_query_pipeline_->is_valid() || !chunk_evict_pipeline_->is_valid() ||
+      !probe_bake_pipeline_->is_valid() || !chunk_probe_bake_pipeline_->is_valid() ||
       !render_pipeline_->is_valid() || !bloom_blur_h_pipeline_->is_valid() ||
       !post_composite_pipeline_->is_valid()) {
     KERROR("Failed to create compute pipeline(s) for the raymarch field.");
     return;
+  }
+
+  // One ChunkStreamingManager per clip level, each owning a disjoint
+  // slot_offset range of the shared chunk_indirection_buffer_ -- see
+  // chunk_streaming_levels_'s own comment for why this can't be a single
+  // member-initializer-list construction.
+  chunk_streaming_levels_.reserve(kNumLevels);
+  for (u32 level = 0; level < kNumLevels; ++level) {
+    chunk_streaming_levels_.emplace_back(kMaxResidentChunks, kStreamRadiusChunks,
+                                         kFramesInFlightDelay,
+                                         level * kMaxResidentChunks);
   }
 
   valid_ = true;
@@ -940,6 +1359,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // Upload the registered static scene and bake it, now that everything
   // above exists.
   rebuild_static_scene();
+
+  reset_chunked_field();
 }
 
 VulkanRaymarchShader::~VulkanRaymarchShader() {
@@ -957,12 +1378,44 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   bloom_blur_h_pipeline_.reset();
   render_pipeline_.reset();
   probe_bake_pipeline_.reset();
+  chunk_probe_bake_pipeline_.reset();
+  chunk_evict_pipeline_.reset();
+  chunk_debug_query_pipeline_.reset();
+  chunk_voxelize_pipeline_.reset();
   voxelize_pipeline_.reset();
 
   if (descriptor_pool_ != VK_NULL_HANDLE) {
     vkDestroyDescriptorPool(context_->device.logical_device, descriptor_pool_,
                             context_->allocator);
     descriptor_pool_ = VK_NULL_HANDLE;
+  }
+  if (chunk_descriptor_pool_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorPool(context_->device.logical_device,
+                            chunk_descriptor_pool_, context_->allocator);
+    chunk_descriptor_pool_ = VK_NULL_HANDLE;
+  }
+  if (chunk_probe_bake_set_layout_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(context_->device.logical_device,
+                                 chunk_probe_bake_set_layout_,
+                                 context_->allocator);
+    chunk_probe_bake_set_layout_ = VK_NULL_HANDLE;
+  }
+  if (chunk_evict_set_layout_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(context_->device.logical_device,
+                                 chunk_evict_set_layout_, context_->allocator);
+    chunk_evict_set_layout_ = VK_NULL_HANDLE;
+  }
+  if (chunk_debug_query_set_layout_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(context_->device.logical_device,
+                                 chunk_debug_query_set_layout_,
+                                 context_->allocator);
+    chunk_debug_query_set_layout_ = VK_NULL_HANDLE;
+  }
+  if (chunk_voxelize_set_layout_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(context_->device.logical_device,
+                                 chunk_voxelize_set_layout_,
+                                 context_->allocator);
+    chunk_voxelize_set_layout_ = VK_NULL_HANDLE;
   }
   if (post_composite_set_layout_ != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(context_->device.logical_device,
@@ -1006,6 +1459,18 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   brick_counter_buffer_.reset();
   brick_pool_buffer_.reset();
   indirection_buffer_.reset();
+
+  chunk_gi_probe_buffer_b_.reset();
+  chunk_gi_probe_buffer_a_.reset();
+
+  chunk_debug_query_output_buffer_.reset();
+  chunk_brick_free_list_top_buffer_.reset();
+  chunk_brick_free_list_buffer_.reset();
+  chunk_brick_demand_buffer_.reset();
+  chunk_brick_primitive_buffer_.reset();
+  chunk_brick_pool_buffer_.reset();
+  chunk_indirection_buffer_.reset();
+  chunk_table_buffer_.reset();
 
   vulkan_image_destroy(context_, &post_process_image_);
   vulkan_image_destroy(context_, &bloom_temp_image_);
@@ -1235,7 +1700,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       prim.repeat_count[0] = geometry.repetition_count.x;
       prim.repeat_count[1] = geometry.repetition_count.y;
       prim.repeat_count[2] = geometry.repetition_count.z;
-      prim.repeat_count[3] = compute_bounding_radius(geometry);
+      prim.repeat_count[3] = geometry_bounding_radius(geometry);
 
       prim.deform[0] = geometry.twist;
       prim.deform[1] = geometry.bend;
@@ -1399,6 +1864,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   // bakes with -- sent as a push constant every render_to() call, like
   // light_count_.
   layer_count_ = static_cast<i32>(layer_count);
+  max_smoothness_ = max_smoothness;
 
   primitive_buffer_->load_data(0, gpu_primitives.size() * sizeof(GpuPrimitive),
                                0, gpu_primitives.data());
@@ -1531,22 +1997,43 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   vkUpdateDescriptorSets(context_->device.logical_device, 2, texture_writes, 0,
                         nullptr);
 
-  // voxelize() and bake_probes() (GI needs the field voxelize() just
-  // baked to march gather rays against, and light_count_/ambient_ -- just
-  // set above -- to shade what those rays hit) share one command buffer
-  // and one submission/wait instead of one each (voxelize() + bake_probes()'s
-  // zero-fill + kProbeBounceCount bounces used to be 5 separate allocate+
-  // submit+vkQueueWaitIdle round trips per rebake() -- each one fixed
-  // overhead on top of its actual GPU work).
-  auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
-      *context_, context_->device.graphics_command_pool);
-  voxelize(*cmd, layer_count, max_smoothness);
-  bake_probes(*cmd, static_cast<u32>(light_count_));
-  VulkanCommandBuffer::end_single_use(*context_,
-                                      context_->device.graphics_command_pool,
-                                      std::move(cmd),
-                                      context_->device.graphics_queue);
-  check_brick_overflow();
+  // voxelize()/bake_probes() bake the OLD fixed-[-BOUNDS,BOUNDS]-cube field
+  // -- once chunked_field_enabled_ is on, render_to() samples the chunked/
+  // clipmap field exclusively (see sample_active_field() in Builtin.
+  // RaymarchShader.comp.glsl) and never reads this field's output again, so
+  // baking it here is pure waste: a full COARSE_DIM^3 voxelize dispatch
+  // plus a kProbeBounceCount-bounce GI bake, on EVERY scene edit. This is
+  // the single most expensive thing rebuild_static_scene() does, and for a
+  // caller like tools/sdf_editor that reloads the whole scene on every
+  // gizmo drag/param tweak, it fired constantly for zero visual benefit --
+  // confirmed the dominant stall behind the "editor feels slow" reports.
+  // Skipped entirely when chunked, not merely made cheaper: nothing below
+  // this point reads primitive_buffer_/layer_buffer_/light_buffer_ through
+  // the OLD field's own baked output, only through the chunked field's own
+  // separate voxelize_chunk()/bake_gi_cascade() (see update_streaming()/
+  // update_gi_cascade(), driven by begin_frame() every frame, independent
+  // of this function). tools/sdf_editor's synchronous-authoring use case
+  // (see rebake()'s own comment) is exactly why this stays gated on the
+  // flag rather than removed outright -- sdf_editor sessions that never
+  // opt into the chunked field still need this to see anything at all.
+  if (!chunked_field_enabled_) {
+    // voxelize() and bake_probes() (GI needs the field voxelize() just
+    // baked to march gather rays against, and light_count_/ambient_ --
+    // just set above -- to shade what those rays hit) share one command
+    // buffer and one submission/wait instead of one each (voxelize() +
+    // bake_probes()'s zero-fill + kProbeBounceCount bounces used to be 5
+    // separate allocate+submit+vkQueueWaitIdle round trips per rebake() --
+    // each one fixed overhead on top of its actual GPU work).
+    auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+        *context_, context_->device.graphics_command_pool);
+    voxelize(*cmd, layer_count, max_smoothness);
+    bake_probes(*cmd, static_cast<u32>(light_count_));
+    VulkanCommandBuffer::end_single_use(*context_,
+                                        context_->device.graphics_command_pool,
+                                        std::move(cmd),
+                                        context_->device.graphics_queue);
+    check_brick_overflow();
+  }
 }
 
 void VulkanRaymarchShader::write_skybox_binding(VulkanTexture &texture) {
@@ -1717,6 +2204,1031 @@ void VulkanRaymarchShader::check_brick_overflow() {
   }
 }
 
+void VulkanRaymarchShader::reset_chunked_field() {
+  // Every table entry (across all kNumLevels' worth) starts "no chunk
+  // resident" -- voxelize_chunk() fills in exactly the entries it assigns
+  // a slot to.
+  const u64 table_entries =
+      static_cast<u64>(kNumLevels) * kChunkTableDim * kChunkTableDim * kChunkTableDim;
+  if (void *mapped = chunk_table_buffer_->lock(0, table_entries * sizeof(i32), 0)) {
+    i32 *table = static_cast<i32 *>(mapped);
+    std::fill(table, table + table_entries, -1);
+    chunk_table_buffer_->unlock();
+  }
+
+  // Free list starts full: every brick index available, in order --
+  // Builtin.ChunkVoxelize.comp.glsl pops from the top down (see its own
+  // comment: allocation order never matters, only that every index is
+  // handed out at most once between resets).
+  if (void *mapped = chunk_brick_free_list_buffer_->lock(
+          0, static_cast<u64>(kMaxChunkBricks) * sizeof(i32), 0)) {
+    i32 *free_list = static_cast<i32 *>(mapped);
+    for (u32 i = 0; i < kMaxChunkBricks; ++i) {
+      free_list[i] = static_cast<i32>(i);
+    }
+    chunk_brick_free_list_buffer_->unlock();
+  }
+  if (void *mapped = chunk_brick_free_list_top_buffer_->lock(0, sizeof(u32), 0)) {
+    *static_cast<u32 *>(mapped) = kMaxChunkBricks;
+    chunk_brick_free_list_top_buffer_->unlock();
+  }
+}
+
+void VulkanRaymarchShader::voxelize_chunk(VulkanCommandBuffer &cmd,
+                                          glm::ivec3 world_chunk_coord, u32 level,
+                                          u32 gpu_slot, u32 layer_count,
+                                          f32 max_smoothness) {
+  // Assign world_chunk_coord to gpu_slot in level's own toroidal table
+  // range -- must compute the exact same wrap (and the same level offset)
+  // Builtin.ChunkedFieldCommon.inc.glsl's sample_chunked_field_at_level()
+  // does GPU-side, or a query would read a different slot than this bake
+  // just wrote. ChunkStreamingManager owns collision handling (evicting
+  // whatever chunk previously held this wrapped slot, if any, before
+  // reassigning it) -- this method just performs the assignment it's told
+  // to.
+  auto floor_mod = [](i32 v, i32 m) { return ((v % m) + m) % m; };
+  i32 table_dim = static_cast<i32>(kChunkTableDim);
+  glm::ivec3 wrapped(floor_mod(world_chunk_coord.x, table_dim),
+                     floor_mod(world_chunk_coord.y, table_dim),
+                     floor_mod(world_chunk_coord.z, table_dim));
+  i32 table_index = static_cast<i32>(level) * table_dim * table_dim * table_dim +
+      wrapped.x + wrapped.y * table_dim + wrapped.z * table_dim * table_dim;
+  if (void *mapped = chunk_table_buffer_->lock(
+          static_cast<u64>(table_index) * sizeof(i32), sizeof(i32), 0)) {
+    *static_cast<i32 *>(mapped) = static_cast<i32>(gpu_slot);
+    chunk_table_buffer_->unlock();
+  }
+
+  // Zero this bake's demand counter -- mirrors voxelize()'s identical
+  // vkCmdFillBuffer+barrier for brick_counter_buffer_ (see its comment).
+  vkCmdFillBuffer(cmd.handle(), chunk_brick_demand_buffer_->handle(), 0,
+                 sizeof(u32), 0);
+  VkBufferMemoryBarrier fill_barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  fill_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  fill_barrier.dstAccessMask =
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+  fill_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  fill_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  fill_barrier.buffer = chunk_brick_demand_buffer_->handle();
+  fill_barrier.offset = 0;
+  fill_barrier.size = VK_WHOLE_SIZE;
+  vkCmdPipelineBarrier(cmd.handle(), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1,
+                      &fill_barrier, 0, nullptr);
+
+  chunk_voxelize_pipeline_->bind(cmd);
+  vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                         chunk_voxelize_pipeline_->layout(), 0, 1,
+                         &chunk_voxelize_set_, 0, nullptr);
+
+  f32 level_world_size = chunk_level_world_size(level);
+  f32 level_cell_size = level_world_size / static_cast<f32>(kChunkCoarseDim);
+  glm::vec3 chunk_world_min = glm::vec3(world_chunk_coord) * level_world_size;
+  ChunkVoxelizePushConstants push_constants{
+      static_cast<i32>(layer_count), max_smoothness, static_cast<i32>(gpu_slot),
+      chunk_world_min.x, chunk_world_min.y, chunk_world_min.z, level_cell_size};
+  vkCmdPushConstants(cmd.handle(), chunk_voxelize_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                    sizeof(ChunkVoxelizePushConstants), &push_constants);
+
+  constexpr u32 local_size = 4; // must match local_size_x/y/z in the shader
+  u32 groups = (kChunkCoarseDim + local_size - 1) / local_size;
+  vkCmdDispatch(cmd.handle(), groups, groups, groups);
+
+  // Make this bake's writes visible to whatever reads the chunked field
+  // next in the same command buffer (query_chunked_field(), or a later
+  // phase's own dispatches) -- same reasoning as voxelize()'s identical
+  // trailing barrier.
+  record_compute_buffer_barriers(
+      cmd.handle(), VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+      {chunk_indirection_buffer_->handle(), chunk_brick_pool_buffer_->handle(),
+       chunk_brick_primitive_buffer_->handle()});
+}
+
+void VulkanRaymarchShader::query_chunked_field(VulkanCommandBuffer &cmd,
+                                               glm::vec3 query_world_pos) {
+  chunk_debug_query_pipeline_->bind(cmd);
+  vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                         chunk_debug_query_pipeline_->layout(), 0, 1,
+                         &chunk_debug_query_set_, 0, nullptr);
+
+  ChunkDebugQueryPushConstants push_constants{query_world_pos.x, query_world_pos.y,
+                                              query_world_pos.z};
+  vkCmdPushConstants(cmd.handle(), chunk_debug_query_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                    sizeof(ChunkDebugQueryPushConstants), &push_constants);
+
+  vkCmdDispatch(cmd.handle(), 1, 1, 1);
+}
+
+void VulkanRaymarchShader::query_clipmap_field(VulkanCommandBuffer &cmd,
+                                               glm::vec3 query_world_pos,
+                                               glm::vec3 camera_pos) {
+  chunk_debug_query_pipeline_->bind(cmd);
+  vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                         chunk_debug_query_pipeline_->layout(), 0, 1,
+                         &chunk_debug_query_set_, 0, nullptr);
+
+  ChunkDebugQueryPushConstants push_constants{
+      query_world_pos.x, query_world_pos.y, query_world_pos.z,
+      /*use_clipmap=*/1, camera_pos.x, camera_pos.y, camera_pos.z};
+  vkCmdPushConstants(cmd.handle(), chunk_debug_query_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                    sizeof(ChunkDebugQueryPushConstants), &push_constants);
+
+  vkCmdDispatch(cmd.handle(), 1, 1, 1);
+}
+
+void VulkanRaymarchShader::evict_chunk(VulkanCommandBuffer &cmd,
+                                       glm::ivec3 world_chunk_coord, u32 level,
+                                       u32 gpu_slot) {
+  // Clear the table entry FIRST (before the GPU dispatch below even runs)
+  // -- see this method's header comment for why leaving it stale, even
+  // briefly, would let a query resolve through to gpu_slot's about-to-be-
+  // freed (or already-reused) content instead of correctly seeing "no
+  // chunk resident." Same level-offset table index as voxelize_chunk().
+  auto floor_mod = [](i32 v, i32 m) { return ((v % m) + m) % m; };
+  i32 table_dim = static_cast<i32>(kChunkTableDim);
+  glm::ivec3 wrapped(floor_mod(world_chunk_coord.x, table_dim),
+                     floor_mod(world_chunk_coord.y, table_dim),
+                     floor_mod(world_chunk_coord.z, table_dim));
+  i32 table_index = static_cast<i32>(level) * table_dim * table_dim * table_dim +
+      wrapped.x + wrapped.y * table_dim + wrapped.z * table_dim * table_dim;
+  if (void *mapped = chunk_table_buffer_->lock(
+          static_cast<u64>(table_index) * sizeof(i32), sizeof(i32), 0)) {
+    *static_cast<i32 *>(mapped) = -1;
+    chunk_table_buffer_->unlock();
+  }
+
+  chunk_evict_pipeline_->bind(cmd);
+  vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                         chunk_evict_pipeline_->layout(), 0, 1,
+                         &chunk_evict_set_, 0, nullptr);
+
+  ChunkEvictPushConstants push_constants{static_cast<i32>(gpu_slot)};
+  vkCmdPushConstants(cmd.handle(), chunk_evict_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                    sizeof(ChunkEvictPushConstants), &push_constants);
+
+  constexpr u32 local_size = 4; // must match local_size_x/y/z in the shader
+  u32 groups = (kChunkCoarseDim + local_size - 1) / local_size;
+  vkCmdDispatch(cmd.handle(), groups, groups, groups);
+
+  // Make this dispatch's free-list push visible to whatever pops from it
+  // next -- a later voxelize_chunk() this same frame (or a future one).
+  record_compute_buffer_barriers(
+      cmd.handle(), VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+      {chunk_indirection_buffer_->handle(),
+       chunk_brick_free_list_buffer_->handle(),
+       chunk_brick_free_list_top_buffer_->handle()});
+}
+
+void VulkanRaymarchShader::update_streaming(VulkanCommandBuffer &cmd,
+                                            glm::vec3 camera_pos) {
+  // A scene edit (renderer_load_scene()/translate_scene()/etc. -- see
+  // GeometrySystem::mark_dirty()'s own comment, which names this exact
+  // spot as the "later phase" meant to read dirty_since_last_snapshot())
+  // invalidates every already-Ready resident chunk's baked content:
+  // voxelize_chunk() only ever runs when a chunk newly enters a level's
+  // streaming window below, never again just because the primitives inside
+  // an already-resident chunk changed. Without this, a scene edited in
+  // place while the camera stays put (sdf_editor's entire workflow -- see
+  // SceneViewport::tick()'s per-frame renderer_set_camera() plus
+  // sync_viewport_scene()'s clear+reload on every edit) would show
+  // permanently stale -- usually empty, from before any primitive existed
+  // -- content forever, since nothing ever asks an already-Ready chunk to
+  // re-bake. testbed/games/SH never hit this: their scenes load once and
+  // are never edited again.
+  //
+  // Fixed by capturing every currently-Ready chunk, across every level, as
+  // pending_forced_evictions_ the frame a dirty primitive is first noticed
+  // (a one-shot sweep, not a live re-check every frame -- re-checking
+  // dirty_since_last_snapshot() every frame would keep re-evicting chunks
+  // an earlier sweep had already refreshed, forever, since clearing it
+  // immediately after the sweep is what lets already-fresh reloads stay
+  // put). Each forced eviction drains through the exact same ring-delay-
+  // safe evict_chunk()/commit_evict() path as an ordinary boundary
+  // eviction below (see its own comment for why that delay matters
+  // regardless of the reason a chunk is being evicted), so a freed chunk
+  // simply gets reloaded fresh a few frames later by the ordinary to_load
+  // logic below -- the camera is still near it, so update() will want it
+  // resident again immediately, this time reading the current scene.
+  //
+  // Deliberately brute-force (every resident chunk, not just ones the
+  // dirty primitive's own chunks_touched_by() would name) rather than
+  // surgical: a REMOVED primitive is already gone from GeometrySystem by
+  // the time this runs (release() already erased it), leaving no bounds to
+  // compute which chunks it used to occupy, and a MOVED primitive's old
+  // position is equally unrecoverable here. Re-baking every resident chunk
+  // near the camera costs at most kMaxResidentChunks*kNumLevels evictions
+  // spread over kMaxChunkBakesPerFrame-sized budgets across a handful of
+  // frames -- nowhere near the cost of the old fixed-cube rebake() this
+  // replaces.
+  if (!context_->geometry_system->dirty_since_last_snapshot().empty()) {
+    for (u32 level = 0; level < kNumLevels; ++level) {
+      for (const auto &[key, record] : chunk_streaming_levels_[level].resident_chunks()) {
+        if (record.state == ChunkState::Ready) {
+          pending_forced_evictions_.emplace_back(level, key);
+        }
+      }
+    }
+    context_->geometry_system->clear_dirty();
+  }
+
+  // One independent load/evict pass per clip level -- see chunk_streaming_
+  // levels_'s own comment. Each level has its own budget (kMaxChunkBakes
+  // PerFrame), so total per-frame chunk work scales with kNumLevels; still
+  // far cheaper than one full rebake either way.
+  for (u32 level = 0; level < kNumLevels; ++level) {
+    ChunkStreamingManager &streaming = chunk_streaming_levels_[level];
+    f32 level_world_size = chunk_level_world_size(level);
+
+    streaming.tick();
+    ChunkStreamingManager::Plan plan = streaming.update(camera_pos, level_world_size);
+
+    u32 evicted = 0;
+    for (ChunkKey key : plan.to_evict) {
+      if (evicted >= kMaxChunkBakesPerFrame) {
+        break;
+      }
+      ChunkState state = streaming.state_of(key);
+      if (state != ChunkState::Ready) {
+        // Raced with tick()/update() in between planning and acting (e.g.
+        // this key already flipped to Evicting via an earlier iteration
+        // this same loop, or dropped out of resident_ entirely) --
+        // update()'s own to_evict only ever includes Ready chunks at the
+        // moment it ran, but nothing stops the SAME key appearing once;
+        // this check is defensive, not expected to trigger in practice.
+        continue;
+      }
+      u32 slot = streaming.resident_chunks().at(key).gpu_slot;
+      glm::ivec3 chunk_coord(static_cast<i32>(key.cx), static_cast<i32>(key.cy),
+                             static_cast<i32>(key.cz));
+      evict_chunk(cmd, chunk_coord, level, slot);
+      streaming.commit_evict(key);
+      ++evicted;
+    }
+
+    // Drain this level's share of pending_forced_evictions_ with whatever
+    // budget the boundary evictions above didn't use -- a dirty-triggered
+    // eviction is exactly as urgent as a boundary one (both fix an
+    // otherwise-permanently-wrong chunk), so they share one budget rather
+    // than each getting their own kMaxChunkBakesPerFrame.
+    for (auto it = pending_forced_evictions_.begin();
+        it != pending_forced_evictions_.end() && evicted < kMaxChunkBakesPerFrame;) {
+      if (it->first != level) {
+        ++it;
+        continue;
+      }
+      ChunkKey key = it->second;
+      it = pending_forced_evictions_.erase(it);
+      if (streaming.state_of(key) != ChunkState::Ready) {
+        // Already evicted by the boundary pass above this same frame (it
+        // can appear in both plan.to_evict and here), or otherwise no
+        // longer resident -- nothing left to do for this entry.
+        continue;
+      }
+      u32 slot = streaming.resident_chunks().at(key).gpu_slot;
+      glm::ivec3 chunk_coord(static_cast<i32>(key.cx), static_cast<i32>(key.cy),
+                             static_cast<i32>(key.cz));
+      evict_chunk(cmd, chunk_coord, level, slot);
+      streaming.commit_evict(key);
+      ++evicted;
+    }
+
+    u32 loaded = 0;
+    for (ChunkKey key : plan.to_load) {
+      if (loaded >= kMaxChunkBakesPerFrame) {
+        break;
+      }
+      u32 slot = streaming.acquire_free_slot();
+      if (slot == kInvalidChunkSlot) {
+        // No slot free this frame (every slot resident or still ring-
+        // delaying an eviction) -- try again next frame; update() will
+        // re-offer this same chunk (still nearest-first) as long as it's
+        // still wanted.
+        break;
+      }
+      glm::ivec3 chunk_coord(static_cast<i32>(key.cx), static_cast<i32>(key.cy),
+                             static_cast<i32>(key.cz));
+      voxelize_chunk(cmd, chunk_coord, level, slot, static_cast<u32>(layer_count_),
+                     max_smoothness_);
+      streaming.commit_load(key, slot);
+      ++loaded;
+    }
+  }
+}
+
+void VulkanRaymarchShader::debug_verify_chunked_field() {
+  // Hand-place one test primitive directly into primitive_buffer_/
+  // layer_buffer_ -- bypassing GeometrySystem/rebuild_static_scene()
+  // entirely, since this runs from the constructor before a game has
+  // necessarily registered anything. A sphere, radius 1, centered at
+  // world-space (2.1, 2.1, 2.1) -- deliberately not grid-aligned (0.25-unit
+  // coarse cells, so a plain 2.0 would put the surface's most interesting
+  // query points suspiciously close to a cell boundary -- see the query
+  // points below for why exact alignment would make this test's own
+  // reasoning about which cell contains a query point ambiguous) and not
+  // exactly 0 on any axis (a primitive at the render-space origin would
+  // straddle 8 chunks at once here, an unnecessary complication for a
+  // single-chunk test; see GeometrySystem's chunks_touched_by() unit
+  // tests, tests/src/systems/geometry_chunk_tests.cpp, for the same
+  // reasoning applied to chunk *selection* rather than voxelization).
+  GpuPrimitive test_primitive{};
+  test_primitive.position_type[0] = 2.1f;
+  test_primitive.position_type[1] = 2.1f;
+  test_primitive.position_type[2] = 2.1f;
+  test_primitive.position_type[3] =
+      static_cast<f32>(static_cast<u32>(PrimitiveType::Sphere));
+  test_primitive.params[0] = 1.0f; // radius
+  test_primitive.rotation[3] = 1.0f; // identity quaternion (0,0,0,1)
+  test_primitive.expr_scale[0] = 1.0f;
+  test_primitive.repeat_count[0] = 1.0f;
+  test_primitive.repeat_count[1] = 1.0f;
+  test_primitive.repeat_count[2] = 1.0f;
+  test_primitive.repeat_count[3] = 1.0f; // bounding radius (exact, for a plain sphere)
+  test_primitive.deform[3] = 20.0f; // displace_frequency default; amplitude 0 so unused
+
+  GpuLayer test_layer{};
+  test_layer.op_smoothness[0] =
+      static_cast<f32>(static_cast<u32>(LayerOperation::Union));
+  test_layer.op_smoothness[1] = 0.0f;
+  test_layer.range[0] = 0; // primitive_start
+  test_layer.range[1] = 1; // primitive_count
+
+  // instruction_count == 0 means "no formula, use the plain constant" --
+  // see GpuParamExpr's own comment. primitive_buffer_/layer_buffer_'s
+  // memory isn't guaranteed zeroed on creation, so this must be written
+  // explicitly rather than assumed.
+  GpuParamExpr empty_expr{};
+  if (void *mapped = param_expr_buffer_->lock(0, sizeof(GpuParamExpr) * 4, 0)) {
+    auto *exprs = static_cast<GpuParamExpr *>(mapped);
+    exprs[0] = empty_expr;
+    exprs[1] = empty_expr;
+    exprs[2] = empty_expr;
+    exprs[3] = empty_expr;
+    param_expr_buffer_->unlock();
+  }
+  if (void *mapped = primitive_buffer_->lock(0, sizeof(GpuPrimitive), 0)) {
+    *static_cast<GpuPrimitive *>(mapped) = test_primitive;
+    primitive_buffer_->unlock();
+  }
+  if (void *mapped = layer_buffer_->lock(0, sizeof(GpuLayer), 0)) {
+    *static_cast<GpuLayer *>(mapped) = test_layer;
+    layer_buffer_->unlock();
+  }
+
+  // The sphere (center (2.1,2.1,2.1), radius 1) sits entirely inside the
+  // level-0 chunk at world_chunk_coord (0,0,0) -- kChunkWorldSize is 4.0
+  // (16 * 0.25), so that chunk spans [0,4) on every axis, comfortably
+  // containing the sphere's full [1.1,3.1] extent on each axis with room
+  // to spare.
+  glm::ivec3 chunk_coord(0, 0, 0);
+  u32 slot = 0;
+
+  auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+  voxelize_chunk(*cmd, chunk_coord, /*level=*/0, slot, /*layer_count=*/1,
+                /*max_smoothness=*/0.0f);
+  // First query: a point exactly ON the sphere's surface, +X of center
+  // (2.1+1.0, 2.1, 2.1) = (3.1, 2.1, 2.1) -- expected dist == 0.0.
+  // Deliberately ON the surface rather than merely "near" it: only coarse
+  // cells within half_diagonal (~0.2165, see Builtin.ChunkVoxelize.comp.
+  // glsl's CULL_RADIUS_CELLS-independent coarse test) of the true surface
+  // get a brick allocated at all, and a cell's *center* -- not the query
+  // point -- is what that test measures. For a point at true surface
+  // distance d, its containing cell's center can be up to half_diagonal
+  // away, so by the SDF's 1-Lipschitz property the cell center's own
+  // distance can be as large as d + half_diagonal -- which only stays
+  // within the half_diagonal cull threshold FOR EVERY POSSIBLE grid
+  // alignment when d == 0 exactly. A nonzero-but-small offset (e.g. 0.1)
+  // was tried first and empirically DID land in a cell that failed the
+  // cull test (verified by hand against this exact sphere/grid), which is
+  // what motivates querying exactly on the surface instead.
+  query_chunked_field(*cmd, glm::vec3(3.1f, 2.1f, 2.1f));
+  // (Sequential single-invocation dispatches into the same command buffer
+  // would all write the same debug-output binding before the previous
+  // result is read back -- so this reads back after each dispatch
+  // individually instead, at the cost of three submissions instead of
+  // one. Verification-only code; not a pattern for the real render path.)
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(cmd), context_->device.graphics_queue);
+
+  auto read_result = [this]() -> ChunkDebugQueryOutput {
+    ChunkDebugQueryOutput result{};
+    if (void *mapped = chunk_debug_query_output_buffer_->lock(
+            0, sizeof(ChunkDebugQueryOutput), 0)) {
+      result = *static_cast<ChunkDebugQueryOutput *>(mapped);
+      chunk_debug_query_output_buffer_->unlock();
+    }
+    return result;
+  };
+
+  bool all_passed = true;
+  auto check = [&](const char *name, f32 actual, f32 expected, f32 tolerance) {
+    if (std::abs(actual - expected) > tolerance) {
+      KERROR("Phase 3a chunked-field verification FAILED: {} expected {}, "
+            "got {}.",
+            name, expected, actual);
+      all_passed = false;
+    }
+  };
+
+  ChunkDebugQueryOutput surface_x_result = read_result();
+  check("point on sphere surface (+X)", surface_x_result.dist, 0.0f, 0.01f);
+
+  // Second query: a different point also exactly ON the surface, -Y of
+  // center (2.1, 2.1-1.0, 2.1) = (2.1, 1.1, 2.1) -- same reasoning as
+  // above, on a different axis/cell, expected dist == 0.0 again.
+  auto cmd2 = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+  query_chunked_field(*cmd2, glm::vec3(2.1f, 1.1f, 2.1f));
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(cmd2), context_->device.graphics_queue);
+  ChunkDebugQueryOutput surface_y_result = read_result();
+  check("point on sphere surface (-Y)", surface_y_result.dist, 0.0f, 0.01f);
+
+  auto cmd3 = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+  query_chunked_field(*cmd3, glm::vec3(500.0f, 500.0f, 500.0f));
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(cmd3), context_->device.graphics_queue);
+  ChunkDebugQueryOutput unbaked_result = read_result();
+  if (unbaked_result.material_index != -1) {
+    KERROR("Phase 3a chunked-field verification FAILED: query far outside "
+          "any baked chunk expected material_index -1 (no chunk resident), "
+          "got {}.",
+          unbaked_result.material_index);
+    all_passed = false;
+  }
+
+  if (all_passed) {
+    KINFO("Phase 3a chunked-field verification PASSED (surface +X dist {}, "
+         "surface -Y dist {}, unbaked-chunk material_index {}).",
+         surface_x_result.dist, surface_y_result.dist,
+         unbaked_result.material_index);
+  }
+}
+
+void VulkanRaymarchShader::debug_verify_multi_level_field() {
+  // A sphere far enough along +X that it sits in a level-1 chunk outside
+  // level 0's own streaming window (radius kStreamRadiusChunks=1 around a
+  // camera at the origin) but inside level 1's (chunk_level_world_size(1)
+  // is 2x level 0's, so level 1's window reaches twice as far in world
+  // units for the same chunk-count radius -- the entire point of a
+  // clipmap). Center (10.1, 2.1, 2.1): non-grid-aligned on both level 0's
+  // (cell size 0.25) and level 1's (cell size 0.5) fine-voxel grids, same
+  // reasoning as debug_verify_chunked_field()'s sphere placement.
+  GpuPrimitive test_primitive{};
+  test_primitive.position_type[0] = 10.1f;
+  test_primitive.position_type[1] = 2.1f;
+  test_primitive.position_type[2] = 2.1f;
+  test_primitive.position_type[3] =
+      static_cast<f32>(static_cast<u32>(PrimitiveType::Sphere));
+  test_primitive.params[0] = 1.0f; // radius
+  test_primitive.rotation[3] = 1.0f;
+  test_primitive.expr_scale[0] = 1.0f;
+  test_primitive.repeat_count[0] = 1.0f;
+  test_primitive.repeat_count[1] = 1.0f;
+  test_primitive.repeat_count[2] = 1.0f;
+  test_primitive.repeat_count[3] = 1.0f;
+  test_primitive.deform[3] = 20.0f;
+
+  GpuLayer test_layer{};
+  test_layer.op_smoothness[0] =
+      static_cast<f32>(static_cast<u32>(LayerOperation::Union));
+  test_layer.op_smoothness[1] = 0.0f;
+  test_layer.range[0] = 0;
+  test_layer.range[1] = 1;
+
+  GpuParamExpr empty_expr{};
+  if (void *mapped = param_expr_buffer_->lock(0, sizeof(GpuParamExpr) * 4, 0)) {
+    auto *exprs = static_cast<GpuParamExpr *>(mapped);
+    exprs[0] = empty_expr;
+    exprs[1] = empty_expr;
+    exprs[2] = empty_expr;
+    exprs[3] = empty_expr;
+    param_expr_buffer_->unlock();
+  }
+  if (void *mapped = primitive_buffer_->lock(0, sizeof(GpuPrimitive), 0)) {
+    *static_cast<GpuPrimitive *>(mapped) = test_primitive;
+    primitive_buffer_->unlock();
+  }
+  if (void *mapped = layer_buffer_->lock(0, sizeof(GpuLayer), 0)) {
+    *static_cast<GpuLayer *>(mapped) = test_layer;
+    layer_buffer_->unlock();
+  }
+
+  // chunk_level_world_size(1) = 8.0 -- (10.1, 2.1, 2.1) falls in level-1
+  // chunk (1, 0, 0) ([8,16) x [0,8) x [0,8)). Slot chosen directly
+  // (kMaxResidentChunks, level 1's first slot) rather than through
+  // ChunkStreamingManager -- this test drives voxelize_chunk()/
+  // query_clipmap_field() directly, exactly like debug_verify_chunked_
+  // field() does for level 0.
+  glm::ivec3 chunk_coord(1, 0, 0);
+  u32 level = 1;
+  u32 slot = kMaxResidentChunks; // level 1's first global slot
+
+  auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+  voxelize_chunk(*cmd, chunk_coord, level, slot, /*layer_count=*/1,
+                /*max_smoothness=*/0.0f);
+  // Camera at the origin: level 0's window (chunks -1..1, world roughly
+  // [-4,8)) does NOT reach this sphere; level 1's window (chunks -1..1 at
+  // 2x the world size, roughly [-8,16)) does -- so sample_clipmap_field()
+  // must fall through past level 0 to find this data.
+  glm::vec3 camera_pos(0.0f, 0.0f, 0.0f);
+  query_clipmap_field(*cmd, glm::vec3(11.1f, 2.1f, 2.1f), camera_pos);
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(cmd), context_->device.graphics_queue);
+
+  ChunkDebugQueryOutput result{};
+  if (void *mapped = chunk_debug_query_output_buffer_->lock(
+          0, sizeof(ChunkDebugQueryOutput), 0)) {
+    result = *static_cast<ChunkDebugQueryOutput *>(mapped);
+    chunk_debug_query_output_buffer_->unlock();
+  }
+
+  if (std::abs(result.dist - 0.0f) > 0.02f) {
+    KERROR("Phase 4 multi-level verification FAILED: point on level-1 "
+          "sphere surface expected dist ~0, got {} (material_index {}) -- "
+          "sample_clipmap_field() likely failed to fall through to level 1.",
+          result.dist, result.material_index);
+  } else {
+    KINFO("Phase 4 multi-level verification PASSED (level-1 surface dist "
+         "{}, material_index {}).",
+         result.dist, result.material_index);
+  }
+}
+
+void VulkanRaymarchShader::debug_verify_extended_range_field() {
+  // Regression test for the kNumLevels=3->5 fix: a sphere placed at x=40.1
+  // (camera at the origin) sits at chunk_level_world_size(3)=32's chunk
+  // coord (1,0,0), world range [32,64) -- level 3's own streaming window
+  // (chunks -1..1, world range roughly [-32,64)) reaches it, but NEITHER
+  // level 2's window (chunk_level_world_size(2)=16, world range roughly
+  // [-16,32)) NOR any coarser level that existed under the old kNumLevels=3
+  // config (levels 0/1/2 only) would have. Confirms the fix actually
+  // extends the field's camera-relative reach past ~32 units, not just that
+  // levels 3/4 exist and compile.
+  GpuPrimitive test_primitive{};
+  test_primitive.position_type[0] = 40.1f;
+  test_primitive.position_type[1] = 2.1f;
+  test_primitive.position_type[2] = 2.1f;
+  test_primitive.position_type[3] =
+      static_cast<f32>(static_cast<u32>(PrimitiveType::Sphere));
+  test_primitive.params[0] = 1.0f;
+  test_primitive.rotation[3] = 1.0f;
+  test_primitive.expr_scale[0] = 1.0f;
+  test_primitive.repeat_count[0] = 1.0f;
+  test_primitive.repeat_count[1] = 1.0f;
+  test_primitive.repeat_count[2] = 1.0f;
+  test_primitive.repeat_count[3] = 1.0f;
+  test_primitive.deform[3] = 20.0f;
+
+  GpuLayer test_layer{};
+  test_layer.op_smoothness[0] =
+      static_cast<f32>(static_cast<u32>(LayerOperation::Union));
+  test_layer.op_smoothness[1] = 0.0f;
+  test_layer.range[0] = 0;
+  test_layer.range[1] = 1;
+
+  GpuParamExpr empty_expr{};
+  if (void *mapped = param_expr_buffer_->lock(0, sizeof(GpuParamExpr) * 4, 0)) {
+    auto *exprs = static_cast<GpuParamExpr *>(mapped);
+    exprs[0] = empty_expr;
+    exprs[1] = empty_expr;
+    exprs[2] = empty_expr;
+    exprs[3] = empty_expr;
+    param_expr_buffer_->unlock();
+  }
+  if (void *mapped = primitive_buffer_->lock(0, sizeof(GpuPrimitive), 0)) {
+    *static_cast<GpuPrimitive *>(mapped) = test_primitive;
+    primitive_buffer_->unlock();
+  }
+  if (void *mapped = layer_buffer_->lock(0, sizeof(GpuLayer), 0)) {
+    *static_cast<GpuLayer *>(mapped) = test_layer;
+    layer_buffer_->unlock();
+  }
+
+  glm::ivec3 chunk_coord(1, 0, 0);
+  u32 level = 3;
+  u32 slot = kMaxResidentChunks * level; // level 3's first global slot
+
+  auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+  voxelize_chunk(*cmd, chunk_coord, level, slot, /*layer_count=*/1,
+                /*max_smoothness=*/0.0f);
+  glm::vec3 camera_pos(0.0f, 0.0f, 0.0f);
+  query_clipmap_field(*cmd, glm::vec3(41.1f, 2.1f, 2.1f), camera_pos);
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(cmd), context_->device.graphics_queue);
+
+  ChunkDebugQueryOutput result{};
+  if (void *mapped = chunk_debug_query_output_buffer_->lock(
+          0, sizeof(ChunkDebugQueryOutput), 0)) {
+    result = *static_cast<ChunkDebugQueryOutput *>(mapped);
+    chunk_debug_query_output_buffer_->unlock();
+  }
+
+  if (std::abs(result.dist - 0.0f) > 0.02f) {
+    KERROR("Extended-range verification FAILED: point on level-3 sphere "
+          "surface (40 units from camera) expected dist ~0, got {} "
+          "(material_index {}) -- sample_clipmap_field() likely failed to "
+          "fall through to level 3.",
+          result.dist, result.material_index);
+  } else {
+    KINFO("Extended-range verification PASSED (level-3 surface dist {}, "
+         "material_index {}, 40 units from camera -- unreachable under the "
+         "old kNumLevels=3 config).",
+         result.dist, result.material_index);
+  }
+}
+
+void VulkanRaymarchShader::debug_verify_dirty_rebake() {
+  // Regression test for update_streaming()'s dirty-chunk re-voxelization
+  // fix (see its own comment): simulates exactly the bug sdf_editor hit --
+  // a chunk becomes resident while empty, then a primitive is added inside
+  // it while the camera never moves. Without the fix, an already-Ready
+  // chunk is never re-baked just because the scene changed, so this would
+  // stay permanently empty; with the fix, the dirty flag force-evicts and
+  // reloads it. Each "frame" below is its own single-use command buffer,
+  // submitted and waited on synchronously, so ChunkStreamingManager's
+  // ring-delay (kFramesInFlightDelay tick()s between commit_load()/commit_
+  // evict() and Baking/Evicting resolving) advances exactly like real
+  // frames would, without needing a live render loop.
+  glm::vec3 camera_pos(0.0f, 0.0f, 0.0f);
+
+  auto simulate_frame = [&]() {
+    auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+        *context_, context_->device.graphics_command_pool);
+    update_streaming(*cmd, camera_pos);
+    VulkanCommandBuffer::end_single_use(*context_,
+                                        context_->device.graphics_command_pool,
+                                        std::move(cmd), context_->device.graphics_queue);
+  };
+
+  // Phase A: let the level-0 chunk containing (2.1,2.1,2.1) stream in while
+  // the scene is empty (layer_count_ defaults to 0, so voxelize_chunk()'s
+  // dispatch touches no primitives -- correctly bakes "empty", not garbage).
+  // 4 frames: 1 to issue the load (commit_load() stamps bake_generation at
+  // the CURRENT generation, before that frame's own tick() has run again),
+  // 3 more for kFramesInFlightDelay's age check to pass Baking -> Ready.
+  for (int i = 0; i < 4; ++i) {
+    simulate_frame();
+  }
+  if (chunk_streaming_levels_[0].state_of(ChunkKey{0, 0, 0, 0}) != ChunkState::Ready) {
+    KERROR("Dirty-rebake verification FAILED: level-0 chunk (0,0,0) never "
+          "reached Ready during the initial empty-scene load -- test setup "
+          "itself is broken, not the fix under test.");
+    return;
+  }
+
+  // Phase B: inject a test sphere directly into primitive_buffer_/layer_
+  // buffer_ (bypassing GeometrySystem/rebuild_static_scene(), exactly like
+  // debug_verify_chunked_field() -- this method runs standalone, not from
+  // a real scene load) and mark the scene dirty. mark_dirty()'s name
+  // doesn't need to correspond to a real GeometrySystem entry --
+  // update_streaming() only checks whether dirty_since_last_snapshot() is
+  // non-empty, never what's in it.
+  GpuPrimitive test_primitive{};
+  test_primitive.position_type[0] = 2.1f;
+  test_primitive.position_type[1] = 2.1f;
+  test_primitive.position_type[2] = 2.1f;
+  test_primitive.position_type[3] =
+      static_cast<f32>(static_cast<u32>(PrimitiveType::Sphere));
+  test_primitive.params[0] = 1.0f;
+  test_primitive.rotation[3] = 1.0f;
+  test_primitive.expr_scale[0] = 1.0f;
+  test_primitive.repeat_count[0] = 1.0f;
+  test_primitive.repeat_count[1] = 1.0f;
+  test_primitive.repeat_count[2] = 1.0f;
+  test_primitive.repeat_count[3] = 1.0f;
+  test_primitive.deform[3] = 20.0f;
+
+  GpuLayer test_layer{};
+  test_layer.op_smoothness[0] =
+      static_cast<f32>(static_cast<u32>(LayerOperation::Union));
+  test_layer.op_smoothness[1] = 0.0f;
+  test_layer.range[0] = 0;
+  test_layer.range[1] = 1;
+
+  GpuParamExpr empty_expr{};
+  if (void *mapped = param_expr_buffer_->lock(0, sizeof(GpuParamExpr) * 4, 0)) {
+    auto *exprs = static_cast<GpuParamExpr *>(mapped);
+    exprs[0] = empty_expr;
+    exprs[1] = empty_expr;
+    exprs[2] = empty_expr;
+    exprs[3] = empty_expr;
+    param_expr_buffer_->unlock();
+  }
+  if (void *mapped = primitive_buffer_->lock(0, sizeof(GpuPrimitive), 0)) {
+    *static_cast<GpuPrimitive *>(mapped) = test_primitive;
+    primitive_buffer_->unlock();
+  }
+  if (void *mapped = layer_buffer_->lock(0, sizeof(GpuLayer), 0)) {
+    *static_cast<GpuLayer *>(mapped) = test_layer;
+    layer_buffer_->unlock();
+  }
+  layer_count_ = 1;
+  context_->geometry_system->mark_dirty("debug_verify_dirty_rebake_test");
+
+  // Phase C: enough frames for the force-evict + ring-delay + reload +
+  // ring-delay cycle to fully complete (roughly 1 + 3 + 1 + 3, see update_
+  // streaming()'s comment) -- generous padding since this only runs on
+  // demand, not every startup.
+  for (int i = 0; i < 16; ++i) {
+    simulate_frame();
+  }
+  if (chunk_streaming_levels_[0].state_of(ChunkKey{0, 0, 0, 0}) != ChunkState::Ready) {
+    KERROR("Dirty-rebake verification FAILED: level-0 chunk (0,0,0) never "
+          "returned to Ready after the forced re-voxelization cycle.");
+    return;
+  }
+
+  // Phase D: query the sphere's surface -- PASSED only if the chunk's
+  // reload actually picked up layer_count_=1 (the primitive added in Phase
+  // B), not a second empty bake.
+  auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+  query_clipmap_field(*cmd, glm::vec3(3.1f, 2.1f, 2.1f), camera_pos);
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(cmd), context_->device.graphics_queue);
+
+  ChunkDebugQueryOutput result{};
+  if (void *mapped = chunk_debug_query_output_buffer_->lock(
+          0, sizeof(ChunkDebugQueryOutput), 0)) {
+    result = *static_cast<ChunkDebugQueryOutput *>(mapped);
+    chunk_debug_query_output_buffer_->unlock();
+  }
+
+  if (std::abs(result.dist - 0.0f) > 0.02f) {
+    KERROR("Dirty-rebake verification FAILED: point on sphere surface added "
+          "AFTER the chunk was already resident expected dist ~0, got {} "
+          "(material_index {}) -- an already-Ready chunk did not pick up "
+          "the scene edit.",
+          result.dist, result.material_index);
+  } else {
+    KINFO("Dirty-rebake verification PASSED (surface dist {}, material_index "
+         "{} -- an already-resident chunk correctly re-baked after a scene "
+         "edit with the camera stationary).",
+         result.dist, result.material_index);
+  }
+}
+
+void VulkanRaymarchShader::debug_verify_lod_blend() {
+  // Regression test for sample_clipmap_field()'s cross-fade fix (both the
+  // original hard-cutoff pop AND the later skip_dist==min() sparse-
+  // voxelization bug it was hiding -- see that function's own comment):
+  // confirms a query point in the outer 25% of a level-0 chunk's outermost
+  // ring blends with level 1 -- and specifically that it only does so when
+  // BOTH sides have a real baked brick there, not whenever EITHER does.
+  //
+  // Level 0 (chunk_level_world_size(0)=4) chunk (1,0,0) spans x in [4,8),
+  // center.x=6, half-width=2. Only x is at this chunk's Chebyshev limit
+  // (delta=(1,0,0) relative to the origin camera's chunk (0,0,0)), so
+  // sample_clipmap_field()'s outward = (query.x-6)/2. Solving outward =
+  // (1-LOD_BLEND_FRACTION) + t*LOD_BLEND_FRACTION = 0.75 + t*0.25 for
+  // t=0.5 (LOD_BLEND_FRACTION=0.25, Builtin.ChunkedFieldCommon.inc.glsl)
+  // gives outward=0.875, i.e. query.x = 6 + 0.875*2 = 7.75.
+  //
+  // Level 0's chunk is baked with a zero-radius sphere centered EXACTLY on
+  // the query point (7.75, 2, 2) -- its own pure value there is ~0.
+  //
+  // Level 1 (chunk_level_world_size(1)=8, cell_size=0.5) chunk (0,0,0)
+  // spans x in [0,8) (comfortably contains x=7.75, chebyshev=0 there -- no
+  // blending needed at level 1's own evaluation, exactly as sample_
+  // clipmap_field()'s own comment on level L+1 always already covering
+  // level L's blend zone predicts). Its cell allocation test (Builtin.
+  // ChunkVoxelize.comp.glsl) checks distance from the CELL's CENTER, not
+  // the query point -- the query point's own level-1 cell center works out
+  // to (7.75, 2.25, 2.25) -- so the sphere is centered THERE (radius 0.1,
+  // comfortably inside that cell's half-diagonal ~0.433, guaranteeing a
+  // brick), giving a real (not placeholder) dist_b at the query point of
+  // sqrt(0.25^2+0.25^2) - 0.1 = sqrt(0.125) - 0.1 ~= 0.254.
+  //
+  // Two separate submissions, not one shared command buffer: primitive_
+  // buffer_ is host-visible CPU-written memory read by the GPU at DISPATCH
+  // time, not at CPU-write time -- overwriting it for level 1's sphere
+  // before level 0's own voxelize_chunk() dispatch has actually executed
+  // (only guaranteed once its own submission's fence is waited, i.e. after
+  // end_single_use() returns) would race, and every earlier debug_verify_*
+  // method sidesteps this by using only one primitive per submission.
+  //
+  // A genuine 50/50 blend of ~0 and ~0.254 should read ~0.127 -- distinctly
+  // between either level's own pure value, not equal to one of them.
+  auto bake_one = [&](glm::vec3 sphere_pos, f32 radius, glm::ivec3 chunk_coord,
+                      u32 level, u32 slot) {
+    GpuPrimitive test_primitive{};
+    test_primitive.position_type[0] = sphere_pos.x;
+    test_primitive.position_type[1] = sphere_pos.y;
+    test_primitive.position_type[2] = sphere_pos.z;
+    test_primitive.position_type[3] =
+        static_cast<f32>(static_cast<u32>(PrimitiveType::Sphere));
+    test_primitive.params[0] = radius;
+    test_primitive.rotation[3] = 1.0f;
+    test_primitive.expr_scale[0] = 1.0f;
+    test_primitive.repeat_count[0] = 1.0f;
+    test_primitive.repeat_count[1] = 1.0f;
+    test_primitive.repeat_count[2] = 1.0f;
+    test_primitive.repeat_count[3] = 1.0f;
+    test_primitive.deform[3] = 20.0f;
+
+    GpuLayer test_layer{};
+    test_layer.op_smoothness[0] =
+        static_cast<f32>(static_cast<u32>(LayerOperation::Union));
+    test_layer.op_smoothness[1] = 0.0f;
+    test_layer.range[0] = 0;
+    test_layer.range[1] = 1;
+
+    GpuParamExpr empty_expr{};
+    if (void *mapped = param_expr_buffer_->lock(0, sizeof(GpuParamExpr) * 4, 0)) {
+      auto *exprs = static_cast<GpuParamExpr *>(mapped);
+      exprs[0] = empty_expr;
+      exprs[1] = empty_expr;
+      exprs[2] = empty_expr;
+      exprs[3] = empty_expr;
+      param_expr_buffer_->unlock();
+    }
+    if (void *mapped = primitive_buffer_->lock(0, sizeof(GpuPrimitive), 0)) {
+      *static_cast<GpuPrimitive *>(mapped) = test_primitive;
+      primitive_buffer_->unlock();
+    }
+    if (void *mapped = layer_buffer_->lock(0, sizeof(GpuLayer), 0)) {
+      *static_cast<GpuLayer *>(mapped) = test_layer;
+      layer_buffer_->unlock();
+    }
+
+    auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+        *context_, context_->device.graphics_command_pool);
+    voxelize_chunk(*cmd, chunk_coord, level, slot, /*layer_count=*/1,
+                   /*max_smoothness=*/0.0f);
+    VulkanCommandBuffer::end_single_use(*context_,
+                                        context_->device.graphics_command_pool,
+                                        std::move(cmd), context_->device.graphics_queue);
+  };
+
+  bake_one(glm::vec3(7.75f, 2.0f, 2.0f), /*radius=*/0.0f, glm::ivec3(1, 0, 0),
+          /*level=*/0, /*slot=*/0);
+  bake_one(glm::vec3(7.75f, 2.25f, 2.25f), /*radius=*/0.1f, glm::ivec3(0, 0, 0),
+          /*level=*/1, /*slot=*/kMaxResidentChunks);
+
+  auto query_cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+  glm::vec3 camera_pos(0.0f, 0.0f, 0.0f);
+  query_clipmap_field(*query_cmd, glm::vec3(7.75f, 2.0f, 2.0f), camera_pos);
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(query_cmd),
+                                      context_->device.graphics_queue);
+
+  ChunkDebugQueryOutput result{};
+  if (void *mapped = chunk_debug_query_output_buffer_->lock(
+          0, sizeof(ChunkDebugQueryOutput), 0)) {
+    result = *static_cast<ChunkDebugQueryOutput *>(mapped);
+    chunk_debug_query_output_buffer_->unlock();
+  }
+
+  constexpr f32 kExpected = 0.127f;
+  if (std::abs(result.dist - kExpected) > 0.08f) {
+    KERROR("LOD blend verification FAILED: expected a ~50/50 blend of "
+          "level 0's ~0 and level 1's ~0.254 (~{}), got {} (material_index "
+          "{}) -- either the blend isn't engaging, or its weighting is "
+          "off.",
+          kExpected, result.dist, result.material_index);
+  } else {
+    KINFO("LOD blend verification PASSED (blended dist {}, expected ~{} -- "
+         "distinctly between level 0's ~0 and level 1's ~0.254, confirming a "
+         "genuine cross-fade instead of a hard cutoff to either side).",
+         result.dist, kExpected);
+  }
+}
+
+void VulkanRaymarchShader::debug_verify_thin_geometry_at_coarse_level() {
+  // Regression test for kChunkBrickDim's fix -- the actual reported bug
+  // this addresses: a primitive thinner than a coarse level's own voxel
+  // spacing can lose its surface crossing entirely between adjacent
+  // samples, reading as geometry that "loses its hits" specifically once
+  // it falls under that level's responsibility (see kChunkBrickDim's own
+  // comment for the full mechanism).
+  //
+  // A box with a 0.3-unit-thick Z extent (half-extent 0.15), baked at
+  // level 4 of 5 (the coarsest -- chunk_level_world_size(4)=64, cell_size=
+  // 4.0). At the OLD kChunkBrickDim=8, voxel_size was 4.0/8=0.5 -- wider
+  // than the box's entire thickness, so neighbouring voxel samples could
+  // both land outside it with nothing between them ever going negative,
+  // washing the surface out of the trilinear-interpolated result entirely.
+  // At the fixed kChunkBrickDim=16, voxel_size is 4.0/16=0.25 -- narrower
+  // than the box's thickness, so a sample can actually land inside it.
+  //
+  // Queried exactly at the box's own center (70.1, 2.1, 2.1) -- x=70.1
+  // deliberately, not something near the origin: sample_clipmap_field()
+  // picks the FINEST level whose window contains the query point, and
+  // levels 0-3 (sizes 4/8/16/32) all still window the origin's own
+  // vicinity (this method runs after several earlier debug_verify_*()
+  // calls that left real, unrelated data resident at levels 0-3 near
+  // (2.1,2.1,2.1) -- the very bug this test's first draft actually hit:
+  // "FAILED, dist=0.25" was that stale level-0 data, never level 4 at
+  // all). x=70.1 clears every finer level's window (floor(70.1/32)=2, two
+  // full chunks past a radius-1 camera-chunk-0 window) while still landing
+  // in level 4's own (chunk_level_world_size(4)=64, floor(70.1/64)=1,
+  // Chebyshev 1 from camera's chunk 0 -- exactly at the edge of, not past,
+  // its radius-1 window), so this genuinely exercises level 4's own
+  // voxels, not a fall-through from a finer level that happens to share
+  // this test's coincidental numbers.
+  //
+  // Where the primitive's own thinnest half-extent (Z, 0.15) makes it the
+  // true analytic nearest face: expected dist = -0.15 exactly. A positive
+  // (or near-zero) result here means the coarse level's voxels genuinely
+  // missed this thin feature -- reproducing, precisely, "geometry missing
+  // its hits" -- rather than the query resolving imprecisely.
+  GpuPrimitive test_primitive{};
+  test_primitive.position_type[0] = 70.1f;
+  test_primitive.position_type[1] = 2.1f;
+  test_primitive.position_type[2] = 2.1f;
+  test_primitive.position_type[3] =
+      static_cast<f32>(static_cast<u32>(PrimitiveType::Box));
+  test_primitive.params[0] = 1.0f;  // half-extent x
+  test_primitive.params[1] = 1.0f;  // half-extent y
+  test_primitive.params[2] = 0.15f; // half-extent z -- the thin dimension
+  test_primitive.rotation[3] = 1.0f;
+  test_primitive.expr_scale[0] = 1.0f;
+  test_primitive.repeat_count[0] = 1.0f;
+  test_primitive.repeat_count[1] = 1.0f;
+  test_primitive.repeat_count[2] = 1.0f;
+  // Bounding radius: length((1,1,0.15)) = sqrt(2.0225) ~= 1.4222, rounded
+  // up generously (a too-small value here could wrongly self-cull the
+  // primitive during scene_map()'s evaluation -- see repeat_count.w's own
+  // comment; too-large only ever costs a slightly wider cull test).
+  test_primitive.repeat_count[3] = 1.5f;
+  test_primitive.deform[3] = 20.0f;
+
+  GpuLayer test_layer{};
+  test_layer.op_smoothness[0] =
+      static_cast<f32>(static_cast<u32>(LayerOperation::Union));
+  test_layer.op_smoothness[1] = 0.0f;
+  test_layer.range[0] = 0;
+  test_layer.range[1] = 1;
+
+  GpuParamExpr empty_expr{};
+  if (void *mapped = param_expr_buffer_->lock(0, sizeof(GpuParamExpr) * 4, 0)) {
+    auto *exprs = static_cast<GpuParamExpr *>(mapped);
+    exprs[0] = empty_expr;
+    exprs[1] = empty_expr;
+    exprs[2] = empty_expr;
+    exprs[3] = empty_expr;
+    param_expr_buffer_->unlock();
+  }
+  if (void *mapped = primitive_buffer_->lock(0, sizeof(GpuPrimitive), 0)) {
+    *static_cast<GpuPrimitive *>(mapped) = test_primitive;
+    primitive_buffer_->unlock();
+  }
+  if (void *mapped = layer_buffer_->lock(0, sizeof(GpuLayer), 0)) {
+    *static_cast<GpuLayer *>(mapped) = test_layer;
+    layer_buffer_->unlock();
+  }
+
+  glm::ivec3 chunk_coord(1, 0, 0);
+  u32 level = 4;
+  u32 slot = kMaxResidentChunks * level;
+
+  auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+  voxelize_chunk(*cmd, chunk_coord, level, slot, /*layer_count=*/1,
+                 /*max_smoothness=*/0.0f);
+  glm::vec3 camera_pos(0.0f, 0.0f, 0.0f);
+  query_clipmap_field(*cmd, glm::vec3(70.1f, 2.1f, 2.1f), camera_pos);
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(cmd), context_->device.graphics_queue);
+
+  ChunkDebugQueryOutput result{};
+  if (void *mapped = chunk_debug_query_output_buffer_->lock(
+          0, sizeof(ChunkDebugQueryOutput), 0)) {
+    result = *static_cast<ChunkDebugQueryOutput *>(mapped);
+    chunk_debug_query_output_buffer_->unlock();
+  }
+
+  if (std::abs(result.dist - (-0.15f)) > 0.05f) {
+    KERROR("Thin-geometry-at-coarse-level verification FAILED: box center "
+          "at level 4 (coarsest, voxel_size=0.25) expected dist ~-0.15, "
+          "got {} (material_index {}) -- a coarse level's voxels are still "
+          "missing this thin feature's surface crossing.",
+          result.dist, result.material_index);
+  } else {
+    KINFO("Thin-geometry-at-coarse-level verification PASSED (box center "
+         "dist {}, expected ~-0.15 -- a 0.3-unit-thick feature correctly "
+         "resolved even at the coarsest clip level).",
+         result.dist);
+  }
+}
+
 void VulkanRaymarchShader::bake_probes(VulkanCommandBuffer &cmd,
                                        u32 light_count) {
   // Zero probe_buffer_a_ -- bounce 0's "previous bounce" input, which must
@@ -1780,6 +3292,102 @@ void VulkanRaymarchShader::bake_probes(VulkanCommandBuffer &cmd,
   }
 }
 
+void VulkanRaymarchShader::bake_gi_cascade(VulkanCommandBuffer &cmd,
+                                           u32 light_count) {
+  // Zero chunk_gi_probe_buffer_a_ -- bounce 0's "previous bounce" input,
+  // exactly mirroring bake_probes()'s identical zero-fill of probe_buffer_a_
+  // above (see its comment for why bounce 0 must see an all-zero prev
+  // buffer). chunk_gi_probe_buffer_b_ never needs zeroing -- always a write
+  // target before it's ever read.
+  vkCmdFillBuffer(cmd.handle(), chunk_gi_probe_buffer_a_->handle(), 0,
+                 VK_WHOLE_SIZE, 0);
+
+  VkBufferMemoryBarrier fill_barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  fill_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  fill_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  fill_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  fill_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  fill_barrier.buffer = chunk_gi_probe_buffer_a_->handle();
+  fill_barrier.offset = 0;
+  fill_barrier.size = VK_WHOLE_SIZE;
+  vkCmdPipelineBarrier(cmd.handle(), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1,
+                      &fill_barrier, 0, nullptr);
+
+  ChunkProbeBakePushConstants push_constants{
+      static_cast<i32>(light_count), ambient_, gi_cascade_center_.x,
+      gi_cascade_center_.y,          gi_cascade_center_.z,
+      last_camera_pos_.x,            last_camera_pos_.y, last_camera_pos_.z};
+  constexpr u32 local_size = 4; // must match local_size_x/y/z in the shader
+  u32 groups = (kGiProbeDim + local_size - 1) / local_size;
+
+  // Same pipeline every bounce -- bound once rather than redundantly
+  // re-binding it each iteration (mirrors bake_probes()).
+  chunk_probe_bake_pipeline_->bind(cmd);
+
+  for (u32 bounce = 0; bounce < kProbeBounceCount; ++bounce) {
+    // Same alternation reasoning as bake_probes() -- chunk_probe_bake_set_
+    // for even bounces (write chunk_gi_probe_buffer_b_), chunk_probe_bake_
+    // set_odd_ for odd bounces, each a fixed descriptor set rather than one
+    // rewritten every iteration (every bounce is recorded into the same
+    // command buffer up front, so a rewrite would retroactively corrupt
+    // earlier bounces' already-recorded binds).
+    bool write_to_b = (bounce % 2) == 0;
+    VkDescriptorSet set =
+        write_to_b ? chunk_probe_bake_set_ : chunk_probe_bake_set_odd_;
+    VkBuffer curr = write_to_b ? chunk_gi_probe_buffer_b_->handle()
+                               : chunk_gi_probe_buffer_a_->handle();
+
+    vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                           chunk_probe_bake_pipeline_->layout(), 0, 1, &set, 0,
+                           nullptr);
+    vkCmdPushConstants(cmd.handle(), chunk_probe_bake_pipeline_->layout(),
+                      VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                      sizeof(ChunkProbeBakePushConstants), &push_constants);
+    vkCmdDispatch(cmd.handle(), groups, groups, groups);
+
+    // The next bounce (or, for the last bounce, render_set_'s
+    // ChunkProbeBuffer binding once this bake completes) reads curr -- same
+    // reasoning as bake_probes()'s identical trailing barrier.
+    record_compute_buffer_barriers(cmd.handle(), VK_ACCESS_SHADER_WRITE_BIT,
+                                   VK_ACCESS_SHADER_READ_BIT, {curr});
+  }
+}
+
+void VulkanRaymarchShader::update_gi_cascade(VulkanCommandBuffer &cmd,
+                                             glm::vec3 camera_pos) {
+  last_camera_pos_ = camera_pos;
+  if (glm::length(camera_pos - gi_cascade_center_) <=
+      kGiCascadeRecenterThreshold) {
+    return;
+  }
+  // Discrete whole-cell-step recenter -- classic terrain-clipmap texture
+  // behavior (see kGiCascadeRecenterThreshold's declaration comment), not a
+  // smooth follow: snapping to the nearest kGiCascadeCellSize multiple keeps
+  // probe_world_position()'s GPU-side grid alignment exactly matching what
+  // this recenter just committed, the same way voxelize_chunk()'s chunk_
+  // world_min is always an exact multiple of the chunk's own cell size.
+  //
+  // round() only actually changes VALUE once camera_pos crosses into a new
+  // kGiCascadeCellSize bucket -- but the distance-from-center check above
+  // stays past kGiCascadeRecenterThreshold for a long stretch of frames
+  // approaching that crossing (the threshold is exactly half a cell, so a
+  // camera continuing straight past it doesn't fall back under threshold
+  // again until center itself moves). Without this guard, EVERY one of
+  // those frames would re-run the full kProbeBounceCount-bounce bake below
+  // against an identical, unchanged center -- confirmed live: roughly half
+  // of all frames during sustained camera movement, not the roughly-one-
+  // per-cell-crossing this was designed for. Only the frame that actually
+  // crosses into a new cell needs a new bake.
+  glm::vec3 new_center =
+      glm::round(camera_pos / kGiCascadeCellSize) * kGiCascadeCellSize;
+  if (new_center == gi_cascade_center_) {
+    return;
+  }
+  gi_cascade_center_ = new_center;
+  bake_gi_cascade(cmd, static_cast<u32>(light_count_));
+}
+
 void VulkanRaymarchShader::transition_image(
     VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout,
     VkImageLayout new_layout, VkAccessFlags src_access,
@@ -1837,6 +3445,10 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
   elapsed_time_ += delta_time;
   push_constants.time = elapsed_time_;
   push_constants.skybox_enabled = skybox_enabled_ ? 1 : 0;
+  push_constants.chunked_field_enabled = chunked_field_enabled_ ? 1 : 0;
+  push_constants.gi_cascade_center_x = gi_cascade_center_.x;
+  push_constants.gi_cascade_center_y = gi_cascade_center_.y;
+  push_constants.gi_cascade_center_z = gi_cascade_center_.z;
 
   VkCommandBuffer cmd = command_buffer.handle();
 

@@ -35,6 +35,38 @@ then
 echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
 fi
 
+echo "assets/shaders/Builtin.ChunkVoxelize.comp.glsl -> bin/assets/shaders/Builtin.ChunkVoxelize.comp.spv"
+$GLSLC -fshader-stage=compute assets/shaders/Builtin.ChunkVoxelize.comp.glsl -o bin/assets/shaders/Builtin.ChunkVoxelize.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.ChunkedFieldDebugQuery.comp.glsl -> bin/assets/shaders/Builtin.ChunkedFieldDebugQuery.comp.spv"
+$GLSLC -fshader-stage=compute assets/shaders/Builtin.ChunkedFieldDebugQuery.comp.glsl -o bin/assets/shaders/Builtin.ChunkedFieldDebugQuery.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.ChunkEvict.comp.glsl -> bin/assets/shaders/Builtin.ChunkEvict.comp.spv"
+$GLSLC -fshader-stage=compute assets/shaders/Builtin.ChunkEvict.comp.glsl -o bin/assets/shaders/Builtin.ChunkEvict.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.ChunkProbeBake.comp.glsl -> bin/assets/shaders/Builtin.ChunkProbeBake.comp.spv"
+$GLSLC -fshader-stage=compute assets/shaders/Builtin.ChunkProbeBake.comp.glsl -o bin/assets/shaders/Builtin.ChunkProbeBake.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
 echo "assets/shaders/Builtin.ProbeBake.comp.glsl -> bin/assets/shaders/Builtin.ProbeBake.comp.spv"
 $GLSLC -fshader-stage=compute assets/shaders/Builtin.ProbeBake.comp.glsl -o bin/assets/shaders/Builtin.ProbeBake.comp.spv
 ERRORLEVEL=$?

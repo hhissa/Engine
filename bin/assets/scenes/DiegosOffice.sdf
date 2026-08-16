@@ -10,21 +10,54 @@ layer layer0 {
         type=box
         position=0 -1.96 0
         rotation=0 0 0
-        half_extents=0.1 2 3
-        repetition=infinite
-        repetition_cell=8 0 10
-        repetition_count=1 1 1
-        material=qt_colour_ffffffff_ts060_white
+        half_extents=0.1 2 3.5
+        material=qt_colour_dddbbeff_ts060_white
     }
 
     primitive primitive1 {
         type=box
-        position=0 -1.96 0.430303
+        position=-2.94 -1.96 0.43
         rotation=0 0 0
         half_extents=3 2 0.1
-        repetition=infinite
-        repetition_cell=10 0 10
-        repetition_count=1 1 1
+        material=qt_colour_dddbbeff_ts060_white
+    }
+
+    primitive primitive4 {
+        type=box
+        position=-2.94 -1.96 0.43
+        rotation=0 0 0
+        half_extents=3 0.1 2
+        material=qt_colour_dddbbeff_ts060_white
+    }
+
+    primitive primitive5 {
+        type=box
+        position=-1.2 -2.81 -0.426843
+        rotation=3.14159 1.10741 3.14159
+        half_extents=0.5 0.5 0.5
+        param_expr=1 0.5 + 0.2*p.x
+        param_expr=2 0.5 + 0.2*p.x
+        material=qt_colour_dddbbeff_ts060_white
+    }
+
+    primitive primitive6 {
+        type=box_frame
+        position=-1.52 -2.81 -0.89
+        rotation=3.14159 1.10741 3.14159
+        params=0.05 0.65 0.65 0.1
+        material=qt_colour_aaa892ff_ts060_white
+    }
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive primitive3 {
+        type=box
+        position=0 -8.49517 0
+        rotation=0 0 0
+        half_extents=20 0.5 20
         material=qt_colour_ffffffff_ts060_white
     }
 }

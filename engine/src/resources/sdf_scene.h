@@ -188,8 +188,10 @@ struct SdfPrimitiveDef {
   //   RoundBox: xyz=half-extents, extra_param=corner radius.
   //   BoxFrame: xyz=half-extents, extra_param=edge thickness.
   //   Octahedron: x=size.
-  //   Pyramid: x=height (position is the base center, apex sits above it --
-  //     not a centroid, matching the source formula's own convention).
+  //   Pyramid: x=height, y=base half-extent (0 or omitted -- e.g. a scene
+  //     saved before this param existed -- falls back to 0.5, the old
+  //     hardcoded value). Position is the base center, apex sits above it
+  //     -- not a centroid, matching the source formula's own convention.
   //   HexPrism: x=inradius, y=half-height.
   //   RoundCone: x=base radius, y=tip radius, z=half-height.
   //   Capsule: x=radius, y=half-height.

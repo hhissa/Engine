@@ -22,6 +22,15 @@ public:
 
   void move(glm::vec3 delta) noexcept { position_ += delta; }
 
+  // Adjusts position_ by delta without changing where the camera visually
+  // points (yaw/pitch untouched) -- used by a floating-origin recenter to
+  // subtract the shift applied to every render-space position in the scene,
+  // keeping this camera's position in the same recentered space as
+  // everything it looks at. Distinguished from move() purely by intent:
+  // move() is gameplay/input moving the camera, shift() is bookkeeping that
+  // must never be visible on screen.
+  void shift(glm::vec3 delta) noexcept { position_ += delta; }
+
   void yaw(f32 radians) noexcept { yaw_ += radians; }
   // Current absolute yaw, radians -- e.g. for a debug HUD readout showing
   // which way the free-fly camera is currently facing (see

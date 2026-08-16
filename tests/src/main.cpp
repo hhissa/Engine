@@ -1,6 +1,8 @@
 #include "test_manager.h"
 
 #include "memory/linear_allocator_tests.h"
+#include "systems/chunk_streaming_manager_tests.h"
+#include "systems/geometry_chunk_tests.h"
 
 #include <core/hmemory.h>
 #include <core/logger.h>
@@ -10,6 +12,8 @@ int main() {
   Logger::initialize_logging();
 
   register_linear_allocator_tests();
+  register_geometry_chunk_tests();
+  register_chunk_streaming_manager_tests();
 
   KDEBUG("Starting tests...");
 
