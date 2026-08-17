@@ -11,6 +11,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <initializer_list>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -2414,25 +2415,81 @@ void VulkanRaymarchShader::update_streaming(VulkanCommandBuffer &cmd,
   // logic below -- the camera is still near it, so update() will want it
   // resident again immediately, this time reading the current scene.
   //
-  // Deliberately brute-force (every resident chunk, not just ones the
-  // dirty primitive's own chunks_touched_by() would name) rather than
-  // surgical: a REMOVED primitive is already gone from GeometrySystem by
-  // the time this runs (release() already erased it), leaving no bounds to
-  // compute which chunks it used to occupy, and a MOVED primitive's old
+  // Brute-force (every resident chunk, not just ones a dirty primitive's
+  // own chunks_touched_by() would name) is still the fallback for most
+  // dirty reasons: a REMOVED primitive is already gone from GeometrySystem
+  // by the time this runs (release() already erased it), leaving no bounds
+  // to compute which chunks it used to occupy, and a MOVED primitive's old
   // position is equally unrecoverable here. Re-baking every resident chunk
   // near the camera costs at most kMaxResidentChunks*kNumLevels evictions
   // spread over kMaxChunkBakesPerFrame-sized budgets across a handful of
   // frames -- nowhere near the cost of the old fixed-cube rebake() this
   // replaces.
-  if (!context_->geometry_system->dirty_since_last_snapshot().empty()) {
-    for (u32 level = 0; level < kNumLevels; ++level) {
-      for (const auto &[key, record] : chunk_streaming_levels_[level].resident_chunks()) {
-        if (record.state == ChunkState::Ready) {
-          pending_forced_evictions_.emplace_back(level, key);
+  //
+  // A BRAND NEW primitive (GeometrySystem::newly_added_since_last_
+  // snapshot()) is the one dirty reason that's fully surgical: it never
+  // existed before this cycle (not even under a different shape/position
+  // that got released and replaced -- see any_released_since_last_
+  // snapshot()'s own comment), so there's no stale "old position" baked
+  // into any chunk, and chunks_touched_by() tells us exactly which chunks
+  // now need it. Eligible only when EVERY dirty name this cycle is such an
+  // add (dirty_since_last_snapshot()'s and newly_added_since_last_
+  // snapshot()'s sizes matching proves the sets are equal, since the
+  // latter is always emplaced alongside a mark_dirty() call for the same
+  // name -- i.e. always a subset) and nothing was released -- a single
+  // moved/edited/removed primitive anywhere in the same cycle still forces
+  // the full sweep below, matching this method's own longstanding "when in
+  // doubt, sweep everything" policy for anything that isn't provably safe.
+  // An unbounded newly-added primitive (a Plane, infinite repetition, or
+  // any live parametric-attribute formula -- see geometry_bounding_
+  // radius()) also disqualifies the whole cycle: chunks_touched_by()
+  // returns empty for those (not "every chunk"), so treating that as
+  // "nothing to evict" would silently leave it unbaked wherever it's
+  // actually visible.
+  GeometrySystem &geo = *context_->geometry_system;
+  if (!geo.dirty_since_last_snapshot().empty()) {
+    bool surgical = !geo.any_released_since_last_snapshot() &&
+        geo.dirty_since_last_snapshot().size() ==
+            geo.newly_added_since_last_snapshot().size();
+    std::vector<Geometry *> newly_added;
+    if (surgical) {
+      newly_added.reserve(geo.newly_added_since_last_snapshot().size());
+      for (const std::string &name : geo.newly_added_since_last_snapshot()) {
+        Geometry *geometry = geo.find(name);
+        if (!geometry ||
+            geometry_bounding_radius(*geometry) >= kUnboundedBoundingRadius) {
+          surgical = false;
+          break;
+        }
+        newly_added.push_back(geometry);
+      }
+    }
+
+    if (surgical) {
+      std::unordered_set<ChunkKey, ChunkKeyHash> already_queued;
+      for (u32 level = 0; level < kNumLevels; ++level) {
+        f32 level_world_size = chunk_level_world_size(level);
+        ChunkStreamingManager &streaming = chunk_streaming_levels_[level];
+        for (Geometry *geometry : newly_added) {
+          for (ChunkKey key : chunks_touched_by(*geometry, level_world_size)) {
+            if (streaming.state_of(key) == ChunkState::Ready &&
+                already_queued.insert(key).second) {
+              pending_forced_evictions_.emplace_back(level, key);
+            }
+          }
+        }
+        already_queued.clear();
+      }
+    } else {
+      for (u32 level = 0; level < kNumLevels; ++level) {
+        for (const auto &[key, record] : chunk_streaming_levels_[level].resident_chunks()) {
+          if (record.state == ChunkState::Ready) {
+            pending_forced_evictions_.emplace_back(level, key);
+          }
         }
       }
     }
-    context_->geometry_system->clear_dirty();
+    geo.clear_dirty();
   }
 
   // One independent load/evict pass per clip level -- see chunk_streaming_

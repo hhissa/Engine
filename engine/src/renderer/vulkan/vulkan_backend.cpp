@@ -510,6 +510,50 @@ SceneHandle VulkanRendererBackend::load_scene(std::string_view sdf_path) {
   return handle;
 }
 
+bool VulkanRendererBackend::reconcile_scene(SceneHandle handle,
+                                            std::string_view sdf_path) {
+  auto it = loaded_scenes_.find(handle);
+  if (it == loaded_scenes_.end()) {
+    KWARN("VulkanRendererBackend::reconcile_scene called with a handle that "
+         "isn't currently loaded: {}. Call load_scene() first.",
+         handle);
+    return false;
+  }
+
+  auto scene = load_sdf_scene(sdf_path);
+  if (!scene) {
+    // load_sdf_scene() already logged why (missing/malformed file).
+    return false;
+  }
+
+  // Same hazard remove_scene()/clear_scenes() guard against (see their own
+  // comment): GeometrySystem::reconcile_scene() below can release() a
+  // primitive/light/volumetric that's gone, or swap a still-present one's
+  // material -- either can cascade into MaterialSystem/TextureSystem
+  // dropping a texture's refcount to zero and destroying its VkImage/
+  // VkSampler immediately, synchronously, no wait of its own. Waiting
+  // first is conservative (it fires even on a call that turns out to be a
+  // pure add, which didn't need it) rather than pre-diffing to find out --
+  // a pre-diff would have to duplicate reconcile_scene()'s own field-level
+  // comparisons (a material swap alone can trigger this, not just a name
+  // disappearing) just to decide whether to wait, which is more complexity
+  // than the wait itself costs.
+  vkDeviceWaitIdle(context_.device.logical_device);
+
+  // Same per-handle name_prefix load_scene() used for this handle -- MUST
+  // match exactly, or reconcile_scene() (engine-side) would diff against
+  // the wrong names entirely (see its own comment).
+  std::string name_prefix = "scene" + std::to_string(handle) + "/";
+  bool changed = context_.geometry_system->reconcile_scene(
+      *scene, it->second, /*auto_release=*/true, name_prefix);
+
+  if (changed) {
+    // Deferred to begin_frame() -- see scene_dirty_'s comment.
+    scene_dirty_ = true;
+  }
+  return changed;
+}
+
 void VulkanRendererBackend::translate_scene(SceneHandle handle,
                                             glm::vec3 delta) {
   auto it = loaded_scenes_.find(handle);

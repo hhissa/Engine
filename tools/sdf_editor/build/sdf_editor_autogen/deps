@@ -1,6 +1,7 @@
 sdf_editor_autogen/timestamp: \
 	/home/bumbandit/Projects/Engine/engine/src/defines.h \
 	/home/bumbandit/Projects/Engine/engine/src/renderer/camera.h \
+	/home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl \
 	/home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
 	/home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.cpp \
 	/home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.h \

@@ -3,6 +3,7 @@
 
 sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h \
+  /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl \
   /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.cpp \
   /home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.h \
@@ -1171,14 +1172,6 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
 
 /usr/share/cmake/Modules/FindOpenGL.cmake:
 
-/usr/include/qt6/QtCore/qobjectdefs.h:
-
-/usr/include/limits.h:
-
-/usr/include/qt6/QtCore/qglobalstatic.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandEglClientBufferPluginTargets-relwithdebinfo.cmake:
-
 /usr/include/qt6/QtCore/qobject.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QGifPluginTargets-relwithdebinfo.cmake:
@@ -1288,6 +1281,14 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
 /usr/include/qt6/QtCore/qatomic.h:
 
 /usr/include/c++/16/atomic:
+
+/usr/include/limits.h:
+
+/usr/include/qt6/QtCore/qglobalstatic.h:
+
+/usr/include/qt6/QtCore/qobjectdefs.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandEglClientBufferPluginTargets-relwithdebinfo.cmake:
 
 /usr/include/glm/vector_relational.hpp:
 
@@ -1413,12 +1414,6 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
 
 /usr/include/sys/cdefs.h:
 
-/usr/include/glm/ext/matrix_float4x2.hpp:
-
-/usr/include/glm/mat2x2.hpp:
-
-/usr/share/cmake/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake:
-
 /usr/include/glm/ext/matrix_float3x4.hpp:
 
 /usr/lib/cmake/Qt6DBus/Qt6DBusTargets.cmake:
@@ -1533,6 +1528,10 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
 
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/os_defines.h:
 
+/usr/share/cmake/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake:
+
+/usr/include/c++/16/x86_64-pc-linux-gnu/bits/gthr.h:
+
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/gthr-default.h:
 
 /usr/include/qt6/QtCore/qalgorithms.h:
@@ -1615,6 +1614,14 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
 
 /usr/include/qt6/QtCore/qtformat_impl.h:
 
+/usr/include/glm/mat2x3.hpp:
+
+/usr/lib/cmake/Qt6Gui/Qt6VulkanServerBufferPluginTargets.cmake:
+
+/usr/include/c++/16/memory:
+
+/usr/lib/cmake/Qt6Gui/Qt6QJpegPluginTargets-relwithdebinfo.cmake:
+
 /usr/include/c++/16/bits/erase_if.h:
 
 /usr/include/qt6/QtCore/q20iterator.h:
@@ -1642,14 +1649,6 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
 /usr/include/qt6/QtCore/q20type_traits.h:
 
 /usr/include/qt6/QtCore/QPoint:
-
-/usr/include/qt6/QtCore/qitemselectionmodel.h:
-
-/usr/include/c++/16/bits/exception.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QEglFSIntegrationPluginTargets.cmake:
-
-/usr/include/c++/16/bits/chrono_io.h:
 
 /usr/include/linux/posix_types.h:
 
@@ -1696,8 +1695,6 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
 /usr/lib/cmake/Qt6Gui/Qt6QMinimalEglIntegrationPluginConfig.cmake:
 
 /usr/include/qt6/QtCore/qcontainertools_impl.h:
-
-/usr/include/bits/pthreadtypes-arch.h:
 
 /usr/include/bits/time64.h:
 
@@ -1823,25 +1820,17 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
 
 /usr/include/bits/errno.h:
 
+/usr/include/glm/ext/matrix_float4x2.hpp:
+
+/usr/include/glm/mat2x2.hpp:
+
+/usr/share/cmake/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake:
+
 /usr/include/asm/bitsperlong.h:
 
 /usr/include/glm/ext/matrix_float4x3_precision.hpp:
 
 /usr/include/c++/16/version:
-
-/usr/include/c++/16/bits/functexcept.h:
-
-/usr/share/cmake/Modules/FindPackageHandleStandardArgs.cmake:
-
-/usr/include/glm/ext/matrix_float2x3_precision.hpp:
-
-/usr/include/bits/posix2_lim.h:
-
-/usr/include/qt6/QtCore/q20memory.h:
-
-/usr/lib/cmake/Qt6/QtFeatureCommon.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginTargets.cmake:
 
 /usr/include/bits/types/time_t.h:
 
@@ -1939,6 +1928,20 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
 
 /usr/include/bits/types/struct_timespec.h:
 
+/usr/include/c++/16/bits/functexcept.h:
+
+/usr/share/cmake/Modules/FindPackageHandleStandardArgs.cmake:
+
+/usr/include/glm/ext/matrix_float2x3_precision.hpp:
+
+/usr/include/bits/posix2_lim.h:
+
+/usr/include/qt6/QtCore/q20memory.h:
+
+/usr/lib/cmake/Qt6/QtFeatureCommon.cmake:
+
+/usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginTargets.cmake:
+
 /usr/include/c++/16/tr1/bessel_function.tcc:
 
 /home/bumbandit/Projects/Engine/engine/src/defines.h:
@@ -1977,6 +1980,26 @@ sdf_editor_autogen/moc_predefs.h:
 
 /usr/include/c++/16/backward/auto_ptr.h:
 
+/usr/include/bits/pthreadtypes-arch.h:
+
+/usr/include/qt6/QtCore/qitemselectionmodel.h:
+
+/usr/include/c++/16/bits/exception.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QEglFSIntegrationPluginTargets.cmake:
+
+/usr/include/c++/16/bits/chrono_io.h:
+
+/usr/include/c++/16/bits/stl_map.h:
+
+/usr/include/c++/16/bits/istream.tcc:
+
+/usr/include/c++/16/bits/stl_tree.h:
+
+/home/bumbandit/Projects/Engine/tools/sdf_editor/src/contents_tree_widget.cpp:
+
+/usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginConfig.cmake:
+
 /usr/lib/cmake/Qt6/QtPublicTestHelpers.cmake:
 
 /usr/include/bits/wordsize.h:
@@ -1985,15 +2008,33 @@ sdf_editor_autogen/moc_predefs.h:
 
 /usr/include/c++/16/cctype:
 
-/usr/include/c++/16/bits/stl_map.h:
+/usr/lib/cmake/Qt6Gui/Qt6QComposePlatformInputContextPluginAdditionalTargetInfo.cmake:
 
-/home/bumbandit/Projects/Engine/tools/sdf_editor/src/contents_tree_widget.cpp:
+/usr/include/bits/types/__mbstate_t.h:
 
-/usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginConfig.cmake:
+/usr/include/c++/16/bits/stream_iterator.h:
 
-/usr/include/c++/16/bits/istream.tcc:
+/usr/include/glm/ext/matrix_double2x2_precision.hpp:
 
-/usr/include/c++/16/bits/stl_tree.h:
+/usr/include/bits/stdio_lim.h:
+
+/usr/share/cmake/Modules/GNUInstallDirs.cmake:
+
+/usr/include/asm/posix_types_64.h:
+
+/usr/include/c++/16/bits/stl_set.h:
+
+/usr/include/qt6/QtWidgets/QTreeWidget:
+
+/usr/include/qt6/QtGui/qrgb.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginAdditionalTargetInfo.cmake:
+
+/usr/lib/cmake/Qt6DBus/Qt6DBusConfig.cmake:
+
+/usr/include/bits/time.h:
+
+/usr/include/qt6/QtCore/qtdeprecationdefinitions.h:
 
 /usr/include/bits/wctype-wchar.h:
 
@@ -2025,12 +2066,6 @@ sdf_editor_autogen/moc_predefs.h:
 
 /usr/include/qt6/QtWidgets/qtreeview.h:
 
-/usr/include/c++/16/bits/stream_iterator.h:
-
-/usr/include/glm/ext/matrix_double2x2_precision.hpp:
-
-/usr/include/bits/stdio_lim.h:
-
 /usr/include/c++/16/bits/iterator_concepts.h:
 
 /usr/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake:
@@ -2054,24 +2089,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/glm/detail/type_mat2x2.inl:
 
 /usr/include/bits/endianness.h:
-
-/usr/share/cmake/Modules/GNUInstallDirs.cmake:
-
-/usr/include/asm/posix_types_64.h:
-
-/usr/include/c++/16/bits/stl_set.h:
-
-/usr/include/qt6/QtWidgets/QTreeWidget:
-
-/usr/include/qt6/QtGui/qrgb.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginAdditionalTargetInfo.cmake:
-
-/usr/lib/cmake/Qt6DBus/Qt6DBusConfig.cmake:
-
-/usr/include/bits/time.h:
-
-/usr/include/qt6/QtCore/qtdeprecationdefinitions.h:
 
 /usr/include/c++/16/algorithm:
 
@@ -2507,14 +2524,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/bits/types/struct_tm.h:
 
-/usr/include/glm/mat2x3.hpp:
-
-/usr/lib/cmake/Qt6Gui/Qt6VulkanServerBufferPluginTargets.cmake:
-
-/usr/include/c++/16/memory:
-
-/usr/lib/cmake/Qt6Gui/Qt6QJpegPluginTargets-relwithdebinfo.cmake:
-
 /usr/include/qt6/QtCore/qobjectdefs_impl.h:
 
 /usr/lib/cmake/Qt6/QtPublicSbomSystemDepHelpers.cmake:
@@ -2700,6 +2709,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsTargetsPrecheck.cmake:
 
 /usr/include/qt6/QtGui/qvalidator.h:
+
+/home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevTabletPluginTargetsPrecheck.cmake:
 
@@ -3002,10 +3013,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/cmake/Qt6/QtPublicGitHelpers.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6GuiTargetsPrecheck.cmake:
-
-/usr/include/bits/types/__mbstate_t.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QComposePlatformInputContextPluginAdditionalTargetInfo.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QComposePlatformInputContextPluginTargets-relwithdebinfo.cmake:
 
@@ -3406,7 +3413,3 @@ CMakeFiles/4.4.0/CMakeSystem.cmake:
 /usr/share/cmake/Modules/Compiler/TI-DetermineCompiler.cmake:
 
 /usr/share/cmake/Modules/Compiler/Tasking-DetermineCompiler.cmake:
-
-/usr/include/c++/16/x86_64-pc-linux-gnu/bits/gthr.h:
-
-/usr/share/cmake/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake:

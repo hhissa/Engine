@@ -67,6 +67,39 @@ RepetitionMode to_repetition_mode(SdfRepetitionMode mode) {
     return RepetitionMode::None;
   }
 }
+
+// reconcile_scene() uses this to decide whether an already-registered
+// primitive needs mark_dirty() (a chunk-level re-bake) -- deliberately
+// excludes material_name: a material swap needs MaterialSystem book-
+// keeping (handled separately, see reconcile_scene() itself) and a
+// scene_dirty_ re-upload (the caller's job), but never changes which
+// voxels/bricks a primitive occupies, so folding it in here would force
+// pointless chunk re-bakes for a pure colour/texture edit.
+bool primitive_shape_matches(const Geometry &g, const SdfPrimitiveDef &def) {
+  return g.type == to_primitive_type(def.type) && g.position == def.position &&
+      g.rotation == def.rotation && g.params == def.params &&
+      g.extra_param == def.extra_param && g.twist == def.twist &&
+      g.bend == def.bend && g.displace_amplitude == def.displace_amplitude &&
+      g.displace_frequency == def.displace_frequency &&
+      g.param_expressions == def.param_expressions &&
+      g.repetition_mode == to_repetition_mode(def.repetition_mode) &&
+      g.repetition_cell == def.repetition_cell &&
+      g.repetition_count == def.repetition_count;
+}
+
+bool light_matches(const Light &l, const SdfLightDef &def) {
+  glm::vec3 vector =
+      def.type == SdfLightType::Point ? def.position : def.direction;
+  return l.type == to_light_type(def.type) && l.vector == vector &&
+      l.colour == def.colour && l.intensity == def.intensity;
+}
+
+bool volumetric_matches(const Volumetric &v, const SdfVolumetricDef &def) {
+  return v.type == to_primitive_type(def.type) && v.position == def.position &&
+      v.rotation == def.rotation && v.params == def.params &&
+      v.extra_param == def.extra_param && v.density == def.density &&
+      v.material_name == def.material_name;
+}
 } // namespace
 
 GeometryConfig GeometryConfig::sphere(std::string name, glm::vec3 position,
@@ -282,6 +315,11 @@ Geometry &GeometrySystem::acquire(const GeometryConfig &config,
     geometry.material = &material_system_->acquire(config.material_name, true);
     entry.geometry = std::move(geometry);
     mark_dirty(config.name);
+    // A fresh registration -- see newly_added_since_last_snapshot()'s own
+    // comment for why this is the ONE case update_streaming() can safely
+    // force-evict a surgical set of chunks for instead of every resident
+    // one.
+    newly_added_since_last_snapshot_.emplace(config.name);
 
     KTRACE("Geometry '{}' registered.", config.name);
   }
@@ -312,6 +350,10 @@ void GeometrySystem::release(std::string_view name) {
       --layer_ref_counts_[layer];
     }
     mark_dirty(name);
+    // See any_released_since_last_snapshot()'s own comment -- forces
+    // update_streaming()'s next sweep back to the brute-force full-scene
+    // path, even if every OTHER name dirtied this cycle is a fresh add.
+    any_released_since_last_snapshot_ = true;
     geometries_.erase(it);
   }
 }
@@ -546,4 +588,259 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
   }
 
   return result;
+}
+
+bool GeometrySystem::reconcile_scene(const SdfScene &scene,
+                                     LoadedSceneNames &loaded,
+                                     bool auto_release,
+                                     std::string_view name_prefix) {
+  bool changed = false;
+  ambient_ = scene.ambient;
+
+  // --- Layers: match by name against loaded.layer_index_by_name, reusing
+  // an already-registered layer_index in place (just updating operation/
+  // smoothness if those changed) instead of always allocating a fresh slot
+  // the way load_scene() does -- a layer reallocated fresh every reconcile
+  // would make every one of its primitives look "moved to a new layer"
+  // below, defeating the whole point of this function. Tracks which
+  // layer_indexes actually changed operation/smoothness -- every primitive
+  // under one of those needs mark_dirty() below even if its OWN fields
+  // didn't change, since a layer's combine rule affects every primitive it
+  // folds in, not just the one that triggered the edit.
+  std::unordered_map<std::string, u32> new_layer_index_by_name;
+  std::unordered_set<u32> layers_needing_full_mark_dirty;
+  for (const SdfLayerDef &layer_def : scene.layers) {
+    auto existing = loaded.layer_index_by_name.find(layer_def.name);
+    u32 layer_index;
+    if (existing != loaded.layer_index_by_name.end() &&
+        existing->second < layers_.size()) {
+      layer_index = existing->second;
+    } else {
+      // Same reuse-a-freed-slot-first policy as load_scene() -- see its
+      // own comment for why (unbounded layers_ growth otherwise).
+      layer_index = 0;
+      bool reused_slot = false;
+      for (u32 i = 1; i < layer_ref_counts_.size(); ++i) {
+        if (layer_ref_counts_[i] == 0) {
+          layer_index = i;
+          reused_slot = true;
+          break;
+        }
+      }
+      if (!reused_slot) {
+        layer_index = static_cast<u32>(layers_.size());
+        layers_.push_back(SceneLayer{});
+        layer_ref_counts_.push_back(0);
+      }
+    }
+
+    LayerOperation new_operation = to_layer_operation(layer_def.operation);
+    if (layers_[layer_index].operation != new_operation ||
+        layers_[layer_index].smoothness != layer_def.smoothness) {
+      layers_[layer_index].operation = new_operation;
+      layers_[layer_index].smoothness = layer_def.smoothness;
+      layers_needing_full_mark_dirty.insert(layer_index);
+      changed = true;
+    }
+    new_layer_index_by_name[layer_def.name] = layer_index;
+  }
+
+  // --- Primitives: diff by full derived name (identical derivation to
+  // load_scene()'s own "prefix + layer_name + / + primitive_name"). ---
+  std::vector<std::string> new_primitive_names;
+  std::unordered_set<std::string> new_primitive_name_set;
+  for (const SdfLayerDef &layer_def : scene.layers) {
+    u32 layer_index = new_layer_index_by_name.at(layer_def.name);
+    // Per LAYER, not per primitive -- deliberately declared outside the
+    // primitive loop below and never mutated by it (unlike the per-
+    // primitive layer_reassigned flag inside that loop): every primitive
+    // in this layer needs mark_dirty() if the layer itself changed,
+    // regardless of what any OTHER primitive in the same layer did.
+    bool layer_op_changed = layers_needing_full_mark_dirty.count(layer_index) > 0;
+
+    for (const SdfPrimitiveDef &primitive_def : layer_def.primitives) {
+      std::string full_name =
+          std::string(name_prefix) + layer_def.name + "/" + primitive_def.name;
+      new_primitive_name_set.insert(full_name);
+      new_primitive_names.push_back(full_name);
+
+      Geometry *existing = find(full_name);
+      if (!existing) {
+        // Brand new -- acquire() (not a plain field copy) so it goes
+        // through the normal fresh-registration path, including
+        // GeometrySystem::newly_added_since_last_snapshot()'s tracking
+        // (see its own comment for why that's what lets update_streaming()
+        // force-evict only THIS primitive's own chunks instead of every
+        // resident one).
+        GeometryConfig config;
+        config.name = full_name;
+        config.type = to_primitive_type(primitive_def.type);
+        config.position = primitive_def.position;
+        config.rotation = primitive_def.rotation;
+        config.params = primitive_def.params;
+        config.extra_param = primitive_def.extra_param;
+        config.twist = primitive_def.twist;
+        config.bend = primitive_def.bend;
+        config.displace_amplitude = primitive_def.displace_amplitude;
+        config.displace_frequency = primitive_def.displace_frequency;
+        config.param_expressions = primitive_def.param_expressions;
+        config.repetition_mode = to_repetition_mode(primitive_def.repetition_mode);
+        config.repetition_cell = primitive_def.repetition_cell;
+        config.repetition_count = primitive_def.repetition_count;
+        config.material_name = primitive_def.material_name;
+
+        Geometry &geometry = acquire(config, auto_release);
+        geometry.layer = layer_index;
+        ++layer_ref_counts_[layer_index];
+        changed = true;
+        continue;
+      }
+
+      // Already registered -- update in place rather than release()+
+      // acquire() again: acquire() on an already-resident name is a pure
+      // ref-count bump, it never touches fields (see its own comment), and
+      // release()-then-acquire() would needlessly force the brute-force
+      // full-sweep fallback in update_streaming() (see any_released_
+      // since_last_snapshot()'s own comment for exactly why).
+      if (existing->material_name != primitive_def.material_name) {
+        material_system_->release(existing->material_name);
+        existing->material =
+            &material_system_->acquire(primitive_def.material_name, true);
+        existing->material_name = primitive_def.material_name;
+        changed = true;
+      }
+      bool layer_reassigned = existing->layer != layer_index;
+      if (layer_reassigned) {
+        if (existing->layer != 0 && existing->layer < layer_ref_counts_.size() &&
+            layer_ref_counts_[existing->layer] > 0) {
+          --layer_ref_counts_[existing->layer];
+        }
+        ++layer_ref_counts_[layer_index];
+        existing->layer = layer_index;
+        // A layer reassignment can change how THIS primitive combines
+        // into the SDF (a different operation/smoothness), even if its
+        // own shape fields didn't move -- same reasoning as
+        // layer_op_changed above, just scoped to this one primitive
+        // rather than every primitive in the layer.
+      }
+      if (layer_op_changed || layer_reassigned ||
+          !primitive_shape_matches(*existing, primitive_def)) {
+        existing->type = to_primitive_type(primitive_def.type);
+        existing->position = primitive_def.position;
+        existing->rotation = primitive_def.rotation;
+        existing->params = primitive_def.params;
+        existing->extra_param = primitive_def.extra_param;
+        existing->twist = primitive_def.twist;
+        existing->bend = primitive_def.bend;
+        existing->displace_amplitude = primitive_def.displace_amplitude;
+        existing->displace_frequency = primitive_def.displace_frequency;
+        existing->param_expressions = primitive_def.param_expressions;
+        existing->repetition_mode = to_repetition_mode(primitive_def.repetition_mode);
+        existing->repetition_cell = primitive_def.repetition_cell;
+        existing->repetition_count = primitive_def.repetition_count;
+        mark_dirty(full_name);
+        changed = true;
+      }
+    }
+  }
+
+  for (const std::string &old_name : loaded.primitive_names) {
+    if (!new_primitive_name_set.count(old_name)) {
+      release(old_name);
+      changed = true;
+    }
+  }
+
+  // --- Lights: diff by name, same acquire-new/release-gone/update-in-
+  // place pattern as primitives above, minus the layer/mark_dirty concerns
+  // -- lights aren't baked into the chunked/voxel field at all (see
+  // Light's own comment), so nothing here affects update_streaming(). ---
+  std::unordered_set<std::string> new_light_names;
+  for (const SdfLightDef &light_def : scene.lights) {
+    std::string full_name = std::string(name_prefix) + light_def.name;
+    new_light_names.insert(full_name);
+
+    Light *existing = find_light(full_name);
+    if (!existing) {
+      LightConfig config;
+      config.name = full_name;
+      config.type = to_light_type(light_def.type);
+      config.vector = light_def.type == SdfLightType::Point ? light_def.position
+                                                             : light_def.direction;
+      config.colour = light_def.colour;
+      config.intensity = light_def.intensity;
+      acquire_light(config, auto_release);
+      changed = true;
+      continue;
+    }
+    if (!light_matches(*existing, light_def)) {
+      existing->type = to_light_type(light_def.type);
+      existing->vector = light_def.type == SdfLightType::Point ? light_def.position
+                                                                : light_def.direction;
+      existing->colour = light_def.colour;
+      existing->intensity = light_def.intensity;
+      changed = true;
+    }
+  }
+  for (const std::string &old_name : loaded.light_names) {
+    if (!new_light_names.count(old_name)) {
+      release_light(old_name);
+      changed = true;
+    }
+  }
+
+  // --- Volumetrics: same pattern as lights, plus the material handling
+  // primitives use above (volumetrics DO have a material -- see
+  // VolumetricConfig's comment). ---
+  std::unordered_set<std::string> new_volumetric_names;
+  for (const SdfVolumetricDef &volumetric_def : scene.volumetrics) {
+    std::string full_name = std::string(name_prefix) + volumetric_def.name;
+    new_volumetric_names.insert(full_name);
+
+    Volumetric *existing = find_volumetric(full_name);
+    if (!existing) {
+      VolumetricConfig config;
+      config.name = full_name;
+      config.type = to_primitive_type(volumetric_def.type);
+      config.position = volumetric_def.position;
+      config.rotation = volumetric_def.rotation;
+      config.params = volumetric_def.params;
+      config.extra_param = volumetric_def.extra_param;
+      config.density = volumetric_def.density;
+      config.material_name = volumetric_def.material_name;
+      acquire_volumetric(config, auto_release);
+      changed = true;
+      continue;
+    }
+    if (existing->material_name != volumetric_def.material_name) {
+      material_system_->release(existing->material_name);
+      existing->material =
+          &material_system_->acquire(volumetric_def.material_name, true);
+      existing->material_name = volumetric_def.material_name;
+      changed = true;
+    }
+    if (!volumetric_matches(*existing, volumetric_def)) {
+      existing->type = to_primitive_type(volumetric_def.type);
+      existing->position = volumetric_def.position;
+      existing->rotation = volumetric_def.rotation;
+      existing->params = volumetric_def.params;
+      existing->extra_param = volumetric_def.extra_param;
+      existing->density = volumetric_def.density;
+      changed = true;
+    }
+  }
+  for (const std::string &old_name : loaded.volumetric_names) {
+    if (!new_volumetric_names.count(old_name)) {
+      release_volumetric(old_name);
+      changed = true;
+    }
+  }
+
+  loaded.primitive_names = std::move(new_primitive_names);
+  loaded.light_names.assign(new_light_names.begin(), new_light_names.end());
+  loaded.volumetric_names.assign(new_volumetric_names.begin(),
+                                 new_volumetric_names.end());
+  loaded.layer_index_by_name = std::move(new_layer_index_by_name);
+
+  return changed;
 }

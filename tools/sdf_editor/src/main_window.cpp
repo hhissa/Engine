@@ -1677,11 +1677,18 @@ void SdfEditorWindow::sync_viewport_scene() {
   if (!save_scene(kLivePreviewPath, scene_)) {
     return; // save_scene() already logged why.
   }
-  // The editor's entire authored world *is* scene_, so clearing every
-  // loaded scene and reloading it whole is correct, not just convenient --
-  // there's nothing else this tool ever loads alongside it.
-  renderer_clear_scenes();
-  renderer_load_scene(kLivePreviewPath);
+  // First call ever (nothing registered yet) -- load fresh. Every call
+  // after this reconciles against the same handle instead (see
+  // live_scene_handle_'s own comment) so an edit that only touches one
+  // primitive doesn't force the renderer to release and re-register this
+  // editor's ENTIRE authored world -- which, for the chunked/streamed
+  // field, meant re-baking every resident chunk regardless of how small
+  // the actual edit was (see renderer_reconcile_scene()'s own comment).
+  if (live_scene_handle_ == kInvalidSceneHandle) {
+    live_scene_handle_ = renderer_load_scene(kLivePreviewPath).handle();
+  } else {
+    renderer_reconcile_scene(live_scene_handle_, kLivePreviewPath);
+  }
 }
 
 void SdfEditorWindow::on_viewport_selection_changed(std::vector<PrimitiveRef> selection) {
