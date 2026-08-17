@@ -100,13 +100,24 @@ void sample_chunked_field_at_level(vec3 p, vec3 ray_dir, int level, out float di
     cell = clamp(cell, ivec3(0), ivec3(CHUNK_COARSE_DIM - 1));
 
     if (slot < 0) {
-        // No chunk resident here at all -- step to this level's cell's
-        // exit boundary, identical technique to Builtin.BakedFieldCommon.
-        // inc.glsl's own "no brick" case (see its comment for why a
-        // ray-box slab exit, not a flat step, is needed).
-        vec3 cell_min = chunk_world_min + vec3(cell) * cell_size;
-        vec3 cell_max = cell_min + vec3(cell_size);
-        vec3 boundary = mix(cell_min, cell_max, greaterThan(ray_dir, vec3(0.0)));
+        // No chunk resident here at all -- step to the WHOLE CHUNK's exit
+        // boundary, not just this one cell's: slot < 0 means chunk_
+        // indirection has no sub-block allocated for this coordinate at
+        // all, so every one of this chunk's CHUNK_COARSE_DIM cells is
+        // equally non-resident, not just the one p happens to be in.
+        // Stepping cell-by-cell here (the old behaviour) cost up to
+        // CHUNK_COARSE_DIM (16) redundant sample_chunked_field_at_level()
+        // calls to cross one empty chunk, since every one of those calls
+        // re-resolves chunk_coord back to this same non-resident chunk.
+        // Same ray-box slab exit technique as Builtin.BakedFieldCommon.
+        // inc.glsl's own "no brick" case (see its comment for why a slab
+        // exit, not a flat step, is needed) -- just sized to the chunk
+        // instead of the cell. Contrast with the brick_index < 0 branch
+        // below, which MUST stay cell-bounded: there, only THIS cell has
+        // been confirmed brickless -- sibling cells in the same (resident)
+        // chunk can still hold real bricks.
+        vec3 chunk_world_max = chunk_world_min + vec3(chunk_world_size);
+        vec3 boundary = mix(chunk_world_min, chunk_world_max, greaterThan(ray_dir, vec3(0.0)));
         bvec3 stationary = lessThan(abs(ray_dir), vec3(1e-8));
         vec3 safe_ray_dir = mix(ray_dir, vec3(1.0), stationary);
         vec3 t_exit = mix((boundary - p) / safe_ray_dir, vec3(1e30), stationary);

@@ -3,13 +3,15 @@
 
 // Chunked-field voxelizer -- Phase 3a of the clipmap streaming work (see
 // ChunkKey/ChunkRecord, engine/src/systems/chunk_types.h). One dispatch of
-// this bakes exactly ONE chunk's CHUNK_COARSE_DIM^3 coarse cells into the
-// SEPARATE chunked-field buffers (ChunkIndirectionBuffer/ChunkBrickPool
-// Buffer/ChunkBrickPrimitiveBuffer below), at whichever gpu_slot the caller
-// (VulkanRaymarchShader::voxelize_chunk()) assigned it -- unlike Builtin.
+// this bakes an entire BATCH of chunks' CHUNK_COARSE_DIM^3 coarse cells
+// each into the SEPARATE chunked-field buffers (ChunkIndirectionBuffer/
+// ChunkBrickPoolBuffer/ChunkBrickPrimitiveBuffer below), at whichever
+// gpu_slot each entry in ChunkVoxelizeBatchSlotBuffer says -- unlike Builtin.
 // RaymarchVoxelize.comp.glsl's single dispatch over the whole fixed
-// COARSE_DIM^3 grid, this is meant to be dispatched once per resident chunk,
-// letting a caller (re)bake just the chunks that actually changed.
+// COARSE_DIM^3 grid, this is meant to be dispatched once per FRAME (Phase
+// 6: not once per chunk any more -- see VulkanRaymarchShader::update_
+// streaming()'s own comment), covering every chunk that frame's camera-
+// driven streaming and/or dirty-scene rebaking decided needs a fresh bake.
 //
 // Deliberately a full parallel copy of RaymarchVoxelize.comp.glsl's
 // structure rather than a shared/parameterized function: sharing would mean
@@ -22,7 +24,9 @@
 // COARSE_DIM/chunk awareness at all, it just evaluates the scene at a given
 // world point, so sharing it carries none of that risk.
 //
-// One invocation per chunk-local coarse cell (CHUNK_COARSE_DIM^3 total).
+// One invocation per chunk-local coarse cell (CHUNK_COARSE_DIM^3), times
+// however many chunks this dispatch's batch covers -- see main()'s own
+// comment for how Z encodes both.
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 #include "Builtin.SdfFieldConfig.inc.glsl"
@@ -44,10 +48,10 @@ const int MAX_BRICKS = 16384 * NUM_CHUNK_LEVELS;
 
 // Sized kMaxResidentChunks * CHUNK_CELL_COUNT engine-side -- one
 // CHUNK_CELL_COUNT-sized dense sub-block per resident chunk slot, indexed by
-// push.chunk_slot below. Slot assignment (which world chunk owns which
-// slot) is a CPU-side scheduling decision (see ChunkStreamingManager, a
-// later phase) this shader has no awareness of -- it just writes wherever
-// push.chunk_slot points.
+// each batch entry's chunk_slot (see ChunkVoxelizeBatchSlotBuffer below).
+// Slot assignment (which world chunk owns which slot) is a CPU-side scheduling
+// decision (see ChunkStreamingManager) this shader has no awareness of --
+// it just writes wherever each entry's chunk_slot points.
 layout(binding = 0) buffer ChunkIndirectionBuffer {
     int chunk_indirection[];
 };
@@ -101,33 +105,57 @@ layout(binding = 6) buffer ChunkBrickPrimitiveBuffer {
     int chunk_brick_primitive[];
 };
 
+// One dispatch now bakes an entire BATCH of chunks at once (see this
+// shader's own header comment update below and VulkanRaymarchShader::
+// update_streaming()'s comment for why): CPU-side chunk-streaming
+// decisions are completely unchanged (still ChunkStreamingManager, still
+// pure CPU, still unit-tested), but instead of one vkCmdDispatch+push-
+// constants pair per chunk, the CPU now writes every chunk this frame
+// needs (re)baked into these two buffers once and issues a SINGLE
+// dispatch sized to cover all of them -- collapsing what used to be
+// dozens of small dispatch/barrier pairs (one per chunk) into one.
+// Indexed by batch_index (see main() below), NOT chunk_slot --
+// batch_index is this entry's position in THIS dispatch's batch, the
+// chunk_slot VALUE it reads out of ChunkVoxelizeBatchSlotBuffer is still
+// which ChunkIndirectionBuffer/ChunkBrickPoolBuffer sub-block that
+// entry's chunk owns, exactly as before.
+//
+// TWO parallel arrays, not one array of a 5-scalar struct: std430 rounds
+// a STRUCT's base alignment (and so its array stride) up to vec4 (16
+// bytes) regardless of its members' own sizes -- see Builtin.
+// SdfSceneCommon.inc.glsl's Primitive/Layer for why every struct in this
+// codebase's SSBOs is already built from vec4/ivec4 fields only, never a
+// bare scalar mix like {int, float, float, float, float} (20 bytes: the
+// engine-side upload would write entries packed at 20-byte intervals,
+// but the GPU would read them back at a rounded-up 32-byte stride --
+// silent, severe corruption of every entry after the first, not a crash).
+// A plain int[] and a plain vec4[] each have a well-defined, padding-free
+// std430 stride (4 and 16 bytes, matching their C++ mirrors' sizeof()
+// exactly), so splitting into two arrays sidesteps the rule entirely
+// instead of fighting it with manual padding fields.
+layout(binding = 9) buffer ChunkVoxelizeBatchSlotBuffer {
+    int batch_chunk_slot[];
+};
+// xyz = chunk_world_min (this chunk's min corner in RENDER space), w =
+// chunk_cell_size (this chunk's own fine-voxel cell size) -- packed
+// together since both are per-entry and this keeps it to two buffers
+// total rather than three.
+layout(binding = 10) buffer ChunkVoxelizeBatchDataBuffer {
+    vec4 batch_chunk_data[];
+};
+
 layout(push_constant) uniform PushConstants {
     int layer_count;
     float max_smoothness; // See CULL_RADIUS_CELLS below -- same role as the
-                         // old voxelizer's identical push constant.
-    int chunk_slot;       // Which ChunkIndirectionBuffer sub-block (and
-                         // implicitly, since this whole dispatch bakes one
-                         // chunk, which chunk) this invocation writes into.
-    float chunk_world_min_x;
-    float chunk_world_min_y;
-    float chunk_world_min_z; // This chunk's min corner in RENDER space (see
-                            // VulkanRendererBackend::world_origin_offset_) --
-                            // split into three scalars rather than a vec3 to
-                            // avoid std430 push-constant vec3 alignment
-                            // padding surprises, matching this codebase's
-                            // existing convention (see e.g. GpuPrimitive's
-                            // float[4] fields engine-side) of preferring
-                            // explicit scalars/float[N] over vec3 wherever
-                            // layout matters.
-    float chunk_cell_size; // This chunk's own fine-voxel cell size (Phase 4:
-                          // chunk_level_world_size(level) / CHUNK_COARSE_DIM,
-                          // computed engine-side -- NOT the shared
-                          // COARSE_CELL_SIZE constant, which is only ever
-                          // correct for level 0). A coarser (higher-level)
-                          // chunk covers more world space per cell, which is
-                          // exactly what makes it cheaper to bake/sample --
-                          // see Builtin.SdfFieldConfig.inc.glsl's comment on
-                          // chunk_level_world_size().
+                         // old voxelizer's identical push constant. Scene-
+                         // wide, so unlike batch_chunk_slot/batch_chunk_data
+                         // above, this stays a plain push constant -- every
+                         // chunk in the batch shares the same value.
+    int batch_count;      // How many batch_chunk_slot[]/batch_chunk_data[]
+                         // entries this dispatch actually populated --
+                         // gl_WorkGroupID.z ranges wider than this (see
+                         // main()'s own comment), so every invocation must
+                         // bounds-check against it.
 } push;
 
 // Same rationale/tuning as Builtin.RaymarchVoxelize.comp.glsl's identical
@@ -135,19 +163,33 @@ layout(push_constant) uniform PushConstants {
 const float CULL_RADIUS_CELLS = 6.0;
 
 void main() {
-    ivec3 local_cell = ivec3(gl_GlobalInvocationID);
-    if (local_cell.x >= CHUNK_COARSE_DIM || local_cell.y >= CHUNK_COARSE_DIM ||
-        local_cell.z >= CHUNK_COARSE_DIM) {
+    // Z carries TWO things now, packed by the dispatch shape (CPU issues
+    // (CHUNK_COARSE_DIM/4, CHUNK_COARSE_DIM/4, (CHUNK_COARSE_DIM/4) *
+    // batch_count) workgroups -- see VulkanRaymarchShader::update_
+    // streaming()'s own comment): which chunk-local Z coarse cell (low
+    // CHUNK_COARSE_DIM of it, same as X/Y always were) and which entry in
+    // batch_chunk_slot[]/batch_chunk_data[] this invocation's chunk is
+    // (the rest, divided out).
+    int batch_index = int(gl_GlobalInvocationID.z) / CHUNK_COARSE_DIM;
+    if (batch_index >= push.batch_count) {
+        return; // dispatch is always a whole multiple of CHUNK_COARSE_DIM
+               // groups in Z, so this only trims true overshoot, never
+               // splits a real chunk's own Z range.
+    }
+    ivec3 local_cell = ivec3(gl_GlobalInvocationID.xy,
+                             int(gl_GlobalInvocationID.z) % CHUNK_COARSE_DIM);
+    if (local_cell.x >= CHUNK_COARSE_DIM || local_cell.y >= CHUNK_COARSE_DIM) {
         return;
     }
 
+    int chunk_slot = batch_chunk_slot[batch_index];
+    vec4 chunk_data = batch_chunk_data[batch_index];
     int local_cell_index = local_cell.x + local_cell.y * CHUNK_COARSE_DIM +
         local_cell.z * CHUNK_COARSE_DIM * CHUNK_COARSE_DIM;
-    int cell_index = push.chunk_slot * CHUNK_CELL_COUNT + local_cell_index;
+    int cell_index = chunk_slot * CHUNK_CELL_COUNT + local_cell_index;
 
-    vec3 chunk_world_min = vec3(push.chunk_world_min_x, push.chunk_world_min_y,
-                                push.chunk_world_min_z);
-    float chunk_cell_size = push.chunk_cell_size;
+    vec3 chunk_world_min = chunk_data.xyz;
+    float chunk_cell_size = chunk_data.w;
     vec3 cell_min = chunk_world_min + vec3(local_cell) * chunk_cell_size;
     vec3 cell_center = cell_min + vec3(chunk_cell_size * 0.5);
 

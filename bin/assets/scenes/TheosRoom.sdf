@@ -309,14 +309,6 @@ layer layer5 {
         material=qt_colour_ffff00ff_ts050_white
     }
 
-    primitive primitive65 {
-        type=box
-        position=1.34 -1.41 1.53
-        rotation=0 0 0
-        half_extents=0.6 0.05 1.4
-        material=qt_colour_ffffffff_ts050_lightwood
-    }
-
     primitive primitive91 {
         type=box
         position=-1.38 -1.17 -2.08
