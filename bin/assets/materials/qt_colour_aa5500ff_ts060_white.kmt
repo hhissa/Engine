@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_aa5500ff_ts060_white
+diffuse_colour=0.666667 0.333333 0 1
+texture_scale=0.6
+diffuse_map_name=white

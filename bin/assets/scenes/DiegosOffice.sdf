@@ -1,6 +1,6 @@
 #sdf scene file
 version=0.1
-ambient=0.15
+ambient=0.5
 
 layer layer0 {
     operation=union
@@ -8,32 +8,32 @@ layer layer0 {
 
     primitive primitive0 {
         type=box
-        position=0 -1.96 0
+        position=0 -1.96000004 0
         rotation=0 0 0
-        half_extents=0.1 2 3.5
+        half_extents=0.100000001 2 3.5
         material=qt_colour_dddbbeff_ts060_white
     }
 
     primitive primitive1 {
         type=box
-        position=-2.94 -1.96 0.43
+        position=-2.94000006 -1.96000004 0.430000007
         rotation=0 0 0
-        half_extents=3 2 0.1
+        half_extents=3 2 0.100000001
         material=qt_colour_dddbbeff_ts060_white
     }
 
     primitive primitive4 {
         type=box
-        position=-2.94 -1.96 0.43
+        position=-2.94000006 -1.95422125 0.430000007
         rotation=0 0 0
-        half_extents=3 0.1 2
+        half_extents=3 0.100000001 2
         material=qt_colour_dddbbeff_ts060_white
     }
 
     primitive primitive5 {
         type=box
-        position=-1.2 -2.81 -0.426843
-        rotation=3.14159 1.10741 3.14159
+        position=-1.20000005 -2.80999994 -0.426842988
+        rotation=3.14159012 1.10740995 3.14159012
         half_extents=0.5 0.5 0.5
         param_expr=1 0.5 + 0.2*p.x
         param_expr=2 0.5 + 0.2*p.x
@@ -42,10 +42,132 @@ layer layer0 {
 
     primitive primitive6 {
         type=box_frame
-        position=-1.52 -2.81 -0.89
-        rotation=3.14159 1.10741 3.14159
-        params=0.05 0.65 0.65 0.1
+        position=-1.51999998 -2.80999994 -0.889999986
+        rotation=3.14159012 1.10740995 3.14159012
+        params=0.0500000007 0.649999976 0.649999976 0.100000001
         material=qt_colour_aaa892ff_ts060_white
+    }
+
+    primitive primitive7 {
+        type=box
+        position=-1.36307001 -2.80999994 -0.606736004
+        rotation=3.14159012 1.10740995 3.14159012
+        half_extents=0.400000006 0.5 0.5
+        param_expr=1 0.4 + 0.2*p.x
+        param_expr=2 0.4 + 0.2*p.x
+        material=qt_colour_000000ff_ts060_white
+    }
+
+    primitive primitive8 {
+        type=box
+        position=-2.94000006 -2.1099999 -0.860000014
+        rotation=0 0.767246723 0
+        half_extents=0.5 0.0500000007 0.200000003
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive9 {
+        type=ellipsoid
+        position=-2.31999993 -2.11999989 -1.35000002
+        rotation=0 0.767246723 0
+        params=0.100000001 0.100000001 0.200000003 0
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive10 {
+        type=box
+        position=-2.36999989 -2.14638925 -0.379999995
+        rotation=0 0.353447944 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive11 {
+        type=box
+        position=-2.36999989 -2.11999989 -0.379999995
+        rotation=0 0 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive12 {
+        type=box
+        position=-2.36999989 -2.18342137 -0.379999995
+        rotation=0 -0.431433082 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive13 {
+        type=box
+        position=-2.36999989 -2.25 -0.379999995
+        rotation=-3.14159274 1.43745315 -3.14159274
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
+    }
+
+    primitive primitive14 {
+        type=box
+        position=-4.46999979 -2.04999995 -0.379999995
+        rotation=-3.14159274 1.43745315 -3.14159274
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
+    }
+
+    primitive primitive15 {
+        type=box
+        position=-4.76000023 -2.1400001 -1.10000002
+        rotation=3.14159274 -0.704589367 -3.14159274
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
+    }
+
+    primitive primitive16 {
+        type=box
+        position=0 0 0
+        rotation=0 0 0
+        half_extents=20 0.100000001 20
+        material=qt_colour_ffffffff_ts200_officecarpet
+    }
+
+    primitive primitive17 {
+        type=box
+        position=-3.93986654 -3.0735209 0.322028577
+        rotation=0 0 0
+        half_extents=1 0.5 0.100000001
+        material=qt_colour_dddbbeff_ts060_corkboard
+    }
+
+    primitive primitive18 {
+        type=box_frame
+        position=-3.94000006 -3.06999993 0.322028577
+        rotation=0 0 0
+        params=1.10000002 0.600000024 0.100000001 0.100000001
+        material=qt_colour_181818ff_ts060_white
+    }
+
+    primitive primitive19 {
+        type=box
+        position=-2.36999989 -2.8499999 0.230000004
+        rotation=1.57079637 0 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
+    }
+
+    primitive primitive20 {
+        type=sphere
+        position=-2.36999989 -3.02999997 0.230000004
+        rotation=1.57079637 0 0
+        radius=0.0399999991
+        material=qt_colour_000000ff_ts060_white
+    }
+
+    primitive primitive21 {
+        type=box
+        position=-4.1500001 -2.1400001 -1.10000002
+        rotation=0 1.35175741 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
     }
 }
 
@@ -55,9 +177,14 @@ layer layer1 {
 
     primitive primitive3 {
         type=box
-        position=0 -8.49517 0
+        position=0 -6.02040148 0
         rotation=0 0 0
         half_extents=20 0.5 20
-        material=qt_colour_ffffffff_ts060_white
+        material=qt_colour_ffffffff_ts200_ceilingtiles
     }
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
 }

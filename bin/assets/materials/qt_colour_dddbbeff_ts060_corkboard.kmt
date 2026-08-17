@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_dddbbeff_ts060_corkboard
+diffuse_colour=0.866667 0.858824 0.745098 1
+texture_scale=0.6
+diffuse_map_name=corkboard
