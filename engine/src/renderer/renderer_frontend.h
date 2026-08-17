@@ -149,6 +149,19 @@ i32 renderer_get_primitive_gpu_index(const std::string &name);
 // frame if needed.
 void renderer_set_grid_visible(b8 visible);
 
+// Phase 4: switches the render pass's primary hit-test/normals/contact-AO/
+// shadows from the fixed-cube field every caller has always used onto the
+// chunked/streamed field instead (see engine/src/systems/chunk_streaming_
+// manager.h and VulkanRaymarchShader::update_streaming()) -- just a push
+// constant, takes effect the very next frame, no rebake needed. Off by
+// default, so tools/sdf_editor and games/SH are completely unaffected
+// unless a caller explicitly opts in. A caller that enables this should
+// also be driving update_streaming() every frame with its camera's current
+// position (see VulkanRendererBackend::begin_frame()) -- enabling this
+// without that just samples whatever chunks happen to already be resident
+// (likely none, since nothing streams in on its own).
+void renderer_set_chunked_field_enabled(b8 enabled);
+
 // Enables/disables the bloom post-process -- a soft glow bloomed off
 // bright/emissive surfaces (see Material::emissive_intensity), added back
 // on top of the scene. On by default, subtly; call with false to disable
@@ -237,5 +250,23 @@ void renderer_enable_sky_box(std::string_view texture_name);
 
 // Disables the skybox, falling back to the flat gradient background.
 void renderer_disable_sky_box();
+
+// Enables/disables floating-origin recentring -- see
+// RendererBackend::set_floating_origin_enabled() for exact semantics. Off by
+// default; a game that free-roams far enough from (0,0,0) to risk float
+// precision loss opts in explicitly. A game that enables this MUST call
+// renderer_consume_origin_shift() once per frame (see below) or its own
+// camera will drift out of sync with the (correctly recentred) scene.
+void renderer_set_floating_origin_enabled(b8 enabled);
+
+// Returns the render-space shift (world units) a floating-origin recenter
+// has applied since the last call, then clears it -- (0,0,0) if none
+// happened (including whenever floating origin is disabled). Call this once
+// per frame, before using/updating any Camera position the game itself
+// owns (e.g. at the very start of the game's update()), and apply the
+// returned delta to every such Camera via Camera::shift() -- see
+// RendererBackend::consume_origin_shift()'s comment for why this can't just
+// happen automatically.
+glm::vec3 renderer_consume_origin_shift();
 
 b8 renderer_draw_frame(struct render_packet *packet);

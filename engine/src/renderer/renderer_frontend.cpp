@@ -247,6 +247,15 @@ void renderer_set_grid_visible(b8 visible) {
   }
 }
 
+void renderer_set_chunked_field_enabled(b8 enabled) {
+  if (backend) {
+    backend->set_chunked_field_enabled(enabled);
+  } else {
+    KWARN("renderer backend does not exist to accept a chunked-field "
+         "request.");
+  }
+}
+
 void renderer_set_bloom_enabled(b8 enabled) {
   if (backend) {
     backend->set_bloom_enabled(enabled);
@@ -350,6 +359,19 @@ void renderer_disable_sky_box() {
   } else {
     KWARN("renderer backend does not exist to accept a skybox request.");
   }
+}
+
+void renderer_set_floating_origin_enabled(b8 enabled) {
+  if (backend) {
+    backend->set_floating_origin_enabled(enabled);
+  } else {
+    KWARN("renderer backend does not exist to accept a floating-origin "
+         "request.");
+  }
+}
+
+glm::vec3 renderer_consume_origin_shift() {
+  return backend ? backend->consume_origin_shift() : glm::vec3(0.0f);
 }
 
 b8 renderer_draw_frame(render_packet *packet) {

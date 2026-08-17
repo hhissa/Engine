@@ -39,6 +39,7 @@ public:
   void set_selected_primitive(i32 index) override;
   i32 primitive_gpu_index(const std::string &name) const override;
   void set_grid_visible(b8 visible) override;
+  void set_chunked_field_enabled(b8 enabled) override;
   void set_bloom_enabled(b8 enabled) override;
   void set_vignette_enabled(b8 enabled) override;
   void set_pixelation_enabled(b8 enabled) override;
@@ -51,6 +52,8 @@ public:
   void set_font(std::string_view name, f32 pixel_height) override;
   void set_skybox(std::string_view texture_name) override;
   void disable_skybox() override;
+  void set_floating_origin_enabled(b8 enabled) override;
+  glm::vec3 consume_origin_shift() override;
   b8 end_frame(f32 delta_time) override;
 
 private:
@@ -107,6 +110,50 @@ private:
   // take an order of magnitude longer than necessary. begin_frame() checks
   // this and rebakes at most once before the next frame actually draws.
   b8 scene_dirty_ = false;
+
+  // Floating origin (see set_floating_origin_enabled()/consume_origin_shift()
+  // and maybe_recenter_origin()). Off by default -- games/tools that never
+  // opt in see zero behavior change. world_origin_offset_ is the absolute
+  // correction accumulated so far: for anything that's been shifted,
+  // absolute_position == render_space_position + world_origin_offset_,
+  // exactly. Double precision even though every render-space position stays
+  // f32 -- this offset alone accumulates across a whole session, so it's the
+  // one quantity that actually needs to survive far more than f32's ~7
+  // significant digits without itself drifting.
+  b8 floating_origin_enabled_ = false;
+  glm::dvec3 world_origin_offset_{0.0, 0.0, 0.0};
+  // Recenter once the camera's render-space position drifts this far from
+  // the origin. Derived from the baked field's finest voxel size (currently
+  // COARSE_CELL_SIZE/BRICK_DIM = (2*16.0/128)/8 =~ 0.03 world units -- see
+  // Builtin.SdfFieldConfig.inc.glsl) times a large safety margin: f32
+  // mantissa precision only starts mattering once a position's magnitude
+  // approaches a meaningful fraction of the largest value representable
+  // with sub-voxel precision, which is comfortably past 1000 for a ~0.03
+  // voxel -- kept well under that (not a round guess) so recenters stay
+  // rare relative to how often a free-roaming camera might cross this
+  // distance, while precision is never remotely at risk.
+  f32 floating_origin_recenter_threshold_ = 96.0f;
+  // Accumulates each recenter's render-space shift until a caller consumes
+  // it (see consume_origin_shift()) -- the game must apply this same delta
+  // to any Camera position it owns itself (see RendererBackend::
+  // consume_origin_shift()'s comment for why this can't happen
+  // automatically). Left to accumulate rather than assuming exactly one
+  // recenter happens between consecutive consume_origin_shift() calls, so a
+  // caller that skips a frame (or never calls it while the flag happens to
+  // be off) can't silently lose part of a shift.
+  glm::vec3 pending_origin_shift_{0.0f};
+
+  // Shifts every render-space position (registered geometry/lights/
+  // volumetrics, plus camera_) by -camera_.position() once the camera has
+  // drifted floating_origin_recenter_threshold_ units from the render-space
+  // origin, accumulating the opposite correction into world_origin_offset_
+  // so nothing's true absolute position actually changes -- see the class
+  // comment above camera_/world_origin_offset_. Called at the very top of
+  // begin_frame(), before the scene_dirty_ check, so a recenter this frame
+  // (which marks scene_dirty_ itself -- see its own comment) gets folded
+  // into the very same rebake as any other pending scene mutation instead
+  // of forcing a second one.
+  void maybe_recenter_origin();
 
   u32 cached_framebuffer_width_ = 0;
   u32 cached_framebuffer_height_ = 0;

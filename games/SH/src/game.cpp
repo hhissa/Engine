@@ -80,6 +80,15 @@ b8 SHGame::initialize() {
 b8 SHGame::update(f32 dt) {
   delta_time_ = dt;
 
+  // Must run before any camera-position state below is used -- a floating-
+  // origin recenter (see RendererBackend::consume_origin_shift()'s comment)
+  // only shifts the renderer's own transient copy, since the renderer
+  // doesn't own this game's cameras_. A no-op ((0,0,0)) whenever floating
+  // origin is disabled (the default -- SH's camera never currently
+  // free-roams far enough to need it, see CameraPose's own comment), so
+  // this is safe to call unconditionally every frame regardless of screen_.
+  cameras_.shift_all(renderer_consume_origin_shift());
+
   switch (screen_) {
   case AppScreen::Title:
     update_title_screen();

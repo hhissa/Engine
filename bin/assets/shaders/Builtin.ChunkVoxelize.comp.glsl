@@ -31,14 +31,16 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 // is the SAME brick pool capacity concept as Builtin.RaymarchVoxelize.comp.
 // glsl's MAX_BRICKS, just governing the chunked field's own, separate,
 // smaller pool (see ChunkBrickPoolBuffer below), SHARED across every clip
-// level (see NUM_CHUNK_LEVELS, Builtin.SdfFieldConfig.inc.glsl). 4096 is
-// the per-level share -- must match the literal 4096 in vulkan_raymarch_
-// shader.cpp's kMaxChunkBricks = 4096 * kNumLevels exactly (NUM_CHUNK_
-// LEVELS itself already has to match kNumLevels there too, so multiplying
-// by it here rather than hardcoding the product keeps this in sync
-// automatically if kNumLevels/NUM_CHUNK_LEVELS ever changes together --
-// only the per-level 4096 needs updating by hand on both sides).
-const int MAX_BRICKS = 4096 * NUM_CHUNK_LEVELS;
+// level (see NUM_CHUNK_LEVELS, Builtin.SdfFieldConfig.inc.glsl). 16384 is
+// the per-level share -- must match the literal kMaxChunkBricksPerLevel in
+// vulkan_raymarch_shader.cpp's kMaxChunkBricks = kMaxChunkBricksPerLevel *
+// kNumLevels exactly (see that constant's own comment for why 16384, not
+// the original, too-tight 4096) -- NUM_CHUNK_LEVELS itself already has to
+// match kNumLevels there too, so multiplying by it here rather than
+// hardcoding the product keeps this in sync automatically if kNumLevels/
+// NUM_CHUNK_LEVELS ever changes together -- only the per-level 16384 needs
+// updating by hand on both sides.
+const int MAX_BRICKS = 16384 * NUM_CHUNK_LEVELS;
 
 // Sized kMaxResidentChunks * CHUNK_CELL_COUNT engine-side -- one
 // CHUNK_CELL_COUNT-sized dense sub-block per resident chunk slot, indexed by
@@ -173,21 +175,26 @@ void main() {
             chunk_indirection[cell_index] = brick_index;
             chunk_brick_primitive[brick_index] = nearest_primitive;
 
-            float voxel_size = chunk_cell_size / float(BRICK_DIM);
+            // CHUNK_BRICK_DIM, not BRICK_DIM -- see its own comment in
+            // Builtin.SdfFieldConfig.inc.glsl for why the chunked field's
+            // brick resolution is a separate, finer constant.
+            float voxel_size = chunk_cell_size / float(CHUNK_BRICK_DIM);
             float cull_radius = chunk_cell_size * CULL_RADIUS_CELLS + push.max_smoothness;
-            // Local index range is -1..BRICK_DIM inclusive (the apron),
-            // mapped to storage index range 0..BRICK_APRON_DIM-1 via +1 --
-            // identical scheme to the old voxelizer's brick population.
-            for (int vz = -1; vz <= BRICK_DIM; ++vz) {
-                for (int vy = -1; vy <= BRICK_DIM; ++vy) {
-                    for (int vx = -1; vx <= BRICK_DIM; ++vx) {
+            // Local index range is -1..CHUNK_BRICK_DIM inclusive (the
+            // apron), mapped to storage index range 0..CHUNK_BRICK_APRON_
+            // DIM-1 via +1 -- identical scheme to the old voxelizer's brick
+            // population.
+            for (int vz = -1; vz <= CHUNK_BRICK_DIM; ++vz) {
+                for (int vy = -1; vy <= CHUNK_BRICK_DIM; ++vy) {
+                    for (int vx = -1; vx <= CHUNK_BRICK_DIM; ++vx) {
                         vec3 voxel_pos = cell_min + (vec3(vx, vy, vz) + 0.5) * voxel_size;
                         int unused_nearest;
                         float d = scene_map(voxel_pos, push.layer_count, cull_radius,
                                             unused_nearest);
                         ivec3 store = ivec3(vx, vy, vz) + ivec3(1);
-                        int local_index = store.x + store.y * BRICK_APRON_DIM + store.z * BRICK_APRON_DIM * BRICK_APRON_DIM;
-                        chunk_bricks[brick_index * BRICK_VOXEL_COUNT + local_index] = d;
+                        int local_index = store.x + store.y * CHUNK_BRICK_APRON_DIM +
+                            store.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM;
+                        chunk_bricks[brick_index * CHUNK_BRICK_VOXEL_COUNT + local_index] = d;
                     }
                 }
             }

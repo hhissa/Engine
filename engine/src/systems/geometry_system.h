@@ -1,4 +1,5 @@
 #pragma once
+#include "chunk_types.h"
 #include "material_system.h"
 
 #include <array>
@@ -6,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // The shape a registered piece of geometry evaluates to. kohi's geometry
@@ -201,6 +203,67 @@ struct Geometry {
                 // going through load_scene() -- implicitly uses.
 };
 
+// A radius large enough that a shader/system treating it as this
+// primitive's bounding-sphere radius will never wrongly cull it -- not
+// literal infinity, just comfortably larger than any real cull_radius a
+// caller could plausibly compare it against (see geometry_bounding_radius()
+// below and Builtin.SdfSceneCommon.inc.glsl's UNBOUNDED_BOUNDING_RADIUS,
+// which this must exceed).
+constexpr f32 kUnboundedBoundingRadius = 1e8f;
+
+// A conservative world-space bounding-sphere radius, centered at
+// geometry.position, for anything that needs to know how far a primitive's
+// surface can possibly reach without walking its exact shape -- originally
+// written for VulkanRaymarchShader::rebuild_static_scene()'s per-primitive
+// GPU cull_radius upload, and reused by GeometrySystem::chunks_touched_by()
+// to conservatively test a primitive against a chunk grid. Deliberately
+// generous rather than tight (e.g. a sphere enclosing a Box's corners, not
+// its faces): wrongly excluding a primitive that still mattered is a far
+// worse failure (a hole in the baked surface, or a primitive silently
+// missing from a chunk that should have baked it) than an under-tight bound
+// that just culls/touches slightly more than it strictly needs to.
+//
+// Returns kUnboundedBoundingRadius (never cull) for:
+//  - a Plane, which has no finite extent at all;
+//  - a primitive with RepetitionMode::Infinite, likewise unbounded;
+//  - a primitive with any active parametric-attribute formula (see
+//    Geometry::param_expressions) -- a formula's actual runtime value can
+//    differ arbitrarily from params' plain-constant fallback (see
+//    resolve_params() in Builtin.SdfSceneCommon.inc.glsl), so no bound
+//    derived from that fallback would be safe.
+// Otherwise combines a per-type local bound (mirroring evaluate_shape()'s
+// dispatch in Builtin.SdfSceneCommon.inc.glsl -- params/extra_param have the
+// exact same per-type meaning there) with however much farther a finite
+// domain repetition (Limited/Rectangular) or displacement can push the
+// surface outward.
+f32 geometry_bounding_radius(const Geometry &geometry) noexcept;
+
+// Which level-0 chunk(s) (see ChunkKey/chunk_world_size(), chunk_types.h)
+// geometry's conservative bounding sphere (geometry_bounding_radius())
+// overlaps, in render space -- the CPU-side half of deciding which chunk
+// bake(s) a scene edit needs to touch (a later phase wires the other half:
+// actually re-voxelizing just those chunks instead of the whole scene). A
+// free function, not a GeometrySystem member, despite living alongside it
+// and existing purely for GeometrySystem's callers to use -- it never
+// touches any GeometrySystem instance state, only its two parameters, so
+// keeping it standalone lets it (and geometry_bounding_radius() above) be
+// exercised directly in tests/ without needing a live GeometrySystem (which
+// needs a MaterialSystem, which needs a real VulkanContext -- infeasible to
+// stand up in a lightweight unit test). chunk_size must be positive, or
+// this returns empty.
+//
+// Returns an EMPTY list, distinct from "touches nothing" (a zero-radius
+// primitive still touches exactly the one chunk containing its position),
+// whenever geometry_bounding_radius() reports kUnboundedBoundingRadius (a
+// Plane, RepetitionMode::Infinite, or an active param_expression formula)
+// -- there is no finite chunk list to enumerate for something that can
+// matter arbitrarily far from its own position, so a caller consuming this
+// must treat an empty result as "handle this primitive specially" (e.g.
+// always include it, or re-test it analytically per chunk), not as "safe
+// to skip."
+std::vector<ChunkKey> chunks_touched_by(const Geometry &geometry,
+                                        f32 chunk_size);
+
 // Mirrors SdfLightType (sdf_scene.h) value-for-value.
 enum class LightType : u32 {
   Directional = 0,
@@ -390,9 +453,77 @@ public:
     }
   }
 
+  // Marks name as changed since the last clear_dirty() -- a later phase's
+  // streaming path reads dirty_since_last_snapshot() to know which
+  // primitives' chunks need re-voxelizing instead of rebaking everything
+  // (see scene_dirty_'s comment, VulkanRendererBackend). acquire()/release()
+  // call this automatically; a caller that mutates an already-acquired
+  // Geometry/Light/Volumetric in place through find()/find_light()/
+  // find_volumetric()'s returned reference (e.g. translate_scene()/
+  // rotate_scene()/scale_scene(), or VulkanRaymarchShader's one live-
+  // animated primitive) MUST call this itself -- GeometrySystem has no way
+  // to observe a mutation made through a raw pointer it already handed out.
+  void mark_dirty(std::string_view name) {
+    dirty_since_last_snapshot_.emplace(name);
+  }
+
+  // Every name mark_dirty() (directly, or via acquire()/release()) has
+  // recorded since the last clear_dirty() call.
+  const std::unordered_set<std::string> &
+  dirty_since_last_snapshot() const noexcept {
+    return dirty_since_last_snapshot_;
+  }
+
+  // Resets dirty_since_last_snapshot() to empty -- call once the caller has
+  // finished acting on it (mirrors VulkanRendererBackend::scene_dirty_'s own
+  // "consume once, clear" discipline).
+  void clear_dirty() noexcept { dirty_since_last_snapshot_.clear(); }
+
   // Scene-wide ambient factor from the most recently load_scene()'d
   // SdfScene -- see SdfScene::ambient.
   f32 ambient() const noexcept { return ambient_; }
+
+  // Shifts every registered geometry/light/volumetric's render-space
+  // position by delta, in place -- the floating-origin recenter primitive
+  // (see VulkanRendererBackend::maybe_recenter_origin()). Unlike
+  // translate_scene() (VulkanRendererBackend, scoped to one loaded scene's
+  // names via LoadedSceneNames), this sweeps every entry in every map
+  // unconditionally: a recenter must keep *everything* -- including a
+  // primitive acquire()'d directly outside load_scene(), e.g. testbed's
+  // live-animated one -- in the same render-space frame, not just one
+  // scene's contents. Same per-type special-casing as translate_scene()'s
+  // loop: a Plane has no position (only params.x, its height, moves, and
+  // only for delta.y); only a Point light's vector is a position (a
+  // Directional light's is a pure direction, untouched).
+  // Not noexcept, unlike its simple per-field additions might suggest --
+  // the dirty-set insertion below can allocate.
+  void shift_all(glm::vec3 delta) {
+    for (auto &[name, entry] : geometries_) {
+      if (entry.geometry.type == PrimitiveType::Plane) {
+        entry.geometry.params.x += delta.y;
+      } else {
+        entry.geometry.position += delta;
+      }
+      // Every primitive's render-space position just moved, so every
+      // primitive's touched chunks may have too -- unlike a mutation
+      // through find()'s returned pointer, this is GeometrySystem's own
+      // direct mutation, so it can (and should) report itself rather than
+      // relying on a caller to.
+      dirty_since_last_snapshot_.emplace(name);
+    }
+    for (auto &[name, entry] : volumetrics_) {
+      if (entry.volumetric.type == PrimitiveType::Plane) {
+        entry.volumetric.params.x += delta.y;
+      } else {
+        entry.volumetric.position += delta;
+      }
+    }
+    for (auto &[name, entry] : lights_) {
+      if (entry.light.type == LightType::Point) {
+        entry.light.vector += delta;
+      }
+    }
+  }
 
 private:
   struct Entry {
@@ -429,4 +560,6 @@ private:
                        // default so an engine that never loads any scene
                        // (or loads one that never sets ambient=) still
                        // renders with the same look as before this existed.
+  // See mark_dirty()/dirty_since_last_snapshot()/clear_dirty().
+  std::unordered_set<std::string> dirty_since_last_snapshot_;
 };

@@ -25,29 +25,14 @@
 // One invocation per coarse cell (COARSE_DIM^3 total).
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
-// COARSE_DIM/BOUNDS scaled up together (16/2.0 -> 128/16.0, 8x) so
-// COARSE_CELL_SIZE -- and therefore voxel resolution -- is unchanged from
-// before; only the world volume actually baked grows. Must match
-// Builtin.RaymarchShader.comp.glsl and kCoarseDim in
-// vulkan_raymarch_shader.cpp exactly.
-const int COARSE_DIM = 128;
-const int BRICK_DIM = 8;
-// Each brick stores a 1-voxel apron on every side, evaluated directly from
-// the SDF at each apron voxel's true world position (not copied from a
-// neighbor). Two adjacent bricks independently evaluating the same
-// analytic function at the same shared boundary position always agree, so
-// this gives seamless trilinear sampling across brick boundaries without
-// any cross-brick communication.
-const int BRICK_APRON_DIM = BRICK_DIM + 2;
-const int BRICK_VOXEL_COUNT = BRICK_APRON_DIM * BRICK_APRON_DIM * BRICK_APRON_DIM;
+#include "Builtin.SdfFieldConfig.inc.glsl"
+
 // Must match kMaxBricks in vulkan_raymarch_shader.cpp (which owns the
 // sizing rationale). Cells past this cap silently get no brick, which
 // renders as nondeterministic missing/stray chunks of surface -- exactly
 // what happened when this was still 2048 (sized for the old 16^3 grid and
 // never scaled with the 8x COARSE_DIM bump above).
 const int MAX_BRICKS = 262144;
-const float BOUNDS = 16.0;
-const float COARSE_CELL_SIZE = (2.0 * BOUNDS) / float(COARSE_DIM);
 
 layout(binding = 0) buffer IndirectionBuffer {
     int indirection[COARSE_DIM * COARSE_DIM * COARSE_DIM];

@@ -126,6 +126,14 @@ public:
   // default -- editor tooling opts in, games never see it.
   virtual void set_grid_visible(b8 visible) = 0;
 
+  // Phase 4: switches the render pass's primary hit-test/normals/contact-AO/
+  // shadows from the fixed-cube field every caller has always used onto the
+  // chunked/streamed field instead -- see VulkanRaymarchShader::
+  // set_chunked_field_enabled(). Just a push constant, takes effect the
+  // very next frame, no rebake needed. Off by default, so nothing currently
+  // working changes unless a caller explicitly opts in.
+  virtual void set_chunked_field_enabled(b8 enabled) = 0;
+
   // Post-process toggles/params -- see VulkanRaymarchShader::
   // set_bloom_enabled()/set_vignette_enabled()/set_pixelation_enabled()/
   // set_pixelation_block_size() for exact semantics. All are just push
@@ -171,6 +179,27 @@ public:
   // for a deliberate skybox change, not every frame.
   virtual void set_skybox(std::string_view texture_name) = 0;
   virtual void disable_skybox() = 0;
+
+  // Enables/disables floating-origin recentring: once enabled, begin_frame()
+  // periodically shifts every render-space position (registered geometry/
+  // lights/volumetrics, plus this backend's own camera copy) back near the
+  // origin as the camera drifts away, to avoid float-precision loss far from
+  // (0,0,0) -- see VulkanRendererBackend::maybe_recenter_origin(). Off by
+  // default so nothing currently working changes; a game opts in only if it
+  // actually free-roams far enough to need it.
+  virtual void set_floating_origin_enabled(b8 enabled) = 0;
+
+  // Returns the render-space shift (world units) any floating-origin
+  // recenter has applied since the last call, then clears it back to zero
+  // -- (0,0,0) if none happened. The game owns and drives its own Camera
+  // (see set_camera()'s comment), so a recenter that only shifts this
+  // backend's transient copy would be silently overwritten the next time
+  // the game calls set_camera(). A game that opts into floating origin must
+  // call this once per frame, before computing/using its own camera
+  // position, and apply the same shift to every camera-position state it
+  // owns (see Camera::shift()) to stay in the same render-space frame as
+  // the geometry.
+  virtual glm::vec3 consume_origin_shift() = 0;
 
   virtual b8 end_frame(f32 delta_time) = 0;
 

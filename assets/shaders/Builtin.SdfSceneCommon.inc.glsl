@@ -282,20 +282,26 @@ float octahedron_sdf(vec3 p, float s) {
     return length(vec3(r.x, r.y - s + k, r.z - k));
 }
 
-// Base is a unit square at p.y == 0 (fixed by the source formula, not a
-// free parameter), apex at p.y == h -- so unlike every other primitive
-// here, a Pyramid's `position` is its base center, not its centroid.
-float pyramid_sdf(vec3 p, float h) {
-    float m2 = h * h + 0.25;
+// Base is a square of half-extent `base` at p.y == 0, apex at p.y == h -- so
+// unlike every other primitive here, a Pyramid's `position` is its base
+// center, not its centroid. Every 0.5 in the original (Inigo Quilez's
+// sdPyramid(), which hardcodes a unit base) is literally "the base's own
+// half-extent" throughout the derivation, so substituting the `base`
+// parameter for each one generalizes it to an arbitrary base size without
+// changing the formula's structure -- 0.25 was 0.5*0.5, so it becomes
+// base*base (renamed b2) the same way.
+float pyramid_sdf(vec3 p, float h, float base) {
+    float b2 = base * base;
+    float m2 = h * h + b2;
     p.xz = abs(p.xz);
     p.xz = (p.z > p.x) ? p.zx : p.xz;
-    p.xz -= 0.5;
-    vec3 q = vec3(p.z, h * p.y - 0.5 * p.x, h * p.x + 0.5 * p.y);
+    p.xz -= base;
+    vec3 q = vec3(p.z, h * p.y - base * p.x, h * p.x + base * p.y);
     float s = max(-q.x, 0.0);
-    float t = clamp((q.y - 0.5 * p.z) / (m2 + 0.25), 0.0, 1.0);
+    float t = clamp((q.y - base * p.z) / (m2 + b2), 0.0, 1.0);
     float a = m2 * (q.x + s) * (q.x + s) + q.y * q.y;
-    float b = m2 * (q.x + 0.5 * t) * (q.x + 0.5 * t) + (q.y - m2 * t) * (q.y - m2 * t);
-    float d2 = (min(q.y, -q.x * m2 - q.y * 0.5) > 0.0) ? 0.0 : min(a, b);
+    float bb = m2 * (q.x + base * t) * (q.x + base * t) + (q.y - m2 * t) * (q.y - m2 * t);
+    float d2 = (min(q.y, -q.x * m2 - q.y * base) > 0.0) ? 0.0 : min(a, bb);
     return sqrt((d2 + q.z * q.z) / m2) * sign(max(q.z, -p.y));
 }
 
@@ -403,7 +409,12 @@ float evaluate_shape(int type, vec3 local, vec4 params) {
     } else if (type == 8) {
         return octahedron_sdf(local, params.x);
     } else if (type == 9) {
-        return pyramid_sdf(local, params.x);
+        // params.y <= 0 covers scenes saved before this param existed (the
+        // generic "params=x y z w" writer already emits 0 for an unset
+        // slot -- see geometry_bounding_radius()'s identical fallback,
+        // engine-side) -- falls back to the old hardcoded half-extent so
+        // those scenes' pyramids render exactly as before.
+        return pyramid_sdf(local, params.x, params.y > 0.0 ? params.y : 0.5);
     } else if (type == 10) {
         return hex_prism_sdf(local, params.x, params.y);
     } else if (type == 11) {

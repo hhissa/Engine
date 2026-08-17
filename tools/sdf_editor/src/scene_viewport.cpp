@@ -111,6 +111,18 @@ void SceneViewport::ensure_engine_initialized() {
     qFatal("Failed to initialize renderer in SceneViewport.");
   }
 
+  // Opt into the camera-centered chunked/clipmap field (see
+  // VulkanRaymarchShader::set_chunked_field_enabled()'s doc comment) so
+  // domain repetition and any other geometry keep rendering as far as the
+  // viewport camera can see, instead of being clipped to the old fixed
+  // [-BOUNDS,BOUNDS] cube. tick() below already calls renderer_set_camera()
+  // every frame, which is all update_streaming()/update_gi_cascade() need
+  // to follow this viewport around -- no other wiring required. Chunk
+  // streaming/GI cascade baking already run unconditionally every frame
+  // regardless of this flag (see begin_frame()'s own comment); this only
+  // switches which field the render pass actually samples from.
+  renderer_set_chunked_field_enabled(true);
+
   // The engine defaults the reference grid to hidden (games must never
   // draw it); this editor is exactly the tooling it exists for, so apply
   // whatever set_grid_visible() has stored -- true unless the Show Grid

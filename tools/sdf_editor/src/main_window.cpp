@@ -253,6 +253,15 @@ struct PrimitiveTypeSpec {
   bool has_position;
   bool has_rotation;
   std::vector<const char *> param_labels;
+  // Lower bound applied to every param_spin_[i] this type uses (see
+  // update_field_enablement()). Defaults to 0.001 -- every param below is a
+  // size/radius/extent that's meaningless at or below zero -- except Plane's
+  // Height, which is a world-space Y position (see plane_sdf()) and is
+  // routinely negative (a floor below the origin); GeometryConfig::plane()/
+  // the .sdf parser/writer already accept any float here (no clamp on
+  // either side), the UI's shared spinbox range was just never widened to
+  // match.
+  double param_min = 0.001;
 };
 
 PrimitiveTypeSpec type_spec_for(SdfPrimitiveType type) {
@@ -262,7 +271,7 @@ PrimitiveTypeSpec type_spec_for(SdfPrimitiveType type) {
   case SdfPrimitiveType::Box:
     return {true, true, {"Half-Extent X", "Half-Extent Y", "Half-Extent Z"}};
   case SdfPrimitiveType::Plane:
-    return {false, false, {"Height"}};
+    return {false, false, {"Height"}, /*param_min=*/-100.0};
   case SdfPrimitiveType::Torus:
     return {true, true, {"Major Radius", "Minor Radius"}};
   case SdfPrimitiveType::CappedCylinder:
@@ -280,7 +289,7 @@ PrimitiveTypeSpec type_spec_for(SdfPrimitiveType type) {
   case SdfPrimitiveType::Octahedron:
     return {true, true, {"Size"}};
   case SdfPrimitiveType::Pyramid:
-    return {true, true, {"Height"}};
+    return {true, true, {"Height", "Base Half-Extent"}};
   case SdfPrimitiveType::HexPrism:
     return {true, true, {"Inradius", "Half-Height"}};
   case SdfPrimitiveType::RoundCone:
@@ -1077,6 +1086,10 @@ void SdfEditorWindow::update_field_enablement() {
     param_expr_edit_[i]->setVisible(used);
     if (used) {
       param_label_[i]->setText(QString::fromLatin1(spec.param_labels[i]) + ":");
+      // Re-applied on every type switch (not just widened once for Plane)
+      // so switching back to a size/radius type also restores the default
+      // 0.001 floor -- see PrimitiveTypeSpec::param_min's own comment.
+      param_spin_[i]->setRange(spec.param_min, 100.0);
       // A non-empty formula overrides the spinbox for this slot -- grey it
       // out to signal that.
       param_spin_[i]->setEnabled(param_expr_edit_[i]->text().isEmpty());

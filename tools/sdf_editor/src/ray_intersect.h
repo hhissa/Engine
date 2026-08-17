@@ -107,21 +107,27 @@ inline f32 octahedron_sdf(glm::vec3 p, f32 s) {
   return glm::length(glm::vec3(r.x, r.y - s + k, r.z - k));
 }
 
-inline f32 pyramid_sdf(glm::vec3 p, f32 h) {
-  f32 m2 = h * h + 0.25f;
+// Kept in exact lockstep with pyramid_sdf() in Builtin.SdfSceneCommon.inc.
+// glsl (this is the CPU-side duplicate used for viewport ray-picking) --
+// see that function's own comment for why substituting `base` for every
+// 0.5 (and base*base for 0.25) generalizes the fixed-unit-base formula to
+// an arbitrary base half-extent.
+inline f32 pyramid_sdf(glm::vec3 p, f32 h, f32 base) {
+  f32 b2 = base * base;
+  f32 m2 = h * h + b2;
   p.x = std::fabs(p.x);
   p.z = std::fabs(p.z);
   if (p.z > p.x) {
     std::swap(p.x, p.z);
   }
-  p.x -= 0.5f;
-  p.z -= 0.5f;
-  glm::vec3 q(p.z, h * p.y - 0.5f * p.x, h * p.x + 0.5f * p.y);
+  p.x -= base;
+  p.z -= base;
+  glm::vec3 q(p.z, h * p.y - base * p.x, h * p.x + base * p.y);
   f32 s = std::max(-q.x, 0.0f);
-  f32 t = std::clamp((q.y - 0.5f * p.z) / (m2 + 0.25f), 0.0f, 1.0f);
+  f32 t = std::clamp((q.y - base * p.z) / (m2 + b2), 0.0f, 1.0f);
   f32 a = m2 * (q.x + s) * (q.x + s) + q.y * q.y;
-  f32 b = m2 * (q.x + 0.5f * t) * (q.x + 0.5f * t) + (q.y - m2 * t) * (q.y - m2 * t);
-  f32 d2 = (std::min(q.y, -q.x * m2 - q.y * 0.5f) > 0.0f) ? 0.0f : std::min(a, b);
+  f32 bb = m2 * (q.x + base * t) * (q.x + base * t) + (q.y - m2 * t) * (q.y - m2 * t);
+  f32 d2 = (std::min(q.y, -q.x * m2 - q.y * base) > 0.0f) ? 0.0f : std::min(a, bb);
   return std::sqrt((d2 + q.z * q.z) / m2) * (std::max(q.z, -p.y) < 0.0f ? -1.0f : 1.0f);
 }
 
@@ -202,7 +208,9 @@ inline f32 evaluate(SdfPrimitiveType type, glm::vec4 params, glm::vec3 local_p) 
   case SdfPrimitiveType::Octahedron:
     return octahedron_sdf(local_p, params.x);
   case SdfPrimitiveType::Pyramid:
-    return pyramid_sdf(local_p, params.x);
+    // params.y <= 0 fallback matches evaluate_shape()'s identical one in
+    // Builtin.SdfSceneCommon.inc.glsl -- see its own comment.
+    return pyramid_sdf(local_p, params.x, params.y > 0.0f ? params.y : 0.5f);
   case SdfPrimitiveType::HexPrism:
     return hex_prism_sdf(local_p, params.x, params.y);
   case SdfPrimitiveType::RoundCone:

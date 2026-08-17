@@ -75,6 +75,20 @@ public:
   // debug camera is active (the stations aren't in control).
   void cycle();
 
+  // Shifts every station's position, plus the debug camera's, by delta --
+  // the floating-origin recenter primitive (see
+  // RendererBackend::consume_origin_shift()'s comment for why the game must
+  // do this itself rather than the renderer doing it automatically). SH's
+  // camera never currently free-roams far enough to trigger a recenter (see
+  // CameraPose's own comment), but every position this system owns still
+  // needs to stay correct if a future scene ever does.
+  void shift_all(glm::vec3 delta) noexcept {
+    for (CameraPose &pose : poses_) {
+      pose.position += delta;
+    }
+    debug_camera_.shift(delta);
+  }
+
   // Enters/leaves the free-fly debug camera (see the class comment). On
   // entry the debug camera is re-seeded from the current station's
   // position/facing.

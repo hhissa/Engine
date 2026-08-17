@@ -21,7 +21,7 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 // glsl's identical MAX_BRICKS -- see its own comment for the NUM_CHUNK_
 // LEVELS multiplication) -- the shared brick pool this chunk's bricks are
 // being returned to.
-const int MAX_BRICKS = 4096 * NUM_CHUNK_LEVELS;
+const int MAX_BRICKS = 16384 * NUM_CHUNK_LEVELS;
 
 layout(binding = 0) buffer ChunkIndirectionBuffer {
     int chunk_indirection[];

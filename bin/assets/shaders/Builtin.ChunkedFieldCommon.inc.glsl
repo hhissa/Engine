@@ -14,8 +14,8 @@
 //        CHUNKED_FIELD_BRICKPRIMITIVE_BINDING
 //   2. Already have CHUNK_COARSE_DIM/CHUNK_CELL_COUNT/CHUNK_WORLD_SIZE/
 //      CHUNK_TABLE_DIM/NUM_CHUNK_LEVELS/STREAM_RADIUS_CHUNKS/
-//      chunk_level_world_size()/BRICK_DIM/BRICK_APRON_DIM/
-//      BRICK_VOXEL_COUNT/COARSE_CELL_SIZE/MAX_DIST/SURF_DIST in scope
+//      chunk_level_world_size()/CHUNK_BRICK_DIM/CHUNK_BRICK_APRON_DIM/
+//      CHUNK_BRICK_VOXEL_COUNT/COARSE_CELL_SIZE/MAX_DIST/SURF_DIST in scope
 //      (Builtin.SdfFieldConfig.inc.glsl covers everything but MAX_DIST/
 //      SURF_DIST, which -- like Builtin.BakedFieldCommon.inc.glsl -- stay
 //      declared per-including-shader).
@@ -140,25 +140,29 @@ void sample_chunked_field_at_level(vec3 p, vec3 ray_dir, int level, out float di
     skip_dist = 0.0;
     material_index = chunk_brick_primitive[brick_index];
 
+    // CHUNK_BRICK_DIM, not BRICK_DIM -- must match Builtin.ChunkVoxelize.
+    // comp.glsl's population loop exactly (see CHUNK_BRICK_DIM's own
+    // comment, Builtin.SdfFieldConfig.inc.glsl, for why the chunked field
+    // uses a separate, finer brick resolution than the fixed-cube field).
     vec3 cell_min = chunk_world_min + vec3(cell) * cell_size;
-    float voxel_size = cell_size / float(BRICK_DIM);
+    float voxel_size = cell_size / float(CHUNK_BRICK_DIM);
     vec3 f = (p - cell_min) / voxel_size - 0.5;
-    ivec3 i0 = clamp(ivec3(floor(f)), ivec3(-1), ivec3(BRICK_DIM));
-    ivec3 i1 = clamp(i0 + ivec3(1), ivec3(-1), ivec3(BRICK_DIM));
+    ivec3 i0 = clamp(ivec3(floor(f)), ivec3(-1), ivec3(CHUNK_BRICK_DIM));
+    ivec3 i1 = clamp(i0 + ivec3(1), ivec3(-1), ivec3(CHUNK_BRICK_DIM));
     vec3 t = clamp(f - vec3(i0), 0.0, 1.0);
 
     ivec3 s0 = i0 + ivec3(1);
     ivec3 s1 = i1 + ivec3(1);
 
-    int base = brick_index * BRICK_VOXEL_COUNT;
-    float c000 = chunk_bricks[base + s0.x + s0.y * BRICK_APRON_DIM + s0.z * BRICK_APRON_DIM * BRICK_APRON_DIM];
-    float c100 = chunk_bricks[base + s1.x + s0.y * BRICK_APRON_DIM + s0.z * BRICK_APRON_DIM * BRICK_APRON_DIM];
-    float c010 = chunk_bricks[base + s0.x + s1.y * BRICK_APRON_DIM + s0.z * BRICK_APRON_DIM * BRICK_APRON_DIM];
-    float c110 = chunk_bricks[base + s1.x + s1.y * BRICK_APRON_DIM + s0.z * BRICK_APRON_DIM * BRICK_APRON_DIM];
-    float c001 = chunk_bricks[base + s0.x + s0.y * BRICK_APRON_DIM + s1.z * BRICK_APRON_DIM * BRICK_APRON_DIM];
-    float c101 = chunk_bricks[base + s1.x + s0.y * BRICK_APRON_DIM + s1.z * BRICK_APRON_DIM * BRICK_APRON_DIM];
-    float c011 = chunk_bricks[base + s0.x + s1.y * BRICK_APRON_DIM + s1.z * BRICK_APRON_DIM * BRICK_APRON_DIM];
-    float c111 = chunk_bricks[base + s1.x + s1.y * BRICK_APRON_DIM + s1.z * BRICK_APRON_DIM * BRICK_APRON_DIM];
+    int base = brick_index * CHUNK_BRICK_VOXEL_COUNT;
+    float c000 = chunk_bricks[base + s0.x + s0.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c100 = chunk_bricks[base + s1.x + s0.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c010 = chunk_bricks[base + s0.x + s1.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c110 = chunk_bricks[base + s1.x + s1.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c001 = chunk_bricks[base + s0.x + s0.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c101 = chunk_bricks[base + s1.x + s0.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c011 = chunk_bricks[base + s0.x + s1.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c111 = chunk_bricks[base + s1.x + s1.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
 
     float c00 = mix(c000, c100, t.x);
     float c10 = mix(c010, c110, t.x);
@@ -192,29 +196,141 @@ void sample_chunked_field(vec3 p, vec3 ray_dir, out float dist, out float skip_d
 // engine-side (both MUST agree, or this could pick a level
 // ChunkStreamingManager never actually keeps loaded there).
 //
-// Hard level selection, not a blended cross-fade -- a query exactly at a
-// level boundary can show a visible seam (a small dist/lighting
-// discontinuity between two independently-baked levels' samples).
-// Deliberately simple-first, matching the plan's own stated scope: a
-// seamless multi-resolution blend (smoothly mixing two
-// sample_chunked_field_at_level() calls near every level transition) is
-// real additional work with no correctness payoff by itself -- worth
-// adding once this hard-cut version is confirmed otherwise correct, not
-// before.
+// How much of the outermost chunk's own width (in each level's window,
+// see below) is spent cross-fading with the next, coarser level, as a
+// fraction of that chunk's half-width -- 0 disables blending entirely
+// (the original hard cutoff), 1 would blend across the entire outermost
+// chunk.
+//
+// Defaulted back to 0 (disabled) after a live editor test surfaced visible
+// banding/corruption across a domain-repeated ceiling with fine (zigzag/
+// hex) detail narrower than the coarser level's own voxel size: level+1's
+// voxels are simply too coarse to represent that detail at all, so its
+// "nearest primitive" bookkeeping can pick a wrong/inconsistent primitive
+// there, and mixing that into the blend doesn't read as a smooth
+// transition -- it reads as the fine detail getting washed out/corrupted
+// across the whole outer ring of chunks the repeated pattern spans. That's
+// a fundamentally different failure than the skip_dist==min() sparse-
+// voxelization bug this file's sample_clipmap_field() comment describes
+// (already fixed, independent of this value) -- this one isn't fixable by
+// correctness alone, since it's the coarser level's own resolution that's
+// insufficient, not a bug in how it's sampled. The hard cutoff (this
+// engine's original, thoroughly live-tested Phase 4 behavior) still pops
+// at a level boundary, but only there, and never corrupts a primitive's
+// own detail the way blending toward an under-resolved level can. Raise
+// this again only after confirming (visually, not just via buffer
+// readback -- see debug_verify_lod_blend()'s own honest limits here) that
+// it holds up against fine repeated detail, not just an isolated primitive
+// sitting cleanly on one level.
+const float LOD_BLEND_FRACTION = 0.0;
+
+// Picks the finest chunk level whose streaming window (see
+// ChunkStreamingManager, engine-side) actually contains p, and samples
+// that level's chunked field there -- the real multi-level entry point a
+// caller (Builtin.RaymarchShader.comp.glsl, once chunked_field_enabled_ is
+// set -- see VulkanRaymarchShader::set_chunked_field_enabled()) should
+// use. camera_pos must be in the same render space as p (see
+// VulkanRendererBackend::world_origin_offset_) -- level containment is
+// judged relative to the camera's own position, exactly mirroring
+// ChunkStreamingManager::update()'s identical Chebyshev-window test
+// engine-side (both MUST agree, or this could pick a level
+// ChunkStreamingManager never actually keeps loaded there).
+//
+// Cross-fades with the next, coarser level over the outer LOD_BLEND_
+// FRACTION of a level's OUTERMOST resident chunk (Chebyshev chunk-index
+// distance from camera's own chunk exactly STREAM_RADIUS_CHUNKS -- the
+// chunk that would fall outside this level's window if the camera stepped
+// one chunk further), instead of hard-cutting to the coarser level's
+// (independently baked, generally slightly different) sample right at the
+// boundary -- that hard cut was a visible pop/seam as the camera moved.
+// Deliberately scoped to just that one outermost ring, not a window-wide
+// continuous distance: level L+1's chunk size is always exactly double
+// level L's (see chunk_level_world_size()), so level L's entire window
+// (radius STREAM_RADIUS_CHUNKS chunks, i.e. reaching at most (STREAM_
+// RADIUS_CHUNKS+1)*level_world_size continuous units from camera_pos in
+// the worst case, accounting for camera's own fractional offset within
+// its chunk) sits comfortably inside level L+1's OWN window (reaching
+// (STREAM_RADIUS_CHUNKS+1)*2*level_world_size) -- so level L+1 is
+// guaranteed already resident everywhere this blend could possibly sample
+// it, with no extra streaming radius needed.
 void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
                           out float skip_dist, out int material_index) {
     for (int level = 0; level < NUM_CHUNK_LEVELS; ++level) {
         float level_world_size = chunk_level_world_size(level);
         ivec3 chunk_coord = ivec3(floor(p / level_world_size));
         ivec3 camera_chunk = ivec3(floor(camera_pos / level_world_size));
-        ivec3 delta = abs(chunk_coord - camera_chunk);
-        bool within_window = delta.x <= STREAM_RADIUS_CHUNKS &&
-            delta.y <= STREAM_RADIUS_CHUNKS && delta.z <= STREAM_RADIUS_CHUNKS;
-        if (within_window) {
-            sample_chunked_field_at_level(p, ray_dir, level, dist, skip_dist,
-                                          material_index);
-            return;
+        ivec3 delta = chunk_coord - camera_chunk;
+        ivec3 abs_delta = abs(delta);
+        int chebyshev = max(abs_delta.x, max(abs_delta.y, abs_delta.z));
+        if (chebyshev > STREAM_RADIUS_CHUNKS) {
+            continue;
         }
+
+        if (LOD_BLEND_FRACTION > 0.0 && chebyshev == STREAM_RADIUS_CHUNKS &&
+            level + 1 < NUM_CHUNK_LEVELS) {
+            // p's chunk is this level's outermost ring -- how far along the
+            // axis (or axes) actually AT that ring's limit (abs_delta ==
+            // chebyshev; an axis merely mid-chunk doesn't count, even if
+            // it's numerically large on some other level) does p sit
+            // toward that chunk's away-from-camera face. In [-1,1] within
+            // the chunk along each qualifying axis; only the outward
+            // portion (positive, in the direction delta already points)
+            // matters for "about to cross out."
+            vec3 chunk_center = (vec3(chunk_coord) + 0.5) * level_world_size;
+            vec3 local = (p - chunk_center) / (level_world_size * 0.5);
+            float outward = -1.0;
+            if (abs_delta.x == chebyshev) {
+                outward = max(outward, sign(float(delta.x)) * local.x);
+            }
+            if (abs_delta.y == chebyshev) {
+                outward = max(outward, sign(float(delta.y)) * local.y);
+            }
+            if (abs_delta.z == chebyshev) {
+                outward = max(outward, sign(float(delta.z)) * local.z);
+            }
+            float t = clamp((outward - (1.0 - LOD_BLEND_FRACTION)) / LOD_BLEND_FRACTION,
+                            0.0, 1.0);
+            if (t > 0.0) {
+                float dist_a, skip_a, dist_b, skip_b;
+                int material_a, material_b;
+                sample_chunked_field_at_level(p, ray_dir, level, dist_a, skip_a,
+                                              material_a);
+                // skip_dist is a binary "trust dist" flag (0.0 = real baked
+                // distance, nonzero = no brick here, dist is a placeholder --
+                // see sample_chunked_field_at_level()'s own "no brick"
+                // branches), NOT a magnitude to minimize. Voxelization is
+                // sparse (only near-surface cells get bricks -- see this
+                // field's own baking comment), so it's routine for one side
+                // of a blend to have a real brick while the other doesn't;
+                // only reach for level+1's sample (and only actually blend)
+                // once level's own side has confirmed a real brick, and only
+                // trust the blend if level+1's does too. Falling through to
+                // level's own untouched single-level result otherwise avoids
+                // ever mixing a real distance with a MAX_DIST-scale "no
+                // brick" placeholder into something the raymarcher would
+                // wrongly treat as trustworthy (skip_dist==0) -- that
+                // corruption is what caused the banding/striping artifacts
+                // near primitive edges this comment's fix resolved.
+                if (skip_a == 0.0) {
+                    sample_chunked_field_at_level(p, ray_dir, level + 1, dist_b,
+                                                  skip_b, material_b);
+                    if (skip_b == 0.0) {
+                        dist = mix(dist_a, dist_b, t);
+                        skip_dist = 0.0;
+                        material_index = t < 0.5 ? material_a : material_b;
+                        return;
+                    }
+                }
+                dist = dist_a;
+                skip_dist = skip_a;
+                material_index = material_a;
+                return;
+            }
+        }
+
+        sample_chunked_field_at_level(p, ray_dir, level, dist, skip_dist,
+                                      material_index);
+        return;
     }
 
     // Outside every level's window -- past the total coverage NUM_CHUNK_
