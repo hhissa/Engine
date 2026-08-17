@@ -1,0 +1,9 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts050_em0300e8e800_lightwood
+diffuse_colour=1 1 1 1
+texture_scale=0.5
+emissive_colour=0.909804 0.909804 0
+emissive_intensity=3
+diffuse_map_name=lightwood

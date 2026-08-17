@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts075_101_brown_boucle_carpet_pbr_texture_seamless
+diffuse_colour=1 1 1 1
+texture_scale=0.75
+diffuse_map_name=101_brown_boucle_carpet_pbr_texture_seamless

@@ -10,20 +10,7 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(binding = 0, rgba8) uniform writeonly image2D out_image;
 
-// COARSE_DIM/BOUNDS scaled up together (16/2.0 -> 128/16.0, 8x) so
-// COARSE_CELL_SIZE -- and therefore voxel resolution -- is unchanged from
-// before; only the world volume actually baked grows. Must match
-// Builtin.RaymarchVoxelize.comp.glsl and kCoarseDim in
-// vulkan_raymarch_shader.cpp exactly.
-const int COARSE_DIM = 128;
-const int BRICK_DIM = 8;
-// Matches the voxelize shader's 1-voxel-per-side apron: storage indices run
-// over BRICK_APRON_DIM (not BRICK_DIM), so sampling can blend across brick
-// boundaries instead of clamping at them.
-const int BRICK_APRON_DIM = BRICK_DIM + 2;
-const int BRICK_VOXEL_COUNT = BRICK_APRON_DIM * BRICK_APRON_DIM * BRICK_APRON_DIM;
-const float BOUNDS = 16.0;
-const float COARSE_CELL_SIZE = (2.0 * BOUNDS) / float(COARSE_DIM);
+#include "Builtin.SdfFieldConfig.inc.glsl"
 
 // One entry per registered light (see GeometrySystem::Light,
 // engine-side). vector_type.xyz is a direction (Directional) or
@@ -118,6 +105,23 @@ layout(push_constant) uniform PushConstants {
     int skybox_enabled;           // Nonzero to sample skybox_texture for the
                                   // background instead of the flat two-
                                   // colour gradient -- see apply_skybox().
+    int chunked_field_enabled;    // Phase 4: nonzero to sample the chunked/
+                                  // streamed field (bindings 15-18 below,
+                                  // via sample_active_field()/
+                                  // chunked_shadow_march()) instead of the
+                                  // fixed-cube one every other query in
+                                  // this shader defaults to -- see
+                                  // VulkanRaymarchShader::
+                                  // set_chunked_field_enabled(). Off by
+                                  // default, so nothing currently working
+                                  // changes unless a caller opts in.
+    float gi_cascade_center_x;
+    float gi_cascade_center_y;
+    float gi_cascade_center_z;    // Phase 5: the chunked field's GI cascade
+                                  // current center (see sample_gi_cascade()
+                                  // above, VulkanRaymarchShader::update_gi_
+                                  // cascade()) -- only meaningful while
+                                  // chunked_field_enabled is nonzero.
 } push;
 
 // MAX_STEPS must be large enough to guarantee a ray can actually reach
@@ -160,6 +164,36 @@ const int SHADOW_MAX_STEPS = 256;
 #define BAKED_FIELD_BRICKPOOL_BINDING 2
 #define BAKED_FIELD_BRICKPRIMITIVE_BINDING 4
 #include "Builtin.BakedFieldCommon.inc.glsl"
+
+// Phase 4: the chunked/streamed field -- fully separate bindings/buffers
+// from the fixed-cube field above (see Builtin.SdfFieldConfig.inc.glsl's
+// comment on why), read-only here exactly like the fixed-cube bindings.
+// Always bound (Vulkan requires it regardless of push.chunked_field_enabled
+// -- see VulkanRaymarchShader's render_bindings comment), only actually
+// sampled through sample_active_field()/chunked_shadow_march() below when
+// that flag is set.
+#define CHUNKED_FIELD_TABLE_BINDING 15
+#define CHUNKED_FIELD_INDIRECTION_BINDING 16
+#define CHUNKED_FIELD_BRICKPOOL_BINDING 17
+#define CHUNKED_FIELD_BRICKPRIMITIVE_BINDING 18
+#include "Builtin.ChunkedFieldCommon.inc.glsl"
+
+// Every sample_field() call in this file goes through this instead --
+// picks the fixed-cube field or the chunked/streamed one (Phase 4) based on
+// push.chunked_field_enabled, the one place that decision is made so every
+// caller (contact AO, normals, the primary hit-test, and -- via a parallel
+// chunked_shadow_march()/shadow_march() branch at its own call site below
+// -- shadows) automatically stays consistent with whichever field is
+// active, rather than each needing its own branch.
+void sample_active_field(vec3 p, vec3 ray_dir, out float dist, out float skip_dist,
+                         out int material_index) {
+    if (push.chunked_field_enabled != 0) {
+        sample_clipmap_field(p, ray_dir, push.camera_position.xyz, dist, skip_dist,
+                             material_index);
+    } else {
+        sample_field(p, ray_dir, dist, skip_dist, material_index);
+    }
+}
 
 // Baked indirect-light probe grid -- a dense regular grid of GI samples
 // covering the same world volume as the voxel field (BOUNDS), computed by
@@ -273,6 +307,63 @@ vec3 sample_probe_grid(vec3 p) {
     return mix(c0, c1, t.z);
 }
 
+// Phase 5: the chunked/streamed field's own GI cascade -- read-only
+// counterpart to Builtin.ChunkProbeBake.comp.glsl's PrevProbeBuffer/
+// CurrProbeBuffer, binding whichever physical buffer held the final
+// bounce's result (see kProbeFinalInBufferB's identical role for the
+// fixed-cube field's own ProbeBuffer). A single camera-centered cascade
+// for now (see kGiProbeDim/kGiCascadeCellSize's own comment, engine-side,
+// on why just one) -- GI_PROBE_DIM/GI_CASCADE_CELL_SIZE must match those
+// exactly, and push.gi_cascade_center must match whatever VulkanRaymarch
+// Shader::update_gi_cascade() last (re-)baked around.
+const int GI_PROBE_DIM = 16;
+const float GI_CASCADE_CELL_SIZE = 2.0;
+
+layout(binding = 19) readonly buffer ChunkProbeBuffer {
+    vec4 chunk_probes[];
+};
+
+// Trilinearly samples the GI cascade at world point p -- same structure as
+// sample_probe_grid() above, just centered on push.gi_cascade_center
+// (recentered engine-side in discrete whole-cell steps as the camera
+// moves) instead of spanning a fixed [-BOUNDS, BOUNDS] cube from the
+// world origin.
+vec3 sample_gi_cascade(vec3 p) {
+    vec3 center = vec3(push.gi_cascade_center_x, push.gi_cascade_center_y,
+                       push.gi_cascade_center_z);
+    float half_extent = float(GI_PROBE_DIM - 1) * 0.5 * GI_CASCADE_CELL_SIZE;
+    vec3 grid_min = center - vec3(half_extent);
+
+    vec3 local = (p - grid_min) / GI_CASCADE_CELL_SIZE;
+    vec3 local_clamped = clamp(local, vec3(0.0), vec3(float(GI_PROBE_DIM - 1)));
+    ivec3 i0 = ivec3(floor(local_clamped));
+    ivec3 i1 = min(i0 + ivec3(1), ivec3(GI_PROBE_DIM - 1));
+    vec3 t = local_clamped - vec3(i0);
+
+    #define GI_PROBE_AT(ix, iy, iz) chunk_probes[(ix) + (iy) * GI_PROBE_DIM + (iz) * GI_PROBE_DIM * GI_PROBE_DIM].rgb
+
+    vec3 c000 = GI_PROBE_AT(i0.x, i0.y, i0.z);
+    vec3 c100 = GI_PROBE_AT(i1.x, i0.y, i0.z);
+    vec3 c010 = GI_PROBE_AT(i0.x, i1.y, i0.z);
+    vec3 c110 = GI_PROBE_AT(i1.x, i1.y, i0.z);
+    vec3 c001 = GI_PROBE_AT(i0.x, i0.y, i1.z);
+    vec3 c101 = GI_PROBE_AT(i1.x, i0.y, i1.z);
+    vec3 c011 = GI_PROBE_AT(i0.x, i1.y, i1.z);
+    vec3 c111 = GI_PROBE_AT(i1.x, i1.y, i1.z);
+
+    #undef GI_PROBE_AT
+
+    vec3 c00 = mix(c000, c100, t.x);
+    vec3 c10 = mix(c010, c110, t.x);
+    vec3 c01 = mix(c001, c101, t.x);
+    vec3 c11 = mix(c011, c111, t.x);
+
+    vec3 c0 = mix(c00, c10, t.y);
+    vec3 c1 = mix(c01, c11, t.y);
+
+    return mix(c0, c1, t.z);
+}
+
 // Cheap contact AO: a short march of AO_STEPS samples along the surface
 // normal, comparing the baked field's actual distance at each tap against
 // what an unoccluded point that far out ought to read -- if something's
@@ -319,7 +410,7 @@ float calc_contact_ao(vec3 p, vec3 normal) {
 
         float dist, skip_dist;
         int material;
-        sample_field(sample_pos, normal, dist, skip_dist, material);
+        sample_active_field(sample_pos, normal, dist, skip_dist, material);
         float d = (skip_dist == 0.0) ? dist : step_dist;
 
         occlusion += weight * max(step_dist - d, 0.0);
@@ -348,20 +439,20 @@ vec3 calc_static_normal(vec3 p) {
     vec2 e = vec2(0.0025, 0.0);
     float dist_p, skip_p;
     int unused_material;
-    sample_field(p, dummy_dir, dist_p, skip_p, unused_material);
+    sample_active_field(p, dummy_dir, dist_p, skip_p, unused_material);
 
     float dx0, dx1, dy0, dy1, dz0, dz1, skip;
-    sample_field(p + e.xyy, dummy_dir, dx1, skip, unused_material);
+    sample_active_field(p + e.xyy, dummy_dir, dx1, skip, unused_material);
     if (skip != 0.0) dx1 = dist_p;
-    sample_field(p - e.xyy, dummy_dir, dx0, skip, unused_material);
+    sample_active_field(p - e.xyy, dummy_dir, dx0, skip, unused_material);
     if (skip != 0.0) dx0 = dist_p;
-    sample_field(p + e.yxy, dummy_dir, dy1, skip, unused_material);
+    sample_active_field(p + e.yxy, dummy_dir, dy1, skip, unused_material);
     if (skip != 0.0) dy1 = dist_p;
-    sample_field(p - e.yxy, dummy_dir, dy0, skip, unused_material);
+    sample_active_field(p - e.yxy, dummy_dir, dy0, skip, unused_material);
     if (skip != 0.0) dy0 = dist_p;
-    sample_field(p + e.yyx, dummy_dir, dz1, skip, unused_material);
+    sample_active_field(p + e.yyx, dummy_dir, dz1, skip, unused_material);
     if (skip != 0.0) dz1 = dist_p;
-    sample_field(p - e.yyx, dummy_dir, dz0, skip, unused_material);
+    sample_active_field(p - e.yyx, dummy_dir, dz0, skip, unused_material);
     if (skip != 0.0) dz0 = dist_p;
     return normalize(vec3(dx1 - dx0, dy1 - dy0, dz1 - dz0));
 }
@@ -551,7 +642,7 @@ float raymarch(vec3 ray_origin, vec3 ray_dir, out int hit_material) {
 
         float static_dist, skip_dist;
         int static_material;
-        sample_field(p, ray_dir, static_dist, skip_dist, static_material);
+        sample_active_field(p, ray_dir, static_dist, skip_dist, static_material);
         bool static_valid = (skip_dist == 0.0);
 
         if (static_valid && abs(static_dist) < SURF_DIST) {
@@ -774,7 +865,10 @@ void main() {
         // by that light's own shadow_march() ray, and darkening direct
         // light too would double up with it (and read wrong for a crease
         // lit brightly enough to wash out any real occlusion).
-        vec3 lighting = sample_probe_grid(p) * calc_contact_ao(p, normal);
+        vec3 indirect = push.chunked_field_enabled != 0
+            ? sample_gi_cascade(p)
+            : sample_probe_grid(p);
+        vec3 lighting = indirect * calc_contact_ao(p, normal);
         for (int i = 0; i < push.light_count; ++i) {
             Light light = lights[i];
             int light_type = int(light.vector_type.w);
@@ -806,10 +900,15 @@ void main() {
                 // Only bother marching a shadow ray if this light would
                 // otherwise contribute anything at all -- a surface facing
                 // away from it is already at zero regardless of occlusion.
-                float shadow = shadow_march(p + normal * SHADOW_NORMAL_BIAS,
-                                           light_dir, shadow_max_dist,
-                                           SHADOW_SOFTNESS, SHADOW_MAX_STEPS,
-                                           int(light.source_primitive.x));
+                vec3 shadow_origin = p + normal * SHADOW_NORMAL_BIAS;
+                float shadow = push.chunked_field_enabled != 0
+                    ? chunked_shadow_march(shadow_origin, light_dir,
+                                          push.camera_position.xyz, shadow_max_dist,
+                                          SHADOW_SOFTNESS, SHADOW_MAX_STEPS,
+                                          int(light.source_primitive.x))
+                    : shadow_march(shadow_origin, light_dir, shadow_max_dist,
+                                   SHADOW_SOFTNESS, SHADOW_MAX_STEPS,
+                                   int(light.source_primitive.x));
                 diffuse *= shadow;
             }
             lighting += light_colour * diffuse * attenuation;

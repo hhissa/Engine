@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts050_to+000+000+000_tr+0900_norwegianwood
+diffuse_colour=1 1 1 1
+texture_scale=0.5
+texture_rotation=0.15708
+diffuse_map_name=norwegianwood

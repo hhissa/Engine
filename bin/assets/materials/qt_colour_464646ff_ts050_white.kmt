@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_464646ff_ts050_white
+diffuse_colour=0.27451 0.27451 0.27451 1
+texture_scale=0.5
+diffuse_map_name=white
