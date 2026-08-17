@@ -349,6 +349,13 @@ struct LoadedSceneNames {
   std::vector<std::string> primitive_names;
   std::vector<std::string> light_names;
   std::vector<std::string> volumetric_names;
+  // Layer name -> layer_index, populated by reconcile_scene() (load_scene()
+  // leaves this empty -- it never reuses a layer across calls, see its own
+  // comment) so a later reconcile_scene() call for the SAME scene can find
+  // an already-registered layer by name and update it in place instead of
+  // always allocating a fresh slot -- see reconcile_scene()'s own comment
+  // for why that distinction matters.
+  std::unordered_map<std::string, u32> layer_index_by_name;
 };
 
 class GeometrySystem {
@@ -433,6 +440,41 @@ public:
   LoadedSceneNames load_scene(const SdfScene &scene, bool auto_release,
                               std::string_view name_prefix = {});
 
+  // Re-syncs an ALREADY load_scene()'d (or reconcile_scene()'d) scene to
+  // match `scene` exactly, touching ONLY what actually differs -- unlike
+  // load_scene() (which always registers everything fresh under new layer
+  // slots), this is what a caller re-syncing a scene after a small edit
+  // should use instead of release()ing everything and load_scene()ing
+  // again (e.g. sdf_editor's live preview, re-synced after every UI
+  // change): a primitive/light/volumetric whose fields are unchanged is
+  // left completely untouched (no mark_dirty(), no MaterialSystem churn),
+  // and an unchanged layer keeps its existing layer_index rather than
+  // getting a fresh one -- so update_streaming()'s chunk-streaming budget
+  // (engine-side) only has to redo work for what actually changed, not the
+  // whole scene (see its own "brand new primitive" surgical-eviction path,
+  // which this is what actually lets engage in practice). Also overwrites
+  // ambient() with scene.ambient, same as load_scene().
+  //
+  // `loaded` must be the SAME LoadedSceneNames a prior load_scene()/
+  // reconcile_scene() call for this exact scene populated -- it's updated
+  // in place to reflect the new state (added/removed primitives, the
+  // possibly-changed layer_index_by_name mapping), so the next
+  // reconcile_scene() call diffs against what THIS call left behind, not
+  // what load_scene() originally registered. name_prefix must match
+  // whatever the original load_scene() call used (same collision-avoidance
+  // reasoning as load_scene()'s own comment -- reconcile_scene() re-derives
+  // every name the exact same way, so a mismatched prefix would compare
+  // against the wrong names entirely, releasing everything and re-adding
+  // it all under new names).
+  //
+  // Returns true if anything was actually added/removed/changed (including
+  // a material-only change); false means `scene` already exactly matches
+  // what's currently loaded, so the caller can skip any downstream re-bake
+  // entirely -- e.g. a UI event that re-syncs without any real edit having
+  // happened.
+  bool reconcile_scene(const SdfScene &scene, LoadedSceneNames &loaded,
+                       bool auto_release, std::string_view name_prefix = {});
+
   // Every layer currently known, indexed by Geometry::layer. Index 0 is
   // always present (the default layer everything acquire()'d without
   // load_scene() implicitly belongs to).
@@ -477,7 +519,44 @@ public:
   // Resets dirty_since_last_snapshot() to empty -- call once the caller has
   // finished acting on it (mirrors VulkanRendererBackend::scene_dirty_'s own
   // "consume once, clear" discipline).
-  void clear_dirty() noexcept { dirty_since_last_snapshot_.clear(); }
+  void clear_dirty() noexcept {
+    dirty_since_last_snapshot_.clear();
+    newly_added_since_last_snapshot_.clear();
+    any_released_since_last_snapshot_ = false;
+  }
+
+  // Subset of dirty_since_last_snapshot() that's specifically a BRAND NEW
+  // registration (acquire() saw reference_count == 0 -- i.e. this name
+  // never existed anywhere before this cycle, not even under a different
+  // shape/position that got released and replaced -- see
+  // any_released_since_last_snapshot() for why that distinction matters).
+  // update_streaming() (VulkanRaymarchShader, engine-side) uses this to
+  // decide whether it's safe to force-evict only the SPECIFIC chunks a new
+  // primitive's own bounds touch (GeometrySystem::chunks_touched_by()),
+  // rather than every resident chunk: since a name in this set never
+  // existed before, there's no stale "old position" content anywhere in
+  // the chunked field for it -- unlike a MOVED or REMOVED primitive, whose
+  // previous footprint may already be baked into chunks its current state
+  // says nothing about (see update_streaming()'s own comment for why THOSE
+  // cases still fall back to the brute-force full sweep).
+  const std::unordered_set<std::string> &
+  newly_added_since_last_snapshot() const noexcept {
+    return newly_added_since_last_snapshot_;
+  }
+
+  // True if release() erased at least one geometry since the last
+  // clear_dirty(). A caller (update_streaming()) must treat this as
+  // "cannot use the surgical newly_added_since_last_snapshot() path this
+  // cycle" even if every OTHER dirty name this cycle is a fresh add --
+  // otherwise a release()-then-acquire() of the exact same name within one
+  // uncommitted cycle would look identical to a plain fresh add (the name
+  // ends up in both dirty_since_last_snapshot() and newly_added_since_
+  // last_snapshot()) while the RELEASED geometry's own old footprint --
+  // possibly a completely different shape/position -- would never get
+  // swept at all.
+  bool any_released_since_last_snapshot() const noexcept {
+    return any_released_since_last_snapshot_;
+  }
 
   // Scene-wide ambient factor from the most recently load_scene()'d
   // SdfScene -- see SdfScene::ambient.
@@ -562,4 +641,7 @@ private:
                        // renders with the same look as before this existed.
   // See mark_dirty()/dirty_since_last_snapshot()/clear_dirty().
   std::unordered_set<std::string> dirty_since_last_snapshot_;
+  // See newly_added_since_last_snapshot()/any_released_since_last_snapshot().
+  std::unordered_set<std::string> newly_added_since_last_snapshot_;
+  bool any_released_since_last_snapshot_ = false;
 };

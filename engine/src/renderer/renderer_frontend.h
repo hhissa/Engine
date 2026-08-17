@@ -128,6 +128,19 @@ void renderer_remove_scene(SceneHandle handle);
 // been called for each one), then re-bakes once.
 void renderer_clear_scenes();
 
+// Re-parses sdf_path and re-syncs handle (as returned by an earlier
+// renderer_load_scene() call) to match it, touching only the primitives/
+// lights/volumetrics/layers that actually differ from what's currently
+// loaded -- see RendererBackend::reconcile_scene()'s own comment for
+// exactly what that buys over remove+load again. Meant for a caller that
+// repeatedly re-syncs the SAME scene after small edits (e.g. sdf_editor's
+// live preview) instead of renderer_clear_scenes()+renderer_load_scene()ing
+// the whole thing on every change. Returns whether anything actually
+// changed (false means nothing to re-bake this call); logs a warning and
+// returns false if handle isn't currently loaded or sdf_path fails to
+// parse.
+bool renderer_reconcile_scene(SceneHandle handle, std::string_view sdf_path);
+
 // Marks which registered static primitive to draw a selection outline
 // around this frame (see RendererBackend::set_selected_primitive() for what
 // `index` means), or -1 for none. Cheap and immediate (a push constant, not

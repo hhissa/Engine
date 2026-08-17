@@ -625,6 +625,7 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: \
   /usr/include/qt6/QtGui/qregion.h /usr/include/qt6/QtCore/qspan.h \
   /usr/include/qt6/QtCore/q20iterator.h /usr/include/qt6/QtCore/qline.h \
   /usr/include/qt6/QtGui/qcursor.h /usr/include/qt6/QtGui/qbitmap.h \
+  /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/renderer/renderer_types.inl \
   /usr/include/qt6/QtGui/QColor /usr/include/qt6/QtWidgets/QMainWindow \
   /usr/include/qt6/QtWidgets/qmainwindow.h \
   /usr/include/qt6/QtWidgets/qtwidgetsglobal.h \

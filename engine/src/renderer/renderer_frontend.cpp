@@ -225,6 +225,15 @@ void renderer_clear_scenes() {
   }
 }
 
+bool renderer_reconcile_scene(SceneHandle handle, std::string_view sdf_path) {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a scene reconcile "
+         "request.");
+    return false;
+  }
+  return backend->reconcile_scene(handle, sdf_path);
+}
+
 void renderer_set_selected_primitive(i32 index) {
   if (backend) {
     backend->set_selected_primitive(index);

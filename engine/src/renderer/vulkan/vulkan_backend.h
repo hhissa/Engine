@@ -36,6 +36,7 @@ public:
   void scale_scene(SceneHandle handle, f32 factor) override;
   void remove_scene(SceneHandle handle) override;
   void clear_scenes() override;
+  bool reconcile_scene(SceneHandle handle, std::string_view sdf_path) override;
   void set_selected_primitive(i32 index) override;
   i32 primitive_gpu_index(const std::string &name) const override;
   void set_grid_visible(b8 visible) override;

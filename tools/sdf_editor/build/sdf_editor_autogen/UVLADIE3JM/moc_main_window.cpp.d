@@ -2,6 +2,7 @@
   /home/bumbandit/Projects/Engine/tools/sdf_editor/build/sdf_editor_autogen/moc_predefs.h \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h \
+  /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl \
   /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/scene_viewport.h \
   /usr/include/alloca.h \

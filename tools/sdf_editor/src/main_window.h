@@ -1,6 +1,7 @@
 #pragma once
 #include "scene_viewport.h" // for PrimitiveRef/GizmoTransformResult, used by
                             // slot signatures below
+#include <renderer/renderer_types.inl> // for SceneHandle/kInvalidSceneHandle
 #include <resources/sdf_scene.h>
 
 #include <QColor>
@@ -230,13 +231,18 @@ private:
   // from the colour's RGBA and texture name, so repeated colour/texture
   // choices reuse the same file instead of accumulating duplicates.
   std::string ensure_material() const;
-  // Writes scene_ to a fixed on-disk path and (re-)loads it into the
-  // renderer via renderer_clear_scenes()/renderer_load_scene(), so
-  // viewport_'s next tick shows the current in-memory scene_ -- called
-  // after every add/remove/load/live-edit. Simpler than tracking
-  // per-primitive scene handles: this editor's entire authored world *is*
-  // scene_, so clearing everything and reloading it whole is correct, not
-  // just convenient.
+  // Writes scene_ to a fixed on-disk path and re-syncs it into the
+  // renderer, so viewport_'s next tick shows the current in-memory scene_
+  // -- called after every add/remove/load/live-edit. The very first call
+  // (live_scene_handle_ still kInvalidSceneHandle) renderer_load_scene()s
+  // it fresh; every call after that renderer_reconcile_scene()s against
+  // the same handle instead -- touching only whatever primitive/light/
+  // volumetric/layer actually changed since the last sync, rather than
+  // releasing and re-registering this editor's entire authored world on
+  // every single edit (see renderer_reconcile_scene()'s own comment for
+  // exactly what that buys: an edit that only adds one primitive no
+  // longer forces the chunked/streamed field to re-bake every chunk it
+  // has resident, just the ones the new primitive actually touches).
   void sync_viewport_scene();
 
   // Regenerates the "Lights" list from scene_.lights -- mirrors
@@ -278,6 +284,12 @@ private:
   std::string ensure_volumetric_material() const;
 
   SdfScene scene_;
+  // The renderer's handle for scene_'s live-preview registration -- see
+  // sync_viewport_scene(). kInvalidSceneHandle until the very first
+  // sync_viewport_scene() call (renderer_load_scene()'s first-time
+  // registration); every call after that reconciles against this same
+  // handle instead of loading a fresh one.
+  SceneHandle live_scene_handle_ = kInvalidSceneHandle;
   QColor colour_ = Qt::white;
   std::string texture_name_; // empty => no diffuse map, colour_ only.
   // Separate from texture_name_ above -- empty => no bump map, no bump

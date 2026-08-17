@@ -625,6 +625,7 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: \
   /usr/include/qt6/QtGui/qregion.h /usr/include/qt6/QtCore/qspan.h \
   /usr/include/qt6/QtCore/q20iterator.h /usr/include/qt6/QtCore/qline.h \
   /usr/include/qt6/QtGui/qcursor.h /usr/include/qt6/QtGui/qbitmap.h \
+  /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/renderer/renderer_types.inl \
   /usr/include/qt6/QtGui/QColor /usr/include/qt6/QtWidgets/QMainWindow \
   /usr/include/qt6/QtWidgets/qmainwindow.h \
   /usr/include/qt6/QtWidgets/qtwidgetsglobal.h \
@@ -676,7 +677,6 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: \
   /usr/include/qt6/QtWidgets/qrubberband.h \
   /usr/include/qt6/QtWidgets/qtreewidgetitemiterator.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/renderer/renderer_frontend.h \
-  /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/renderer/renderer_types.inl \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../testbed/src/sdf_authoring.h \
   /usr/include/qt6/QtWidgets/QButtonGroup \
   /usr/include/qt6/QtWidgets/qbuttongroup.h \

@@ -675,7 +675,8 @@ CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o: \
   /usr/include/qt6/QtCore/QMargins /usr/include/qt6/QtCore/QRect \
   /usr/include/qt6/QtCore/qnativeinterface.h \
   /usr/include/qt6/QtGui/qsurface.h \
-  /usr/include/qt6/QtGui/qsurfaceformat.h /usr/include/qt6/QtGui/QColor \
-  /usr/include/qt6/QtWidgets/QMainWindow \
+  /usr/include/qt6/QtGui/qsurfaceformat.h \
+  /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/renderer/renderer_types.inl \
+  /usr/include/qt6/QtGui/QColor /usr/include/qt6/QtWidgets/QMainWindow \
   /usr/include/qt6/QtWidgets/qmainwindow.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/build/sdf_editor_autogen/UVLADIE3JM/moc_scene_viewport.cpp

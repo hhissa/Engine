@@ -4,6 +4,7 @@
 /home/bumbandit/Projects/Engine/tools/sdf_editor/build/sdf_editor_autogen/timestamp
  /home/bumbandit/Projects/Engine/engine/src/defines.h
  /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h
+ /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl
  /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h
  /home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.cpp
  /home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.h
@@ -1655,6 +1656,7 @@ CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o
  /home/bumbandit/Projects/Engine/tools/sdf_editor/build/sdf_editor_autogen/mocs_compilation.cpp
  /home/bumbandit/Projects/Engine/engine/src/defines.h
  /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h
+ /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl
  /home/bumbandit/Projects/Engine/engine/src/defines.h
  /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h
  /home/bumbandit/Projects/Engine/tools/sdf_editor/src/contents_tree_widget.h
@@ -3012,6 +3014,7 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o
  /home/bumbandit/Projects/Engine/tools/sdf_editor/src/main.cpp
  /home/bumbandit/Projects/Engine/engine/src/defines.h
  /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h
+ /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl
  /home/bumbandit/Projects/Engine/engine/src/defines.h
  /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h
  /home/bumbandit/Projects/Engine/tools/sdf_editor/src/main_window.h

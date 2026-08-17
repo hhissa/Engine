@@ -104,6 +104,21 @@ public:
   // remove_scene() had been called for each one), then re-bakes once.
   virtual void clear_scenes() = 0;
 
+  // Re-parses sdf_path and re-syncs handle (as returned by an earlier
+  // load_scene() call) to match it, touching only the primitives/lights/
+  // volumetrics/layers that actually differ from what's currently loaded --
+  // an unchanged primitive is left completely untouched (see
+  // GeometrySystem::reconcile_scene()'s own comment for exactly what that
+  // buys: no forced chunk re-bake, no MaterialSystem churn). Meant for a
+  // caller that repeatedly re-syncs the SAME scene after small edits (e.g.
+  // sdf_editor's live preview) instead of remove_scene()+load_scene()ing
+  // the whole thing every time. No-op (logs a warning, returns false) if
+  // handle isn't currently loaded or sdf_path fails to parse -- a caller
+  // must load_scene() first to get a valid handle to reconcile against.
+  // Returns whether anything actually changed (false means nothing to
+  // re-bake at all this call).
+  virtual bool reconcile_scene(SceneHandle handle, std::string_view sdf_path) = 0;
+
   // Marks which registered static primitive (its index into the raymarch
   // field's scene_textures/scene_diffuse_colours arrays -- see
   // VulkanRaymarchShader::rebuild_static_scene()) the render pass should
