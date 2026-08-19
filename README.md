@@ -1,6 +1,10 @@
 # Bingus Engine
 
-A custom Vulkan engine built around signed-distance-field (SDF) raymarching instead of a traditional mesh/rasterization pipeline. Scenes are authored as procedural primitives (spheres, boxes, capsules, and more) combined with smooth unions/subtractions, voxelized into a sparse brick field, and raymarched per-pixel in a compute shader — with a baked, multi-bounce GI probe grid for indirect lighting.
+A custom C++20 Vulkan engine with **no mesh pipeline at all**. There is no vertex buffer, no index buffer, no rasterizer for scene geometry. Every surface in every scene is a signed distance field, voxelized into a sparse brick hierarchy and raymarched per-pixel in compute shaders.
+
+Roughly 40,000 lines of C++ and 7,500 lines of GLSL, written from scratch on top of raw Vulkan — including the memory subsystem, the streaming scheduler, the renderer, a Qt scene editor, and a narrative game built on the result.
+
+---
 
 ## Screenshots
 
@@ -18,59 +22,256 @@ A custom Vulkan engine built around signed-distance-field (SDF) raymarching inst
 
 <!-- ![SH screenshot](docs/screenshots/games/SH/sh-1.png) -->
 
-<!--
-Building a new game with the engine? Copy this pattern:
+---
 
-#### YourGameName
+## Why build it this way?
 
-*Add screenshots here.*
+Triangle rasterization is a solved problem with excellent off-the-shelf implementations. Signed distance fields are not, and they buy properties that meshes make awkward:
 
-<!- ![YourGameName screenshot](docs/screenshots/games/YourGameName/screenshot-1.png) ->
--->
+- **Geometry is a formula, not data.** A scene is a list of primitives and boolean operations. A wall is nine floats. Scene files are human-readable and diff-able, and the "asset pipeline" is a text parser.
+- **Smooth blending is native.** Two shapes joined with a smooth-union blend into each other analytically. There is no retopology step, no seam, no UV problem — the surface simply *is* the blended field.
+- **Constructive subtraction is free.** Carving a doorway out of a wall is one operation, not a boolean mesh op that produces degenerate triangles.
+- **Level of detail is a sampling rate.** The same field can be sampled at any resolution, so LOD is a question of how finely you voxelize, not of maintaining several versions of the same asset.
 
-## Features
+The cost is that everything else — visibility, shadows, ambient occlusion, global illumination — has to be rebuilt against a representation that no engine convention assumes. That trade is the whole point of the project: it is an exercise in building a coherent renderer where none of the usual answers apply.
 
-- Sparse voxel SDF raymarching — no mesh/rasterization path, every surface is procedural
-- Primitive library: sphere, box, plane, torus, capped cylinder/cone, round box, box frame, octahedron, pyramid, hex prism, round cone, capsule, link, ellipsoid
-- Layered smooth union/subtraction blending, with per-layer smoothness
-- Parametric attributes — a primitive's parameters can be authored as formulas (e.g. taper a limb's radius by height) instead of fixed constants
-- Baked multi-bounce indirect lighting via a GI probe grid, plus directional/point lights
-- Triplanar texturing with procedural bump mapping derived from diffuse texture luminance
-- `.sdf` scene file format, plus a standalone Qt visual editor (`tools/sdf_editor`) for authoring scenes without hand-writing files
-- Free-fly debug camera support for games (see `games/SH`)
+The architectural touchstone is Media Molecule's *Dreams*, which shipped a commercial SDF/point-splatting renderer and demonstrated the key insight this engine leans on repeatedly: **a temporal filter changes what techniques are affordable.** Once you can rely on frames averaging together, you can trace one ambient-occlusion ray per pixel, splat deliberately undersampled shadow maps, and dither instead of supersampling.
+
+---
+
+## Design philosophy
+
+These are the principles the codebase actually follows, with real examples from it. They are worth more than the feature list, because they are what the code looks like from the inside.
+
+### 1. Comments explain *why*, and record what failed
+
+The single most distinctive thing about this codebase is comment density and comment *content*. Comments here rarely restate the code. They record the reasoning, the alternative that was tried first, and the symptom that killed it.
+
+A representative example, from the chunked field's cell-alias map:
+
+> `AN AXIS WITH A COUNT OF ONE IS NOT REPEATED, whatever its cell spacing says. [...] Getting this wrong disabled deduplication completely, in a way that looked like the whole idea failing rather than a bug: DiegosOffice's repeated boxes are authored 20 x 1 x 20, so Y has a spacing of 1.0 but a count of 1. [...] Measured 0% of cells copied where the arithmetic predicts 90%.`
+
+This is deliberate. In a system where a subtle bug manifests as *missing geometry* rather than a crash, the expensive resource is not writing the code — it is rediscovering why the code is shaped the way it is six weeks later. Several comments in the renderer exist specifically to stop a future reader (including the author) from "simplifying" something back into a bug that has already been paid for once.
+
+### 2. Correct by default; risk is opt-in until it has been watched running
+
+Features that can *silently remove geometry* — as opposed to merely running slowly — ship disabled behind an environment variable until they have been validated against real content.
+
+Brick deduplication lived behind `KENGINE_CHUNK_DEDUP` for exactly this reason: a mis-keyed alias copies the wrong cell's voxels, which reads as corrupted or missing surface, with nothing logged. It was only promoted to on-by-default (with the flag inverted to `KENGINE_NO_CHUNK_DEDUP`) once its failure modes were understood and closed.
+
+The same instinct shows up structurally: the newer chunked/streamed field and the older fixed-cube field **share no GPU buffer at all**, deliberately, so that an addressing bug in the newer path cannot corrupt the proven one that the editor depends on.
+
+### 3. Measure — and know when a measurement is meaningless
+
+The engine instruments itself heavily: per-pass GPU timestamps, bake cost counters, candidate-list fallback rates, deduplication hit rates, chunk residency per clip level.
+
+The harder-won half of this principle is knowing when an instrument is lying. The async compute queue on this hardware is queue index 1 of the *graphics* family — the two queues share one hardware engine. A submission's timestamp delta is therefore **elapsed wall time including interleaved graphics work**, not that submission's own cost. Two separate attempts at adaptively pacing the chunk bake failed by closing a feedback loop around exactly that number: the estimate inflated, window sizes collapsed to their floor, and each additional submission paid the same fixed elapsed cost again. Both attempts are documented in the code so the third does not repeat them.
+
+The resulting rule is written into the constants themselves: bound GPU work by a **count of near-uniform units**, which can be counted honestly, rather than by predicted time, which cannot be measured here.
+
+### 4. Pure logic stays testable; Vulkan stays at the edges
+
+`ChunkStreamingManager` decides *what should be resident, in what order, and when a slot may be reused* — and contains no Vulkan types whatsoever. That is a deliberate seam: the scheduling policy that is hardest to reason about is the part that can be unit-tested without standing up a GPU context, and it is (`tests/src/systems/chunk_streaming_manager_tests.cpp`).
+
+The same split appears in the resource layer: `sdf_scene.h` and `conversation.h` are pure parsers with no knowledge of any particular game's systems.
+
+### 5. Contracts that cannot be checked at compile time are checked at build time
+
+A compute shader's workgroup shape and its push-constant layout are contracts with the engine that neither compiler validates. Get the workgroup shape wrong and the dispatch silently covers the wrong cells; drop one `int` from a push-constant block and every field after it shifts by four bytes. Both have happened, and both presented as "geometry is missing" with nothing logged.
+
+So `post-build.sh` disassembles the *compiled SPIR-V* and asserts the workgroup shape the engine's dispatch math assumes:
+
+```
+Verifying compiled shader contracts...
+  Builtin.ChunkVoxelize.comp.spv: LocalSize 8 8 1 OK
+```
+
+Checking the compiled module rather than the source is the point: what matters is what the GPU actually runs.
+
+### 6. Never stall the frame on work the frame does not need
+
+The chunk bake is expensive and unavoidable. What is avoidable is making the renderer wait for it. Chunk baking runs on a separate queue against a ring of command buffers and fences; a chunk is not published into the chunk table until its fence confirms the bake finished, so the sampler never reads a half-written chunk and the graphics queue never waits on one.
+
+The cost of that decision is a genuinely concurrent system — cross-queue write-after-read hazards handled with timeline semaphores, ring-delayed slot reuse so a slot is never rewritten under a live submission, and double-buffered rebakes so an edited chunk keeps serving its old content until the new content is ready. Much of the renderer's complexity is this, and the comments say so.
+
+---
+
+## How a frame is rendered
+
+Every pass is a compute shader. There is no render pass for scene geometry.
+
+| # | Pass | What it does |
+|---|------|--------------|
+| 1 | **Prepass: clears** | Resets the per-frame visibility and tile buffers |
+| 2 | **Prepass: cluster cull** | Culls splat point clusters against the frustum, writing indirect dispatch args |
+| 3 | **Prepass: voxel cascade** | Rebuilds binary occupancy cascades centred on the camera, snapped to their own grid |
+| 4 | **Prepass: shadow splat** | Splats cluster points into 64 imperfect shadow maps, octahedral, one per light |
+| 5 | **Prepass: point splat** | Splats surface points into a screen-space visibility buffer (64-bit depth+id, `atomicMin`) |
+| 6 | **Visibility / G-buffer** | Resolves each pixel to a hit: splat-refined, or sphere-traced through the brick field |
+| 7 | **Ambient occlusion** | One cosine-weighted ray per pixel — screen-space near, voxel cascades far |
+| 8 | **Deferred shade** | Direct lighting, ISM shadows, GI cascade lookup, triplanar texturing, volumetrics |
+| 9 | **TAA resolve** | Reprojects and blends history, with variance clipping and depth-based rejection |
+| 10 | **Bloom** | Bright-pass and separable blur at half resolution |
+| 11 | **Post composite** | Tonemap, pixelation, UI composite |
+
+The split at step 6 is a G-buffer, and it exists so that shading is paid once per pixel instead of once per ray step.
+
+---
+
+## The SDF field: authoring → baking → sampling
+
+**Authoring.** A scene is a list of primitives (15 types: sphere, box, plane, torus, capped cylinder/cone, round box, box frame, octahedron, pyramid, hex prism, round cone, capsule, link, ellipsoid) organised into layers. Each layer is a union or a subtraction with its own smoothness. Primitives carry rotation, domain repetition (limited, rectangular, infinite, rotational), materials, and triplanar textures.
+
+Parameters can be **formulas rather than constants** — a limb's radius can taper as a function of height — evaluated by a small expression VM (`resources/expression.h`) that runs on both CPU and GPU.
+
+**Baking.** Evaluating the full analytic scene per ray step is far too slow, so the scene is voxelized into a sparse brick field:
+
+- Space is divided into **chunks** of 16³ coarse cells.
+- A cell that the surface passes through is allocated a **brick** — an 18³ grid of distances (16³ plus a one-voxel apron on every side, so trilinear sampling across brick boundaries needs no cross-brick communication).
+- Bricks live in a shared pool with a GPU free list; an **indirection table** maps cell → brick; a **toroidal chunk table** maps world chunk coordinate → slot.
+
+Two optimisations make this affordable, and both are about *not evaluating the scene*:
+
+- **Per-chunk candidate lists.** For each chunk, the CPU works out which primitives can possibly reach it — resolving domain repetition down to the individual copies in range rather than folding the whole tiling. A sample then folds a handful of primitives instead of the entire scene.
+- **Sub-block rejection.** A brick is walked as 3³ sub-blocks; one evaluation at a sub-block's centre, compared against its circumradius, can fill every voxel in it arithmetically. An SDF changes by at most the distance travelled, so the fill is a conservative under-estimate — always safe in the direction that matters.
+- **Brick deduplication.** Repeated architecture means most cells bake identical bricks. Each cell is keyed by *the function the voxelizer would fold there* — candidate identity plus this cell's position relative to each, reduced modulo the repetition period. Matching keys copy a brick instead of evaluating ~2,000 scene samples.
+
+**Sampling.** A ray sphere-traces the brick field, trilinearly interpolating within bricks and skipping analytically across empty cells and empty chunks (a ray-box slab exit, not a fixed step).
+
+---
+
+## Streaming and level of detail
+
+The field is a **clipmap**: five levels, each with double the previous level's chunk size, each keeping a small window of chunks resident around the camera. A sample picks the finest level whose window contains it.
+
+The streaming scheduler handles the parts that are easy to get subtly wrong:
+
+- **Velocity-biased prefetch** — the window is centred slightly ahead of the camera, along a smoothed velocity, so a chunk starts baking before it is needed.
+- **Eviction hysteresis** — the evict window is wider than the load window, so a camera dithering across a chunk boundary does not evict-and-reload every frame.
+- **Lazy eviction** — a chunk that leaves the window stays resident as long as slots are plentiful, because eviction is nearly free but a reload is a full bake. Backtracking finds the chunk still loaded.
+- **Ring-delayed slot reuse** — a slot is not handed out again until enough frames have passed that no in-flight submission can still be writing it.
+
+---
+
+## Lighting
+
+- **Global illumination**: multi-bounce baked probe grids, including a camera-centred cascade for the streamed field that recenters in discrete whole-cell steps.
+- **Direct lighting**: point and directional lights, with lights synthesized automatically from emissive primitives so a glowing panel actually illuminates the room.
+- **Shadows**: sphere-traced soft shadows for hero lights; **imperfect shadow maps** for the rest — 64 octahedral maps splatted from the same point cloud the visibility pass uses, deliberately low quality because a temporal filter cleans them up.
+- **Ambient occlusion**: one cosine-weighted ray per pixel, traced against the depth buffer at contact scale and binary voxel cascades beyond, then spatially filtered with depth/normal rejection before TAA averages it.
+- **Volumetrics**: light shafts as marched, textured, scrolling density volumes.
+
+---
+
+## Tooling
+
+- **`tools/sdf_editor`** — a Qt6 visual scene editor that embeds the engine itself for its viewport, so what you author is rendered by the same code that runs the game. Scene tree, per-primitive property panels, transform gizmo, light editing, live re-bake on edit.
+- **`tools/conversation_editor`** — an editor for the `.conversation` dialogue-tree format.
+- **`games/SH`** — a narrative game built on the engine: chapter structure, menu system, save/load, an interrogation-style question/answer system driven by the conversation format, and free-fly debug cameras.
+
+---
+
+## Testing
+
+A small custom test harness (`tests/`) covering the parts where correctness is subtle and GPU-independent:
+
+- Chunk streaming scheduling — residency, eviction hysteresis, ring-delayed slot reuse, lazy eviction under slot pressure.
+- Geometry/chunk coverage math — which chunks a primitive touches.
+- The linear allocator.
+
+Alongside these, the renderer carries a set of `debug_verify_*` harnesses that drive the real GPU path synchronously and read results back — used to verify that the chunked field agrees with the analytic scene at sample points, that multi-level selection picks the level it should, and that LOD blending behaves.
+
+---
 
 ## Project layout
 
-- `engine/` — the engine itself (renderer, systems, resources)
-- `assets/` — shaders, textures, materials, scenes
-- `testbed/` — a minimal sandbox for exercising engine features
-- `games/` — real games built on the engine (e.g. `SH`)
-- `tools/sdf_editor/` — the visual SDF scene editor
+```
+engine/          the engine (core, memory, platform, renderer, resources, systems)
+  src/renderer/vulkan/     Vulkan backend; the raymarch shader driver is the largest file
+  src/systems/             streaming scheduler, geometry/material/texture/shader systems
+  src/resources/           .sdf and .conversation parsers, expression VM, image/font loading
+assets/shaders/  GLSL compute/graphics shaders (compiled to SPIR-V by post-build)
+assets/scenes/   .sdf scenes
+testbed/         sandbox for exercising engine features
+games/SH/        a narrative game built on the engine
+tools/           Qt editors (sdf_editor, conversation_editor)
+tests/           unit tests
+bin/             build output; run targets from here
+```
+
+---
 
 ## Building
 
+### Requirements
+
+- A C++20 compiler (`clang++`; the build scripts invoke it directly)
+- [Vulkan SDK](https://vulkan.lunarg.com/) with `glslc` on `PATH` or `$VULKAN_SDK` set
+- `glm`
+- X11 development libraries: `xcb`, `X11`, `X11-xcb`, `xkbcommon`
+- Qt6 (`Widgets`, `Gui`) — only for the editors
+- `spirv-dis` (optional) — enables the compiled-shader contract checks
+
+### Build
+
 From the repo root:
 
-```
-./build-all.sh    # compiles the engine, testbed, games, and tests
-./post-build.sh   # compiles shaders and copies assets/ into bin/
+```bash
+./build-all.sh    # engine (libengine.so), testbed, games, tests
+./post-build.sh   # compiles every shader to SPIR-V and copies assets/ into bin/
 ```
 
 (`build-all.bat` / `post-build.bat` on Windows.)
 
-Run any built target from inside `bin/` (working directory matters — asset paths are relative to it):
+The engine builds as a shared library and the executables link against it with an `$ORIGIN` rpath, so everything runs out of `bin/` without installing anything.
 
-```
+### Run
+
+Working directory matters — asset paths are relative to it:
+
+```bash
 cd bin
-./testbed
-./SH
+./testbed     # feature sandbox
+./SH          # the game
+./tests       # unit tests
 ```
 
-The SDF editor is a separate CMake project:
+### The editors
 
-```
+Separate CMake projects:
+
+```bash
 cd tools/sdf_editor
 cmake -B build && cmake --build build
 cd ../../bin
 ../tools/sdf_editor/build/sdf_editor
 ```
+
+### Diagnostic environment variables
+
+| Variable | Effect |
+|---|---|
+| `KENGINE_BAKE_STATS` | Tally per-bake cost counters (scene evaluations, voxels filled vs copied) and report them |
+| `KENGINE_NO_CHUNK_DEDUP` | Disable brick deduplication (on by default) |
+
+---
+
+## Known limitations and current work
+
+Stated plainly, because the interesting engineering is here rather than in the feature list.
+
+- **Chunk bake cost.** A dense chunk costs on the order of 200 ms of GPU time to voxelize, and the "async" compute queue shares a hardware engine with graphics on the target GPU, so that work competes with the frame. Crossing chunk boundaries in large scenes can therefore hitch.
+
+  Three approaches to *scheduling* that work differently have been built and rejected — Z-row bake slicing, a GPU work-list with time-bounded windows, and GigaVoxels-style ray-guided population. The first two failed for the same reason: they re-partitioned the same work instead of reducing it, and both closed a feedback loop around a timestamp that does not measure what it appears to. Those attempts are documented in the code, which is more useful than quietly deleting them.
+
+  The current direction is to reduce the work rather than reschedule it: brick deduplication (landed), and interval-arithmetic tape pruning à la Keeter's *Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces* (not yet started), which prunes the primitive expression hierarchically per region and is the only remaining idea with order-of-magnitude headroom.
+
+- **Brick pool capacity** is the binding constraint on how much of a scene can stay resident. Narrow-band quantized storage would cut it several-fold and has not been done.
+
+- **Single-platform.** The platform layer is Linux/X11; Windows build scripts exist but are not exercised.
+
+---
+
+## A note on scope
+
+This is a solo project, and its value as a portfolio piece is not that it is finished — it is that it is a system with genuinely hard, coupled problems that were reasoned about in the open: GPU/CPU concurrency without stalls, a streaming scheduler with real invariants, a rendering technique with no off-the-shelf answers, and a measurement problem where the obvious instrument was actively misleading. The commentary throughout the code is the record of that reasoning, and is the thing I would most want a reviewer to read.
