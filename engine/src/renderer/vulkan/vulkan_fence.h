@@ -17,6 +17,13 @@ public:
   // Returns TRUE if the fence was already signaled or became signaled
   // within timeout_ns. Returns FALSE on timeout or device error.
   b8 wait(u64 timeout_ns);
+  // Non-blocking status check: TRUE if the fence is signaled right now,
+  // FALSE if its work is still in flight. Distinct from wait(0) because a
+  // timeout is the EXPECTED answer here, not a problem to warn about --
+  // this is for a caller polling every frame precisely so it never blocks
+  // (see VulkanRaymarchShader::publish_completed_bakes()), where wait(0)'s
+  // KWARN would fire on most frames.
+  b8 poll();
   void reset();
 
   VkFence handle() const noexcept { return handle_; }

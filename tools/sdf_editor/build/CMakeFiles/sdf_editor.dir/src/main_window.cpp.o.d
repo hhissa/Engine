@@ -737,7 +737,8 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: \
   /usr/include/qt6/QtWidgets/QPushButton \
   /usr/include/qt6/QtWidgets/qpushbutton.h \
   /usr/include/qt6/QtCore/QSignalBlocker \
-  /usr/include/qt6/QtWidgets/QTabWidget \
+  /usr/include/qt6/QtWidgets/QTabWidget /usr/include/qt6/QtCore/QTimer \
+  /usr/include/qt6/QtCore/qtimer.h \
   /usr/include/qt6/QtWidgets/QVBoxLayout \
   /usr/include/qt6/QtWidgets/QWidget \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/fstream \

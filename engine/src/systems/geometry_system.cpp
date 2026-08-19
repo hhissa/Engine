@@ -139,7 +139,7 @@ GeometryConfig GeometryConfig::plane(std::string name, f32 height,
   return config;
 }
 
-f32 geometry_bounding_radius(const Geometry &geometry) noexcept {
+f32 geometry_instance_radius(const Geometry &geometry) noexcept {
   if (geometry.type == PrimitiveType::Plane ||
       geometry.repetition_mode == RepetitionMode::Infinite) {
     return kUnboundedBoundingRadius;
@@ -223,6 +223,26 @@ f32 geometry_bounding_radius(const Geometry &geometry) noexcept {
     break;
   }
 
+  // Displacement (see evaluate_primitive_at()'s own comment in Builtin.
+  // SdfSceneCommon.inc.glsl) perturbs the returned distance directly, by
+  // up to +-displace_amplitude -- the true surface can sit that much
+  // farther out than the undisplaced shape. Twist/bend need no equivalent
+  // allowance: both warp the sample point by rotating two of its
+  // components (the rotation angle is parameter-dependent, but any
+  // rotation matrix preserves vector length), so neither can move a
+  // point's distance from the shape's own origin at all.
+  //
+  // Repetition is deliberately NOT included here -- that is exactly the
+  // difference between this function and geometry_bounding_radius() below.
+  return local_bound + std::abs(geometry.displace_amplitude);
+}
+
+f32 geometry_bounding_radius(const Geometry &geometry) noexcept {
+  f32 instance_bound = geometry_instance_radius(geometry);
+  if (instance_bound >= kUnboundedBoundingRadius) {
+    return kUnboundedBoundingRadius;
+  }
+
   // Domain repetition (see repeat_*() in Builtin.SdfSceneCommon.inc.glsl)
   // spreads copies of the same local shape across a finite span -- widen
   // the bound to cover the farthest copy's own reach, not just the
@@ -246,19 +266,11 @@ f32 geometry_bounding_radius(const Geometry &geometry) noexcept {
     repeat_reach = glm::length(half_span * cell_xz);
   }
 
-  // Displacement (see evaluate_primitive_at()'s own comment in Builtin.
-  // SdfSceneCommon.inc.glsl) perturbs the returned distance directly, by
-  // up to +-displace_amplitude -- the true surface can sit that much
-  // farther out than the undisplaced shape. Twist/bend need no equivalent
-  // allowance: both warp the sample point by rotating two of its
-  // components (the rotation angle is parameter-dependent, but any
-  // rotation matrix preserves vector length), so neither can move a
-  // point's distance from the shape's own origin at all.
-  return local_bound + repeat_reach + std::abs(geometry.displace_amplitude);
+  return instance_bound + repeat_reach;
 }
 
 std::vector<ChunkKey> chunks_touched_by(const Geometry &geometry,
-                                        f32 chunk_size) {
+                                        f32 chunk_size, f32 extra_margin) {
   std::vector<ChunkKey> touched;
   if (chunk_size <= 0.0f) {
     return touched;
@@ -267,6 +279,9 @@ std::vector<ChunkKey> chunks_touched_by(const Geometry &geometry,
   if (radius >= kUnboundedBoundingRadius) {
     return touched;
   }
+  // A primitive's influence on the baked field is wider than the primitive
+  // -- see extra_margin's comment in the header.
+  radius += std::max(extra_margin, 0.0f);
 
   glm::vec3 min_corner = geometry.position - glm::vec3(radius);
   glm::vec3 max_corner = geometry.position + glm::vec3(radius);
@@ -498,6 +513,15 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
   LoadedSceneNames result;
   ambient_ = scene.ambient;
 
+  // Slots handed out during THIS load -- see reconcile_scene()'s identical
+  // set for the failure this prevents. Here the window is narrower, because
+  // each layer's primitives are attached in the nested loop below before the
+  // next layer is considered, so a slot is normally spoken for by the time
+  // the next scan runs. It is not closed, though: a layer with NO primitives
+  // leaves its slot at ref count 0, and the next layer to need one takes it,
+  // overwriting the first layer's operation and smoothness and merging two
+  // authored layers into a single slot.
+  std::unordered_set<u32> claimed_this_load;
   for (const SdfLayerDef &layer_def : scene.layers) {
     SceneLayer layer;
     layer.operation = to_layer_operation(layer_def.operation);
@@ -513,7 +537,7 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
     u32 layer_index = 0;
     bool reused_slot = false;
     for (u32 i = 1; i < layer_ref_counts_.size(); ++i) {
-      if (layer_ref_counts_[i] == 0) {
+      if (layer_ref_counts_[i] == 0 && !claimed_this_load.count(i)) {
         layer_index = i;
         reused_slot = true;
         break;
@@ -524,6 +548,7 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
       layers_.push_back(SceneLayer{});
       layer_ref_counts_.push_back(0);
     }
+    claimed_this_load.insert(layer_index);
     layers_[layer_index] = layer;
 
     for (const SdfPrimitiveDef &primitive_def : layer_def.primitives) {
@@ -593,8 +618,21 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
 bool GeometrySystem::reconcile_scene(const SdfScene &scene,
                                      LoadedSceneNames &loaded,
                                      bool auto_release,
-                                     std::string_view name_prefix) {
+                                     std::string_view name_prefix,
+                                     const std::function<void()> &before_first_destructive) {
   bool changed = false;
+  // Fire-once wrapper around before_first_destructive -- see the header
+  // comment. Every site below that can destroy a GPU resource calls this
+  // first; only the first call actually invokes the callback.
+  bool destructive_gate_fired = false;
+  auto destructive_gate = [&]() {
+    if (!destructive_gate_fired) {
+      destructive_gate_fired = true;
+      if (before_first_destructive) {
+        before_first_destructive();
+      }
+    }
+  };
   ambient_ = scene.ambient;
 
   // --- Layers: match by name against loaded.layer_index_by_name, reusing
@@ -609,19 +647,42 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
   // folds in, not just the one that triggered the edit.
   std::unordered_map<std::string, u32> new_layer_index_by_name;
   std::unordered_set<u32> layers_needing_full_mark_dirty;
+  // Every slot handed out during THIS pass, whether reused, freshly pushed
+  // or matched by name.
+  //
+  // Without this, the allocator below can hand the same slot to every layer
+  // in the scene. Layers are resolved here, in one loop, but a slot's
+  // ref count only rises later, when the primitive loop attaches a primitive
+  // to it -- so a slot claimed here still reads as free for the rest of this
+  // loop. The first layer that misses the by-name lookup pushes a new slot;
+  // the next layer's "reuse a freed slot first" scan finds that same slot at
+  // ref count 0 and takes it too, and so on for every remaining layer. They
+  // all collapse onto one index, that index's operation and smoothness end
+  // up whichever layer was resolved last, and the primitive loop then files
+  // every primitive in the scene under it.
+  //
+  // The result is a scene that renders as one flat union: every subtraction
+  // layer is left holding nothing, so its cuts vanish, and every smooth
+  // layer is left holding nothing, so its blends harden -- scene-wide, from
+  // the first reconcile onward, while the original load_scene() looked
+  // perfect because its layers were allocated before any of them had
+  // primitives to reuse away.
+  std::unordered_set<u32> claimed_this_pass;
   for (const SdfLayerDef &layer_def : scene.layers) {
     auto existing = loaded.layer_index_by_name.find(layer_def.name);
     u32 layer_index;
     if (existing != loaded.layer_index_by_name.end() &&
-        existing->second < layers_.size()) {
+        existing->second < layers_.size() &&
+        !claimed_this_pass.count(existing->second)) {
       layer_index = existing->second;
     } else {
       // Same reuse-a-freed-slot-first policy as load_scene() -- see its
-      // own comment for why (unbounded layers_ growth otherwise).
+      // own comment for why (unbounded layers_ growth otherwise) -- but
+      // skipping anything already spoken for in this pass.
       layer_index = 0;
       bool reused_slot = false;
       for (u32 i = 1; i < layer_ref_counts_.size(); ++i) {
-        if (layer_ref_counts_[i] == 0) {
+        if (layer_ref_counts_[i] == 0 && !claimed_this_pass.count(i)) {
           layer_index = i;
           reused_slot = true;
           break;
@@ -633,6 +694,7 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
         layer_ref_counts_.push_back(0);
       }
     }
+    claimed_this_pass.insert(layer_index);
 
     LayerOperation new_operation = to_layer_operation(layer_def.operation);
     if (layers_[layer_index].operation != new_operation ||
@@ -703,6 +765,7 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
       // full-sweep fallback in update_streaming() (see any_released_
       // since_last_snapshot()'s own comment for exactly why).
       if (existing->material_name != primitive_def.material_name) {
+        destructive_gate();
         material_system_->release(existing->material_name);
         existing->material =
             &material_system_->acquire(primitive_def.material_name, true);
@@ -723,8 +786,16 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
         // layer_op_changed above, just scoped to this one primitive
         // rather than every primitive in the layer.
       }
-      if (layer_op_changed || layer_reassigned ||
-          !primitive_shape_matches(*existing, primitive_def)) {
+      bool own_shape_changed = !primitive_shape_matches(*existing, primitive_def);
+      if (layer_op_changed || layer_reassigned || own_shape_changed) {
+        if (own_shape_changed && !layer_op_changed && !layer_reassigned) {
+          // Pre-edit snapshot -- see dirty_previous_state()'s own comment
+          // for exactly why ONLY this narrow case (nothing about this
+          // primitive's layer changed, just its own shape/transform) is
+          // safe for update_streaming() to treat as a bounded, surgical
+          // edit instead of falling back to the brute-force full sweep.
+          dirty_previous_state_.emplace(full_name, *existing);
+        }
         existing->type = to_primitive_type(primitive_def.type);
         existing->position = primitive_def.position;
         existing->rotation = primitive_def.rotation;
@@ -746,6 +817,7 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
 
   for (const std::string &old_name : loaded.primitive_names) {
     if (!new_primitive_name_set.count(old_name)) {
+      destructive_gate();
       release(old_name);
       changed = true;
     }
@@ -784,6 +856,7 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
   }
   for (const std::string &old_name : loaded.light_names) {
     if (!new_light_names.count(old_name)) {
+      destructive_gate();
       release_light(old_name);
       changed = true;
     }
@@ -813,6 +886,7 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
       continue;
     }
     if (existing->material_name != volumetric_def.material_name) {
+      destructive_gate();
       material_system_->release(existing->material_name);
       existing->material =
           &material_system_->acquire(volumetric_def.material_name, true);
@@ -831,6 +905,7 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
   }
   for (const std::string &old_name : loaded.volumetric_names) {
     if (!new_volumetric_names.count(old_name)) {
+      destructive_gate();
       release_volumetric(old_name);
       changed = true;
     }

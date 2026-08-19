@@ -1,18 +1,23 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-// Frees a resident chunk's bricks back onto the shared free-list stack and
-// clears its indirection sub-block to empty -- the GPU-side half of
-// ChunkStreamingManager (engine/src/systems/chunk_streaming_manager.h)
-// evicting a chunk. This shader has no awareness of *when* it's safe to run
-// -- that's entirely ChunkStreamingManager's ring-delay (see its header
-// comment): the caller must not record this dispatch until the chunk's own
-// voxelize_chunk() bake is confirmed complete, and must not hand gpu_slot
-// to a new chunk's voxelize_chunk() until THIS dispatch is itself confirmed
-// complete.
+// Frees a BATCH of resident chunks' bricks back onto the shared free-list
+// stack and clears each one's indirection sub-block to empty -- the GPU-
+// side half of ChunkStreamingManager (engine/src/systems/chunk_streaming_
+// manager.h) evicting a chunk. This shader has no awareness of *when* it's
+// safe to run -- that's entirely ChunkStreamingManager's ring-delay (see
+// its header comment): the caller must not record this dispatch until the
+// chunk's own voxelize_chunk() bake is confirmed complete, and must not
+// hand gpu_slot to a new chunk's voxelize_chunk() until THIS dispatch is
+// itself confirmed complete.
 //
-// One invocation per chunk-local coarse cell (CHUNK_COARSE_DIM^3 total) --
-// same dispatch shape as Builtin.ChunkVoxelize.comp.glsl.
+// One invocation per chunk-local coarse cell (CHUNK_COARSE_DIM^3), times
+// however many chunks this dispatch's batch covers -- Phase 6: one
+// dispatch now handles every chunk a frame needs evicted (boundary AND
+// dirty-triggered forced re-bakes alike -- see VulkanRaymarchShader::
+// update_streaming()'s own comment) instead of one dispatch per chunk.
+// Same Z-encoding scheme as Builtin.ChunkVoxelize.comp.glsl's main() --
+// see its own comment.
 layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 #include "Builtin.SdfFieldConfig.inc.glsl"
@@ -35,20 +40,61 @@ layout(binding = 2) buffer BrickFreeListTopBuffer {
     uint free_list_top;
 };
 
+// Only chunk_slot is needed here (unlike Builtin.ChunkVoxelize.comp.glsl's
+// richer ChunkBatchEntry) -- freeing a chunk's bricks needs no world-space
+// info at all, just which slot to clear. A separate buffer (not shared with
+// the voxelize batch) since the two dispatches' batches can hold entirely
+// different chunks, written and read at different points in the same
+// frame's command buffer.
+layout(binding = 3) buffer ChunkEvictBatchBuffer {
+    int evict_batch_slots[];
+};
+
+// The splat point clusters a freed brick owned (see CHUNK_CLUSTER_POINTS,
+// Builtin.SdfFieldConfig.inc.glsl). Freeing a brick has to return its
+// cluster pages to their own free list and mark the page records empty,
+// otherwise Builtin.ChunkPointSplat.comp.glsl keeps splatting a point cloud
+// for geometry that is no longer resident -- and the pool leaks pages until
+// no brick can get one.
+layout(binding = 4) buffer ChunkBrickClusterBuffer {
+    int brick_clusters[];
+};
+layout(binding = 5) buffer ChunkClusterBuffer {
+    ChunkCluster chunk_clusters[];
+};
+layout(binding = 6) buffer ChunkClusterFreeListBuffer {
+    int cluster_free_list[];
+};
+layout(binding = 7) buffer ChunkClusterFreeTopBuffer {
+    uint cluster_free_top;
+};
+
+// Must match kMaxChunkClusters engine-side -- same constant/comment as
+// Builtin.ChunkVoxelize.comp.glsl's.
+const int MAX_CLUSTERS = 131072;
+
 layout(push_constant) uniform PushConstants {
-    int chunk_slot;
+    int batch_count;
+    int batch_offset; // Where this submission's region of evict_batch_slots
+                     // starts -- one region per async ring slot, see
+                     // Builtin.ChunkVoxelize.comp.glsl's identical field.
 } push;
 
 void main() {
-    ivec3 local_cell = ivec3(gl_GlobalInvocationID);
-    if (local_cell.x >= CHUNK_COARSE_DIM || local_cell.y >= CHUNK_COARSE_DIM ||
-        local_cell.z >= CHUNK_COARSE_DIM) {
+    int batch_index = int(gl_GlobalInvocationID.z) / CHUNK_COARSE_DIM;
+    if (batch_index >= push.batch_count) {
+        return;
+    }
+    ivec3 local_cell = ivec3(gl_GlobalInvocationID.xy,
+                             int(gl_GlobalInvocationID.z) % CHUNK_COARSE_DIM);
+    if (local_cell.x >= CHUNK_COARSE_DIM || local_cell.y >= CHUNK_COARSE_DIM) {
         return;
     }
 
+    int chunk_slot = evict_batch_slots[push.batch_offset + batch_index];
     int local_cell_index = local_cell.x + local_cell.y * CHUNK_COARSE_DIM +
         local_cell.z * CHUNK_COARSE_DIM * CHUNK_COARSE_DIM;
-    int cell_index = push.chunk_slot * CHUNK_CELL_COUNT + local_cell_index;
+    int cell_index = chunk_slot * CHUNK_CELL_COUNT + local_cell_index;
 
     int brick_index = chunk_indirection[cell_index];
     if (brick_index >= 0) {
@@ -65,5 +111,25 @@ void main() {
             free_list[write_index] = brick_index;
         }
         chunk_indirection[cell_index] = -1;
+
+        // Each brick belongs to exactly one cell, so exactly one invocation
+        // ever touches a given brick's cluster list -- the page records need
+        // no atomics, only the shared free-list top does.
+        for (int i = 0; i < CHUNK_MAX_CLUSTERS_PER_BRICK; ++i) {
+            int list_index = brick_index * CHUNK_MAX_CLUSTERS_PER_BRICK + i;
+            int page = brick_clusters[list_index];
+            if (page < 0) {
+                continue;
+            }
+            brick_clusters[list_index] = -1;
+            // Zero point count first: that is what every consumer reads as
+            // "this page is free", so it must be true before the page can be
+            // handed to another brick.
+            chunk_clusters[page].meta = uvec4(0);
+            uint slot = atomicAdd(cluster_free_top, 1u);
+            if (slot < uint(MAX_CLUSTERS)) {
+                cluster_free_list[slot] = page;
+            }
+        }
     }
 }

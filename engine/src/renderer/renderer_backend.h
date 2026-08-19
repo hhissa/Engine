@@ -149,6 +149,33 @@ public:
   // working changes unless a caller explicitly opts in.
   virtual void set_chunked_field_enabled(b8 enabled) = 0;
 
+  // Selects how the chunked field's baked point cloud drives primary
+  // visibility -- see RendererSplatMode (renderer_types.inl) and
+  // VulkanRaymarchShader::set_splat_mode(). Just a push constant (plus
+  // whether the splat prepass is recorded), takes effect the very next
+  // frame with no rebake.
+  virtual void set_splat_mode(RendererSplatMode mode) = 0;
+
+  // Temporal anti-aliasing -- see VulkanRaymarchShader::set_taa_enabled().
+  // On by default. Costs one full-resolution resolve pass either way (with
+  // it off the pass degenerates to a copy), so this is a pure quality
+  // switch, not a pipeline reconfiguration.
+  virtual void set_taa_enabled(b8 enabled) = 0;
+
+  // Imperfect shadow maps for local point lights -- see
+  // VulkanRaymarchShader::set_ism_enabled(). On by default.
+  virtual void set_ism_enabled(b8 enabled) = 0;
+
+  // Stochastic ambient occlusion over the binary voxel cascades -- see
+  // VulkanRaymarchShader::set_ao_enabled(). On by default, and it wants TAA
+  // on too: it traces one ray per pixel per frame.
+  virtual void set_ao_enabled(b8 enabled) = 0;
+
+  // Debug: samples the baked field at a world point and logs what it holds
+  // -- see VulkanRaymarchShader::debug_probe_field(). Synchronous and
+  // device-stalling; for diagnosis, not for a running game.
+  virtual void debug_probe_field(glm::vec3 world_pos) = 0;
+
   // Post-process toggles/params -- see VulkanRaymarchShader::
   // set_bloom_enabled()/set_vignette_enabled()/set_pixelation_enabled()/
   // set_pixelation_block_size() for exact semantics. All are just push

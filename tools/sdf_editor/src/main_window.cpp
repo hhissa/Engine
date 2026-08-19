@@ -26,6 +26,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTabWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -45,6 +46,14 @@ namespace {
 // path; this one is purely an implementation detail of keeping the
 // viewport live.
 constexpr std::string_view kLivePreviewPath = "assets/scenes/.sdf_editor_live.sdf";
+
+// How long request_viewport_resync() waits, after the LAST call in a
+// burst, before actually running sync_viewport_scene_now() -- see that
+// method's own comment. Long enough to coalesce a spinbox's rapid-fire
+// valueChanged ticks (scrubbing/holding its arrows can easily fire
+// several per 100ms) into one real sync; short enough that a single,
+// isolated edit still feels effectively immediate.
+constexpr int kSyncDebounceMs = 80;
 
 // contents_tree_'s per-item data roles (see
 // SdfEditorWindow::refresh_contents_list()) -- every item (layer or
@@ -335,6 +344,14 @@ SdfEditorWindow::SdfEditorWindow() {
   setWindowTitle("SDF Scene Editor");
   resize(720, 480);
 
+  // See sync_debounce_timer_/request_viewport_resync()'s own comments --
+  // constructed up front since field spinboxes (connected further below)
+  // can fire before the rest of the window finishes building.
+  sync_debounce_timer_ = new QTimer(this);
+  sync_debounce_timer_->setSingleShot(true);
+  connect(sync_debounce_timer_, &QTimer::timeout, this,
+         &SdfEditorWindow::sync_viewport_scene_now);
+
   auto *central = new QWidget(this);
   auto *root_layout = new QHBoxLayout(central);
 
@@ -400,6 +417,17 @@ SdfEditorWindow::SdfEditorWindow() {
   connect(grid_button_, &QPushButton::toggled, this,
          &SdfEditorWindow::on_show_grid_toggled);
   gizmo_mode_row->addWidget(grid_button_);
+  // Also independent of gizmo_mode_group, same as Show Grid above.
+  splat_button_ = new QPushButton("Splat Visibility");
+  splat_button_->setToolTip(
+      "Shade the chunked field's baked surface point cloud directly (the "
+      "Dreams-style splat renderer) instead of marching a ray per pixel. "
+      "Pixels no splat covers still march, so the image stays complete.");
+  splat_button_->setCheckable(true);
+  splat_button_->setChecked(false); // matches SceneViewport's default (off)
+  connect(splat_button_, &QPushButton::toggled, this,
+         &SdfEditorWindow::on_splat_visibility_toggled);
+  gizmo_mode_row->addWidget(splat_button_);
   gizmo_mode_row->addStretch(/*stretch=*/1);
   middle_panel->addLayout(gizmo_mode_row);
   middle_panel->addWidget(viewport_container, /*stretch=*/1);
@@ -1588,6 +1616,10 @@ void SdfEditorWindow::on_rotate_mode_clicked() {
   viewport_->set_gizmo_mode(GizmoMode::Rotate);
 }
 
+void SdfEditorWindow::on_splat_visibility_toggled(bool checked) {
+  viewport_->set_splat_visibility(checked);
+}
+
 void SdfEditorWindow::on_show_grid_toggled(bool checked) {
   viewport_->set_grid_visible(checked);
 }
@@ -1673,7 +1705,23 @@ void SdfEditorWindow::on_load_clicked() {
 
 void SdfEditorWindow::sync_viewport_scene() {
   viewport_->set_scene(scene_); // keeps click-picking in sync too
+  // A pending debounced sync (see request_viewport_resync()) is about to
+  // be made redundant by the immediate one below -- stop it rather than
+  // let it fire later and repeat the same (by then already-applied) work.
+  sync_debounce_timer_->stop();
+  sync_viewport_scene_now();
+}
 
+void SdfEditorWindow::request_viewport_resync() {
+  viewport_->set_scene(scene_); // immediate, cheap -- keeps the gizmo and
+                                // click-picking tracking every keystroke
+                                // even while the real sync is deferred.
+  sync_debounce_timer_->start(kSyncDebounceMs); // (re)starts if already
+                                                // running, coalescing a
+                                                // burst into one sync.
+}
+
+void SdfEditorWindow::sync_viewport_scene_now() {
   if (!save_scene(kLivePreviewPath, scene_)) {
     return; // save_scene() already logged why.
   }
@@ -2039,7 +2087,7 @@ void SdfEditorWindow::on_live_edit_changed() {
     return;
   }
   apply_fields_to_primitive(layer_index, selection.front().primitive_index);
-  sync_viewport_scene();
+  request_viewport_resync();
 }
 
 void SdfEditorWindow::on_param_expr_changed() {
@@ -2193,7 +2241,7 @@ void SdfEditorWindow::on_light_field_changed() {
     return;
   }
   apply_fields_to_light(light_index);
-  sync_viewport_scene();
+  request_viewport_resync();
   // Keeps the gizmo in sync with a Type toggle -- e.g. switching from Point
   // to Directional should hide it (a directional light has no position for
   // the gizmo to show), and the reverse should show it again. A no-op
@@ -2203,7 +2251,7 @@ void SdfEditorWindow::on_light_field_changed() {
 
 void SdfEditorWindow::on_ambient_changed() {
   scene_.ambient = static_cast<f32>(ambient_spin_->value());
-  sync_viewport_scene();
+  request_viewport_resync();
 }
 
 void SdfEditorWindow::refresh_lights_list() {
@@ -2540,7 +2588,7 @@ void SdfEditorWindow::on_volumetric_field_changed() {
     return;
   }
   apply_fields_to_volumetric(volumetric_index);
-  sync_viewport_scene();
+  request_viewport_resync();
 }
 
 void SdfEditorWindow::refresh_volumetrics_list() {

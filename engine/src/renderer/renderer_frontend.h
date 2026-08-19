@@ -175,6 +175,32 @@ void renderer_set_grid_visible(b8 visible);
 // (likely none, since nothing streams in on its own).
 void renderer_set_chunked_field_enabled(b8 enabled);
 
+// Selects how the chunked field's baked surface-point cloud drives primary
+// visibility -- the Dreams-style point-splatting technique. See
+// RendererSplatMode (renderer_types.inl) for what each mode does; takes
+// effect the very next frame, no rebake needed. Only meaningful alongside
+// renderer_set_chunked_field_enabled(true) -- the fixed-cube field bakes no
+// point cloud, so nothing splats there whatever this is set to. Defaults to
+// Prime, which cannot change the image (only how much empty space each ray
+// has to march); Visibility actually shades the splats and so is opt-in.
+void renderer_set_splat_mode(RendererSplatMode mode);
+
+// Enables or disables temporal anti-aliasing (on by default). See
+// RendererBackend::set_taa_enabled().
+void renderer_set_taa_enabled(b8 enabled);
+
+// Enables or disables the imperfect shadow maps for local point lights (on
+// by default). See RendererBackend::set_ism_enabled().
+void renderer_set_ism_enabled(b8 enabled);
+
+// Enables or disables stochastic ambient occlusion (on by default). See
+// RendererBackend::set_ao_enabled().
+void renderer_set_ao_enabled(b8 enabled);
+
+// Debug: logs what the baked field holds at a world point. See
+// RendererBackend::debug_probe_field().
+void renderer_debug_probe_field(glm::vec3 world_pos);
+
 // Enables/disables the bloom post-process -- a soft glow bloomed off
 // bright/emissive surfaces (see Material::emissive_intensity), added back
 // on top of the scene. On by default, subtly; call with false to disable

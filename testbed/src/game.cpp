@@ -3,6 +3,7 @@
 #include <core/logger.h>
 #include <renderer/renderer_frontend.h>
 
+#include <cmath>
 #include <glm/glm.hpp>
 
 TestbedGame::TestbedGame() {
@@ -22,11 +23,51 @@ b8 TestbedGame::initialize() {
   // call returns its own independent handle.
   demo_scene_ = renderer_load_scene("assets/scenes/man_sitting.sdf");
 
+#ifdef TESTBED_STREAM_BENCH
+  renderer_set_chunked_field_enabled(true);
+  demo_scene_ = renderer_load_scene("assets/scenes/DiegosOffice.sdf");
+  camera_.set_position(glm::vec3(0.0f, -2.0f, 0.0f));
+#endif
+
   return true;
 }
 
 b8 TestbedGame::update(f32 dt) {
   delta_time = dt;
+
+#ifdef TESTBED_STREAM_BENCH
+  {
+    static f32 bench_t = 0.0f;
+    bench_t += dt;
+    {
+      static f32 window = 0.0f, worst = 0.0f, total = 0.0f;
+      static int frames = 0, o100 = 0, o50 = 0, o33 = 0, o20 = 0;
+      if (bench_t > 3.0f) {
+        window += dt; total += dt;
+        worst = worst > dt ? worst : dt;
+        ++frames;
+        if (dt > 0.100f) ++o100;
+        if (dt > 0.050f) ++o50;
+        if (dt > 0.033f) ++o33;
+        if (dt > 0.020f) ++o20;
+        if (window >= 10.0f) {
+          KINFO("WALLCLOCK {} frames: mean {:.1f} ms WORST {:.1f} ms | "
+               ">20ms {} >33ms {} >50ms {} >100ms {}",
+               frames, 1000.0f * total / static_cast<f32>(frames),
+               1000.0f * worst, o20, o33, o50, o100);
+          window = 0.0f; worst = 0.0f; total = 0.0f; frames = 0;
+          o100 = o50 = o33 = o20 = 0;
+        }
+      }
+    }
+    // Radius 25 -- INSIDE the +-45 unit tiling this time.
+    const f32 x = 25.0f * std::sin(bench_t * 0.15f);
+    const f32 z = 25.0f * std::cos(bench_t * 0.11f);
+    camera_.set_position(glm::vec3(x, -2.0f, z));
+    renderer_set_camera(camera_);
+    return true;
+  }
+#endif
 
   // Must run before camera_ is used/submitted below -- a floating-origin
   // recenter (see RendererBackend::consume_origin_shift()'s comment) only

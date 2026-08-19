@@ -265,6 +265,38 @@ void renderer_set_chunked_field_enabled(b8 enabled) {
   }
 }
 
+void renderer_set_taa_enabled(b8 enabled) {
+  if (backend) {
+    backend->set_taa_enabled(enabled);
+  }
+}
+
+void renderer_set_ism_enabled(b8 enabled) {
+  if (backend) {
+    backend->set_ism_enabled(enabled);
+  }
+}
+
+void renderer_set_ao_enabled(b8 enabled) {
+  if (backend) {
+    backend->set_ao_enabled(enabled);
+  }
+}
+
+void renderer_debug_probe_field(glm::vec3 world_pos) {
+  if (backend) {
+    backend->debug_probe_field(world_pos);
+  }
+}
+
+void renderer_set_splat_mode(RendererSplatMode mode) {
+  if (backend) {
+    backend->set_splat_mode(mode);
+  } else {
+    KWARN("renderer backend does not exist to accept a splat-mode request.");
+  }
+}
+
 void renderer_set_bloom_enabled(b8 enabled) {
   if (backend) {
     backend->set_bloom_enabled(enabled);

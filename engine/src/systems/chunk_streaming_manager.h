@@ -71,8 +71,28 @@ public:
   // other level's. Defaults to 0 (the single-level Phase 3b case, and
   // every existing test) -- purely additive, changes no behavior for a
   // caller that never passes it.
+  // lazy_evict_min_free enables LAZY eviction: update() lists to_evict
+  // candidates ONLY while fewer than this many slots are free -- a chunk
+  // that merely leaves the window stays resident (cached) as long as slots
+  // are plentiful, so a camera that orbits or backtracks finds it still
+  // loaded and pays nothing. 0 (the default, and what every existing test
+  // uses) is the original eager behavior: evict on window-exit regardless
+  // of pressure.
+  //
+  // Why this exists: eviction is near-free GPU work but a RELOAD is a full
+  // voxelize bake, and the two bandwidths are wildly asymmetric once bakes
+  // are sliced/budgeted (an eviction pass can retire 10 chunks in a frame
+  // that loads a tenth of one). Eager eviction therefore bled residency
+  // far faster than loading could refill it: any window sweep -- an orbit
+  // around a scene being edited is the worst case -- instantly evicted
+  // everything behind the camera, and each of those chunks then cost a
+  // multi-frame re-bake when it swung back into view. Live-confirmed as
+  // persistent "missing chunks" in sdf_editor with max_resident_chunks
+  // (64) more than double the window's own worst case (27): dozens of
+  // slots sat free while freshly-evicted chunks queued for re-bakes.
   ChunkStreamingManager(u32 max_resident_chunks, i32 stream_radius_chunks,
-                        u32 frames_in_flight_delay, u32 slot_offset = 0);
+                        u32 frames_in_flight_delay, u32 slot_offset = 0,
+                        u32 lazy_evict_min_free = 0);
 
   struct Plan {
     std::vector<ChunkKey> to_load;  // nearest-to-camera first
@@ -120,7 +140,29 @@ public:
   // cases mean "try again a later frame").
   u32 acquire_free_slot();
 
+  // Hands a slot back to the free pool WITHOUT it having been a resident
+  // chunk's own eviction -- the same frames_in_flight_delay ring-delay as
+  // commit_evict(), just keyed by slot instead of by ChunkKey.
+  //
+  // Exists for the double-buffered in-place rebake (see VulkanRaymarch
+  // Shader::update_streaming()): a dirty chunk is now re-baked into a
+  // FRESH slot while the one the renderer is currently sampling stays
+  // untouched, and the old slot is only given up once the new bake has
+  // actually completed and been published. By then resident_[key] names
+  // the new slot, so the old one has no ChunkKey left to reach it by and
+  // commit_evict() cannot express the release -- but it still owes the
+  // free pool a slot, and still owes it the same delay before reuse.
+  //
+  // Silently ignores a slot that is already free, so a caller retrying a
+  // release it isn't certain about cannot corrupt the pool.
+  void release_slot(u32 gpu_slot);
+
   size_t resident_count() const noexcept { return resident_.size(); }
+  // Diagnostics (see collect_frame_timings() engine-side): how many slots
+  // are immediately handable, and how many are mid-ring-delay on their way
+  // back to the pool.
+  size_t free_slot_count() const noexcept { return free_slots_.size(); }
+  size_t releasing_slot_count() const noexcept { return releasing_slots_.size(); }
   ChunkState state_of(ChunkKey key) const noexcept;
   const std::unordered_map<ChunkKey, ChunkRecord, ChunkKeyHash> &
   resident_chunks() const noexcept {
@@ -151,7 +193,13 @@ private:
 
   std::unordered_map<ChunkKey, ChunkRecord, ChunkKeyHash> resident_;
   std::vector<u32> free_slots_;
+  // Slots handed back by release_slot(), each with the generation_ it was
+  // released at -- drained into free_slots_ by tick() once the same
+  // frames_in_flight_delay_ an evicting chunk's slot waits out has passed.
+  std::vector<std::pair<u32, u64>> releasing_slots_;
   u32 max_resident_chunks_;
+  // See the constructor comment -- 0 means eager (evict on window-exit).
+  u32 lazy_evict_min_free_;
   i32 stream_radius_chunks_;
   u32 frames_in_flight_delay_;
   // Bumped once per tick() -- ChunkRecord::bake_generation is stamped with

@@ -3,6 +3,8 @@
 #include <core/logger.h>
 
 #include <fstream>
+#include <iomanip>
+#include <limits>
 
 namespace {
 const char *to_string(SdfPrimitiveType type) {
@@ -80,6 +82,20 @@ bool save_scene(std::string_view path, const SdfScene &scene) {
     KERROR("Failed to open SDF scene file for writing: '{}'.", path);
     return false;
   }
+
+  // ostream's default float precision is 6 significant digits -- lossy
+  // for an f32 (needs up to max_digits10 == 9 to round-trip exactly).
+  // Any caller that re-parses what it just wrote to compare against the
+  // in-memory value (see GeometrySystem::reconcile_scene()'s primitive_
+  // shape_matches(), engine-side -- exactly what sdf_editor's live-preview
+  // sync does every edit) would otherwise see a tiny write/reparse drift
+  // on EVERY float field of EVERY primitive, not just the one actually
+  // edited, making every primitive look "changed" every single sync and
+  // defeating that surgical-update path entirely -- the whole scene's
+  // chunks would look dirty even when only one primitive moved. Set once,
+  // stream-wide, before anything is written -- std::ofstream's precision
+  // persists across every subsequent `<<` on this stream.
+  file << std::setprecision(std::numeric_limits<f32>::max_digits10);
 
   file << "#sdf scene file\n";
   file << "version=0.1\n";

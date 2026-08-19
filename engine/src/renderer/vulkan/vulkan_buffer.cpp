@@ -14,7 +14,28 @@ VulkanBuffer::VulkanBuffer(VulkanContext &context, u64 size,
   VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   buffer_info.size = size;
   buffer_info.usage = usage;
-  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // Only used in one queue.
+  // CONCURRENT across the graphics and async-compute families whenever those
+  // are genuinely different families (see VulkanDevice::async_compute_queue_
+  // index). The chunk bake writes these buffers from the compute family and
+  // the frame reads them from the graphics one; under EXCLUSIVE sharing that
+  // would require an explicit ownership transfer on every single buffer at
+  // every handoff, and skipping it is undefined rather than merely slow.
+  //
+  // Concurrent access costs essentially nothing for buffers on desktop
+  // hardware (unlike images, where it can disable compression), and it is
+  // what makes moving the bake off the graphics engine practical at all.
+  const u32 sharing_families[2] = {
+      static_cast<u32>(context.device.graphics_queue_index),
+      static_cast<u32>(context.device.async_compute_queue_index)};
+  if (context.device.async_compute_queue_index >= 0 &&
+      context.device.async_compute_queue_index !=
+          context.device.graphics_queue_index) {
+    buffer_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+    buffer_info.queueFamilyIndexCount = 2;
+    buffer_info.pQueueFamilyIndices = sharing_families;
+  } else {
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  }
 
   VK_CHECK(vkCreateBuffer(context_->device.logical_device, &buffer_info,
                           context_->allocator, &handle_));

@@ -2,12 +2,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 ChunkStreamingManager::ChunkStreamingManager(u32 max_resident_chunks,
                                              i32 stream_radius_chunks,
                                              u32 frames_in_flight_delay,
-                                             u32 slot_offset)
+                                             u32 slot_offset,
+                                             u32 lazy_evict_min_free)
     : max_resident_chunks_(max_resident_chunks),
+      lazy_evict_min_free_(lazy_evict_min_free),
       stream_radius_chunks_(stream_radius_chunks),
       frames_in_flight_delay_(frames_in_flight_delay) {
   free_slots_.reserve(max_resident_chunks_);
@@ -54,17 +57,56 @@ ChunkStreamingManager::Plan ChunkStreamingManager::update(glm::vec3 camera_pos,
   // on a later update() call, once its own tick()-driven transition to
   // Ready confirms it's safe -- a small extra delay in a rare case, not a
   // correctness issue.
-  i32 evict_radius = stream_radius_chunks_ + kEvictHysteresisChunks;
-  for (const auto &[key, record] : resident_) {
-    if (record.state != ChunkState::Ready) {
-      continue;
+  if (lazy_evict_min_free_ == 0) {
+    // Eager (original) behavior: evict on window-exit regardless of slot
+    // pressure.
+    i32 evict_radius = stream_radius_chunks_ + kEvictHysteresisChunks;
+    for (const auto &[key, record] : resident_) {
+      if (record.state != ChunkState::Ready) {
+        continue;
+      }
+      bool within_evict_window = std::abs(key.cx - camera_cx) <= evict_radius &&
+          std::abs(key.cy - camera_cy) <= evict_radius &&
+          std::abs(key.cz - camera_cz) <= evict_radius;
+      if (!within_evict_window) {
+        plan.to_evict.push_back(key);
+      }
     }
-    bool within_evict_window = std::abs(key.cx - camera_cx) <= evict_radius &&
-        std::abs(key.cy - camera_cy) <= evict_radius &&
-        std::abs(key.cz - camera_cz) <= evict_radius;
-    if (!within_evict_window) {
-      plan.to_evict.push_back(key);
+  } else if (free_slots_.size() + releasing_slots_.size() <
+             lazy_evict_min_free_) {
+    // Lazy eviction (see the constructor comment), and slots have actually
+    // become scarce: trim the cache. Anything outside the LOAD window
+    // itself is fair game -- deliberately NOT widened by
+    // kEvictHysteresisChunks here: under pressure the hysteresis ring is
+    // just more cache, and only listing chunks beyond it could leave
+    // nothing evictable at all (the ring alone can hold more chunks than
+    // there are slots). The anti-thrash job hysteresis did is done by the
+    // laziness itself now -- no pressure, no eviction, so boundary jitter
+    // costs nothing. Farthest-first, so the least-likely-to-be-wanted
+    // chunks go before ones the camera might swing back to; releasing_
+    // slots_ counts toward the free side since those slots are already on
+    // their way back without any new eviction.
+    for (const auto &[key, record] : resident_) {
+      if (record.state != ChunkState::Ready) {
+        continue;
+      }
+      i64 chebyshev = std::max({std::abs(key.cx - camera_cx),
+                                std::abs(key.cy - camera_cy),
+                                std::abs(key.cz - camera_cz)});
+      if (chebyshev > stream_radius_chunks_) {
+        plan.to_evict.push_back(key);
+      }
     }
+    std::sort(plan.to_evict.begin(), plan.to_evict.end(),
+             [&](ChunkKey a, ChunkKey b) {
+               i64 da = std::max({std::abs(a.cx - camera_cx),
+                                  std::abs(a.cy - camera_cy),
+                                  std::abs(a.cz - camera_cz)});
+               i64 db = std::max({std::abs(b.cx - camera_cx),
+                                  std::abs(b.cy - camera_cy),
+                                  std::abs(b.cz - camera_cz)});
+               return da > db;
+             });
   }
 
   // to_load: every chunk in the window not already resident/in-progress,
@@ -109,6 +151,17 @@ void ChunkStreamingManager::commit_evict(ChunkKey key) {
 void ChunkStreamingManager::tick() {
   ++generation_;
 
+  // Slots released outright (release_slot()) age exactly like an evicting
+  // chunk's own slot does, for the same reason -- see acquire_free_slot().
+  for (auto it = releasing_slots_.begin(); it != releasing_slots_.end();) {
+    if (generation_ - it->second >= frames_in_flight_delay_) {
+      free_slots_.push_back(it->first);
+      it = releasing_slots_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
   for (auto it = resident_.begin(); it != resident_.end();) {
     ChunkRecord &record = it->second;
     u64 age = generation_ - record.bake_generation;
@@ -123,6 +176,24 @@ void ChunkStreamingManager::tick() {
       ++it;
     }
   }
+}
+
+void ChunkStreamingManager::release_slot(u32 gpu_slot) {
+  if (gpu_slot == kInvalidChunkSlot) {
+    return;
+  }
+  // Already free, or already awaiting release -- see the header comment on
+  // why a redundant call has to be harmless rather than corrupting.
+  if (std::find(free_slots_.begin(), free_slots_.end(), gpu_slot) !=
+      free_slots_.end()) {
+    return;
+  }
+  for (const auto &[slot, generation] : releasing_slots_) {
+    if (slot == gpu_slot) {
+      return;
+    }
+  }
+  releasing_slots_.emplace_back(gpu_slot, generation_);
 }
 
 u32 ChunkStreamingManager::acquire_free_slot() {

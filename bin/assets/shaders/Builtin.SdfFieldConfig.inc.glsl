@@ -36,6 +36,7 @@ const float COARSE_CELL_SIZE = (2.0 * BOUNDS) / float(COARSE_DIM);
 // per axis. Must match kChunkCoarseDim in vulkan_raymarch_shader.cpp exactly.
 const int CHUNK_COARSE_DIM = 16;
 const int CHUNK_CELL_COUNT = CHUNK_COARSE_DIM * CHUNK_COARSE_DIM * CHUNK_COARSE_DIM;
+
 const float CHUNK_WORLD_SIZE = float(CHUNK_COARSE_DIM) * COARSE_CELL_SIZE;
 
 // A chunk's own brick resolution -- deliberately NOT BRICK_DIM above, even

@@ -32,6 +32,17 @@ public:
 private:
   Game *game;
   PlatformLayer platform;
+  // Whether construction actually succeeded. KFATAL only LOGS -- it does not
+  // abort, return, or throw -- so a failed renderer or game init used to fall
+  // straight through into application_start() and run the frame loop against
+  // half-built state. Every renderer resource is a std::optional that never
+  // got engaged, so the first frame dereferenced a disengaged optional and
+  // took the process down. The log said "Aborting application." and then the
+  // application booted anyway.
+  //
+  // Failing to start is the correct outcome, and the error has already been
+  // reported by the time this is set.
+  b8 init_ok_ = true;
   b8 is_running = false;
   b8 is_suspended = false;
   i16 width;

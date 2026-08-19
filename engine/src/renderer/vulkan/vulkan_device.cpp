@@ -1,4 +1,6 @@
 #include "vulkan_device.h"
+
+#include <cstdlib>
 #include "../../core/logger.h"
 #include "vulkan_utils.h"
 
@@ -20,6 +22,9 @@ struct VulkanPhysicalDeviceQueueFamilyInfo {
   u32 graphics_family_index = static_cast<u32>(-1);
   u32 present_family_index = static_cast<u32>(-1);
   u32 compute_family_index = static_cast<u32>(-1);
+  // A family with COMPUTE and NOT GRAPHICS, if the device has one -- see
+  // VulkanDevice::async_compute_queue_index.
+  u32 async_compute_family_index = static_cast<u32>(-1);
   u32 transfer_family_index = static_cast<u32>(-1);
 };
 
@@ -92,6 +97,19 @@ static b8 select_physical_device(VulkanContext &context) {
           static_cast<i32>(queue_info.present_family_index);
       context.device.transfer_queue_index =
           static_cast<i32>(queue_info.transfer_family_index);
+      // KENGINE_NO_ASYNC_QUEUE forces the old behaviour -- a second queue
+      // from the graphics family rather than the dedicated compute engine.
+      // Present as a bisect switch: moving the bake to another queue family
+      // changes buffer sharing mode and every graphics/compute handoff at
+      // once, so being able to rule it out without a rebuild is worth one
+      // getenv at startup.
+      const bool force_shared_queue =
+          std::getenv("KENGINE_NO_ASYNC_QUEUE") != nullptr;
+      context.device.async_compute_queue_index =
+          (!force_shared_queue &&
+           queue_info.async_compute_family_index != static_cast<u32>(-1))
+              ? static_cast<i32>(queue_info.async_compute_family_index)
+              : static_cast<i32>(queue_info.graphics_family_index);
       context.device.properties = properties;
       context.device.features = features;
       context.device.memory = memory;
@@ -118,21 +136,45 @@ b8 vulkan_device_create(VulkanContext &context) {
       context.device.graphics_queue_index == context.device.present_queue_index;
   b8 transfer_shares_graphics_queue = context.device.graphics_queue_index ==
                                       context.device.transfer_queue_index;
+  b8 async_compute_shares_graphics_queue =
+      context.device.graphics_queue_index ==
+      context.device.async_compute_queue_index;
 
-  std::array<u32, 3> indices{};
+  // Deduplicated: vkCreateDevice rejects two VkDeviceQueueCreateInfos naming
+  // the same family, and several of these routinely resolve to the same one.
+  // The transfer and async-compute picks collide on exactly this hardware --
+  // the compute-only family also advertises TRANSFER, so both land on it.
+  std::array<u32, 4> indices{};
   u32 index_count = 0;
-  indices[index_count++] = context.device.graphics_queue_index;
+  auto add_family = [&](i32 family) {
+    if (family < 0) {
+      return;
+    }
+    const u32 value = static_cast<u32>(family);
+    for (u32 i = 0; i < index_count; ++i) {
+      if (indices[i] == value) {
+        return;
+      }
+    }
+    indices[index_count++] = value;
+  };
+  add_family(context.device.graphics_queue_index);
+  add_family(context.device.async_compute_queue_index);
   if (!present_shares_graphics_queue) {
-    indices[index_count++] = context.device.present_queue_index;
+    add_family(context.device.present_queue_index);
   }
   if (!transfer_shares_graphics_queue) {
-    indices[index_count++] = context.device.transfer_queue_index;
+    add_family(context.device.transfer_queue_index);
   }
 
   // Sized to match `indices` (max 3 distinct queue families) rather than a
   // variable-length array on `index_count`, which clang only accepts as a
   // non-standard C++ extension.
-  std::array<VkDeviceQueueCreateInfo, 3> queue_create_infos{};
+  std::array<VkDeviceQueueCreateInfo, 4> queue_create_infos{};
+  // One priority per requested queue (the graphics family asks for 2 --
+  // see async_compute_queue's comment), and it must outlive the loop:
+  // pQueuePriorities is read by vkCreateDevice below, not copied here.
+  static constexpr f32 queue_priorities[2] = {1.0f, 1.0f};
   for (u32 i = 0; i < index_count; ++i) {
     queue_create_infos[i].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queue_create_infos[i].queueFamilyIndex = indices[i];
@@ -142,15 +184,63 @@ b8 vulkan_device_create(VulkanContext &context) {
     }
     queue_create_infos[i].flags = 0;
     queue_create_infos[i].pNext = 0;
-    f32 queue_priority = 1.0f;
-    queue_create_infos[i].pQueuePriorities = &queue_priority;
+    queue_create_infos[i].pQueuePriorities = queue_priorities;
   }
 
   // TODO: should be config driven
   VkPhysicalDeviceFeatures device_features = {};
   device_features.samplerAnisotropy = VK_TRUE; // Request anistrophy
+  // 64-bit integers in shaders, and 64-bit atomics on SSBO members --
+  // required by Builtin.ChunkPointSplat.comp.glsl's visibility-buffer
+  // atomicMin (see its header comment: one 64-bit atomic packs depth in the
+  // high half and the winning point's id in the low half, so a single
+  // atomicMin resolves "nearest splat wins" AND carries the payload needed
+  // to shade it -- the standard visibility-buffer trick, and the reason
+  // Dreams-style splatting needs no depth pre-pass). shaderBufferInt64
+  // Atomics is core in Vulkan 1.2 (the apiVersion this engine requests --
+  // see vulkan_backend.cpp), so it's enabled through VkPhysicalDeviceVulkan
+  // 12Features rather than the older VK_KHR_shader_atomic_int64 extension
+  // struct. Both were confirmed supported on this engine's target class of
+  // GPU before the splat path was written; a device lacking them fails
+  // vkCreateDevice here rather than miscompiling the shader later.
+  VkPhysicalDeviceVulkan12Features vulkan12_features{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+  vulkan12_features.shaderBufferInt64Atomics = VK_TRUE;
+  // Timeline semaphores let the async compute queue wait on the graphics
+  // queue's PREVIOUS frame without the CPU blocking on it -- see
+  // VulkanContext::graphics_timeline. A binary semaphore cannot express
+  // this: it would be signalled every frame but only waited on frames that
+  // actually have chunk work, and signalling an already-signalled binary
+  // semaphore is invalid. Core in Vulkan 1.2, which this engine already
+  // requests.
+  vulkan12_features.timelineSemaphore = VK_TRUE;
+  // Lets a shader index a combined-image-sampler ARRAY with a value that
+  // differs between invocations in the same wave -- which is exactly what
+  // a per-pixel material index is.
+  //
+  // Without it, Vulkan only defines the result for a "dynamically uniform"
+  // index, so Builtin.DeferredShade.comp.glsl and Builtin.RaymarchShader.
+  // comp.glsl were both reduced to looping over ALL kMaxScenePrimitives
+  // (1000) slots and taking the one where the loop counter -- which IS
+  // dynamically uniform -- happened to equal the pixel's material. Six of
+  // those loops run per shaded pixel (three triplanar planes for colour,
+  // three more for the bump height taps), i.e. 6,000 iterations to fetch
+  // 6 texels. That is what put the deferred shading pass at ~24ms on a
+  // screen full of hits versus 0.2ms on an empty one.
+  //
+  // Core in Vulkan 1.2, which this engine already requests (see
+  // vulkan_backend.cpp), so it needs no extension -- just enabling, like
+  // the two above. Required, not optional: the shaders are precompiled
+  // SPIR-V, so there is no runtime fallback variant to switch to, and a
+  // device with shaderBufferInt64Atomics but without descriptor indexing
+  // is not a configuration this engine's target class of GPU produces.
+  // Failing in vkCreateDevice is the honest outcome, same as the two
+  // above.
+  vulkan12_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+  device_features.shaderInt64 = VK_TRUE;
   VkDeviceCreateInfo device_create_info = {
       VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+  device_create_info.pNext = &vulkan12_features;
   device_create_info.queueCreateInfoCount = index_count;
   device_create_info.pQueueCreateInfos = queue_create_infos.data();
   device_create_info.pEnabledFeatures = &device_features;
@@ -172,6 +262,28 @@ b8 vulkan_device_create(VulkanContext &context) {
   vkGetDeviceQueue(context.device.logical_device,
                    context.device.graphics_queue_index, 0,
                    &context.device.graphics_queue);
+
+  // Queue index 1 of the SAME family -- see async_compute_queue's own
+  // comment. Requesting queueCount=2 for this family above is what makes
+  // a second, independently-schedulable queue instance available here at
+  // all; nothing else about device/queue creation changes for it.
+  // From the dedicated compute family when the device has one, so the bake
+  // actually runs alongside the frame instead of taking turns with it. On a
+  // device without one this resolves back to queue index 1 of the graphics
+  // family, exactly as before.
+  vkGetDeviceQueue(context.device.logical_device,
+                   context.device.async_compute_queue_index,
+                   async_compute_shares_graphics_queue ? 1 : 0,
+                   &context.device.async_compute_queue);
+  if (!async_compute_shares_graphics_queue) {
+    KINFO("Async compute on dedicated queue family {} (graphics is {}) -- "
+         "chunk bakes can overlap the frame.",
+         context.device.async_compute_queue_index,
+         context.device.graphics_queue_index);
+  } else {
+    KWARN("No compute-only queue family; chunk bakes share the graphics "
+         "engine and will contend with rendering.");
+  }
 
   vkGetDeviceQueue(context.device.logical_device,
                    context.device.present_queue_index, 0,
@@ -197,6 +309,7 @@ void vulkan_device_destroy(VulkanContext &context) {
   context.device.graphics_queue = 0;
   context.device.present_queue = 0;
   context.device.transfer_queue = 0;
+  context.device.async_compute_queue = 0;
 
   // Command pools are owned by the device, so they must be destroyed while
   // the logical device handle is still valid.
@@ -301,6 +414,14 @@ static b8 physical_device_meets_requirements(
     }
     if (queue_families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
       out_queue_info.compute_family_index = i;
+      // A family with COMPUTE but NOT GRAPHICS is a dedicated compute
+      // engine -- see VulkanDevice::async_compute_queue_index. Preferred
+      // over the universal family for the chunk bake, because two queues
+      // of ONE family are time-sliced on the same engine: the bake would
+      // not overlap the frame, it would take turns with it.
+      if ((queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) {
+        out_queue_info.async_compute_family_index = i;
+      }
       ++current_transfer_score;
     }
     if (queue_families[i].queueFlags & VK_QUEUE_TRANSFER_BIT) {

@@ -41,6 +41,11 @@ public:
   i32 primitive_gpu_index(const std::string &name) const override;
   void set_grid_visible(b8 visible) override;
   void set_chunked_field_enabled(b8 enabled) override;
+  void set_splat_mode(RendererSplatMode mode) override;
+  void set_taa_enabled(b8 enabled) override;
+  void set_ism_enabled(b8 enabled) override;
+  void set_ao_enabled(b8 enabled) override;
+  void debug_probe_field(glm::vec3 world_pos) override;
   void set_bloom_enabled(b8 enabled) override;
   void set_vignette_enabled(b8 enabled) override;
   void set_pixelation_enabled(b8 enabled) override;

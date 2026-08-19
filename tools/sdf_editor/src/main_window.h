@@ -15,6 +15,7 @@ class QLineEdit;
 class QPushButton;
 class QLabel;
 class QCheckBox;
+class QTimer;
 class ContentsTreeWidget;
 
 // A small Qt front-end over testbed/src/sdf_authoring.h's read/write/
@@ -92,6 +93,11 @@ private slots:
   // The grid is editor-only: the engine defaults it to hidden and only
   // this tool ever turns it on, so games never render it.
   void on_show_grid_toggled(bool checked);
+
+  // Switches the viewport between marching the chunked field and shading
+  // its baked point cloud directly (see SceneViewport::
+  // set_splat_visibility()).
+  void on_splat_visibility_toggled(bool checked);
   // Connected to viewport_'s selection_changed(std::vector<PrimitiveRef>)
   // signal -- mirrors the given selection onto contents_tree_'s own item
   // selection, keeping the side panel in sync with clicks (and ctrl-clicks,
@@ -244,6 +250,26 @@ private:
   // longer forces the chunked/streamed field to re-bake every chunk it
   // has resident, just the ones the new primitive actually touches).
   void sync_viewport_scene();
+  // Debounced front door for sync_viewport_scene(), used only by the
+  // rapid-fire live-edit handlers (on_live_edit_changed()/on_light_field_
+  // changed()/on_ambient_changed()/on_volumetric_field_changed()) -- a
+  // QDoubleSpinBox's valueChanged fires on every intermediate tick while
+  // scrubbing/holding its arrows, each of which used to trigger its own
+  // full save-to-disk + engine reconcile + chunk re-voxelize. Updates
+  // viewport_'s own scene_ copy immediately (cheap, keeps the gizmo/click-
+  // picking feeling instant) but defers the expensive part
+  // (sync_viewport_scene_now()) behind sync_debounce_timer_, restarting it
+  // on every call -- so a burst of edits within kSyncDebounceMs of each
+  // other collapses into exactly one real sync, running kSyncDebounceMs
+  // after the LAST one in the burst rather than once per edit. Every other
+  // caller (add/remove/paste/load/drag-end/tree-reorder -- discrete,
+  // deliberate, one-shot actions, not a rapid-fire source) still calls
+  // sync_viewport_scene() directly for immediate, un-debounced feedback.
+  void request_viewport_resync();
+  // The actual save-to-disk + engine reconcile step, split out of sync_
+  // viewport_scene() so request_viewport_resync()'s debounce timer has
+  // something to call once it fires -- see both callers' own comments.
+  void sync_viewport_scene_now();
 
   // Regenerates the "Lights" list from scene_.lights -- mirrors
   // refresh_contents_list().
@@ -290,6 +316,10 @@ private:
   // registration); every call after that reconciles against this same
   // handle instead of loading a fresh one.
   SceneHandle live_scene_handle_ = kInvalidSceneHandle;
+  // Debounces request_viewport_resync() -- see its own comment. Single-
+  // shot, (re)started on every call rather than left running, so it fires
+  // exactly once kSyncDebounceMs after the LAST edit in a burst.
+  QTimer *sync_debounce_timer_ = nullptr;
   QColor colour_ = Qt::white;
   std::string texture_name_; // empty => no diffuse map, colour_ only.
   // Separate from texture_name_ above -- empty => no bump map, no bump
@@ -426,6 +456,7 @@ private:
   QPushButton *move_mode_button_ = nullptr;
   QPushButton *rotate_mode_button_ = nullptr;
   QPushButton *grid_button_ = nullptr; // see on_show_grid_toggled()
+  QPushButton *splat_button_ = nullptr; // see on_splat_visibility_toggled()
   SceneViewport *viewport_ = nullptr;
 
   QListWidget *lights_list_ = nullptr;

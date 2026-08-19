@@ -2,19 +2,39 @@
 #include "../../../systems/chunk_streaming_manager.h"
 #include "../../camera.h"
 #include "../vulkan_buffer.h"
+#include "../vulkan_commandbuffer.h"
 #include "../vulkan_compute_pipeline.h"
+#include "../vulkan_fence.h"
 #include "../vulkan_shader_module.h"
 #include "../vulkan_types.inl"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class VulkanCommandBuffer;
 class VulkanTexture;
 struct Geometry;
+
+// Hashes the {level, key} pairs update_streaming()'s pending_forced_
+// evictions_/pending_forced_eviction_keys_ store -- ChunkKey alone (via
+// ChunkKeyHash, chunk_types.h) never encodes which clip level it came
+// from (chunks_touched_by() always stamps ChunkKey::level as 0; the real
+// level lives in the pair's own first element), so the two must be
+// combined here rather than just delegating to ChunkKeyHash.
+struct PendingForcedEvictionHash {
+  size_t operator()(const std::pair<u32, ChunkKey> &entry) const noexcept {
+    return std::hash<u32>{}(entry.first) * 1099511628211ull ^
+        ChunkKeyHash{}(entry.second);
+  }
+};
 
 // Three-pass sparse-voxel raymarching with baked indirect lighting:
 //
@@ -67,6 +87,51 @@ struct Geometry;
 //  it's a deliberate stylistic choice rather than something every game
 //  using this engine would want turned on unasked. See set_bloom_enabled()/
 //  set_vignette_enabled()/set_pixelation_enabled() below.
+// Phase 6: the caller-facing shape of one chunk in a voxelize_chunk_
+// batch() call -- NOT a direct mirror of any single GPU-side buffer
+// layout (see voxelize_chunk_batch()'s own .cpp comment for why it's
+// split into two parallel arrays, batch_chunk_slot[]/batch_chunk_data[]
+// in Builtin.ChunkVoxelize.comp.glsl, before upload: a plain packed array
+// of this 5-scalar struct would misalign under std430's struct-array-
+// stride rounding). A free-standing struct (not nested in the class
+// below, unlike the .cpp's other Gpu*/push-constant mirrors) since
+// voxelize_chunk_batch()'s own declaration needs the complete type here,
+// not just in vulkan_raymarch_shader.cpp where it's actually split/
+// uploaded.
+struct GpuChunkBatchEntry {
+  i32 chunk_slot;
+  f32 chunk_world_min_x;
+  f32 chunk_world_min_y;
+  f32 chunk_world_min_z;
+  f32 chunk_cell_size;
+};
+
+// How render_to() uses the chunked field's baked surface-point cloud (see
+// Builtin.ChunkPointSplat.comp.glsl's header comment for the technique).
+// Values must match SPLAT_MODE_* in Builtin.RaymarchShader.comp.glsl
+// exactly -- they're passed straight through as a push constant.
+//
+// Only meaningful while the chunked field is enabled (see
+// set_chunked_field_enabled()); the fixed-cube field bakes no points, so
+// render_to() skips the splat prepass entirely there regardless of this.
+enum class SplatMode : i32 {
+  // No splat prepass. Every primary ray marches from the camera, exactly
+  // as this renderer always did -- the safe fallback if anything about the
+  // point cloud is ever in doubt.
+  Off = 0,
+  // Splat, then start each primary ray just short of its pixel's nearest
+  // splat instead of at the camera. The image is exactly what Off
+  // produces (the starts are conservative, and an uncovered pixel just
+  // starts at 0) -- only the cost of crossing empty space changes.
+  Prime = 1,
+  // Shade the winning splat directly: no primary march at all for a
+  // covered pixel, which is the actual Dreams-style renderer. Pixels no
+  // splat covers fall back to Prime's behavior, so the image stays
+  // complete (no holes, no dependence on temporal accumulation) -- see
+  // main()'s own comment in Builtin.RaymarchShader.comp.glsl.
+  Visibility = 2,
+};
+
 class VulkanRaymarchShader {
 public:
   explicit VulkanRaymarchShader(VulkanContext &context);
@@ -122,21 +187,47 @@ public:
   // frame (see VulkanRendererBackend::begin_frame(), right after
   // maybe_recenter_origin(), before render_to()) with the camera's current
   // render-space position. Drives chunk_streaming_ (tick() + update()),
-  // then records up to kMaxChunkBakesPerFrame voxelize_chunk() calls and
-  // up to kMaxChunkBakesPerFrame evict_chunk() calls into cmd for whatever
-  // ChunkStreamingManager decided this frame -- bounded per frame so this
-  // never becomes a rebake()-style device-idle stall, unlike
-  // rebuild_static_scene()'s voxelize()/bake_probes() path (which
-  // rebake_synchronous_full()/sdf_editor still use unchanged). A no-op if
-  // nothing needs loading or evicting this frame (the common case once the
-  // camera settles).
-  void update_streaming(VulkanCommandBuffer &cmd, glm::vec3 camera_pos);
+  // then records up to kMaxChunkBakesPerFrame voxelize_chunk()/
+  // evict_chunk() calls (boundary streaming) and up to
+  // kMaxForcedRebakesPerFrame dirty-triggered in-place rebakes -- bounded
+  // per frame so this never becomes a rebake()-style device-idle stall,
+  // unlike rebuild_static_scene()'s voxelize()/bake_probes() path (which
+  // sdf_editor's chunked-field-disabled fallback still uses unchanged). A
+  // no-op if nothing needs loading/evicting/rebaking this frame (the
+  // common case once the camera settles and nothing's being edited).
+  //
+  // Phase 6: no longer takes a caller-provided command buffer -- any
+  // recorded work goes into this call's own slot of async_command_
+  // buffers_ (see that member's own comment) and is submitted to
+  // VulkanDevice::async_compute_queue right here, not left for the caller
+  // to submit alongside the main per-frame graphics work.
+  //
+  // Returns nothing, and the caller's graphics submission NEVER WAITS ON
+  // THE BAKE. It used to: this returned the async submission's semaphore
+  // and VulkanRendererBackend::begin_frame() added it as a wait, so
+  // render_to()'s chunked-field reads couldn't race a still-in-flight
+  // write. Correct, and the single largest source of stutter in the
+  // engine -- while the camera moves, chunk work is generated on
+  // essentially every frame, so every frame waited for that frame's own
+  // bake to finish. Measured bakes ran 600-2100ms mean with a 4.5 SECOND
+  // peak on a large scene; those numbers were frame times.
+  //
+  // The race is now closed by making an in-flight bake INVISIBLE instead
+  // of by stalling: nothing a bake writes is reachable until the CPU sees
+  // that submission's fence signalled and publishes it (see publish_
+  // completed_bakes()). The chunk table doesn't name the slot, and the
+  // cluster pool's flat sweep skips it (see chunk_slot_published_
+  // buffer_). A slow bake now costs briefly-stale content at the
+  // streaming frontier rather than a multi-second freeze.
+  void update_streaming(glm::vec3 camera_pos);
 
   // Phase 5: recenters gi_cascade_center_ (in discrete whole-cell steps,
   // classic terrain-clipmap texture behavior -- see
   // kGiCascadeRecenterThreshold's comment, .cpp) if the camera has drifted
-  // far enough from it, and if so records a full bake_gi_cascade() (every
-  // bounce) into cmd for the new center. Call once per frame, right after
+  // far enough from it, and if so (re)starts an amortized cascade bake --
+  // ONE bake_gi_cascade_bounce() per frame for kProbeBounceCount frames,
+  // not every bounce at once (see gi_cascade_next_bounce_'s comment) --
+  // recording each frame's bounce into cmd. Call once per frame, right after
   // update_streaming() (a cascade bake gathers against the chunked field,
   // so it must be recorded after that frame's chunk load/evict budget --
   // see this method's .cpp comment). A no-op most frames (the cascade only
@@ -189,6 +280,55 @@ public:
   void set_chunked_field_enabled(b8 enabled) noexcept {
     chunked_field_enabled_ = enabled;
   }
+
+  // Selects how render_to() uses the chunked field's baked point cloud --
+  // see SplatMode above for what each value does. Just a push constant
+  // (plus whether the splat prepass gets recorded at all), applied the very
+  // next render_to() call, no rebake needed. Defaults to Prime: it's a
+  // pure win where the chunked field is active (same image, less empty
+  // space marched) and inert everywhere else, whereas Visibility changes
+  // how surfaces are resolved and so stays opt-in.
+  void set_splat_mode(SplatMode mode) noexcept { splat_mode_ = mode; }
+  SplatMode splat_mode() const noexcept { return splat_mode_; }
+
+  // Temporal anti-aliasing (see Builtin.TaaResolve.comp.glsl). On by
+  // default: with it the renderer can afford the stochastic techniques the
+  // later steps need (one-ray AO, undersampled many-light shadow maps,
+  // stochastic LOD), and without it every one of those has to be exact.
+  // Turning it off costs nothing but a full-resolution copy -- the resolve
+  // pass still runs, with a blend factor of 1.0, so no descriptor set has
+  // to be rewritten when this is toggled.
+  // Imperfect shadow maps for local point lights (step 5 -- see Builtin.
+  // ChunkShadowSplat.comp.glsl). On by default: a lookup per light replaces
+  // a march per light, which is what makes dozens of shadowed lights
+  // affordable. Directional lights keep the marched shadow either way.
+  void set_ism_enabled(b8 enabled) noexcept { ism_enabled_ = enabled; }
+  b8 ism_enabled() const noexcept { return ism_enabled_; }
+
+  // Stochastic ambient occlusion over the binary voxel cascades (step 6 --
+  // see Builtin.StochasticAo.comp.glsl). On by default. One ray per pixel
+  // per frame, so it depends on TAA to be usable; turning TAA off and this
+  // on gives a very noisy image, which is why the shading pass falls back
+  // to the marched contact AO whenever this pass did not run.
+  void set_ao_enabled(b8 enabled) noexcept { ao_enabled_ = enabled; }
+  b8 ao_enabled() const noexcept { return ao_enabled_; }
+
+  // Samples the live chunked field at one world point and logs what it
+  // finds -- the diagnostic that separates "the bake produced wrong data"
+  // from "the bake is right and the splats are stale". Self-contained: it
+  // records, submits and waits on its own command buffer, so a caller needs
+  // nothing but a position. Debug-only, and deliberately synchronous.
+  void debug_probe_field(glm::vec3 world_pos, glm::vec3 camera_pos);
+
+  void set_taa_enabled(b8 enabled) noexcept;
+  b8 taa_enabled() const noexcept { return taa_enabled_; }
+  // Drops the accumulated history for one frame. Anything that invalidates
+  // the relationship between last frame's pixels and this frame's world
+  // must call this: a resize, a floating-origin recenter (every render-
+  // space position moves), or a rebake that changes what the field
+  // contains. Cheaper and more honest than trying to reproject through the
+  // discontinuity.
+  void invalidate_temporal_history() noexcept { history_valid_ = false; }
 
   // Enables/disables the bloom post-process (see the class comment's pass
   // 4 section). Just a push constant read by Builtin.PostComposite.
@@ -358,6 +498,57 @@ private:
   // in isolation, on buffers fully separate from the working fixed-cube
   // field above, before anything depends on it. ---
 
+  // Mirrors check_brick_overflow() for the chunked field's own, separate
+  // brick pool -- see that method's own comment. Reads chunk_brick_
+  // demand_buffer_ (see its own member comment for why this was, until
+  // now, a write-only diagnostic hook nothing ever consumed). Call only
+  // once the voxelize_chunk_batch() dispatch that most recently wrote it
+  // is confirmed complete -- update_streaming()'s ensure_async_cmd()
+  // lambda is the one safe place this holds (right after fence-waiting
+  // for this ring slot's PREVIOUS submission, which -- since every
+  // submission to async_compute_queue is ordered FIFO on that one queue
+  // -- also guarantees every earlier submission, including whichever one
+  // last wrote this counter, has retired too).
+  //
+  // A per-BATCH (not per-resident-chunk) signal: it catches a single
+  // frame's newly-(re)baked chunks demanding more bricks than the WHOLE
+  // shared pool holds, but NOT slow cumulative exhaustion from many
+  // chunks accumulating residency across many frames with no single
+  // frame's demand ever spiking that high. Still the right first
+  // diagnostic to add -- the old field's identical check has the same
+  // "single bake" framing, which is exact there since it never streams.
+  void check_chunk_brick_overflow();
+  // Seeds a device-local buffer from CPU data through a throwaway staging
+  // buffer -- see its definition for why the chunked field's pools need it.
+  void upload_to_device_local(VulkanBuffer &dest, const void *data, u64 size);
+  // Non-blocking sweep of the async ring: for every slot whose fence says
+  // its bake has finished, makes that bake's chunks reachable (chunk table
+  // + published flag) and queues any slots it replaced for retirement.
+  // Called at the top of update_streaming(), every frame.
+  // Marks which cells of one chunk bake to identical bricks -- see its
+  // definition. out_alias must have kChunkCellCount entries.
+  u32 build_cell_alias_map(const std::vector<i32> &chunk_candidates,
+                           const std::vector<glm::vec4> &chunk_candidate_offsets,
+                           u32 candidate_count, glm::vec3 chunk_min,
+                           f32 cell_size, f32 max_smoothness, u32 chunk_slot,
+                           const std::unordered_set<u32> &excluded_slots,
+                           i32 *out_alias);
+
+  // Invalidates everything the alias cache believes about one slot's
+  // contents. MUST be called wherever a slot's bricks stop being the ones
+  // an earlier bake put there -- a load into it, or an eviction that frees
+  // them. A missed call is the one way this cache can be actively wrong:
+  // a stale entry would have a later bake copy from a brick that has since
+  // been recycled into unrelated geometry.
+  void invalidate_slot_content(u32 slot);
+  void publish_completed_bakes();
+  // Blocking counterpart to publish_completed_bakes(), for the synchronous
+  // debug_verify_*() harnesses only -- see its definition.
+  void drain_streaming_for_debug();
+  // Sets a chunk slot's entry in chunk_slot_published_buffer_. Paired with
+  // every write_chunk_table_entry() call -- the two must never disagree.
+  void set_chunk_slot_published(u32 gpu_slot, bool published);
+
   // Resets the chunked field to empty: fills chunk_table_buffer_ with -1
   // (no chunk resident anywhere) and re-seeds chunk_brick_free_list_buffer_/
   // chunk_brick_free_list_top_buffer_ to a full free pool ([0, 1, ...,
@@ -386,6 +577,28 @@ private:
                       u32 level, u32 gpu_slot, u32 layer_count,
                       f32 max_smoothness);
 
+  // Shared by voxelize_chunk()/evict_chunk() -- see its own .cpp comment.
+  void write_chunk_table_entry(glm::ivec3 world_chunk_coord, u32 level, i32 value);
+
+  // Phase 6: bakes an entire batch of chunks in ONE dispatch -- see this
+  // method's own .cpp comment (and Builtin.ChunkVoxelize.comp.glsl's) for
+  // the full design. voxelize_chunk() above is now a single-entry
+  // convenience wrapper around this for callers (the debug_verify_*()
+  // harness) that only ever bake one chunk at a time; update_streaming()
+  // is the real caller for a non-trivial batch.
+  // evicting_slots names the slots whose bricks THIS submission frees
+  // before the voxelize dispatch runs -- the alias cache must not offer any
+  // of them as a copy source. Empty for callers that record no evictions.
+  void voxelize_chunk_batch(VulkanCommandBuffer &cmd,
+                            const std::vector<GpuChunkBatchEntry> &entries,
+                            u32 layer_count, f32 max_smoothness,
+                            const std::unordered_set<u32> &evicting_slots = {});
+
+  // Builds one chunk's primitive candidate list -- see its .cpp comment.
+  u32 build_chunk_candidates(glm::vec3 chunk_min, f32 cell_size,
+                             f32 max_smoothness, i32 *out_candidates,
+                             glm::vec4 *out_offsets);
+
   // Records a single Builtin.ChunkedFieldDebugQuery.comp.glsl dispatch
   // (one invocation, one sample_chunked_field() call at query_world_pos)
   // into cmd, writing its result to chunk_debug_query_output_buffer_ for
@@ -411,20 +624,57 @@ private:
   // buffer, so leaving a stale table entry pointing at gpu_slot would
   // silently resolve future queries to whatever unrelated chunk reuses
   // that slot next, rather than "no chunk resident" -- exactly the class
-  // of bug this method exists to make impossible to forget. Caller
-  // (update_streaming()) owns the ring-delay that makes calling this safe.
-  // level must be the same clip level world_chunk_coord/gpu_slot were
-  // originally voxelize_chunk()'d with.
+  // of bug this method exists to make impossible to forget FOR A SLOT
+  // THAT'S ACTUALLY GOING BACK TO THE FREE POOL. Caller (update_streaming())
+  // owns the ring-delay that makes calling this safe in that case. level
+  // must be the same clip level world_chunk_coord/gpu_slot were originally
+  // voxelize_chunk()'d with.
+  //
+  // clear_table_entry=false is the one deliberate exception: a dirty-scene
+  // in-place re-bake (see update_streaming()'s own comment) immediately
+  // follows this same call, in the same command buffer, with a
+  // voxelize_chunk() targeting this SAME gpu_slot -- never handing it back
+  // to the free pool at all, so nothing else can ever observe it between
+  // the free and the reload. Leaving the table entry pointing at the OLD
+  // (still fully valid) content until that voxelize_chunk() overwrites it
+  // is what lets a moved/edited primitive's chunk stay visible the whole
+  // time instead of blanking out for the several frames a real evict/
+  // reload round-trip through the free list would otherwise take.
+  //
+  // insert_barrier=false lets a caller batch several chunks' worth of
+  // eviction together: this method's own trailing barrier only exists to
+  // make ITS free-list push visible to whatever reads it next, and a
+  // barrier is transitive -- one barrier after N calls sees all N calls'
+  // writes just as correctly as N barriers would, so a caller evicting a
+  // whole batch this same frame (see update_streaming()'s dirty-rebake
+  // path) can pass false here for every call and record ONE shared
+  // barrier itself once the whole batch is recorded, instead of paying
+  // this call's fixed barrier overhead once per chunk.
   void evict_chunk(VulkanCommandBuffer &cmd, glm::ivec3 world_chunk_coord,
-                   u32 level, u32 gpu_slot);
+                   u32 level, u32 gpu_slot, bool clear_table_entry = true,
+                   bool insert_barrier = true);
 
-  // Phase 5: records kProbeBounceCount Builtin.ChunkProbeBake.comp.glsl
-  // dispatches into cmd, gathering around gi_cascade_center_ -- mirrors
-  // bake_probes()'s ping-pong bounce loop exactly (see its own comment),
-  // just targeting chunk_gi_probe_buffer_a_/_b_ and reading the chunked
-  // field instead. Only called by update_gi_cascade(), which owns deciding
-  // *when* a recenter (and therefore a rebake) is actually due.
-  void bake_gi_cascade(VulkanCommandBuffer &cmd, u32 light_count);
+  // Phase 6: frees a whole batch of chunks' bricks in ONE dispatch -- see
+  // this method's own .cpp comment (and Builtin.ChunkEvict.comp.glsl's)
+  // for the full design. evict_chunk() above is now a single-entry
+  // convenience wrapper around this. Does NOT touch chunk_table_buffer_ --
+  // see its own .cpp comment for why that stays each caller's concern.
+  void evict_chunk_batch(VulkanCommandBuffer &cmd, const std::vector<i32> &slots,
+                         bool insert_barrier = true);
+
+  // Phase 5: records ONE Builtin.ChunkProbeBake.comp.glsl bounce dispatch
+  // into cmd, gathering around gi_cascade_center_ -- the same ping-pong
+  // scheme as bake_probes() (see its own comment), just targeting
+  // chunk_gi_probe_buffer_a_/_b_ and reading the chunked field instead,
+  // and AMORTIZED: update_gi_cascade() calls this once per frame for
+  // kProbeBounceCount consecutive frames instead of recording every bounce
+  // into one frame's command buffer (see gi_cascade_next_bounce_'s comment
+  // for why -- the all-at-once version was the dominant per-frame hitch on
+  // both scene edits and chunk-boundary camera travel). Only called by
+  // update_gi_cascade(), which owns deciding *when* a recenter (and
+  // therefore a rebake) is actually due.
+  void bake_gi_cascade_bounce(VulkanCommandBuffer &cmd, u32 light_count,
+                              u32 bounce);
 
   // One-shot, self-contained correctness check for the chunked field
   // introduced above: uploads a single hand-placed test sphere directly
@@ -479,6 +729,20 @@ private:
   // currently called by anything" contract as the debug_verify_* methods
   // above.
   void debug_verify_dirty_rebake();
+
+  // TEMPORARY -- investigating the live "moving a large primitive drops
+  // bricks" report. Builds a grid of spheres, streams them in, queries a
+  // baseline, then triggers the exact brute-force sweep update_streaming()
+  // does when surgical=false and re-queries to see if anything broke.
+  void debug_verify_bulk_sweep_TEMP();
+
+  // TEMPORARY -- investigating a live "renderer crashes when I move an
+  // object" report, following the Baking-chunk dirty-rebake fix. Streams in
+  // a large resident set, then simulates a rapid gizmo drag: reconcile_
+  // scene() + rebake() EVERY frame (not waiting for prior forced-rebakes to
+  // drain), for many frames, to stack up dirty cycles the way real spinbox/
+  // gizmo-drag ticks do.
+  void debug_verify_rapid_drag_crash_TEMP();
 
   // Regression test for sample_clipmap_field()'s LOD cross-fade blend --
   // bakes a level-0 chunk and its level-1 neighbor with deliberately
@@ -580,12 +844,157 @@ private:
   VkDescriptorSet chunk_probe_bake_set_odd_ = VK_NULL_HANDLE;
   std::optional<VulkanComputePipeline> chunk_probe_bake_pipeline_;
 
+  // Splat priming (the depth-priming stage of the Dreams-style point-
+  // splatting technique -- see Builtin.ChunkPointSplat.comp.glsl's header
+  // comment for the whole scheme): splats the chunked field's baked
+  // per-brick surface points into primed_depth_buffer_ every frame the
+  // chunked field is enabled, so render_to()'s primary rays can start at a
+  // conservative distance instead of marching all the empty space from the
+  // camera. Recorded by render_to() into the same command buffer, right
+  // before the render dispatch.
+  VulkanShaderModule chunk_cluster_cull_stage_;
+  VkDescriptorSetLayout chunk_cluster_cull_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_cluster_cull_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> chunk_cluster_cull_pipeline_;
+  VulkanShaderModule chunk_point_splat_stage_;
+  VkDescriptorSetLayout chunk_point_splat_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_point_splat_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> chunk_point_splat_pipeline_;
+
   // Backs chunk_voxelize_set_/chunk_debug_query_set_/chunk_evict_set_/
-  // chunk_probe_bake_set_(_odd_) -- deliberately not descriptor_pool_
+  // chunk_probe_bake_set_(_odd_)/chunk_point_splat_set_ -- deliberately
+  // not descriptor_pool_
   // below (which backs every
   // fixed-cube-field set), so this still-unproven path's descriptor
   // lifetime is fully decoupled from the working render pipeline's.
   VkDescriptorPool chunk_descriptor_pool_ = VK_NULL_HANDLE;
+
+  // Command pool for async_command_buffers_ below -- same queue FAMILY as
+  // graphics_command_pool (VulkanDevice::async_compute_queue is queue
+  // index 1 of that same family, not a separate one -- see its own
+  // comment), just a distinct pool object so this ring's alloc/reset
+  // cycle never contends with the main per-frame command buffers'.
+  VkCommandPool async_command_pool_ = VK_NULL_HANDLE;
+  // How many (command buffer, fence, semaphore) slots update_streaming()
+  // cycles through for its async chunk-bake submissions -- see
+  // update_streaming()'s own comment for the full design. 2 is standard
+  // double-buffering depth for a queue whose own submission cadence is
+  // tied to the same per-frame cadence as the graphics queue (nothing
+  // here needs more slack than that): async_ring_index_ can't advance
+  // past a slot whose PREVIOUS submission hasn't been fence-confirmed
+  // complete, so this also bounds how many frames the async queue can
+  // ever lag behind the CPU -- comfortably under kFramesInFlightDelay
+  // (3), which every chunk's Baking->Ready transition already assumes is
+  // enough slack for GPU work to have actually finished.
+  //
+  // Raised from 2 once the graphics queue stopped waiting on the bake.
+  // With the wait in place the ring could never get more than a frame
+  // ahead anyway, so depth 2 cost nothing. Now update_streaming() SKIPS
+  // queueing chunk work on any frame whose ring slot is still in flight
+  // (rather than blocking the CPU on its fence, which would just
+  // reintroduce the stall a level down), so the depth directly bounds how
+  // much streaming can be in flight at once -- and a bake measured in
+  // seconds against a frame measured in milliseconds wants more than one
+  // spare slot. Each slot costs a command buffer, a fence, two semaphores
+  // and a batch-buffer region of a few kilobytes.
+  static constexpr u32 kAsyncRingDepth = 4;
+  std::vector<std::unique_ptr<VulkanCommandBuffer>> async_command_buffers_;
+  std::vector<std::unique_ptr<VulkanFence>> async_fences_;
+  // Chains consecutive async_compute_queue submissions to each other --
+  // NOT the same thing async_fences_ already provides. The fence only
+  // gates when the CPU may safely reuse a ring slot's command buffer;
+  // Vulkan does NOT guarantee memory visibility between two separate
+  // vkQueueSubmit calls to the same queue just because they were
+  // submitted in order (execution order is guaranteed; a memory
+  // dependency is not, without an explicit semaphore/barrier). Without
+  // this, two back-to-back update_streaming() calls -- e.g. a large,
+  // multi-frame forced-rebake sweep, which is exactly what surfaced this
+  // live -- have no dependency stopping their dispatches from executing
+  // concurrently/out of order on the GPU, both touching the same shared
+  // chunk_indirection_buffer_/chunk_brick_pool_buffer_/chunk_brick_free_
+  // list_buffer_/chunk_brick_free_list_top_buffer_. Each submission waits
+  // on the immediately-preceding one's entry here (if any) and signals
+  // its own before returning -- see update_streaming()'s own comment.
+  std::vector<VkSemaphore> async_chain_semaphores_;
+  // The chain semaphore the NEXT async submission must wait on, or
+  // VK_NULL_HANDLE if there's no prior submission yet to depend on (the
+  // very first one, or after a device-wide vkDeviceWaitIdle already made
+  // any dependency moot).
+  VkSemaphore pending_async_chain_semaphore_ = VK_NULL_HANDLE;
+  u32 async_ring_index_ = 0;
+
+  // One entry per chunk whose bake is in flight in a given ring slot, held
+  // until that slot's fence confirms the bake actually finished -- see
+  // publish_completed_bakes(), and update_streaming()'s own comment for
+  // why publication is deferred at all.
+  struct PendingChunkPublish {
+    u32 level = 0;
+    ChunkKey key{};
+    // The slot the bake wrote into. Written into the chunk table (and
+    // marked published) only once the fence says the bake is done.
+    u32 slot = kInvalidChunkSlot;
+    // The slot this bake REPLACES, or kInvalidChunkSlot for an ordinary
+    // boundary load. Non-empty for a dirty-scene in-place rebake, which is
+    // now double-buffered: the chunk keeps sampling its old slot's content
+    // for the whole duration of the new bake, and only when the new one is
+    // published does the old slot get its bricks freed and go back to the
+    // pool. That is what lets the rebake be slow without either flickering
+    // (the old "evict then re-bake in place" behaviour) or stalling (the
+    // old semaphore wait).
+    u32 retire_slot = kInvalidChunkSlot;
+    // resident_[key].bake_generation at queue time -- a stale entry whose
+    // chunk was evicted and reloaded meanwhile must not publish over the
+    // newer bake's slot.
+    u64 bake_generation = 0;
+  };
+  // Ends and submits this frame's recorded chunk work, and hands its chunks
+  // to the ring slot whose fence will report them finished -- see its
+  // definition. Declared here rather than with the other methods because it
+  // names PendingChunkPublish, defined just above.
+  void submit_async_chunk_work(
+      VulkanCommandBuffer *async_cmd,
+      std::vector<PendingChunkPublish> &queued_publishes);
+
+  std::vector<PendingChunkPublish> async_pending_publish_[kAsyncRingDepth];
+  // Slots whose replacement has been published and whose bricks/cluster
+  // pages therefore now need freeing -- drained into the next frame's
+  // evict batch (an evict is GPU work, so it can't be issued from
+  // publish_completed_bakes(), which records nothing).
+  std::vector<u32> pending_slot_retirements_;
+
+  // Rolling estimate of what one chunk costs to bake on this GPU, in this
+  // scene, right now -- the input to the adaptive submission size (see
+  // kSubmissionTargetMs). Updated from the async ring's own timestamps
+  // every time a submission's fence is observed, so it tracks the content
+  // the camera is actually moving through rather than any authored guess.
+  // Seeded PESSIMISTIC, not zero. This drives how many chunks one
+  // submission may bake, and the very first submission has no measurement
+  // to go on -- starting optimistic would make it the largest one the cap
+  // allows, at exactly the moment a scene is loading and chunks are at
+  // their most expensive. Starting at the whole per-submission budget means
+  // the first submission bakes a single chunk, and the estimate walks down
+  // from there as fast as the measurements justify.
+  f64 bake_ms_per_chunk_estimate_ = 40.0;
+  // Whether the voxelizer tallies its bake-cost counters (see
+  // ChunkBrickDemandBuffer in Builtin.ChunkVoxelize.comp.glsl). Off by
+  // default -- the atomics are individually cheap but there are millions of
+  // them per bake. Flipped by setting KENGINE_BAKE_STATS in the environment.
+  b8 bake_stats_enabled_ = false;
+  // Brick deduplication (build_cell_alias_map() + the voxelizer's pass 1),
+  // OFF unless explicitly enabled.
+  //
+  // It landed without ever being run against real content -- the GPU was
+  // occupied for the whole session it was written in -- and it can remove
+  // geometry when wrong rather than merely slowing things down: a mis-keyed
+  // alias copies the wrong cell's brick (or a cell that has none). Correct-
+  // by-default with an opt-in switch is the right shape for that until it
+  // has been watched running. KENGINE_CHUNK_DEDUP=1.
+  b8 chunk_dedup_enabled_ = false;
+  // Smoothed camera velocity, for the streaming window's lead bias (see
+  // kStreamLeadFrames), and the position it was measured against.
+  glm::vec3 stream_velocity_{0.0f};
+  glm::vec3 last_stream_camera_pos_{0.0f};
+  b8 have_last_stream_camera_pos_ = false;
 
   // Phase 5: this cascade's current center, in RENDER space -- recentered
   // in discrete whole-cell steps by update_gi_cascade() as the camera
@@ -593,6 +1002,49 @@ private:
   // origin; the first update_gi_cascade() call wherever the camera
   // actually is will recenter it there before anything reads it.
   glm::vec3 gi_cascade_center_{0.0f};
+
+  // Set by update_streaming() whenever a scene edit (not just camera
+  // motion) forced a dirty-rebake cycle this frame, and consumed by the
+  // very next update_gi_cascade() call (always the same frame, since
+  // begin_frame() calls update_streaming() then update_gi_cascade() back
+  // to back) to force a cascade rebake even though the camera itself
+  // hasn't crossed kGiCascadeRecenterThreshold -- without this,
+  // update_gi_cascade()'s only rebake trigger is camera drift, so editing
+  // a light or primitive with a stationary camera left the cascade's
+  // indirect-bounce term frozen on the pre-edit scene indefinitely (direct
+  // lighting updates immediately every frame regardless, since render_to()
+  // reads light_buffer_ fresh every frame -- only the baked INDIRECT term
+  // was stuck).
+  bool gi_cascade_dirty_ = false;
+
+  // Which bounce of an in-progress amortized cascade bake the NEXT
+  // update_gi_cascade() call should record -- >= kProbeBounceCount (the
+  // initial state, see update_gi_cascade() which compares against it)
+  // means no bake is in progress. A cascade rebake used to record all
+  // kProbeBounceCount bounces into a single frame's graphics command
+  // buffer; at 16^3 probes x 32 gather rays x up-to-128 steps each, six of
+  // those in one frame was a guaranteed hitch -- and it fired on EVERY
+  // scene edit and EVERY kGiCascadeCellSize (2 world units) of camera
+  // travel, which is exactly the "hitches while moving between chunks"
+  // symptom. One bounce per frame bounds the per-frame cost at a sixth of
+  // that; in exchange the indirect term converges over kProbeBounceCount
+  // frames instead of instantly, which for a low-frequency GI cascade is
+  // invisible. A new trigger (edit or recenter) mid-bake simply restarts
+  // from bounce 0 against the new center/scene.
+  u32 gi_cascade_next_bounce_ = 0xFFFFFFFFu;
+
+  // Whether chunk_gi_probe_buffer_a_ has ever been written. Bounce 0 used
+  // to zero-fill it every bake ("previous bounce" input must not be
+  // garbage); amortized, that fill would blank the very buffer the render
+  // pass is still reading GI from, flickering the scene dark for the
+  // frames until a later bounce refills it. Instead bounce 0 now SEEDS
+  // from the previous cascade's own content -- a stale-but-plausible
+  // radiance estimate whose error decays by roughly an albedo factor per
+  // bounce, so after the full kProbeBounceCount bounces it's gone -- and
+  // the zero-fill happens exactly once, on the first bake ever, when the
+  // buffer genuinely holds garbage and there's no previous content to
+  // flicker away from.
+  bool gi_probes_initialized_ = false;
 
   // Phase 5: the camera position update_gi_cascade() was most recently
   // called with -- stashed because ChunkProbeBakePushConstants' camera_x/y/z
@@ -624,6 +1076,22 @@ private:
   // noticed, then drained a budget's worth per level per frame exactly like
   // an ordinary boundary eviction, until empty.
   std::vector<std::pair<u32, ChunkKey>> pending_forced_evictions_;
+  // Mirrors pending_forced_evictions_' own membership -- every {level, key}
+  // pair currently sitting in that vector (queued but not yet drained) also
+  // has an entry here, and vice versa; kept in exact lockstep by every push/
+  // erase of the vector. Exists purely so update_streaming()'s producers can
+  // check "is this chunk already queued, from THIS or an EARLIER dirty
+  // cycle" in O(1) before pushing a duplicate -- see pending_forced_
+  // evictions_dirty_cycle_dedup_'s own comment (update_streaming()'s body)
+  // for why a duplicate here isn't just harmless redundancy: a rapid
+  // sequence of dirty cycles (a gizmo drag firing one every tick, each
+  // BEFORE the previous cycle's forced-rebakes fully drain) would otherwise
+  // requeue the SAME still-Baking/still-queued chunk over and over, with
+  // nothing ever shrinking the backlog faster than new duplicates pile onto
+  // it -- confirmed live as sustained, worsening per-frame lag/GPU cost
+  // during a real drag, not just a theoretical waste.
+  std::unordered_set<std::pair<u32, ChunkKey>, PendingForcedEvictionHash>
+      pending_forced_eviction_keys_;
 
   // CHUNK_TABLE_DIM^3 i32s, host-visible -- the CPU writes this directly
   // (see reset_chunked_field()/voxelize_chunk()), the GPU only ever reads
@@ -632,15 +1100,15 @@ private:
   // kMaxResidentChunks * kChunkCellCount i32s -- device-local, like
   // indirection_buffer_ above; see voxelize_chunk().
   std::optional<VulkanBuffer> chunk_indirection_buffer_;
-  // kMaxChunkBricks * kBrickVoxelCount f32s -- this field's own, separate,
-  // smaller brick pool (see Builtin.SdfFieldConfig.inc.glsl's comment on
+  // kMaxChunkBricks * kChunkBrickVoxelCount f32s -- this field's own,
+  // separate, brick pool (see Builtin.SdfFieldConfig.inc.glsl's comment on
   // why it doesn't share brick_pool_buffer_ above).
   std::optional<VulkanBuffer> chunk_brick_pool_buffer_;
   std::optional<VulkanBuffer> chunk_brick_primitive_buffer_;
   // Host-visible -- unconditional per-cell demand counter, zeroed before
-  // every voxelize_chunk() dispatch and read back afterward, exactly
-  // mirroring brick_counter_buffer_'s overflow-diagnostic role above (see
-  // its own comment) for this field's own, separate pool.
+  // every voxelize dispatch and read back afterward, exactly mirroring
+  // brick_counter_buffer_'s overflow-diagnostic role above (see its own
+  // comment) for this field's own, separate pool.
   std::optional<VulkanBuffer> chunk_brick_demand_buffer_;
   // The free-list stack (see Builtin.ChunkVoxelize.comp.glsl's
   // BrickFreeListBuffer) and its top-of-stack pointer -- both host-visible
@@ -648,6 +1116,375 @@ private:
   // CPU; the GPU only ever pops from them via atomicAdd.
   std::optional<VulkanBuffer> chunk_brick_free_list_buffer_;
   std::optional<VulkanBuffer> chunk_brick_free_list_top_buffer_;
+  // Phase 6: one frame's worth of chunk bake/evict work, uploaded once and
+  // covered by a single dispatch each instead of one dispatch per chunk --
+  // see update_streaming() and Builtin.ChunkVoxelize.comp.glsl's
+  // ChunkVoxelizeBatchSlotBuffer comment (including why the voxelize batch
+  // is two parallel arrays rather than one array of structs). Host-visible:
+  // update_streaming() writes them directly from the CPU every call that
+  // records work.
+  std::optional<VulkanBuffer> chunk_voxelize_batch_slot_buffer_;
+  std::optional<VulkanBuffer> chunk_voxelize_batch_data_buffer_;
+  std::optional<VulkanBuffer> chunk_evict_batch_buffer_;
+
+  // Splat point CLUSTERS (step 2 -- see CHUNK_CLUSTER_POINTS in Builtin.
+  // SdfFieldConfig.inc.glsl). A shared pool of fixed-capacity pages, handed
+  // out from its own free list exactly like the brick pool: Builtin.
+  // ChunkVoxelize.comp.glsl claims as many pages as a brick's surface needs
+  // and fills them, Builtin.ChunkEvict.comp.glsl gives them back, and every
+  // consumer (splat, cull, shadow, render) works in whole clusters.
+  //
+  // This replaced a fixed-size point array per brick, whose failure mode was
+  // silent and severe: a brick whose surface wanted more points than the
+  // array held lost the remainder, and a splat gap does not fall back to
+  // marching -- it shows whatever is behind the surface.
+  //
+  // The point pool stays host-visible on purpose (the two brick pools
+  // already sit within ~1GB of a 4GB card's whole device-local heap, and
+  // this one is ~268MB); the small records/free-list buffers follow it so
+  // the CPU can seed them at reset with no staging copy.
+  std::optional<VulkanBuffer> chunk_cluster_point_buffer_;
+  std::optional<VulkanBuffer> chunk_cluster_buffer_;
+  std::optional<VulkanBuffer> chunk_cluster_free_list_buffer_;
+  std::optional<VulkanBuffer> chunk_cluster_free_top_buffer_;
+  // Which cluster pages each brick owns (kChunkMaxClustersPerBrick entries
+  // per brick, -1 for unused) -- eviction needs it to know what to free.
+  std::optional<VulkanBuffer> chunk_brick_cluster_buffer_;
+  // Step 3: this frame's visible clusters, compacted by Builtin.
+  // ChunkClusterCull.comp.glsl, plus the four-uint block holding the splat
+  // pass's vkCmdDispatchIndirect arguments and the visible count. Both
+  // device-local and rewritten every frame; the args buffer carries
+  // INDIRECT_BUFFER usage on top of STORAGE, and TRANSFER_DST so the count
+  // can be zeroed with a fill before each cull.
+  // Per-chunk primitive candidate lists (the bake's own broad phase).
+  //
+  // scene_map() walks every primitive in the scene at every sample, paying
+  // a bounding-sphere test to reject each one. A chunk bake is hundreds of
+  // bricks x ~5,800 voxels, so on a scene of any size that rejection work
+  // dominates everything else the bake does -- measured at 100-300ms per
+  // chunk. But a chunk is a small box: the primitives that can possibly
+  // matter anywhere inside it are known before the dispatch starts, from
+  // bounds the CPU already has.
+  //
+  // So each batch entry carries a list of just those primitives, and the
+  // voxelizer folds only them. This is the same insight Dreams' evaluator
+  // is built on -- refine a list of candidate edits per region, then
+  // evaluate against the short list -- in its flat, one-level form.
+  //
+  // chunk_candidate_buffer_ holds the lists back to back; chunk_candidate_
+  // range_buffer_ says where each entry's list starts and how long it is,
+  // with a count of -1 meaning "too many to list, evaluate everything" so
+  // an overflowing chunk degrades in speed rather than in correctness.
+  std::optional<VulkanBuffer> chunk_candidate_buffer_;
+  std::optional<VulkanBuffer> chunk_candidate_range_buffer_;
+  // Parallel to chunk_candidate_buffer_, one vec4 per entry: xyz = the
+  // local-space offset of the repetition instance that entry names, w != 0
+  // if it names one at all. See ChunkCandidateOffsetBuffer in Builtin.
+  // ChunkVoxelize.comp.glsl and PrimitiveBound's comment for why resolving
+  // instances per chunk is worth a whole extra buffer.
+  std::optional<VulkanBuffer> chunk_candidate_offset_buffer_;
+  // One i32 per cell of every batch entry: -1 to bake, else the local cell
+  // index this cell is a bit-identical copy of. See ChunkCellAliasBuffer in
+  // Builtin.ChunkVoxelize.comp.glsl and build_cell_alias_map().
+  std::optional<VulkanBuffer> chunk_cell_alias_buffer_;
+  // World-space bounds of every registered primitive, cached by
+  // rebuild_static_scene() so building the lists above costs no snapshot
+  // walk per chunk. packed_index is the primitive's own index with its
+  // layer index in the high 16 bits -- the shader needs both to fold it.
+  struct PrimitiveBound {
+    glm::vec3 position{0.0f};
+    // The whole primitive's reach, farthest repeated copy included -- what
+    // the cheap "can this primitive touch this chunk at all" test uses.
+    f32 radius = 0.0f;
+    i32 packed_index = 0;
+
+    // --- Domain repetition, resolved per chunk (see voxelize_chunk_batch()).
+    //
+    // A bounding SPHERE is a hopeless bound for a repeated primitive: 20x20
+    // copies on a 10-unit cell give radius ~134 world units, which is wider
+    // than the entire streamed field. Such a primitive is therefore in every
+    // chunk's candidate list, never culled anywhere, and costs eight
+    // evaluate_primitive_at() calls per sample because repeat_limited() has
+    // to check every neighbouring tile. On a scene built out of repeated
+    // architecture -- which is most of what repetition exists for -- that is
+    // the dominant cost of the entire bake.
+    //
+    // These let the CPU ask the far more useful question instead: which
+    // INSTANCES actually reach this chunk? Usually exactly one, whose local
+    // -space offset is then handed to the shader directly, so it evaluates a
+    // plain unrepeated primitive and the other 399 copies cost nothing.
+    u32 repeat_mode = 0; // RepetitionMode, 0 = None
+    glm::vec3 repeat_cell{0.0f};
+    glm::vec3 repeat_count{0.0f};
+    // The reach of ONE instance -- radius above minus the repetition spread.
+    f32 instance_radius = 0.0f;
+    // Rotation taking the primitive's local space to world space; its
+    // inverse maps a chunk's world-space box back into the space repetition
+    // is expressed in.
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    // Whichever layer's smoothness this primitive folds with. Instances may
+    // only be enumerated separately when this is zero: the fold is a
+    // smooth_union, and only at k = 0 does it degenerate to the exact min()
+    // that repeat_limited() takes over its candidates. With a real blend
+    // radius, folding two instances one after another would blend them into
+    // each other instead, which is a different shape.
+    f32 layer_smoothness = 0.0f;
+  };
+  std::vector<PrimitiveBound> primitive_bounds_;
+
+  std::optional<VulkanBuffer> chunk_visible_cluster_buffer_;
+  std::optional<VulkanBuffer> chunk_cull_args_buffer_;
+  // Step 5: the imperfect shadow maps. shadow_pair_buffer_ holds this
+  // frame's (cluster, light) work list and shadow_args_buffer_ its indirect
+  // dispatch arguments plus the pair count (same four-uint convention as
+  // the cull's); shadow_atlas_buffer_ is kIsmCount tiles of kIsmResolution^2
+  // distances, atomicMin'd by the splat and read by the shading pass.
+  std::optional<VulkanBuffer> chunk_shadow_pair_buffer_;
+  std::optional<VulkanBuffer> chunk_shadow_args_buffer_;
+  std::optional<VulkanBuffer> shadow_atlas_buffer_;
+  VulkanShaderModule chunk_shadow_splat_stage_;
+  VkDescriptorSetLayout chunk_shadow_splat_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_shadow_splat_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> chunk_shadow_splat_pipeline_;
+  b8 ism_enabled_ = true;
+
+  // Step 6: the ambient-occlusion pass and the structure it traces against.
+  // resident_cluster_buffer_ is the cull's third list (every resident
+  // cluster, frustum or not -- occluders behind the camera still occlude);
+  // voxel_cascade_buffer_ is kVoxelCascadeCount cascades of
+  // kVoxelCascadeDim^3 BITS, rebuilt from the point cloud every frame;
+  // ao_image_ is the per-pixel visibility the shading pass multiplies its
+  // indirect term by.
+  std::optional<VulkanBuffer> chunk_resident_cluster_buffer_;
+  std::optional<VulkanBuffer> chunk_resident_args_buffer_;
+  // kNumLevels * kMaxResidentChunks u32s: 1 where that chunk slot holds a
+  // completed, published bake, 0 otherwise. Host-visible and written by the
+  // CPU exactly like chunk_table_buffer_ (the two are always updated
+  // together -- see write_chunk_table_entry()), and read by Builtin.Chunk
+  // ClusterCull.comp.glsl, which is the one pass that walks the cluster
+  // pool flat rather than resolving through the table and so has no other
+  // way to know whether a page's owning chunk is finished. See that
+  // shader's ChunkSlotPublishedBuffer comment for why this is what lets the
+  // graphics queue stop waiting on the bake.
+  std::optional<VulkanBuffer> chunk_slot_published_buffer_;
+  std::optional<VulkanBuffer> voxel_cascade_buffer_;
+  VulkanImage ao_image_{};
+  VulkanShaderModule chunk_voxel_cascade_stage_;
+  VkDescriptorSetLayout chunk_voxel_cascade_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_voxel_cascade_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> chunk_voxel_cascade_pipeline_;
+  VulkanShaderModule stochastic_ao_stage_;
+  VkDescriptorSetLayout stochastic_ao_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet stochastic_ao_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> stochastic_ao_pipeline_;
+  b8 ao_enabled_ = true;
+  // The splat visibility buffer (render_width_ x render_height_ u64s --
+  // depth in the high half, winning point id in the low half, ~0 = no
+  // splat; see Builtin.ChunkPointSplat.comp.glsl's header comment).
+  // Cleared via vkCmdFillBuffer and rewritten by the splat dispatch every
+  // render_to() call that runs it, then read by Builtin.RaymarchShader.
+  // comp.glsl's binding 20. One buffer serves both SplatMode::Prime and
+  // ::Visibility -- what's written is identical, only how the render pass
+  // reads it differs. Recreated alongside the render target images
+  // (recreate_render_target_images()) since it's sized to match them.
+  std::optional<VulkanBuffer> splat_visibility_buffer_;
+  // The splat pass's conservative per-tile near bound -- one u32 (a float
+  // distance as raw bits) per kSplatTileSize-pixel tile of the render
+  // target, so it is recreated alongside splat_visibility_buffer_ and for
+  // the same reason. A brick that Visibility mode declines to splat
+  // atomicMins its own distance into the tiles it covers here, and
+  // Builtin.RaymarchShader.comp.glsl refuses any splat farther than its
+  // pixel's bound -- without that, geometry behind a declined brick
+  // splats straight through it (see Builtin.ChunkPointSplat.comp.glsl's
+  // DECLINED BRICKS STILL OCCLUDE note). Cleared to ~0 ("nothing
+  // declined") by the same per-frame vkCmdFillBuffer, hence TRANSFER_DST.
+  std::optional<VulkanBuffer> splat_tile_bound_buffer_;
+
+  // TAA (step 1). depth_image_ is pass 3's per-pixel hit distance, which is
+  // what lets the resolve pass turn a pixel back into a world position
+  // without a velocity buffer; history_images_ ping-pong because a pixel
+  // reads history at its REPROJECTED position and would otherwise race
+  // with another invocation's write; taa_output_image_ is what the post-
+  // process chain reads, so bloom/composite bind one static image whether
+  // TAA is on or off. All three are sized to the render target and are
+  // recreated with it.
+  // --- GPU timing (pass-level timestamps). ---
+  //
+  // The frame is a chain of ten-odd compute dispatches across two queues,
+  // and until this existed there was no way to attribute a millisecond to
+  // any of them -- which turned every performance question into an argument
+  // from structure. Timestamps are cheap (two writes per pass) and are read
+  // back from a frame old enough to be finished, so measuring costs no
+  // stall of its own.
+  //
+  // Graphics passes are timed at boundaries that ALWAYS execute, never
+  // inside a conditional block: an unwritten query reads back as
+  // unavailable and would poison the whole frame's results.
+  enum GraphicsTimestamp : u32 {
+    kTsFrameBegin = 0,
+    // The prepass, broken into its parts. It was one span covering all of
+  // them, which is enough to know it is expensive and useless for knowing
+  // WHICH of five dispatches to attack -- and guessing wrong there costs a
+  // day. Kept split permanently; a timestamp is a few cycles.
+  kTsPrepassClears,    // vkCmdFillBuffer over the per-frame scratch buffers
+  kTsPrepassCull,      // cluster cull over the whole pool
+  kTsPrepassCascade,   // binary voxel cascade build
+  kTsPrepassShadow,    // imperfect shadow map splat
+  kTsStreamingPrepass, // the point splat itself
+    kTsVisibility,       // the G-buffer pass
+    kTsAmbientOcclusion,
+    kTsDeferredShade,
+    kTsTaaResolve,
+    kTsBloom,
+    kTsPostComposite,
+    kGraphicsTimestampCount,
+  };
+  // Frames of query pool to rotate through. Reading the pool written two
+  // frames ago is what keeps the readback non-blocking.
+  static constexpr u32 kTimestampFrames = 3;
+  // Reads back a finished frame's pass timestamps, accumulates them, and
+  // logs a report every kTimestampReportInterval frames. Never waits: a
+  // frame whose results aren't ready yet is simply skipped.
+  // Grows brick_pool_buffer_ from its placeholder to full size the first
+  // time the fixed-cube field is actually baked, and re-points every
+  // descriptor that references it. See its own comment for why the pool
+  // starts tiny.
+  void ensure_fixed_brick_pool();
+
+  void collect_frame_timings();
+
+  // False until ensure_fixed_brick_pool() has grown brick_pool_buffer_ to
+  // its real size.
+  b8 fixed_brick_pool_ready_ = false;
+
+  VkQueryPool graphics_timestamp_pool_ = VK_NULL_HANDLE;
+  // Two per async ring slot (bake begin/end), read when that slot's fence
+  // is waited on -- by which point the results are guaranteed available.
+  VkQueryPool async_timestamp_pool_ = VK_NULL_HANDLE;
+  // Nanoseconds per timestamp tick, from the device's own limits.
+  f32 timestamp_period_ns_ = 0.0f;
+  b8 timestamps_supported_ = false;
+  u32 timestamp_frame_ = 0;
+  // Rolling accumulation, reported every kTimestampReportInterval frames.
+  static constexpr u32 kTimestampReportInterval = 120;
+  u32 timestamp_samples_ = 0;
+  f64 graphics_pass_ms_[kGraphicsTimestampCount]{};
+  // Bake timings are what a stutter on a chunk boundary is made of, so they
+  // carry a peak alongside the mean -- an average hides the one 40ms bake
+  // that caused the hitch.
+  f64 async_bake_ms_total_ = 0.0;
+  f64 async_bake_ms_peak_ = 0.0;
+  u32 async_bake_samples_ = 0;
+  // How many CHUNKS each ring slot's in-flight batch covers, and the total
+  // across the reporting interval. The ring timestamps bracket a whole
+  // batch submission, so on their own they say "a bake took 2.1 seconds"
+  // without saying whether that was one pathological chunk or sixteen
+  // ordinary ones -- which is exactly the distinction any work on the
+  // per-chunk cost needs to see. Recorded by voxelize_chunk_batch(),
+  // consumed alongside the timestamps in update_streaming().
+  u32 async_bake_chunks_[kAsyncRingDepth]{};
+  f64 async_bake_chunks_total_ = 0.0;
+  // How many chunks were baked from a candidate list versus abandoned to
+  // the whole-scene scene_map() path -- see voxelize_chunk_batch()'s own
+  // comment. That fallback costs roughly an order of magnitude per chunk
+  // and had no reporting at all, which is how a single unbounded primitive
+  // silently disabling the lists scene-wide stayed invisible.
+  u64 candidate_chunks_total_ = 0;
+  u64 candidate_chunks_fallback_ = 0;
+  // --- "Bake this geometry once, ever": the persistent alias cache.
+  //
+  // build_cell_alias_map() keys a cell by the function the voxelizer would
+  // actually fold there -- every candidate that can reach it, and this
+  // cell's position relative to each, reduced modulo repetition. That key
+  // is a property of the SCENE, not of the chunk: two cells anywhere, in
+  // any chunk, baked at any time, whose keys agree bake to bit-identical
+  // bricks.
+  //
+  // So the map from key to representative is kept across frames rather than
+  // rebuilt per batch. A cell whose key was seen before copies that brick
+  // instead of evaluating ~2,000 scene samples -- whether the
+  // representative was baked seconds ago in another chunk (deduplication)
+  // or is the very chunk being reloaded after an eviction (caching). They
+  // are the same mechanism; the only difference is how far back the
+  // representative was baked.
+  //
+  // An entry is only trustworthy while the slot it names still holds the
+  // bake that produced it, which slot_content_generation_ tracks -- see
+  // invalidate_slot_content().
+  struct AliasCacheEntry {
+    u32 global_cell = 0; // slot * kChunkCellCount + local cell
+    u64 slot_generation = 0;
+  };
+  std::unordered_map<u64, AliasCacheEntry> alias_cache_;
+  // Bumped every time a slot's content is replaced or freed. An alias cache
+  // entry is valid only while this still matches what it recorded.
+  std::vector<u64> slot_content_generation_;
+  u64 next_slot_content_generation_ = 1;
+  // Ceiling on alias_cache_ so a long session cannot grow it without bound
+  // (it is cleared wholesale when exceeded -- entries are pure optimisation,
+  // so losing them costs bake time, never correctness).
+  static constexpr size_t kMaxAliasCacheEntries = 1u << 20;
+  // How many aliased cells came from a representative baked in an EARLIER
+  // batch rather than this one -- i.e. how much of the win is caching
+  // across time rather than deduplication within a batch. Reported with the
+  // bake timings.
+  u64 alias_cells_cached_ = 0;
+
+  // Cells the alias map found to be copies, against cells considered --
+  // the one number that says whether brick deduplication is doing anything
+  // on the content being streamed. Reported with the bake timings.
+  u64 alias_cells_total_ = 0;
+  u64 alias_cells_aliased_ = 0;
+  // Whether each ring slot has a bake recorded whose timestamps are worth
+  // reading -- without it the first lap reads queries that were never
+  // written.
+  b8 async_bake_recorded_[kAsyncRingDepth]{};
+
+  VulkanImage depth_image_{};
+  // The other half of the G-buffer (step 4): xyz = surface normal, w =
+  // material index, written by the visibility pass and consumed by the
+  // deferred shading pass. rgba16f so a material index up to
+  // kMaxScenePrimitives stays exactly representable alongside a normal.
+  VulkanImage normal_material_image_{};
+  VulkanImage history_images_[2]{};
+  VulkanImage taa_output_image_{};
+  // Deferred shading (step 4) -- reads the G-buffer the visibility pass
+  // writes and produces the actual image. Shares render_set_layout_ (and
+  // render_set_) with the visibility pass: the two shaders read the same
+  // scene, and one descriptor set for both is what keeps their views of it
+  // from drifting.
+  VulkanShaderModule deferred_shade_stage_;
+  std::optional<VulkanComputePipeline> deferred_shade_pipeline_;
+  VulkanShaderModule taa_resolve_stage_;
+  VkDescriptorSetLayout taa_resolve_set_layout_ = VK_NULL_HANDLE;
+  // One set per ping-pong parity: set N reads history_images_[N] and writes
+  // history_images_[1-N].
+  VkDescriptorSet taa_resolve_sets_[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
+  std::optional<VulkanComputePipeline> taa_resolve_pipeline_;
+  // Which history image this frame READS. Flipped at the end of every
+  // render_to() that ran the resolve.
+  u32 taa_history_parity_ = 0;
+  // Frame counter driving the sub-pixel jitter sequence -- see
+  // kTaaJitterCount in the .cpp.
+  u32 taa_frame_ = 0;
+  // Seed for every pass's per-frame stochastic decisions (the AO ray, the
+  // ISM tap rotation, dithers). Deliberately NOT taa_frame_: that cycles
+  // modulo kTaaJitterCount (8), and seeding the noise from it meant every
+  // pixel only ever saw 8 distinct sample patterns -- the temporal average
+  // then converges to a fixed 8-sample estimate whose error is permanent,
+  // static grain no amount of accumulation removes. This one free-runs (see
+  // kNoiseFrameWrap) so successive frames draw fresh, uncorrelated samples.
+  u32 noise_frame_ = 0;
+  b8 taa_enabled_ = true;
+  // False until a full frame of history exists to blend against (startup,
+  // resize, origin recenter) -- see invalidate_temporal_history().
+  b8 history_valid_ = false;
+  // The camera basis the PREVIOUS frame rendered with, in render space.
+  // Only meaningful while history_valid_ is true.
+  glm::vec3 prev_camera_position_{0.0f};
+  glm::vec3 prev_camera_forward_{0.0f, 0.0f, 1.0f};
+  glm::vec3 prev_camera_right_{1.0f, 0.0f, 0.0f};
+  glm::vec3 prev_camera_up_{0.0f, 1.0f, 0.0f};
   // 12 bytes (float dist, float skip_dist, int material_index) -- see
   // query_chunked_field()/debug_verify_chunked_field().
   std::optional<VulkanBuffer> chunk_debug_query_output_buffer_;
@@ -804,6 +1641,9 @@ private:
 
   // See set_chunked_field_enabled() above.
   b8 chunked_field_enabled_ = false;
+
+  // See set_splat_mode()/SplatMode above.
+  SplatMode splat_mode_ = SplatMode::Prime;
 
   // See set_bloom_enabled()/set_vignette_enabled()/
   // set_pixelation_enabled()/set_pixelation_block_size() above.

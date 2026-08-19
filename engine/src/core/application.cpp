@@ -68,9 +68,13 @@ Application::Application(Game *game)
 
   if (!renderer_initialize(game->app_config.name, platform)) {
     KFATAL("Failed to initialize renderer. Aborting application.");
+    init_ok_ = false;
+    return; // see init_ok_ -- do NOT go on to touch a renderer that isn't there
   }
   if (!game->initialize()) {
     KFATAL("Game failed to initialize.");
+    init_ok_ = false;
+    return;
   }
 
   game->on_resize(width, height);
@@ -83,6 +87,12 @@ Application::~Application() {
 }
 
 b8 Application::application_start() {
+  if (!init_ok_) {
+    // Construction failed and already said why -- see init_ok_. Returning
+    // rather than running is what turns a crash on the first frame into an
+    // ordinary non-zero exit.
+    return FALSE;
+  }
   is_running = true;
   clock.start();
   clock.update();

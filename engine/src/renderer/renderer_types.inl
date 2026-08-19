@@ -20,3 +20,28 @@ struct render_packet {
 // file).
 using SceneHandle = u32;
 constexpr SceneHandle kInvalidSceneHandle = 0;
+
+// How the renderer uses the chunked field's baked surface-point cloud for
+// primary visibility -- the Dreams-style point-splatting technique (see
+// Builtin.ChunkPointSplat.comp.glsl's header comment). Lives here, in the
+// shared types header, so the frontend API and the backend interface can
+// both name it without either including the Vulkan-specific headers;
+// VulkanRaymarchShader::SplatMode mirrors these values exactly (a
+// static_assert in vulkan_backend.cpp pins them together).
+//
+// Only meaningful while the chunked field is enabled (see
+// renderer_set_chunked_field_enabled()) -- the fixed-cube field bakes no
+// points, so nothing splats there regardless.
+enum class RendererSplatMode : i32 {
+  // No splat prepass; every primary ray marches from the camera, exactly
+  // as this renderer always did.
+  Off = 0,
+  // Splat, then start each primary ray just short of its pixel's nearest
+  // splat. Same image as Off (the starts are conservative and uncovered
+  // pixels start at 0), less empty space marched. The default.
+  Prime = 1,
+  // Shade the winning splat directly -- no primary march for a covered
+  // pixel. Pixels no splat covers fall back to Prime, so the image stays
+  // complete with no temporal accumulation needed.
+  Visibility = 2,
+};

@@ -270,8 +270,9 @@ layout(binding = 18) readonly buffer ChunkCandidateOffsetBuffer {
 };
 
 // One entry per cell of every batch entry: -1 means "bake this cell
-// normally", anything else is the LOCAL cell index, within the same chunk,
-// of another cell that bakes to bit-identical voxel data.
+// normally", anything else is the GLOBAL cell index (slot *
+// CHUNK_CELL_COUNT + cell) of another cell that bakes to bit-identical
+// voxel data -- possibly in another chunk, possibly baked frames ago.
 //
 // Repeated architecture makes most of a coarse chunk redundant. A level-4
 // chunk is 64 world units of 4-unit cells; a 10-unit repetition period puts
@@ -622,6 +623,7 @@ void main() {
 
     vec3 chunk_world_min = chunk_data.xyz;
     float chunk_cell_size = chunk_data.w;
+
     vec3 cell_min = chunk_world_min + vec3(local_cell) * chunk_cell_size;
     vec3 cell_center = cell_min + vec3(chunk_cell_size * 0.5);
 
@@ -669,8 +671,13 @@ void main() {
         // the two dispatches. Claim a brick and copy, skipping every scene
         // evaluation. ---
         chunk_indirection[cell_index] = -1;
-        int src_brick =
-            chunk_indirection[chunk_slot * CHUNK_CELL_COUNT + alias_src];
+        // alias_src is a GLOBAL cell index (slot * CHUNK_CELL_COUNT + cell),
+        // not a local one: the representative this cell copies from may live
+        // in a different chunk of this batch, or in a chunk baked frames ago
+        // that is still resident. See build_cell_alias_map() engine-side --
+        // that widening is what turns deduplication from a within-chunk
+        // trick into "bake this geometry once, ever".
+        int src_brick = chunk_indirection[alias_src];
         if (src_brick < 0) {
             return; // representative had no surface, so neither has this one
         }

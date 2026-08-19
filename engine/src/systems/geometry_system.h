@@ -3,6 +3,7 @@
 #include "material_system.h"
 
 #include <array>
+#include <functional>
 #include <glm/glm.hpp>
 #include <string>
 #include <string_view>
@@ -238,6 +239,22 @@ constexpr f32 kUnboundedBoundingRadius = 1e8f;
 // surface outward.
 f32 geometry_bounding_radius(const Geometry &geometry) noexcept;
 
+// The reach of ONE copy of a repeated primitive -- geometry_bounding_
+// radius() above without the repetition spread folded in. Identical to it
+// for an unrepeated primitive, and identical in returning
+// kUnboundedBoundingRadius for the cases that have no safe static bound
+// at all.
+//
+// Exists because a bounding sphere covering every copy of a finite
+// repetition is nearly useless as a cull: 20x20 copies on a 10-unit cell
+// give a radius of ~134 world units, so the primitive tests as "possibly
+// relevant" essentially everywhere. The per-copy bound is what lets a
+// caller instead ask which INSTANCES reach a given box -- see
+// VulkanRaymarchShader::PrimitiveBound and voxelize_chunk_batch()'s
+// per-chunk candidate lists, where that turns eight repeat_limited()
+// evaluations per sample into one plain shape evaluation.
+f32 geometry_instance_radius(const Geometry &geometry) noexcept;
+
 // Which level-0 chunk(s) (see ChunkKey/chunk_world_size(), chunk_types.h)
 // geometry's conservative bounding sphere (geometry_bounding_radius())
 // overlaps, in render space -- the CPU-side half of deciding which chunk
@@ -261,8 +278,24 @@ f32 geometry_bounding_radius(const Geometry &geometry) noexcept;
 // must treat an empty result as "handle this primitive specially" (e.g.
 // always include it, or re-test it analytically per chunk), not as "safe
 // to skip."
+//
+// extra_margin widens that bounding sphere before the overlap test, and
+// callers deciding which chunks a scene EDIT dirtied must pass one. A
+// primitive's influence on the baked field reaches further than the
+// primitive itself: a smooth union or subtraction blends over a distance,
+// so moving a shape changes the baked surface up to that blend distance
+// beyond its own bounds -- which is why the voxelizer's own cull radius is
+// `cells + max_smoothness` rather than just `cells` (see CULL_RADIUS_CELLS
+// in Builtin.ChunkVoxelize.comp.glsl). A dirty scope computed WITHOUT the
+// same allowance re-bakes the chunks the shape sits in but not the ones its
+// blend reaches into, so those keep pre-edit content: the neighbouring
+// chunks hold the old blend and the old cut, which reads as smoothness and
+// subtraction being ignored from the moment anything moves, while a full
+// first bake looks perfect. The margin belongs here, in the scope, for the
+// same reason it belongs in the cull radius.
 std::vector<ChunkKey> chunks_touched_by(const Geometry &geometry,
-                                        f32 chunk_size);
+                                        f32 chunk_size,
+                                        f32 extra_margin = 0.0f);
 
 // Mirrors SdfLightType (sdf_scene.h) value-for-value.
 enum class LightType : u32 {
@@ -472,8 +505,21 @@ public:
   // what's currently loaded, so the caller can skip any downstream re-bake
   // entirely -- e.g. a UI event that re-syncs without any real edit having
   // happened.
+  //
+  // before_first_destructive, if set, is invoked at most once, immediately
+  // before the FIRST operation that can destroy a GPU resource out from
+  // under an in-flight frame (a release() of a primitive/light/volumetric,
+  // or a material swap -- either can cascade into MaterialSystem/
+  // TextureSystem destroying a VkImage/VkSampler synchronously). The
+  // renderer passes a queue-drain here so a reconcile that turns out to be
+  // a pure add or in-place edit -- the overwhelmingly common editor case
+  // (every gizmo drag tick, every spinbox change, every new primitive) --
+  // pays no GPU stall at all, while the rare destructive one still gets
+  // exactly the wait it needs, without this class knowing anything about
+  // Vulkan.
   bool reconcile_scene(const SdfScene &scene, LoadedSceneNames &loaded,
-                       bool auto_release, std::string_view name_prefix = {});
+                       bool auto_release, std::string_view name_prefix = {},
+                       const std::function<void()> &before_first_destructive = {});
 
   // Every layer currently known, indexed by Geometry::layer. Index 0 is
   // always present (the default layer everything acquire()'d without
@@ -523,6 +569,33 @@ public:
     dirty_since_last_snapshot_.clear();
     newly_added_since_last_snapshot_.clear();
     any_released_since_last_snapshot_ = false;
+    dirty_previous_state_.clear();
+  }
+
+  // Pre-edit snapshot of a dirty (but NOT newly-added -- see newly_added_
+  // since_last_snapshot()) primitive's Geometry, captured by reconcile_
+  // scene() right before it overwrites an already-registered primitive's
+  // fields because ONLY that primitive's own shape/transform changed --
+  // never for a change driven by its LAYER (a smoothness/operation edit,
+  // or moving to a different layer), since either of those can widen the
+  // affected footprint past this primitive's own bounding sphere by
+  // blending with a different set of neighbours, which a snapshot of just
+  // THIS primitive can't capture safely (see reconcile_scene()'s own
+  // comment for exactly which case captures one).
+  //
+  // update_streaming() (VulkanRaymarchShader, engine-side) uses this the
+  // same way it uses newly_added_since_last_snapshot(): a name present
+  // here means both its OLD (this snapshot) and NEW (find()'s current
+  // result) bounds are known, so force-evicting the union of chunks_
+  // touched_by() for each is safe and exact -- unlike a name that's dirty
+  // for any other reason (removed, layer-driven, or mutated through some
+  // other in-place path like translate_scene()/rotate_scene()/scale_
+  // scene()/shift_all(), none of which populate this map), where the old
+  // position/shape is unrecoverable and the brute-force full sweep is the
+  // only safe option.
+  const std::unordered_map<std::string, Geometry> &
+  dirty_previous_state() const noexcept {
+    return dirty_previous_state_;
   }
 
   // Subset of dirty_since_last_snapshot() that's specifically a BRAND NEW
@@ -644,4 +717,6 @@ private:
   // See newly_added_since_last_snapshot()/any_released_since_last_snapshot().
   std::unordered_set<std::string> newly_added_since_last_snapshot_;
   bool any_released_since_last_snapshot_ = false;
+  // See dirty_previous_state().
+  std::unordered_map<std::string, Geometry> dirty_previous_state_;
 };

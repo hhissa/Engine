@@ -73,6 +73,22 @@ b8 VulkanFence::wait(u64 timeout_ns) {
   return FALSE;
 }
 
+b8 VulkanFence::poll() {
+  if (is_signaled_) {
+    return TRUE;
+  }
+  VkResult result =
+      vkGetFenceStatus(context_->device.logical_device, handle_);
+  if (result == VK_SUCCESS) {
+    is_signaled_ = TRUE;
+    return TRUE;
+  }
+  if (result != VK_NOT_READY) {
+    KERROR("vk_fence_poll - vkGetFenceStatus failed.");
+  }
+  return FALSE;
+}
+
 void VulkanFence::reset() {
   if (is_signaled_) {
     VK_CHECK(vkResetFences(context_->device.logical_device, 1, &handle_));

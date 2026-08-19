@@ -148,6 +148,15 @@ public:
   // yet -- the engine only comes up on the first exposeEvent).
   void set_grid_visible(bool visible);
 
+  // Switches primary visibility between marching the chunked field and
+  // shading its baked point cloud directly -- the Dreams-style splatting
+  // technique (see RendererSplatMode in renderer_types.inl). Called by
+  // SdfEditorWindow's Splat Visibility toggle. Same stored-until-
+  // initialized contract as set_grid_visible() above: the engine's own
+  // default is Prime (which cannot change the image), so this only ever
+  // selects between that and Visibility.
+  void set_splat_visibility(bool enabled);
+
   // Stops/restarts tick_timer_ -- SdfEditorWindow calls pause_rendering()
   // before opening any modal dialog (QFileDialog/QColorDialog/...) and
   // resume_rendering() right after. A modal dialog spins its own nested
@@ -330,6 +339,11 @@ private:
   // See set_grid_visible() -- defaults to shown, this being precisely the
   // modelling tool the engine's (hidden-by-default) grid exists for.
   bool grid_visible_ = true;
+
+  // See set_splat_visibility() -- defaults off, so the viewport opens on
+  // the thoroughly-exercised raymarched path and splat visibility is
+  // something you deliberately switch on to compare against it.
+  bool splat_visibility_ = true;
 
   bool gizmo_visible_ = false;
   QPointF gizmo_origin_;

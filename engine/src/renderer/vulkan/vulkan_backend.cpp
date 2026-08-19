@@ -217,6 +217,21 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
   }
   create_queue_complete_semaphores();
 
+  // See VulkanContext::graphics_timeline. Starts at 0, so the very first
+  // async submission's wait (for "the previous frame") is satisfied
+  // immediately.
+  {
+    VkSemaphoreTypeCreateInfo timeline_type{
+        VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+    timeline_type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timeline_type.initialValue = 0;
+    VkSemaphoreCreateInfo timeline_info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    timeline_info.pNext = &timeline_type;
+    vkCreateSemaphore(context_.device.logical_device, &timeline_info,
+                      context_.allocator, &context_.graphics_timeline);
+    context_.graphics_timeline_value = 0;
+  }
+
   // images_in_flight are non-owning pointers — null means the image is
   // not currently held by any in-flight frame.
   images_in_flight_.assign(context_.swapchain.image_count, nullptr);
@@ -306,6 +321,11 @@ void VulkanRendererBackend::shutdown() {
     }
   }
   context_.image_available_semaphores.clear();
+  if (context_.graphics_timeline != VK_NULL_HANDLE) {
+    vkDestroySemaphore(context_.device.logical_device,
+                       context_.graphics_timeline, context_.allocator);
+    context_.graphics_timeline = VK_NULL_HANDLE;
+  }
   destroy_queue_complete_semaphores();
   in_flight_fences_.clear();
   images_in_flight_.clear();
@@ -419,14 +439,19 @@ b8 VulkanRendererBackend::begin_frame(f32 delta_time) {
   command_buffer->reset();
   command_buffer->begin(FALSE, FALSE, FALSE);
 
-  // Phase 3b: camera-driven chunk streaming, budgeted into this same
-  // frame's command buffer -- see VulkanRaymarchShader::update_streaming()'s
-  // own comment for why this replaces rebake()'s vkDeviceWaitIdle for the
-  // chunked field instead of stalling. A no-op call (cheap: just
-  // tick()+update() with an empty Plan) whenever nothing needs loading/
-  // evicting this frame, so this is safe to call unconditionally every
-  // frame regardless of scene_dirty_ above.
-  context_.raymarch_shader->update_streaming(*command_buffer, camera_.position());
+  // Phase 3b: camera-driven chunk streaming -- see VulkanRaymarchShader::
+  // update_streaming()'s own comment for why this replaces rebake()'s
+  // vkDeviceWaitIdle for the chunked field instead of stalling, and for
+  // why it no longer records into this frame's OWN command buffer at all
+  // (it submits its own work to async_compute_queue instead). A no-op
+  // call (cheap: just tick()+update() with an empty Plan, returning
+  // VK_NULL_HANDLE) whenever nothing needs loading/evicting/rebaking this
+  // frame, so this is safe to call unconditionally every frame regardless
+  // of scene_dirty_ above. Nothing is stashed for end_frame() any more:
+  // this frame's graphics submission deliberately does NOT wait on whatever
+  // chunk work was just queued -- see update_streaming()'s own comment for
+  // how an in-flight bake is kept invisible instead of being waited out.
+  context_.raymarch_shader->update_streaming(camera_.position());
 
   // Phase 5: cascade GI recenter/rebake, recorded AFTER update_streaming()
   // above -- a cascade bake gathers against the chunked field, so it must
@@ -531,21 +556,33 @@ bool VulkanRendererBackend::reconcile_scene(SceneHandle handle,
   // primitive/light/volumetric that's gone, or swap a still-present one's
   // material -- either can cascade into MaterialSystem/TextureSystem
   // dropping a texture's refcount to zero and destroying its VkImage/
-  // VkSampler immediately, synchronously, no wait of its own. Waiting
-  // first is conservative (it fires even on a call that turns out to be a
-  // pure add, which didn't need it) rather than pre-diffing to find out --
-  // a pre-diff would have to duplicate reconcile_scene()'s own field-level
-  // comparisons (a material swap alone can trigger this, not just a name
-  // disappearing) just to decide whether to wait, which is more complexity
-  // than the wait itself costs.
-  vkDeviceWaitIdle(context_.device.logical_device);
+  // VkSampler immediately, synchronously, no wait of its own.
+  //
+  // The wait used to be an unconditional vkDeviceWaitIdle up front, which
+  // made EVERY editor edit -- including a pure add or an in-place gizmo
+  // drag, which destroy nothing -- drain the whole device. Worse than it
+  // sounds: "the whole device" includes the async compute queue, where
+  // chunk bakes now run in submissions that can span many frames, so a
+  // trivial edit could block for the tail of a multi-hundred-ms bake it
+  // had no data dependency on. Deferred instead into reconcile_scene()
+  // itself, fired at most once, only immediately before the first actually-
+  // destructive operation (see before_first_destructive's doc comment) --
+  // and it drains only the GRAPHICS queue: textures are sampled exclusively
+  // by graphics-submitted passes (render/deferred-shade/GI bounces); the
+  // async compute voxelizer evaluates the analytic SDF from plain buffers
+  // and never binds a scene texture, so it cannot be holding the VkImage
+  // being destroyed.
+  auto destructive_wait = [this]() {
+    vkQueueWaitIdle(context_.device.graphics_queue);
+  };
 
   // Same per-handle name_prefix load_scene() used for this handle -- MUST
   // match exactly, or reconcile_scene() (engine-side) would diff against
   // the wrong names entirely (see its own comment).
   std::string name_prefix = "scene" + std::to_string(handle) + "/";
   bool changed = context_.geometry_system->reconcile_scene(
-      *scene, it->second, /*auto_release=*/true, name_prefix);
+      *scene, it->second, /*auto_release=*/true, name_prefix,
+      destructive_wait);
 
   if (changed) {
     // Deferred to begin_frame() -- see scene_dirty_'s comment.
@@ -861,6 +898,40 @@ void VulkanRendererBackend::set_chunked_field_enabled(b8 enabled) {
   context_.raymarch_shader->set_chunked_field_enabled(enabled);
 }
 
+// The two enums are declared separately (RendererSplatMode in the shared
+// renderer_types.inl so the frontend/backend interface can name it without
+// pulling in Vulkan headers; SplatMode alongside the shader that actually
+// consumes it) but MUST agree value-for-value, since this is a straight
+// cast -- and SplatMode's own values additionally have to match SPLAT_MODE_*
+// in Builtin.RaymarchShader.comp.glsl, which nothing in C++ can check.
+static_assert(static_cast<i32>(RendererSplatMode::Off) ==
+                  static_cast<i32>(SplatMode::Off) &&
+              static_cast<i32>(RendererSplatMode::Prime) ==
+                  static_cast<i32>(SplatMode::Prime) &&
+              static_cast<i32>(RendererSplatMode::Visibility) ==
+                  static_cast<i32>(SplatMode::Visibility),
+              "RendererSplatMode and SplatMode must stay in lockstep.");
+
+void VulkanRendererBackend::set_taa_enabled(b8 enabled) {
+  context_.raymarch_shader->set_taa_enabled(enabled);
+}
+
+void VulkanRendererBackend::set_ism_enabled(b8 enabled) {
+  context_.raymarch_shader->set_ism_enabled(enabled);
+}
+
+void VulkanRendererBackend::set_ao_enabled(b8 enabled) {
+  context_.raymarch_shader->set_ao_enabled(enabled);
+}
+
+void VulkanRendererBackend::debug_probe_field(glm::vec3 world_pos) {
+  context_.raymarch_shader->debug_probe_field(world_pos, camera_.position());
+}
+
+void VulkanRendererBackend::set_splat_mode(RendererSplatMode mode) {
+  context_.raymarch_shader->set_splat_mode(static_cast<SplatMode>(mode));
+}
+
 void VulkanRendererBackend::set_bloom_enabled(b8 enabled) {
   context_.raymarch_shader->set_bloom_enabled(enabled);
 }
@@ -940,6 +1011,11 @@ void VulkanRendererBackend::maybe_recenter_origin() {
   camera_.shift(shift);
   world_origin_offset_ -= glm::dvec3(camera_pos);
   pending_origin_shift_ += shift;
+
+  // Every render-space position just moved, so last frame's pixels can no
+  // longer be reprojected into this frame's view -- see
+  // VulkanRaymarchShader::invalidate_temporal_history().
+  context_.raymarch_shader->invalidate_temporal_history();
 
   KINFO("Floating origin recenter: render space shifted by ({}, {}, {}) "
        "(camera had drifted {} units from origin).",
@@ -1043,27 +1119,65 @@ b8 VulkanRendererBackend::end_frame(f32 delta_time) {
   // The semaphore(s) to be signaled when the queue is complete. Indexed by
   // image_index, not current_frame -- see queue_complete_semaphores'
   // declaration comment in vulkan_types.inl.
-  submit_info.signalSemaphoreCount = 1;
-  submit_info.pSignalSemaphores =
-      &context_.queue_complete_semaphores[context_.image_index];
+  // Two signals: the per-image binary semaphore the presentation engine
+  // waits on, and the monotonic timeline the async compute queue orders
+  // itself against (see VulkanContext::graphics_timeline). The value array
+  // needs one entry per signal semaphore; the entry for a binary semaphore
+  // is ignored.
+  const u64 timeline_signal_value = context_.graphics_timeline_value + 1;
+  VkSemaphore signal_semaphores[2] = {
+      context_.queue_complete_semaphores[context_.image_index],
+      context_.graphics_timeline};
+  const uint64_t signal_values[2] = {0, timeline_signal_value};
+  submit_info.signalSemaphoreCount = 2;
+  submit_info.pSignalSemaphores = signal_semaphores;
 
-  // Wait semaphore ensures that the operation cannot begin until the image
-  // is available.
-  submit_info.waitSemaphoreCount = 1;
-  submit_info.pWaitSemaphores =
-      &context_.image_available_semaphores[context_.current_frame];
-
-  // Each semaphore waits on the corresponding pipeline stage to complete.
-  // 1:1 ratio. VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT prevents
-  // subsequent colour attachment writes from executing until the semaphore
-  // signals (i.e. one frame is presented at a time).
-  VkPipelineStageFlags flags[1] = {
+  // One wait semaphore: the swapchain image must be acquired before
+  // anything can render into it.
+  //
+  // THE CHUNK BAKE IS DELIBERATELY NOT WAITED ON. This used to add update_
+  // streaming()'s async submission as a second wait, so render_to()'s
+  // chunked-field reads couldn't start before that frame's bake finished.
+  // Correct, and the engine's single largest source of stutter: moving the
+  // camera generates chunk work nearly every frame, so nearly every frame
+  // waited out its own bake -- measured at 600-2100ms mean and a 4.5 second
+  // peak on a large scene. The dependency is now resolved by visibility
+  // rather than by ordering: nothing an in-flight bake writes is reachable
+  // (the chunk table doesn't name its slot, and Builtin.ChunkClusterCull.
+  // comp.glsl skips its cluster pages) until the CPU observes that
+  // submission's fence and publishes it, which happens in the NEXT frame's
+  // update_streaming(). The reverse hazard -- a bake overwriting bricks
+  // this frame is still reading -- is unchanged and still handled, by the
+  // async submission itself waiting on context_.graphics_timeline.
+  VkSemaphore wait_semaphores[1] = {
+      context_.image_available_semaphores[context_.current_frame]};
+  VkPipelineStageFlags wait_stages[1] = {
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-  submit_info.pWaitDstStageMask = flags;
+  submit_info.waitSemaphoreCount = 1;
+  submit_info.pWaitSemaphores = wait_semaphores;
+  submit_info.pWaitDstStageMask = wait_stages;
+
+  // Wait values are all zero: every wait semaphore here is binary, and the
+  // spec ignores the value for those. Only the signal side carries a real
+  // timeline value.
+  const uint64_t wait_values[1] = {0};
+  VkTimelineSemaphoreSubmitInfo timeline_submit{
+      VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+  timeline_submit.waitSemaphoreValueCount = submit_info.waitSemaphoreCount;
+  timeline_submit.pWaitSemaphoreValues = wait_values;
+  timeline_submit.signalSemaphoreValueCount = 2;
+  timeline_submit.pSignalSemaphoreValues = signal_values;
+  submit_info.pNext = &timeline_submit;
 
   VkResult result =
       vkQueueSubmit(context_.device.graphics_queue, 1, &submit_info,
                     in_flight_fences_[context_.current_frame].handle());
+  if (result == VK_SUCCESS) {
+    // Only advance once the submission is actually in flight -- a failed
+    // submit signals nothing, and a counter that ran ahead of the last real
+    // signal would make the next async wait block forever.
+    context_.graphics_timeline_value = timeline_signal_value;
+  }
   if (result != VK_SUCCESS) {
     KERROR("vkQueueSubmit failed with result: {}",
            vulkan_result_string(result, TRUE));

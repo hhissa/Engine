@@ -26,10 +26,32 @@ struct VulkanDevice {
   i32 graphics_queue_index = -1;
   i32 present_queue_index = -1;
   i32 transfer_queue_index = -1;
+  // The family async_compute_queue below comes from. A family exposing
+  // COMPUTE without GRAPHICS when the device has one -- that is a physically
+  // separate hardware engine, and the only kind of queue that genuinely runs
+  // alongside the graphics one. Falls back to graphics_queue_index on a
+  // device that only exposes universal families, which is the behaviour this
+  // engine had unconditionally before.
+  i32 async_compute_queue_index = -1;
 
   VkQueue graphics_queue;
   VkQueue present_queue;
   VkQueue transfer_queue;
+  // A SECOND queue instance from the SAME family as graphics_queue (queue
+  // index 1, not a distinct queue family -- see vulkan_device_create()'s
+  // queueCount=2 request, present since before this queue was ever
+  // actually retrieved/used). Deliberately not a dedicated async-compute
+  // family: most GPUs (this one included) only expose one "universal"
+  // family with both GRAPHICS_BIT and COMPUTE_BIT set, so a genuinely
+  // separate family isn't available to ask for. Staying within the same
+  // family means buffers/images shared between graphics_queue and this
+  // queue need no queue-family-ownership-transfer barriers (EXCLUSIVE
+  // sharing is scoped to a family, not a specific VkQueue) -- only the
+  // usual semaphore/fence ordering between the two submissions. Used by
+  // VulkanRaymarchShader to submit chunk-streaming bake/evict work
+  // independently of the main per-frame graphics submission -- see its
+  // async_command_pool_'s own comment.
+  VkQueue async_compute_queue;
 
   VkCommandPool graphics_command_pool;
 
@@ -138,6 +160,22 @@ struct VulkanContext {
   // VulkanRendererBackend::create_queue_complete_semaphores().
   std::vector<VkSemaphore> image_available_semaphores;
   std::vector<VkSemaphore> queue_complete_semaphores;
+
+  // Monotonic timeline semaphore signalled by EVERY graphics submission,
+  // with graphics_timeline_value as the value it was last signalled with.
+  //
+  // It exists so the async compute queue can order its chunk-bake writes
+  // after the previous frame's graphics reads of the very same buffers
+  // (chunk indirection, brick pool, cluster pool) without the CPU waiting
+  // for anything. That hazard used to be handled by a plain
+  // vkQueueWaitIdle(graphics_queue) before recording any bake -- correct,
+  // but it drains the pipeline: on a frame with chunk work the CPU sits
+  // until the GPU has finished the previous frame, and the GPU then sits
+  // until the CPU has finished recording. In a small scene chunk work is
+  // rare enough not to notice; in a large one, moving the camera means
+  // chunk work EVERY frame, and the result is continuous stutter.
+  VkSemaphore graphics_timeline = VK_NULL_HANDLE;
+  u64 graphics_timeline_value = 0;
 
   u32 image_index;
   u32 current_frame;

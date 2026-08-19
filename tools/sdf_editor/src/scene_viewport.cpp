@@ -129,6 +129,12 @@ void SceneViewport::ensure_engine_initialized() {
   // button was somehow toggled before the first exposeEvent.
   renderer_set_grid_visible(grid_visible_ ? TRUE : FALSE);
 
+  // Likewise apply whatever set_splat_visibility() has stored (see its own
+  // comment) -- the engine defaults to Prime, so this only matters if the
+  // toggle was flipped before the first exposeEvent.
+  renderer_set_splat_mode(splat_visibility_ ? RendererSplatMode::Visibility
+                                            : RendererSplatMode::Prime);
+
   frame_timer_.start();
   tick_timer_ = new QTimer(this);
   connect(tick_timer_, &QTimer::timeout, this, &SceneViewport::tick);
@@ -232,6 +238,15 @@ void SceneViewport::set_grid_visible(bool visible) {
   // ensure_engine_initialized() applies grid_visible_ once there is.
   if (initialized_) {
     renderer_set_grid_visible(visible ? TRUE : FALSE);
+  }
+}
+
+void SceneViewport::set_splat_visibility(bool enabled) {
+  splat_visibility_ = enabled;
+  // Same before-first-exposeEvent caveat as set_grid_visible() above.
+  if (initialized_) {
+    renderer_set_splat_mode(enabled ? RendererSplatMode::Visibility
+                                    : RendererSplatMode::Prime);
   }
 }
 
