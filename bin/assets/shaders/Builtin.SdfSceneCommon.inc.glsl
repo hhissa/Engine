@@ -138,13 +138,22 @@ const int OP_CLAMP = 16;
 // (engine-side) produces -- see expression.h's grammar comment for the
 // source syntax this bytecode came from. `p` is the primitive's local-space
 // sample point (feeds the expression's p.x/p.y/p.z variables).
-float evaluate_expr(ParamExpr e, vec3 p) {
+// Takes the buffer INDEX, not a ParamExpr by value. Passing the struct by
+// value made every caller materialise all 132 bytes of it (16 ints + 16
+// floats + a count) before anything could look at instruction_count -- and
+// resolve_params() below calls this path four times per primitive, once per
+// repetition candidate, at every one of the ~5,800 voxels in every brick of
+// every chunk baked. Indexing the buffer inside instead lets the compiler
+// load only the op/operand slots an expression actually executes, and lets
+// resolve_params() reject an empty slot with a single scalar load.
+float evaluate_expr(int expr_index, vec3 p) {
     float stack[MAX_EXPR_INSTRUCTIONS];
     int sp = 0;
-    for (int i = 0; i < e.instruction_count; ++i) {
-        int op = e.op[i];
+    int count = param_exprs[expr_index].instruction_count;
+    for (int i = 0; i < count; ++i) {
+        int op = param_exprs[expr_index].op[i];
         if (op == OP_CONST) {
-            stack[sp++] = e.operand[i];
+            stack[sp++] = param_exprs[expr_index].operand[i];
         } else if (op == OP_VAR_X) {
             stack[sp++] = p.x;
         } else if (op == OP_VAR_Y) {
@@ -195,18 +204,33 @@ float evaluate_expr(ParamExpr e, vec3 p) {
 // evaluate at the point mapped back into the authored (unscaled) local
 // space, then scale the resulting length. Applied only to formula slots --
 // applying it to the pre-scaled constants too would double-scale them.
+//
+// FOUR SCALAR LOADS, NOT FOUR STRUCT COPIES. This used to read each of the
+// four ParamExpr slots into a local (`ParamExpr ex = param_exprs[base+i];`)
+// before testing its instruction_count -- 528 bytes of buffer traffic per
+// call, unconditionally, for the overwhelmingly common primitive that has
+// no formula on any slot at all. This is the innermost function of the
+// whole bake (evaluate_primitive_at() -> here, once per repetition
+// candidate, per primitive, per voxel), so that copy was pure loss on
+// every scene: the records are small enough to stay cached, but the loads
+// still had to be issued. Now only the four counts are read on the common
+// path, and the bytecode itself only when a slot genuinely has one.
 vec4 resolve_params(int primitive_index, vec4 base_params, vec3 p, float expr_scale) {
-    vec4 result = base_params;
     int base = primitive_index * 4;
+    int c0 = param_exprs[base + 0].instruction_count;
+    int c1 = param_exprs[base + 1].instruction_count;
+    int c2 = param_exprs[base + 2].instruction_count;
+    int c3 = param_exprs[base + 3].instruction_count;
+    // Nothing formula-driven on this primitive -- skip the divide too.
+    if (c0 <= 0 && c1 <= 0 && c2 <= 0 && c3 <= 0) {
+        return base_params;
+    }
+    vec4 result = base_params;
     vec3 authored_p = p / expr_scale;
-    ParamExpr ex = param_exprs[base + 0];
-    if (ex.instruction_count > 0) result.x = evaluate_expr(ex, authored_p) * expr_scale;
-    ex = param_exprs[base + 1];
-    if (ex.instruction_count > 0) result.y = evaluate_expr(ex, authored_p) * expr_scale;
-    ex = param_exprs[base + 2];
-    if (ex.instruction_count > 0) result.z = evaluate_expr(ex, authored_p) * expr_scale;
-    ex = param_exprs[base + 3];
-    if (ex.instruction_count > 0) result.w = evaluate_expr(ex, authored_p) * expr_scale;
+    if (c0 > 0) result.x = evaluate_expr(base + 0, authored_p) * expr_scale;
+    if (c1 > 0) result.y = evaluate_expr(base + 1, authored_p) * expr_scale;
+    if (c2 > 0) result.z = evaluate_expr(base + 2, authored_p) * expr_scale;
+    if (c3 > 0) result.w = evaluate_expr(base + 3, authored_p) * expr_scale;
     return result;
 }
 
@@ -494,10 +518,15 @@ float repeat_infinite(int index, int type, vec3 local, vec4 prim_params, float e
     vec3 id = round(local / safe_cell);
     vec3 o = mix(vec3(0.0), sign(local - safe_cell * id), axis_active); // never step off an inactive axis
 
+    // Same duplicate-candidate elimination as repeat_limited() below -- an
+    // axis the sample sits centred on, or one with no repetition, re-
+    // evaluates the identical point otherwise.
+    ivec3 candidates = ivec3(mix(vec3(1.0), vec3(2.0), notEqual(o, vec3(0.0))));
+
     float d = 1e30;
-    for (int k = 0; k < 2; ++k) {
-        for (int j = 0; j < 2; ++j) {
-            for (int i = 0; i < 2; ++i) {
+    for (int k = 0; k < candidates.z; ++k) {
+        for (int j = 0; j < candidates.y; ++j) {
+            for (int i = 0; i < candidates.x; ++i) {
                 vec3 rid = id + vec3(i, j, k) * o;
                 vec3 r = mix(local, local - safe_cell * rid, axis_active);
                 d = min(d, evaluate_primitive_at(index, type, r, prim_params, expr_scale));
@@ -525,10 +554,25 @@ float repeat_limited(int index, int type, vec3 local, vec4 prim_params, float ex
     vec3 id = round(local / safe_cell);
     vec3 o = mix(vec3(0.0), sign(local - safe_cell * id), axis_active);
 
+    // AN AXIS CONTRIBUTES A SECOND CANDIDATE ONLY IF STEPPING TO THE
+    // NEIGHBOUR LANDS SOMEWHERE NEW. It does not when the axis carries no
+    // repetition (o is already zero there), and it does not when the tiling
+    // is a single instance wide on that axis -- half_span is 0, so the clamp
+    // pins every candidate's id to 0 and both steps evaluate the exact same
+    // point. Skipping those is not an approximation: the duplicate
+    // evaluations returned identical values that min() then discarded.
+    //
+    // The shape this optimises is the ordinary one. A primitive tiled across
+    // a plane -- 20 x 1 x 20 to lay a floor or a run of panelling -- has an
+    // unrepeated Y, so the fold was doing eight evaluations where four were
+    // distinct, at every one of the ~5,800 voxels of every brick it reaches.
+    o = mix(vec3(0.0), o, greaterThan(half_span, vec3(0.0)));
+    ivec3 candidates = ivec3(mix(vec3(1.0), vec3(2.0), notEqual(o, vec3(0.0))));
+
     float d = 1e30;
-    for (int k = 0; k < 2; ++k) {
-        for (int j = 0; j < 2; ++j) {
-            for (int i = 0; i < 2; ++i) {
+    for (int k = 0; k < candidates.z; ++k) {
+        for (int j = 0; j < candidates.y; ++j) {
+            for (int i = 0; i < candidates.x; ++i) {
                 vec3 rid = clamp(id + vec3(i, j, k) * o, -half_span, half_span);
                 vec3 r = mix(local, local - safe_cell * rid, axis_active);
                 d = min(d, evaluate_primitive_at(index, type, r, prim_params, expr_scale));
@@ -591,9 +635,13 @@ float repeat_rectangular(int index, int type, vec3 local, vec4 prim_params, floa
     vec2 id = round(xz / safe_cell);
     vec2 o = mix(vec2(0.0), sign(xz - safe_cell * id), axis_active);
 
+    // Same duplicate-candidate elimination as repeat_limited() -- see there.
+    o = mix(vec2(0.0), o, greaterThan(half_span, vec2(0.0)));
+    ivec2 candidates = ivec2(mix(vec2(1.0), vec2(2.0), notEqual(o, vec2(0.0))));
+
     float d = 1e30;
-    for (int j = 0; j < 2; ++j) {
-        for (int i = 0; i < 2; ++i) {
+    for (int j = 0; j < candidates.y; ++j) {
+        for (int i = 0; i < candidates.x; ++i) {
             vec2 rid = clamp(id + vec2(i, j) * o, -half_span, half_span);
             vec2 r = mix(xz, xz - safe_cell * rid, axis_active);
             vec3 candidate = vec3(r.x, local.y, r.y);
@@ -659,6 +707,37 @@ float primitive_sdf(int index, vec3 p) {
                                   prim.repeat_mode_cell.yw, prim.repeat_count.xz);
     }
     return evaluate_primitive_at(index, type, local, prim.params, prim.expr_scale.x);
+}
+
+// primitive_sdf() for ONE already-chosen repetition instance: same rotation
+// and shape evaluation, but the domain-repetition fold is replaced by a
+// single local-space offset naming which copy to evaluate.
+//
+// A repeated primitive normally costs eight evaluate_primitive_at() calls
+// per sample -- repeat_limited()/repeat_infinite() check every neighbouring
+// tile because a shape wider than one cell would otherwise report a
+// too-large distance. That work is per-SAMPLE, and it re-answers a question
+// whose answer is fixed for a whole chunk: which copies are near enough to
+// matter here. The bake's per-chunk candidate lists answer it once, on the
+// CPU, against the chunk's own box (see VulkanRaymarchShader::voxelize_
+// chunk_batch()), and pass the surviving instance's offset in -- so this
+// evaluates a plain unrepeated primitive.
+//
+// Only used where it is exactly equivalent: the caller enumerates every
+// instance whose own bound reaches the chunk, so folding them individually
+// gives the same result the min() over repeat_*()'s candidates would (and
+// the caller declines to split when the layer's smoothness would make that
+// fold a blend rather than a min -- see PrimitiveBound::layer_smoothness).
+float primitive_sdf_at_instance(int index, vec3 p, vec3 local_offset) {
+    Primitive prim = primitives[index];
+    vec3 local = p - prim.position_type.xyz;
+    int type = int(prim.position_type.w);
+    if (type != 2) {
+        vec4 inverse_rotation = vec4(-prim.rotation.xyz, prim.rotation.w);
+        local = rotate_by_quat(local, inverse_rotation);
+    }
+    return evaluate_primitive_at(index, type, local - local_offset,
+                                 prim.params, prim.expr_scale.x);
 }
 
 // Polynomial smooth union (Inigo Quilez) -- blends a and b together across
@@ -751,12 +830,24 @@ float scene_map(vec3 p, int layer_count, float cull_radius, out int nearest_prim
         for (int i = 0; i < count; ++i) {
             int idx = start + i;
 
+            // Cutters are culled like anything else again. They were
+            // briefly exempted, on the theory that a slightly optimistic
+            // bound would make a subtraction silently fill back in -- which
+            // is a real failure mode, but was not the one being chased: the
+            // cuts were disappearing because reconcile_scene() collapsed
+            // every layer onto one slot, leaving the subtraction layers
+            // holding no primitives at all (see GeometrySystem). With that
+            // fixed, the exemption bought nothing and cost a full
+            // primitive_sdf() evaluation per cutter at every one of the
+            // ~5,800 voxels in every brick of every chunk baked -- measured
+            // as a large share of a bake running 100-300ms per chunk.
             float bounding_radius = primitives[idx].repeat_count.w;
             if (bounding_radius < UNBOUNDED_BOUNDING_RADIUS) {
                 float closest_possible =
-                    distance(p, primitives[idx].position_type.xyz) - bounding_radius;
+                    distance(p, primitives[idx].position_type.xyz) -
+                    bounding_radius;
                 if (closest_possible > cull_radius) {
-                    continue; // can't matter here -- skip the expensive evaluation
+                    continue; // can't matter here -- skip the evaluation
                 }
             }
 

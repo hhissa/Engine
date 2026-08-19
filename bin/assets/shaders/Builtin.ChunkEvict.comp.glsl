@@ -50,8 +50,34 @@ layout(binding = 3) buffer ChunkEvictBatchBuffer {
     int evict_batch_slots[];
 };
 
+// The splat point clusters a freed brick owned (see CHUNK_CLUSTER_POINTS,
+// Builtin.SdfFieldConfig.inc.glsl). Freeing a brick has to return its
+// cluster pages to their own free list and mark the page records empty,
+// otherwise Builtin.ChunkPointSplat.comp.glsl keeps splatting a point cloud
+// for geometry that is no longer resident -- and the pool leaks pages until
+// no brick can get one.
+layout(binding = 4) buffer ChunkBrickClusterBuffer {
+    int brick_clusters[];
+};
+layout(binding = 5) buffer ChunkClusterBuffer {
+    ChunkCluster chunk_clusters[];
+};
+layout(binding = 6) buffer ChunkClusterFreeListBuffer {
+    int cluster_free_list[];
+};
+layout(binding = 7) buffer ChunkClusterFreeTopBuffer {
+    uint cluster_free_top;
+};
+
+// Must match kMaxChunkClusters engine-side -- same constant/comment as
+// Builtin.ChunkVoxelize.comp.glsl's.
+const int MAX_CLUSTERS = 131072;
+
 layout(push_constant) uniform PushConstants {
     int batch_count;
+    int batch_offset; // Where this submission's region of evict_batch_slots
+                     // starts -- one region per async ring slot, see
+                     // Builtin.ChunkVoxelize.comp.glsl's identical field.
 } push;
 
 void main() {
@@ -65,7 +91,7 @@ void main() {
         return;
     }
 
-    int chunk_slot = evict_batch_slots[batch_index];
+    int chunk_slot = evict_batch_slots[push.batch_offset + batch_index];
     int local_cell_index = local_cell.x + local_cell.y * CHUNK_COARSE_DIM +
         local_cell.z * CHUNK_COARSE_DIM * CHUNK_COARSE_DIM;
     int cell_index = chunk_slot * CHUNK_CELL_COUNT + local_cell_index;
@@ -85,5 +111,25 @@ void main() {
             free_list[write_index] = brick_index;
         }
         chunk_indirection[cell_index] = -1;
+
+        // Each brick belongs to exactly one cell, so exactly one invocation
+        // ever touches a given brick's cluster list -- the page records need
+        // no atomics, only the shared free-list top does.
+        for (int i = 0; i < CHUNK_MAX_CLUSTERS_PER_BRICK; ++i) {
+            int list_index = brick_index * CHUNK_MAX_CLUSTERS_PER_BRICK + i;
+            int page = brick_clusters[list_index];
+            if (page < 0) {
+                continue;
+            }
+            brick_clusters[list_index] = -1;
+            // Zero point count first: that is what every consumer reads as
+            // "this page is free", so it must be true before the page can be
+            // handed to another brick.
+            chunk_clusters[page].meta = uvec4(0);
+            uint slot = atomicAdd(cluster_free_top, 1u);
+            if (slot < uint(MAX_CLUSTERS)) {
+                cluster_free_list[slot] = page;
+            }
+        }
     }
 }

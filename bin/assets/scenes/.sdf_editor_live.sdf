@@ -1,173 +1,336 @@
 #sdf scene file
 version=0.1
-ambient=0.150000006
+ambient=0.5
+
+light light1 {
+    type=point
+    position=-2.73000002 -3.46624327 -2.6500001
+    colour=1 1 1
+    intensity=2.8499999
+}
 
 layer layer0 {
     operation=union
-    smoothness=0.0500000007
+    smoothness=0
 
     primitive primitive0 {
-        type=sphere
-        position=0 -0.921636999 0
+        type=box
+        position=0 -1.96000004 0
         rotation=0 0 0
-        radius=0.5
-        material=qt_colour_ffffffff_ts060_white
+        half_extents=0.100000001 2 3.5
+        repetition=limited
+        repetition_cell=10 1 10
+        repetition_count=3 1 3
+        material=qt_colour_dddbbeff_ts060_white
+    }
+
+    primitive primitive1 {
+        type=box
+        position=-2.94000006 -1.96000004 0.430000007
+        rotation=0 0 0
+        half_extents=3 2 0.100000001
+        repetition=limited
+        repetition_cell=10 1 10
+        repetition_count=3 1 3
+        material=qt_colour_dddbbeff_ts060_white
     }
 
     primitive primitive4 {
-        type=ellipsoid
-        position=0 -0.588032007 0
+        type=box
+        position=-2.94000006 -1.95000005 0.430000007
         rotation=0 0 0
-        params=0.5 0.5 0.5 0
-        param_expr=0 0.4-0.2*p.y
+        half_extents=3 0.100000001 2
+        repetition=limited
+        repetition_cell=10 1 10
+        repetition_count=3 1 3
+        material=qt_colour_dddbbeff_ts060_white
+    }
+
+    primitive primitive5 {
+        type=box
+        position=-1.20000005 -2.80999994 -0.426842988
+        rotation=3.14159012 1.10740995 3.14159012
+        half_extents=0.5 0.5 0.5
+        param_expr=1 0.5 + 0.2*p.x
+        param_expr=2 0.5 + 0.2*p.x
+        material=qt_colour_dddbbeff_ts060_white
+    }
+
+    primitive primitive6 {
+        type=box_frame
+        position=-1.51999998 -2.80999994 -0.889999986
+        rotation=3.14159012 1.10740995 3.14159012
+        params=0.0500000007 0.649999976 0.649999976 0.100000001
+        material=qt_colour_aaa892ff_ts060_white
+    }
+
+    primitive primitive7 {
+        type=box
+        position=-1.36307001 -2.80999994 -0.606736004
+        rotation=3.14159012 1.10740995 3.14159012
+        half_extents=0.400000006 0.5 0.5
+        param_expr=1 0.4 + 0.2*p.x
+        param_expr=2 0.4 + 0.2*p.x
+        material=qt_colour_000000ff_ts060_white
+    }
+
+    primitive primitive8 {
+        type=box
+        position=-2.94000006 -2.1099999 -0.860000014
+        rotation=0 0.767246723 0
+        half_extents=0.5 0.0500000007 0.200000003
         material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive9 {
+        type=ellipsoid
+        position=-2.31999993 -2.11999989 -1.35000002
+        rotation=0 0.767246723 0
+        params=0.100000001 0.100000001 0.200000003 0
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive10 {
+        type=box
+        position=-2.36999989 -2.14638925 -0.379999995
+        rotation=0 0.353447944 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive11 {
+        type=box
+        position=-2.36999989 -2.11999989 -0.379999995
+        rotation=0 0 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive12 {
+        type=box
+        position=-2.36999989 -2.18342137 -0.379999995
+        rotation=0 -0.431433082 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive13 {
+        type=box
+        position=-2.36999989 -2.25 -0.379999995
+        rotation=-3.14159274 1.43745315 -3.14159274
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
+    }
+
+    primitive primitive14 {
+        type=box
+        position=-4.46999979 -2.04999995 -0.379999995
+        rotation=-3.14159274 1.43745315 -3.14159274
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
+    }
+
+    primitive primitive15 {
+        type=box
+        position=-4.76000023 -2.1400001 -1.10000002
+        rotation=3.14159274 -0.704589367 -3.14159274
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
+    }
+
+    primitive primitive16 {
+        type=box
+        position=0 0 0
+        rotation=0 0 0
+        half_extents=20 0.100000001 20
+        material=qt_colour_ffffffff_ts200_officecarpet
+    }
+
+    primitive primitive17 {
+        type=box
+        position=-3.93986654 -3.0735209 0.322028577
+        rotation=0 0 0
+        half_extents=1 0.5 0.100000001
+        material=qt_colour_dddbbeff_ts060_corkboard
+    }
+
+    primitive primitive18 {
+        type=box_frame
+        position=-3.94000006 -3.06999993 0.319999993
+        rotation=0 0 0
+        params=1.10000002 0.600000024 0.100000001 0.0500000007
+        material=qt_colour_181818ff_ts060_white
+    }
+
+    primitive primitive19 {
+        type=box
+        position=-2.36999989 -2.8499999 0.230000004
+        rotation=1.57079637 0 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
+    }
+
+    primitive primitive20 {
+        type=sphere
+        position=-2.36999989 -3.02999997 0.230000004
+        rotation=1.57079637 0 0
+        radius=0.0399999991
+        material=qt_colour_000000ff_ts060_white
+    }
+
+    primitive primitive21 {
+        type=box
+        position=-4.1500001 -2.1400001 -1.10000002
+        rotation=0 1.35175741 0
+        half_extents=0.200000003 0.0199999996 0.200000003
+        material=qt_colour_ffffffff_ts060_scribbles
     }
 }
 
 layer layer1 {
-    operation=subtraction
-    smoothness=0.100000001
+    operation=union
+    smoothness=0
 
-    primitive primitive6 {
-        type=ellipsoid
-        position=-0.219566002 -0.908032 -0.419999987
+    primitive primitive3 {
+        type=box
+        position=0 -6.02040148 0
         rotation=0 0 0
-        params=0.150000006 0.100000001 0.100000001 0
-        material=qt_colour_ffffffff_ts060_white
+        half_extents=20 0.5 20
+        material=qt_colour_ffffffff_ts200_ceilingtiles
+    }
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive primitive22 {
+        type=box
+        position=-2.73161864 -5.51999998 -2.6218574
+        rotation=0 0 0
+        half_extents=2 0.100000001 0.200000003
+        material=qt_colour_dddbbeff_ts060_em0100ffffff_white
+    }
+
+    primitive primitive23 {
+        type=box_frame
+        position=-2.73000002 -5.51999998 -2.61999989
+        rotation=0 0 0
+        params=2.0999999 0.100000001 0.219999999 0.0299999993
+        material=qt_colour_dddbbeff_ts060_white
     }
 }
 
 layer layer3 {
     operation=union
-    smoothness=0.0500000007
-
-    primitive primitive11 {
-        type=capsule
-        position=0.0199999996 -0.738031983 -0.50999999
-        rotation=-0.328296006 0 0
-        params=0.0500000007 0.100000001 0 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive12 {
-        type=sphere
-        position=-0.0374563001 -0.643239021 -0.50999999
-        rotation=-0.328296006 0 0
-        radius=0.0500000007
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive13 {
-        type=sphere
-        position=0.0599999987 -0.64803201 -0.50999999
-        rotation=-0.328296006 0 0
-        radius=0.0500000007
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer4 {
-    operation=subtraction
-    smoothness=0.100000001
-
-    primitive primitive15 {
-        type=ellipsoid
-        position=0 -0.449999988 -0.519999981
-        rotation=0 0 0
-        params=0.200000003 0.0700000003 0.200000003 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer6 {
-    operation=union
-    smoothness=0.25
-
-    primitive primitive16 {
-        type=sphere
-        position=0.720000029 -0.908032 0
-        rotation=0 0 0.420798987
-        radius=0.5
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive17 {
-        type=ellipsoid
-        position=0.579385996 -0.602589011 0
-        rotation=0 -0 0.420875013
-        params=0.5 0.5 0.5 0
-        param_expr=0 0.4-0.2*p.y
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer7 {
-    operation=subtraction
-    smoothness=0.100000001
-
-    primitive primitive18 {
-        type=ellipsoid
-        position=0.215437993 -0.928686023 -0.419999987
-        rotation=0 0 -0.0551421009
-        params=0.150000006 0.100000001 0.100000001 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-
-    primitive primitive19 {
-        type=ellipsoid
-        position=0.993432999 -0.835844994 -0.419999987
-        rotation=0 -0 0.329751998
-        params=0.150000006 0.100000001 0.100000001 0
-        material=qt_colour_ffffffff_ts060_white
-    }
+    smoothness=0
 
     primitive primitive24 {
-        type=ellipsoid
-        position=0.569999993 -0.978031993 -0.419999987
-        rotation=0 0 0.32969299
-        params=0.150000006 0.100000001 0.100000001 0
-        material=qt_colour_ffffffff_ts060_white
-    }
-}
-
-layer layer8 {
-    operation=union
-    smoothness=0.0500000007
-
-    primitive primitive20 {
-        type=capsule
-        position=0.727532983 -0.733330011 -0.50999999
-        rotation=-0.328296006 3.72529008e-09 0.309641987
-        params=0.0500000007 0.100000001 0 0
+        type=capped_cylinder
+        position=-2.53999996 -0.519999981 -2.03999996
+        rotation=0 0 0
+        params=0.5 0.5 0 0
         material=qt_colour_ffffffff_ts060_white
     }
 
-    primitive primitive21 {
+    primitive primitive25 {
+        type=box
+        position=-2.54999995 -1.35000002 -2.03999996
+        rotation=0 0 0
+        half_extents=0.300000012 0.200000003 0.200000003
+        param_expr=0 0.3 - 0.2*p.y
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive26 {
         type=sphere
-        position=0.643923998 -0.660552025 -0.50999999
-        rotation=-0.328296006 3.72529008e-09 0.309641987
-        radius=0.0500000007
+        position=-2.11796641 -1.28079641 -2.03999996
+        rotation=0 0 0
+        radius=0.150000006
         material=qt_colour_ffffffff_ts060_white
     }
 
-    primitive primitive22 {
+    primitive primitive27 {
         type=sphere
-        position=0.738206029 -0.635420978 -0.50999999
-        rotation=-0.328296006 3.72529008e-09 0.309641987
-        radius=0.0500000007
+        position=-2.99542475 -1.27999997 -2.03999996
+        rotation=0 0 0
+        radius=0.150000006
         material=qt_colour_ffffffff_ts060_white
     }
-}
 
-layer layer9 {
-    operation=subtraction
-    smoothness=0.100000001
+    primitive primitive28 {
+        type=capped_cylinder
+        position=-3 -0.800000012 -3.04999995
+        rotation=0 0 0
+        params=0.150000006 0.349999994 0 0
+        param_expr=0 0.1 - 0.1*p.y
+        material=qt_colour_ffffffff_ts060_white
+    }
 
-    primitive primitive23 {
-        type=ellipsoid
-        position=0.54944098 -0.449212015 -0.515402019
-        rotation=0 -0 0.233032003
-        params=0.200000003 0.100000001 0.200000003 0
+    primitive primitive29 {
+        type=sphere
+        position=-3 -1.27999997 -3.0365777
+        rotation=0 0 0
+        radius=0.100000001
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive30 {
+        type=capped_cylinder
+        position=-2.116436 -1.27999997 -2.57999992
+        rotation=-1.57987201 0 0
+        params=0.150000006 0.300000012 0 0
+        param_expr=0 0.15 - 0.1*p.y
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive31 {
+        type=capped_cylinder
+        position=-3 -1.27999997 -2.57999992
+        rotation=-1.57987201 0 0
+        params=0.150000006 0.300000012 0 0
+        param_expr=0 0.15 - 0.1*p.y
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive32 {
+        type=sphere
+        position=-2.10903335 -1.27999997 -3.03999996
+        rotation=0 0 0
+        radius=0.100000001
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive33 {
+        type=capped_cylinder
+        position=-2.1099999 -0.800000012 -3.04999995
+        rotation=0 0 0
+        params=0.150000006 0.349999994 0 0
+        param_expr=0 0.1 - 0.1*p.y
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive34 {
+        type=box
+        position=-2.07999992 -0.266701907 -3.13691902
+        rotation=0 0 0
+        half_extents=0.100000001 0.0700000003 0.150000006
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive35 {
+        type=box
+        position=-3 -0.261939883 -3.14918137
+        rotation=0 0 0
+        half_extents=0.100000001 0.0700000003 0.150000006
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive36 {
+        type=sphere
+        position=-2.53069663 -1.83000004 -2.1099999
+        rotation=0 0 0
+        radius=0.200000003
         material=qt_colour_ffffffff_ts060_white
     }
 }
