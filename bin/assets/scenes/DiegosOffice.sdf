@@ -333,4 +333,83 @@ layer layer3 {
         radius=0.200000003
         material=qt_colour_ffffffff_ts060_white
     }
+
+    primitive primitive37 {
+        type=ellipsoid
+        position=-2.52999997 -2.58279371 -2.1099999
+        rotation=0 0 0
+        params=0.400000006 0.5 0.200000003 0
+        material=qt_colour_ffffffff_ts060_white
+    }
+}
+
+layer layer4 {
+    operation=subtraction
+    smoothness=0
+
+    primitive primitive38 {
+        type=sphere
+        position=-2.52999997 -2.19279361 -2.32362366
+        rotation=0 0 0
+        radius=0.300000012
+        material=qt_colour_ffffffff_ts060_white
+    }
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0.150000006
+
+    primitive primitive39 {
+        type=capsule
+        position=-2.33999991 -2.99444675 -2.1099999
+        rotation=0 0 -1.65806282
+        params=0.0500000007 0.150000006 0 0
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive40 {
+        type=capsule
+        position=-2.33117962 -3.1248076 -2.1099999
+        rotation=0 0 -1.22173047
+        params=0.0500000007 0.150000006 0 0
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive41 {
+        type=capsule
+        position=-2.71117973 -3.1248076 -2.1099999
+        rotation=0 0 1.22173047
+        params=0.0500000007 0.150000006 0 0
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive42 {
+        type=capsule
+        position=-2.71117973 -2.99480748 -2.1099999
+        rotation=0 0 1.65806282
+        params=0.0500000007 0.150000006 0 0
+        material=qt_colour_ffffffff_ts060_white
+    }
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0
+
+    primitive primitive44 {
+        type=sphere
+        position=-2.01497316 -3.00530815 -2.1099999
+        rotation=0 0 0
+        radius=0.100000001
+        material=qt_colour_ffffffff_ts060_white
+    }
+
+    primitive primitive45 {
+        type=sphere
+        position=-3.02999997 -3.00999999 -2.1099999
+        rotation=0 0 0
+        radius=0.100000001
+        material=qt_colour_ffffffff_ts060_white
+    }
 }

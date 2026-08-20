@@ -768,25 +768,27 @@ SdfEditorWindow::SdfEditorWindow() {
   add_row->addWidget(new_layer_button_);
   primitives_layout->addLayout(add_row);
 
-  auto *layer_clipboard_row = new QHBoxLayout();
-  copy_layer_button_ = new QPushButton("Copy Layer");
-  copy_layer_button_->setToolTip(
-      "Copies the selected row's layer (every primitive in it, deep-copied) "
-      "onto an in-memory clipboard -- select any primitive within a layer, "
-      "or the layer row itself.");
-  connect(copy_layer_button_, &QPushButton::clicked, this,
-         &SdfEditorWindow::on_copy_layer_clicked);
-  layer_clipboard_row->addWidget(copy_layer_button_);
-  paste_layer_button_ = new QPushButton("Paste Layer");
-  paste_layer_button_->setEnabled(false); // enabled once something's been copied
-  paste_layer_button_->setToolTip(
-      "Appends a fresh copy of the last-copied layer -- every primitive "
-      "gets a newly generated unique name, so pasting repeatedly never "
-      "collides with the original or an earlier paste.");
-  connect(paste_layer_button_, &QPushButton::clicked, this,
-         &SdfEditorWindow::on_paste_layer_clicked);
-  layer_clipboard_row->addWidget(paste_layer_button_);
-  primitives_layout->addLayout(layer_clipboard_row);
+  auto *primitive_clipboard_row = new QHBoxLayout();
+  copy_primitives_button_ = new QPushButton("Copy Primitives");
+  copy_primitives_button_->setToolTip(
+      "Deep-copies every selected primitive onto an in-memory clipboard. "
+      "Select as many as you like, across as many layers as you like; "
+      "selecting a layer row copies every primitive in it.");
+  connect(copy_primitives_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_copy_primitives_clicked);
+  primitive_clipboard_row->addWidget(copy_primitives_button_);
+  paste_primitives_button_ = new QPushButton("Paste Primitives");
+  paste_primitives_button_->setEnabled(false); // enabled once something's copied
+  paste_primitives_button_->setToolTip(
+      "Adds a fresh copy of every copied primitive to the selected layer "
+      "(select the layer row, or anything within it) -- with no layer "
+      "selected they go into a new one. Each gets a newly generated unique "
+      "name, so pasting repeatedly never collides with the original or an "
+      "earlier paste.");
+  connect(paste_primitives_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_paste_primitives_clicked);
+  primitive_clipboard_row->addWidget(paste_primitives_button_);
+  primitives_layout->addLayout(primitive_clipboard_row);
 
   primitives_layout->addWidget(new QLabel("Scene Contents"));
   contents_tree_ = new ContentsTreeWidget();
@@ -1430,73 +1432,128 @@ void SdfEditorWindow::on_new_layer_clicked() {
   }
 }
 
-void SdfEditorWindow::on_copy_layer_clicked() {
+void SdfEditorWindow::on_copy_primitives_clicked() {
   QList<QTreeWidgetItem *> selected = contents_tree_->selectedItems();
   if (selected.isEmpty()) {
     return;
   }
 
-  // Same "touched layers" rule on_remove_clicked() uses: a selected layer
-  // row contributes itself, a selected primitive row contributes its parent
-  // layer -- a std::set both dedupes (several primitives in one layer still
-  // copy it once) and gives ascending scene_.layers index order for free.
-  std::set<int> touched_layers;
+  // A primitive row names itself; a layer row names everything in it, so
+  // "copy this whole layer's contents" is still one click. A std::set both
+  // dedupes (selecting a primitive AND its layer row names it twice) and
+  // gives ascending (layer, primitive) order for free -- which is the order
+  // they will be pasted back in, so a multi-select paste preserves the
+  // scene's own ordering rather than the order rows happened to be clicked.
+  std::set<std::pair<int, int>> refs;
   for (QTreeWidgetItem *item : selected) {
-    touched_layers.insert(item->parent()
-                               ? item->parent()->data(0, kLayerIndexRole).toInt()
-                               : item->data(0, kLayerIndexRole).toInt());
+    if (item->parent()) {
+      refs.emplace(item->parent()->data(0, kLayerIndexRole).toInt(),
+                   item->data(0, kPrimitiveIndexRole).toInt());
+      continue;
+    }
+    const int layer_index = item->data(0, kLayerIndexRole).toInt();
+    if (layer_index < 0 || layer_index >= static_cast<int>(scene_.layers.size())) {
+      continue;
+    }
+    const auto &primitives = scene_.layers[layer_index].primitives;
+    for (int i = 0; i < static_cast<int>(primitives.size()); ++i) {
+      refs.emplace(layer_index, i);
+    }
   }
 
-  layer_clipboard_.clear();
-  layer_clipboard_.reserve(touched_layers.size());
-  for (int index : touched_layers) {
-    layer_clipboard_.push_back(scene_.layers[index]); // deep copy --
-                                                       // SdfLayerDef owns
-                                                       // its primitives[]
-                                                       // outright
+  // Only overwrite the clipboard once we know there is something to put in
+  // it -- a selection of nothing but empty layer rows should leave whatever
+  // was copied earlier alone, exactly as an empty selection does.
+  std::vector<SdfPrimitiveDef> copied;
+  copied.reserve(refs.size());
+  for (const auto &[layer_index, primitive_index] : refs) {
+    if (layer_index < 0 || layer_index >= static_cast<int>(scene_.layers.size())) {
+      continue;
+    }
+    const auto &primitives = scene_.layers[layer_index].primitives;
+    if (primitive_index < 0 ||
+        primitive_index >= static_cast<int>(primitives.size())) {
+      continue;
+    }
+    copied.push_back(primitives[primitive_index]); // deep copy -- a
+                                                   // SdfPrimitiveDef owns
+                                                   // its params outright
   }
-  paste_layer_button_->setEnabled(true);
-}
-
-void SdfEditorWindow::on_paste_layer_clicked() {
-  if (layer_clipboard_.empty()) {
+  if (copied.empty()) {
     return;
   }
-  // Deep copy, then rename the layer AND every primitive inside it to a
-  // fresh, globally unique name -- GeometrySystem::acquire() (engine-side)
-  // keys purely off name, so pasting the clipboard's names verbatim would
-  // silently bump the *original* layer/primitives' reference counts instead
-  // of registering new geometry, discarding whichever position/params the
-  // pasted copy was actually given (see on_add_clicked()'s own comment on
-  // next_primitive_id_ for the exact same hazard). Reusing next_layer_id_/
-  // next_primitive_id_ -- the same monotonic counters on_new_layer_clicked()/
-  // on_add_clicked() already draw from -- keeps every name in the scene
-  // unique regardless of whether it came from Add, New Layer, or Paste.
-  int first_pasted_index = static_cast<int>(scene_.layers.size());
-  for (const SdfLayerDef &copied : layer_clipboard_) {
-    SdfLayerDef pasted = copied;
-    pasted.name = "layer" + std::to_string(next_layer_id_++);
-    for (SdfPrimitiveDef &primitive : pasted.primitives) {
-      primitive.name = "primitive" + std::to_string(next_primitive_id_++);
-    }
-    scene_.layers.push_back(std::move(pasted));
+
+  primitive_clipboard_ = std::move(copied);
+  paste_primitives_button_->setEnabled(true);
+}
+
+void SdfEditorWindow::on_paste_primitives_clicked() {
+  if (primitive_clipboard_.empty()) {
+    return;
+  }
+
+  // Into the SELECTED layer -- active_layer_index_ is already exactly that
+  // notion (a lone layer row, or a selection that lies entirely within one
+  // layer; -1 when the selection spans several or there is none). With no
+  // layer to target, start one, mirroring on_add_clicked()'s own fallback
+  // and its use of the New Primitive form's Join Operation/Smoothness for
+  // the layer it creates -- pasting should never silently do nothing.
+  int target_layer;
+  if (active_layer_index_ >= 0 &&
+      active_layer_index_ < static_cast<int>(scene_.layers.size())) {
+    target_layer = active_layer_index_;
+  } else {
+    SdfLayerOperation operation = operation_combo_->currentIndex() == 1
+                                      ? SdfLayerOperation::Subtraction
+                                      : SdfLayerOperation::Union;
+    f32 smoothness = static_cast<f32>(smoothness_spin_->value());
+    std::string layer_name = "layer" + std::to_string(next_layer_id_++);
+    add_layer(scene_, layer_name, operation, smoothness);
+    target_layer = static_cast<int>(scene_.layers.size()) - 1;
+  }
+
+  // Deep copy, then rename every pasted primitive to a fresh, globally
+  // unique name -- GeometrySystem::acquire() (engine-side) keys purely off
+  // name, so pasting the clipboard's names verbatim would silently bump the
+  // *originals'* reference counts instead of registering new geometry,
+  // discarding whichever position/params the pasted copy was actually given
+  // (see on_add_clicked()'s own comment on next_primitive_id_ for the exact
+  // same hazard). Reusing next_primitive_id_ -- the same monotonic counter
+  // on_add_clicked() already draws from -- keeps every name in the scene
+  // unique regardless of whether it came from Add or Paste.
+  auto &target_primitives = scene_.layers[target_layer].primitives;
+  const int first_pasted_index = static_cast<int>(target_primitives.size());
+  for (const SdfPrimitiveDef &copied : primitive_clipboard_) {
+    SdfPrimitiveDef pasted = copied;
+    pasted.name = "primitive" + std::to_string(next_primitive_id_++);
+    target_primitives.push_back(std::move(pasted));
   }
 
   refresh_contents_list();
   sync_viewport_scene();
 
-  // Select every newly pasted layer row -- mirrors on_new_layer_clicked()'s
-  // own selection of a freshly added layer, extended to the whole batch.
+  // Select every newly pasted primitive row, so the gizmo lands on the
+  // copies rather than the originals and they can be dragged straight off
+  // the things they are sitting exactly on top of.
   contents_tree_->clearSelection();
   QTreeWidgetItem *first_pasted_item = nullptr;
   for (int i = 0; i < contents_tree_->topLevelItemCount(); ++i) {
     QTreeWidgetItem *layer_item = contents_tree_->topLevelItem(i);
-    if (layer_item->data(0, kLayerIndexRole).toInt() >= first_pasted_index) {
-      layer_item->setSelected(true);
+    if (layer_item->data(0, kLayerIndexRole).toInt() != target_layer) {
+      continue;
+    }
+    for (int j = 0; j < layer_item->childCount(); ++j) {
+      QTreeWidgetItem *primitive_item = layer_item->child(j);
+      if (primitive_item->data(0, kPrimitiveIndexRole).toInt() <
+          first_pasted_index) {
+        continue;
+      }
+      primitive_item->setSelected(true);
       if (!first_pasted_item) {
-        first_pasted_item = layer_item;
+        first_pasted_item = primitive_item;
       }
     }
+    break;
   }
   if (first_pasted_item) {
     // NoUpdate -- setCurrentItem() otherwise re-collapses the selection down
@@ -1774,8 +1831,12 @@ std::string SdfEditorWindow::renderer_primitive_name(PrimitiveRef ref) const {
 void SdfEditorWindow::on_gizmo_drag_started(PrimitiveRef primitive) {
   // An empty name (multi-selection, a light, or a ref that resolves to
   // nothing) leaves the renderer with no dynamic primitive, so that drag
-  // simply behaves as it always did.
-  renderer_set_dynamic_primitive(renderer_primitive_name(primitive));
+  // simply behaves as it always did -- which the release path has to know
+  // about, since its shortcut assumes there is a dynamic primitive to drop.
+  // See drag_had_dynamic_primitive_.
+  const std::string name = renderer_primitive_name(primitive);
+  drag_had_dynamic_primitive_ = !name.empty();
+  renderer_set_dynamic_primitive(name);
 }
 
 void SdfEditorWindow::on_gizmo_drag_moved(GizmoTransformResult transform) {
@@ -1785,6 +1846,17 @@ void SdfEditorWindow::on_gizmo_drag_moved(GizmoTransformResult transform) {
   // primitive's position -- and it would send the wrong value anyway, since
   // it serialises this window's scene copy, which a drag does not touch
   // until it ends (the viewport mutates its own copy).
+  //
+  // Only for a drag that actually has a dynamic primitive. Live-pushing a
+  // BAKED primitive's transform per mouse-move would dirty it per mouse-
+  // move, i.e. re-bake the chunks it covers at frame rate -- and a
+  // multi-selection drag is exactly the case with no dynamic primitive.
+  // Those drags go back to what every drag did before dynamic primitives
+  // existed: the viewport moves its own copy, and the single sync on
+  // release commits the whole thing at once.
+  if (!drag_had_dynamic_primitive_) {
+    return;
+  }
   const std::string name = renderer_primitive_name(transform.ref);
   if (!name.empty()) {
     renderer_set_primitive_transform(name, transform.position,
@@ -1880,20 +1952,38 @@ void SdfEditorWindow::on_viewport_primitives_transformed(
   // divergence between SdfEditorWindow's and SceneViewport's copies that
   // existed only during the drag itself.
   //
-  // The file still has to be written -- the next ordinary edit reconciles
-  // against it, and a stale one would silently revert this drag. But the
-  // RENDERER is already correct: the drag pushed every transform straight
-  // to it via renderer_set_primitive_transform(), and dropping the dynamic
-  // primitive already queued the chunks that need re-baking. Reconciling
-  // as well would re-serialise the whole scene, re-parse it, diff it, and
-  // trigger another full rebuild behind a graphics-queue idle, to arrive
-  // at the state the renderer is already in -- which is a large part of
-  // the stall felt on release.
-  if (!save_scene(kLivePreviewPath, scene_)) {
-    return; // save_scene() already logged why
+  // Skipping the reconcile is only sound for a drag that HAD a dynamic
+  // primitive. There, the renderer is already correct: the drag pushed
+  // every transform straight to it via renderer_set_primitive_transform(),
+  // and dropping the dynamic primitive queued the chunks that need
+  // re-baking. Reconciling as well would re-serialise the whole scene,
+  // re-parse it, diff it, and trigger another full rebuild behind a
+  // graphics-queue idle, to arrive at the state the renderer is already in
+  // -- which is a large part of the stall felt on release.
+  //
+  // Without one -- a ctrl-click multi-selection, or a light -- nothing was
+  // dropped, so nothing queued a re-bake, and renderer_set_primitive_
+  // transform() deliberately doesn't mark the scene dirty either. The move
+  // would reach the primitive buffer and never reach the baked field, and
+  // the splat pass (which draws the image whenever no primitive is dynamic)
+  // reads only the baked field: the primitives would not appear to move at
+  // all until some later edit happened to dirty them. So fall back to the
+  // ordinary sync, which is what every drag did before dynamic primitives
+  // existed.
+  //
+  // The file has to be written either way -- the next ordinary edit
+  // reconciles against it, and a stale one would silently revert this drag.
+  if (!drag_had_dynamic_primitive_) {
+    viewport_->set_scene(scene_);
+    sync_debounce_timer_->stop(); // superseded by the sync below
+    sync_viewport_scene_now();    // saves the file itself
+  } else {
+    if (!save_scene(kLivePreviewPath, scene_)) {
+      return; // save_scene() already logged why
+    }
+    viewport_->set_scene(scene_);
+    sync_debounce_timer_->stop(); // nothing pending is still relevant
   }
-  viewport_->set_scene(scene_);
-  sync_debounce_timer_->stop(); // nothing pending is still relevant
   // The drag just changed position/rotation/size without going through the
   // side panel's fields at all -- refresh them so they don't show stale
   // pre-drag values (only meaningful for a single-item selection -- see

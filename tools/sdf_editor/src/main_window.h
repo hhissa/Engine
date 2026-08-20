@@ -53,23 +53,27 @@ private slots:
   // more than one primitive, rather than on_add_clicked()'s implicit "no
   // active layer -> make a fresh one" fallback.
   void on_new_layer_clicked();
-  // Connected to copy_layer_button_'s clicked -- deep-copies every layer
-  // touched by contents_tree_'s current selection into layer_clipboard_ (see
-  // its own comment): a selected layer row contributes itself, a selected
-  // primitive row contributes its parent layer, and layers are deduplicated
-  // so selecting several primitives in the same layer still copies it once
-  // (same "touched layers" rule on_remove_clicked() already uses). Enables
-  // paste_layer_button_. No-op (clipboard left as whatever it was) if
-  // nothing is selected.
-  void on_copy_layer_clicked();
-  // Connected to paste_layer_button_'s clicked -- appends a deep copy of
-  // every layer in layer_clipboard_ to scene_.layers, with a freshly
-  // generated unique name for each layer itself and for every primitive
-  // inside it (see on_paste_layer_clicked()'s own body for why that's
-  // essential, not just tidy), then selects every newly pasted layer row.
-  // No-op if layer_clipboard_ is empty (nothing copied yet -- the button
-  // stays disabled in that case, but this guards direct calls too).
-  void on_paste_layer_clicked();
+  // Connected to copy_primitives_button_'s clicked -- deep-copies every
+  // primitive contents_tree_'s current selection names into
+  // primitive_clipboard_ (see its own comment). A selected primitive row
+  // contributes itself; a selected LAYER row contributes every primitive in
+  // it, so copying a whole layer's worth is still one click. Duplicates are
+  // dropped (selecting a primitive and its layer row names it twice) and
+  // the result is in ascending (layer, primitive) order. Enables
+  // paste_primitives_button_. No-op (clipboard left as whatever it was) if
+  // the selection names no primitives at all.
+  void on_copy_primitives_clicked();
+  // Connected to paste_primitives_button_'s clicked -- appends a deep copy
+  // of every primitive in primitive_clipboard_ to the currently selected
+  // layer (active_layer_index_ -- a selected layer row, or a selection all
+  // within one layer), each with a freshly generated unique name (see
+  // on_paste_primitives_clicked()'s own body for why that's essential, not
+  // just tidy), then selects every newly pasted primitive row. With no
+  // layer selected it starts a fresh one, mirroring on_add_clicked()'s
+  // fallback, so the paste is never a silent no-op. No-op if
+  // primitive_clipboard_ is empty (nothing copied yet -- the button stays
+  // disabled in that case, but this guards direct calls too).
+  void on_paste_primitives_clicked();
   void on_pick_colour_clicked();
   // Connected to emissive_colour_button_'s clicked -- mirrors
   // on_pick_colour_clicked() for the emissive colour swatch (see
@@ -328,6 +332,20 @@ private:
   // registration); every call after that reconciles against this same
   // handle instead of loading a fresh one.
   SceneHandle live_scene_handle_ = kInvalidSceneHandle;
+  // Whether the drag that just ended had a dynamic primitive behind it --
+  // i.e. whether on_gizmo_drag_started() actually handed the renderer a
+  // name. Only a lone non-light selection qualifies (the renderer tracks
+  // exactly one, and a light has no baked geometry), so a ctrl-click
+  // multi-selection and a light drag both leave this false.
+  //
+  // on_viewport_primitives_transformed() skips the reconcile on release
+  // because dropping the dynamic primitive is what queues the re-bake. With
+  // no dynamic primitive there is nothing to drop and nothing queued, so
+  // that shortcut would leave the move written to the primitive buffer but
+  // absent from the baked field -- and the splat pass, which is what draws
+  // the image whenever no primitive is dynamic, reads only the baked field.
+  // The primitives simply would not appear to move.
+  bool drag_had_dynamic_primitive_ = false;
   // Debounces request_viewport_resync() -- see its own comment. Single-
   // shot, (re)started on every call rather than left running, so it fires
   // exactly once kSyncDebounceMs after the LAST edit in a burst.
@@ -384,16 +402,22 @@ private:
   QListWidget *type_list_ = nullptr;
   ContentsTreeWidget *contents_tree_ = nullptr;
   QPushButton *new_layer_button_ = nullptr;
-  QPushButton *copy_layer_button_ = nullptr;
-  QPushButton *paste_layer_button_ = nullptr;
-  // Set by on_copy_layer_clicked(), read by on_paste_layer_clicked() --
-  // empty means "nothing copied yet" (paste_layer_button_ stays disabled the
-  // whole time it is). One entry per distinct layer the selection touched,
-  // in ascending scene_.layers index order at copy time. Plain values, not
-  // pointers/indices into scene_: copying takes a snapshot independent of
-  // whatever scene_.layers does afterward (edits, removals, even loading an
-  // entirely different scene), exactly what a clipboard should survive.
-  std::vector<SdfLayerDef> layer_clipboard_;
+  QPushButton *copy_primitives_button_ = nullptr;
+  QPushButton *paste_primitives_button_ = nullptr;
+  // Set by on_copy_primitives_clicked(), read by
+  // on_paste_primitives_clicked() -- empty means "nothing copied yet"
+  // (paste_primitives_button_ stays disabled the whole time it is). One
+  // entry per primitive the selection named, in ascending (layer,
+  // primitive) index order at copy time. Plain values, not pointers/indices
+  // into scene_: copying takes a snapshot independent of whatever
+  // scene_.layers does afterward (edits, removals, even loading an entirely
+  // different scene), exactly what a clipboard should survive.
+  //
+  // Deliberately primitives rather than whole layers: the layer a paste
+  // lands in is chosen at PASTE time (the selected one), so the copy has no
+  // business carrying an operation/smoothness of its own -- pasting into a
+  // subtraction layer should subtract.
+  std::vector<SdfPrimitiveDef> primitive_clipboard_;
   QComboBox *operation_combo_ = nullptr;
   QDoubleSpinBox *smoothness_spin_ = nullptr;
   QDoubleSpinBox *pos_x_ = nullptr;

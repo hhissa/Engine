@@ -308,6 +308,14 @@ public:
   // scene_dirty_): the index is only resolvable while walking the scene,
   // and the bounds list that excludes it is only rebuilt there.
   // Returns whether anything actually changed.
+  // Whether this name is the one currently marked dynamic. Callers that
+  // move a primitive need to know: a dynamic primitive is out of the bake,
+  // so moving it invalidates nothing, but ANY other primitive is baked
+  // where it was and must be dirtied like an ordinary edit.
+  b8 is_dynamic_primitive(std::string_view name) const noexcept {
+    return !dynamic_primitive_name_.empty() && dynamic_primitive_name_ == name;
+  }
+
   b8 set_dynamic_primitive(std::string name) {
     if (dynamic_primitive_name_ == name) {
       return false;

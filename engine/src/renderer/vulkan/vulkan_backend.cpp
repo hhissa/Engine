@@ -612,9 +612,18 @@ void VulkanRendererBackend::set_primitive_transform(std::string_view name,
   }
   geometry->position = position;
   geometry->rotation = rotation_euler;
-  // Deliberately no mark_dirty(): that is what drives chunk invalidation,
-  // and a dynamic primitive is not in the bake, so there is nothing to
-  // invalidate and nothing to re-voxelize.
+  // Skipping mark_dirty() is sound ONLY for the dynamic primitive. That one
+  // is not in the bake, so there is nothing to invalidate and nothing to
+  // re-voxelize -- which is the entire point of marking it dynamic.
+  //
+  // Any other primitive IS baked where it was. Moving it without dirtying
+  // it writes the new transform into the primitive buffer while the baked
+  // field -- and therefore the splat pass, which draws the image whenever
+  // no primitive is dynamic -- still holds the old one, and nothing else
+  // will ever ask for the correction. The primitive simply does not move.
+  if (!context_.raymarch_shader->is_dynamic_primitive(name)) {
+    context_.geometry_system->mark_dirty(name);
+  }
   //
   // Nor scene_dirty_, which would mean rebake() -- a graphics-queue idle
   // plus a rebuild of every primitive in the scene, per mouse-move, to

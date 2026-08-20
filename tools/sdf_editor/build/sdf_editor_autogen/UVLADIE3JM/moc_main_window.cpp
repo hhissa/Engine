@@ -43,8 +43,8 @@ template <> constexpr inline auto SdfEditorWindow::qt_create_metaobjectdata<qt_m
         "",
         "on_remove_clicked",
         "on_new_layer_clicked",
-        "on_copy_layer_clicked",
-        "on_paste_layer_clicked",
+        "on_copy_primitives_clicked",
+        "on_paste_primitives_clicked",
         "on_pick_colour_clicked",
         "on_pick_emissive_colour_clicked",
         "on_pick_texture_clicked",
@@ -104,9 +104,9 @@ template <> constexpr inline auto SdfEditorWindow::qt_create_metaobjectdata<qt_m
         QtMocHelpers::SlotData<void()>(3, 2, QMC::AccessPrivate, QMetaType::Void),
         // Slot 'on_new_layer_clicked'
         QtMocHelpers::SlotData<void()>(4, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_copy_layer_clicked'
+        // Slot 'on_copy_primitives_clicked'
         QtMocHelpers::SlotData<void()>(5, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_paste_layer_clicked'
+        // Slot 'on_paste_primitives_clicked'
         QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPrivate, QMetaType::Void),
         // Slot 'on_pick_colour_clicked'
         QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
@@ -226,8 +226,8 @@ void SdfEditorWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int 
         case 0: _t->on_add_clicked(); break;
         case 1: _t->on_remove_clicked(); break;
         case 2: _t->on_new_layer_clicked(); break;
-        case 3: _t->on_copy_layer_clicked(); break;
-        case 4: _t->on_paste_layer_clicked(); break;
+        case 3: _t->on_copy_primitives_clicked(); break;
+        case 4: _t->on_paste_primitives_clicked(); break;
         case 5: _t->on_pick_colour_clicked(); break;
         case 6: _t->on_pick_emissive_colour_clicked(); break;
         case 7: _t->on_pick_texture_clicked(); break;
