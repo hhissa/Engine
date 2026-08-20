@@ -1,5 +1,8 @@
 # Bingus Engine
 
+<img width="1908" height="1017" alt="image" src="https://github.com/user-attachments/assets/e9ee41c4-f78c-4e02-bf50-fe565c990bda" />
+
+
 A custom C++20 Vulkan engine with **no mesh pipeline at all**. There is no vertex buffer, no index buffer, no rasterizer for scene geometry. Every surface in every scene is a signed distance field, voxelized into a sparse brick hierarchy and raymarched per-pixel in compute shaders.
 
 Roughly 40,000 lines of C++ and 7,500 lines of GLSL, written from scratch on top of raw Vulkan — including the memory subsystem, the streaming scheduler, the renderer, a Qt scene editor, and a narrative game built on the result.
