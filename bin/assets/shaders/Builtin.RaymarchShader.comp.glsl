@@ -152,6 +152,10 @@ layout(push_constant) uniform PushConstants {
                                   // push-constant bytes, and a vec2's
                                   // 8-byte alignment mid-block would pad it
                                   // over that limit.
+    // Index into primitives[] of the one primitive being interactively
+    // moved, or -1. Excluded from the bake and unioned in analytically
+    // below instead, so dragging it re-bakes nothing. 124 of 128 bytes.
+    int dynamic_primitive;
 } push;
 
 // Bits of push.flags. Four independent booleans packed into one scalar --
@@ -245,6 +249,33 @@ void sample_active_field(vec3 p, vec3 ray_dir, out float dist, out float skip_di
                              material_index);
     } else {
         sample_field(p, ray_dir, dist, skip_dist, material_index);
+    }
+
+    // The interactively-moved primitive is not in the baked field at all
+    // (that is the whole point -- moving it re-bakes nothing), so it is
+    // unioned in here, evaluated analytically, one primitive per step.
+    //
+    // The subtlety is skip_dist. It is a "trust dist" flag, not a
+    // magnitude: nonzero means the field has nothing here and the ray may
+    // jump that far. Taking that jump unchanged would sail straight
+    // through the dynamic primitive, which occupies space the baked field
+    // has never heard of. So a skip is CLAMPED to the analytic distance,
+    // and becomes a real hit once the analytic surface is the nearer of
+    // the two.
+    if (push.dynamic_primitive >= 0) {
+        float dynamic_dist = primitive_sdf(push.dynamic_primitive, p);
+        if (skip_dist != 0.0) {
+            if (dynamic_dist < skip_dist) {
+                // Inside the region the field wanted to skip: the analytic
+                // surface is what the ray must march against from here.
+                dist = dynamic_dist;
+                skip_dist = 0.0;
+                material_index = push.dynamic_primitive;
+            }
+        } else if (dynamic_dist < dist) {
+            dist = dynamic_dist;
+            material_index = push.dynamic_primitive;
+        }
     }
 }
 

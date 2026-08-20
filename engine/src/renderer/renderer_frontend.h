@@ -175,6 +175,25 @@ void renderer_set_grid_visible(b8 visible);
 // (likely none, since nothing streams in on its own).
 void renderer_set_chunked_field_enabled(b8 enabled);
 
+// Marks one primitive as interactively moving, by name; pass an empty name
+// to commit it. While set it is kept out of the chunk bake and drawn
+// analytically instead, so dragging it re-bakes nothing and updates at
+// frame rate. Its shadows, ambient occlusion and GI keep lighting where it
+// used to be until it is committed -- that lag is what makes it free.
+void renderer_set_dynamic_primitive(std::string_view name);
+
+// Re-arms chunk cache pre-warming for the geometry currently loaded. Only
+// needed by a caller that swaps scenes through renderer_reconcile_scene()
+// rather than renderer_load_scene(), which re-arms by itself.
+void renderer_request_cache_prewarm();
+
+// Moves one registered primitive in place -- for interactive dragging, so a
+// mouse-move costs three floats rather than re-saving and re-parsing the
+// whole scene. Only meaningful on a primitive that is currently dynamic.
+void renderer_set_primitive_transform(std::string_view name,
+                                      glm::vec3 position,
+                                      glm::vec3 rotation_euler);
+
 // Selects how the chunked field's baked surface-point cloud drives primary
 // visibility -- the Dreams-style point-splatting technique. See
 // RendererSplatMode (renderer_types.inl) for what each mode does; takes

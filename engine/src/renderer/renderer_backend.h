@@ -149,6 +149,34 @@ public:
   // working changes unless a caller explicitly opts in.
   virtual void set_chunked_field_enabled(b8 enabled) = 0;
 
+  // Marks one primitive as interactively moving, by name (empty commits).
+  // While set, it is excluded from the chunk bake and drawn analytically
+  // instead, so moving it costs no re-baking at all -- see
+  // VulkanRaymarchShader::set_dynamic_primitive() for the trade (its
+  // shadows, AO and GI lag until it is committed).
+  virtual void set_dynamic_primitive(std::string_view name) = 0;
+
+  // Re-arms chunk cache pre-warming for whatever geometry is now loaded.
+  // load_scene() does this itself; this exists for a caller that swaps a
+  // scene through reconcile_scene() instead -- the editor opens every
+  // scene after the first that way, so without it pre-warming only ever
+  // ran for the first scene of a session.
+  virtual void request_cache_prewarm() = 0;
+
+  // Moves one already-registered primitive in place, by name. Exists so an
+  // interactive drag does not have to round-trip the WHOLE scene through a
+  // file and a text parser on every mouse-move just to change three
+  // floats, which is what reconciling against a re-saved .sdf amounts to.
+  //
+  // Deliberately does NOT mark the geometry dirty: the caller is expected
+  // to have made it dynamic first (see set_dynamic_primitive()), so it is
+  // outside the bake and there is nothing to invalidate. Used on a
+  // non-dynamic primitive it would move the analytic scene while the baked
+  // voxels kept the old shape, so don't.
+  virtual void set_primitive_transform(std::string_view name,
+                                       glm::vec3 position,
+                                       glm::vec3 rotation_euler) = 0;
+
   // Selects how the chunked field's baked point cloud drives primary
   // visibility -- see RendererSplatMode (renderer_types.inl) and
   // VulkanRaymarchShader::set_splat_mode(). Just a push constant (plus

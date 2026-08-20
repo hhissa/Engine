@@ -386,6 +386,12 @@ SdfEditorWindow::SdfEditorWindow() {
          &SdfEditorWindow::on_viewport_selection_changed);
   connect(viewport_, &SceneViewport::primitives_transformed, this,
          &SdfEditorWindow::on_viewport_primitives_transformed);
+  connect(viewport_, &SceneViewport::gizmo_drag_started, this,
+         &SdfEditorWindow::on_gizmo_drag_started);
+  connect(viewport_, &SceneViewport::gizmo_drag_moved, this,
+         &SdfEditorWindow::on_gizmo_drag_moved);
+  connect(viewport_, &SceneViewport::gizmo_drag_ended, this,
+         &SdfEditorWindow::on_gizmo_drag_ended);
   QWidget *viewport_container = QWidget::createWindowContainer(viewport_, central);
   // Keeps the swapchain from ever seeing a 0x0 extent (e.g. if the window
   // starts very small or a splitter gets dragged to its limit).
@@ -1697,6 +1703,14 @@ void SdfEditorWindow::on_load_clicked() {
     const QSignalBlocker blocker(ambient_spin_);
     ambient_spin_->setValue(scene_.ambient);
   }
+  // A whole new scene's worth of geometry: re-arm chunk cache pre-warming
+  // so it is baked into the cache up front, exactly as it would be for the
+  // session's FIRST scene. Needed explicitly because sync_viewport_scene()
+  // reconciles rather than loads for every scene after the first (see
+  // sync_viewport_scene_now()), and only renderer_load_scene() re-arms by
+  // itself -- so without this, pre-warming ran once per session and every
+  // scene opened afterwards paid cold bakes as you flew around it.
+  renderer_request_cache_prewarm();
   sync_viewport_scene();
   active_layer_index_ = -1;
   viewport_->set_selection({}); // previous selection is from a different
@@ -1737,6 +1751,52 @@ void SdfEditorWindow::sync_viewport_scene_now() {
   } else {
     renderer_reconcile_scene(live_scene_handle_, kLivePreviewPath);
   }
+}
+
+std::string SdfEditorWindow::renderer_primitive_name(PrimitiveRef ref) const {
+  if (live_scene_handle_ == kInvalidSceneHandle || ref.is_light() ||
+      ref.layer_index < 0 ||
+      ref.layer_index >= static_cast<int>(scene_.layers.size())) {
+    return {};
+  }
+  const auto &layer = scene_.layers[ref.layer_index];
+  if (ref.primitive_index < 0 ||
+      ref.primitive_index >= static_cast<int>(layer.primitives.size())) {
+    return {};
+  }
+  // Mirrors GeometrySystem::load_scene()'s own prefixing exactly; the two
+  // must agree or the renderer will simply not find the primitive and the
+  // drag falls back to the slow baked path.
+  return "scene" + std::to_string(live_scene_handle_) + "/" + layer.name + "/" +
+         layer.primitives[ref.primitive_index].name;
+}
+
+void SdfEditorWindow::on_gizmo_drag_started(PrimitiveRef primitive) {
+  // An empty name (multi-selection, a light, or a ref that resolves to
+  // nothing) leaves the renderer with no dynamic primitive, so that drag
+  // simply behaves as it always did.
+  renderer_set_dynamic_primitive(renderer_primitive_name(primitive));
+}
+
+void SdfEditorWindow::on_gizmo_drag_moved(GizmoTransformResult transform) {
+  // Three floats straight to the renderer. Deliberately NOT
+  // sync_viewport_scene_now(): that serialises the ENTIRE scene to disk and
+  // has the engine re-read and re-parse it, per mouse-move, to change one
+  // primitive's position -- and it would send the wrong value anyway, since
+  // it serialises this window's scene copy, which a drag does not touch
+  // until it ends (the viewport mutates its own copy).
+  const std::string name = renderer_primitive_name(transform.ref);
+  if (!name.empty()) {
+    renderer_set_primitive_transform(name, transform.position,
+                                     transform.rotation);
+  }
+}
+
+void SdfEditorWindow::on_gizmo_drag_ended() {
+  // Hands it back to the bake. The commit that follows (on_viewport_
+  // primitives_transformed -> sync) is what re-bakes the chunks its old and
+  // new bounds cover, once, instead of on every mouse-move.
+  renderer_set_dynamic_primitive({});
 }
 
 void SdfEditorWindow::on_viewport_selection_changed(std::vector<PrimitiveRef> selection) {
@@ -1816,10 +1876,24 @@ void SdfEditorWindow::on_viewport_primitives_transformed(
     primitive.rotation = result.rotation;
     primitive.params = result.params;
   }
-  // Persists + rebakes, and re-pushes scene_ into viewport_ -- resolving
-  // the temporary divergence between SdfEditorWindow's and SceneViewport's
-  // copies that existed only during the drag itself.
-  sync_viewport_scene();
+  // Persist and re-push scene_ into viewport_, resolving the temporary
+  // divergence between SdfEditorWindow's and SceneViewport's copies that
+  // existed only during the drag itself.
+  //
+  // The file still has to be written -- the next ordinary edit reconciles
+  // against it, and a stale one would silently revert this drag. But the
+  // RENDERER is already correct: the drag pushed every transform straight
+  // to it via renderer_set_primitive_transform(), and dropping the dynamic
+  // primitive already queued the chunks that need re-baking. Reconciling
+  // as well would re-serialise the whole scene, re-parse it, diff it, and
+  // trigger another full rebuild behind a graphics-queue idle, to arrive
+  // at the state the renderer is already in -- which is a large part of
+  // the stall felt on release.
+  if (!save_scene(kLivePreviewPath, scene_)) {
+    return; // save_scene() already logged why
+  }
+  viewport_->set_scene(scene_);
+  sync_debounce_timer_->stop(); // nothing pending is still relevant
   // The drag just changed position/rotation/size without going through the
   // side panel's fields at all -- refresh them so they don't show stale
   // pre-drag values (only meaningful for a single-item selection -- see

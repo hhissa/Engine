@@ -43,6 +43,13 @@ template <> constexpr inline auto SceneViewport::qt_create_metaobjectdata<qt_met
         "",
         "std::vector<PrimitiveRef>",
         "selection",
+        "gizmo_drag_started",
+        "PrimitiveRef",
+        "primitive",
+        "gizmo_drag_moved",
+        "GizmoTransformResult",
+        "transform",
+        "gizmo_drag_ended",
         "primitives_transformed",
         "std::vector<GizmoTransformResult>",
         "results",
@@ -54,12 +61,22 @@ template <> constexpr inline auto SceneViewport::qt_create_metaobjectdata<qt_met
         QtMocHelpers::SignalData<void(std::vector<PrimitiveRef>)>(1, 2, QMC::AccessPublic, QMetaType::Void, {{
             { 0x80000000 | 3, 4 },
         }}),
-        // Signal 'primitives_transformed'
-        QtMocHelpers::SignalData<void(std::vector<GizmoTransformResult>)>(5, 2, QMC::AccessPublic, QMetaType::Void, {{
+        // Signal 'gizmo_drag_started'
+        QtMocHelpers::SignalData<void(PrimitiveRef)>(5, 2, QMC::AccessPublic, QMetaType::Void, {{
             { 0x80000000 | 6, 7 },
         }}),
+        // Signal 'gizmo_drag_moved'
+        QtMocHelpers::SignalData<void(GizmoTransformResult)>(8, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { 0x80000000 | 9, 10 },
+        }}),
+        // Signal 'gizmo_drag_ended'
+        QtMocHelpers::SignalData<void()>(11, 2, QMC::AccessPublic, QMetaType::Void),
+        // Signal 'primitives_transformed'
+        QtMocHelpers::SignalData<void(std::vector<GizmoTransformResult>)>(12, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { 0x80000000 | 13, 14 },
+        }}),
         // Slot 'tick'
-        QtMocHelpers::SlotData<void()>(8, 2, QMC::AccessPrivate, QMetaType::Void),
+        QtMocHelpers::SlotData<void()>(15, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -84,15 +101,24 @@ void SceneViewport::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _i
     if (_c == QMetaObject::InvokeMetaMethod) {
         switch (_id) {
         case 0: _t->selection_changed((*reinterpret_cast<std::add_pointer_t<std::vector<PrimitiveRef>>>(_a[1]))); break;
-        case 1: _t->primitives_transformed((*reinterpret_cast<std::add_pointer_t<std::vector<GizmoTransformResult>>>(_a[1]))); break;
-        case 2: _t->tick(); break;
+        case 1: _t->gizmo_drag_started((*reinterpret_cast<std::add_pointer_t<PrimitiveRef>>(_a[1]))); break;
+        case 2: _t->gizmo_drag_moved((*reinterpret_cast<std::add_pointer_t<GizmoTransformResult>>(_a[1]))); break;
+        case 3: _t->gizmo_drag_ended(); break;
+        case 4: _t->primitives_transformed((*reinterpret_cast<std::add_pointer_t<std::vector<GizmoTransformResult>>>(_a[1]))); break;
+        case 5: _t->tick(); break;
         default: ;
         }
     }
     if (_c == QMetaObject::IndexOfMethod) {
         if (QtMocHelpers::indexOfMethod<void (SceneViewport::*)(std::vector<PrimitiveRef> )>(_a, &SceneViewport::selection_changed, 0))
             return;
-        if (QtMocHelpers::indexOfMethod<void (SceneViewport::*)(std::vector<GizmoTransformResult> )>(_a, &SceneViewport::primitives_transformed, 1))
+        if (QtMocHelpers::indexOfMethod<void (SceneViewport::*)(PrimitiveRef )>(_a, &SceneViewport::gizmo_drag_started, 1))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (SceneViewport::*)(GizmoTransformResult )>(_a, &SceneViewport::gizmo_drag_moved, 2))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (SceneViewport::*)()>(_a, &SceneViewport::gizmo_drag_ended, 3))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (SceneViewport::*)(std::vector<GizmoTransformResult> )>(_a, &SceneViewport::primitives_transformed, 4))
             return;
     }
 }
@@ -116,14 +142,14 @@ int SceneViewport::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 3)
+        if (_id < 6)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 3;
+        _id -= 6;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 3)
+        if (_id < 6)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 3;
+        _id -= 6;
     }
     return _id;
 }
@@ -135,8 +161,26 @@ void SceneViewport::selection_changed(std::vector<PrimitiveRef> _t1)
 }
 
 // SIGNAL 1
-void SceneViewport::primitives_transformed(std::vector<GizmoTransformResult> _t1)
+void SceneViewport::gizmo_drag_started(PrimitiveRef _t1)
 {
     QMetaObject::activate<void>(this, &staticMetaObject, 1, nullptr, _t1);
+}
+
+// SIGNAL 2
+void SceneViewport::gizmo_drag_moved(GizmoTransformResult _t1)
+{
+    QMetaObject::activate<void>(this, &staticMetaObject, 2, nullptr, _t1);
+}
+
+// SIGNAL 3
+void SceneViewport::gizmo_drag_ended()
+{
+    QMetaObject::activate(this, &staticMetaObject, 3, nullptr);
+}
+
+// SIGNAL 4
+void SceneViewport::primitives_transformed(std::vector<GizmoTransformResult> _t1)
+{
+    QMetaObject::activate<void>(this, &staticMetaObject, 4, nullptr, _t1);
 }
 QT_WARNING_POP

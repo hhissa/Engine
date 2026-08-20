@@ -387,6 +387,26 @@ std::vector<Geometry> GeometrySystem::snapshot() const {
   for (const auto &[name, entry] : geometries_) {
     result.push_back(entry.geometry);
   }
+  // SORTED BY NAME, and that is load-bearing rather than tidiness.
+  //
+  // geometries_ is an unordered_map, so iteration order depends on the
+  // container's insertion/erase HISTORY, not on the scene. Everything
+  // downstream inherits that: rebuild_static_scene() assigns primitive
+  // indices in this order, and fills primitive_bounds_ in it, which is the
+  // order each chunk's candidate list ends up in.
+  //
+  // chunk_content_hash() mixes candidates in order and includes each
+  // primitive's index, so an unstable order means the SAME scene hashes to
+  // different chunk keys depending on what was loaded before it. Live
+  // symptom: load scene A (cache fills), load B, load A again -- every
+  // chunk missed, re-baked and re-wrote, reporting "0 already on disk",
+  // while loading A in a fresh process hit the cache perfectly, because
+  // there the insertion sequence happened to be identical.
+  //
+  // Sorting by name makes the order a function of the scene's content
+  // alone, so a chunk's key depends on what is in it and nothing else.
+  std::sort(result.begin(), result.end(),
+           [](const Geometry &a, const Geometry &b) { return a.name < b.name; });
   return result;
 }
 
@@ -507,6 +527,29 @@ Volumetric *GeometrySystem::find_volumetric(std::string_view name) {
   return &it->second.volumetric;
 }
 
+// Drops TRAILING layer slots nothing references any more.
+//
+// layers_ reuses freed slots but never shrank, so its size was a high-water
+// mark over the whole session rather than a property of the current scene.
+// That leaks straight into the chunk cache key: VulkanRaymarchShader hashes
+// the layer COUNT and every layer's content into chunk_content_hash(), so
+// after loading a 21-layer scene, re-loading a 4-layer one hashed against 21
+// layers -- 17 of them stale leftovers -- and every chunk key differed from
+// the same scene loaded into a fresh process. Live symptom: load A, load B,
+// load A again, and pre-warm reported "0 already on disk" and re-baked the
+// whole scene, while loading A first thing in a new process hit the cache
+// perfectly.
+//
+// Only TRAILING slots, and never index 0 (the always-present default): a
+// zero-refcount slot in the middle must keep its index, because every
+// still-registered geometry stores its layer as an index into this vector.
+void GeometrySystem::trim_unused_layers() {
+  while (layers_.size() > 1 && layer_ref_counts_.back() == 0) {
+    layers_.pop_back();
+    layer_ref_counts_.pop_back();
+  }
+}
+
 LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
                                             bool auto_release,
                                             std::string_view name_prefix) {
@@ -522,10 +565,13 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
   // overwriting the first layer's operation and smoothness and merging two
   // authored layers into a single slot.
   std::unordered_set<u32> claimed_this_load;
+  u32 layer_order = 0;
   for (const SdfLayerDef &layer_def : scene.layers) {
     SceneLayer layer;
     layer.operation = to_layer_operation(layer_def.operation);
     layer.smoothness = layer_def.smoothness;
+    // 1-based: 0 belongs to the default layer, which always folds first.
+    layer.order = ++layer_order;
 
     // Reuse a layer slot whose ref count has dropped to zero rather than
     // always appending -- otherwise a caller that repeatedly clears and
@@ -612,6 +658,7 @@ LoadedSceneNames GeometrySystem::load_scene(const SdfScene &scene,
     result.volumetric_names.push_back(config.name);
   }
 
+  trim_unused_layers();
   return result;
 }
 
@@ -668,7 +715,10 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
   // perfect because its layers were allocated before any of them had
   // primitives to reuse away.
   std::unordered_set<u32> claimed_this_pass;
+  u32 layer_order = 0;
   for (const SdfLayerDef &layer_def : scene.layers) {
+    // 1-based, matching load_scene() -- see SceneLayer::order.
+    const u32 this_order = ++layer_order;
     auto existing = loaded.layer_index_by_name.find(layer_def.name);
     u32 layer_index;
     if (existing != loaded.layer_index_by_name.end() &&
@@ -697,10 +747,19 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
     claimed_this_pass.insert(layer_index);
 
     LayerOperation new_operation = to_layer_operation(layer_def.operation);
+    // Authored position counts as a change like the operation does: the fold
+    // is ordered, so moving a subtraction layer ahead of a union it used to
+    // follow changes the result everywhere that layer reaches, without any
+    // primitive or any operation having changed. Reordering is rare, and the
+    // slot a layer is matched to here is not stable across scene loads, so
+    // this deliberately re-dirties on a reorder rather than trying to prove
+    // one didn't happen.
     if (layers_[layer_index].operation != new_operation ||
-        layers_[layer_index].smoothness != layer_def.smoothness) {
+        layers_[layer_index].smoothness != layer_def.smoothness ||
+        layers_[layer_index].order != this_order) {
       layers_[layer_index].operation = new_operation;
       layers_[layer_index].smoothness = layer_def.smoothness;
+      layers_[layer_index].order = this_order;
       layers_needing_full_mark_dirty.insert(layer_index);
       changed = true;
     }
@@ -917,5 +976,6 @@ bool GeometrySystem::reconcile_scene(const SdfScene &scene,
                                  new_volumetric_names.end());
   loaded.layer_index_by_name = std::move(new_layer_index_by_name);
 
+  trim_unused_layers();
   return changed;
 }

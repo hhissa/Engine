@@ -65,6 +65,16 @@ template <> constexpr inline auto SdfEditorWindow::qt_create_metaobjectdata<qt_m
         "on_viewport_primitives_transformed",
         "std::vector<GizmoTransformResult>",
         "results",
+        "on_gizmo_drag_started",
+        "PrimitiveRef",
+        "primitive",
+        "on_gizmo_drag_moved",
+        "GizmoTransformResult",
+        "transform",
+        "on_gizmo_drag_ended",
+        "renderer_primitive_name",
+        "std::string",
+        "ref",
         "on_contents_tree_selection_changed",
         "on_primitives_reparented",
         "on_live_edit_changed",
@@ -136,46 +146,60 @@ template <> constexpr inline auto SdfEditorWindow::qt_create_metaobjectdata<qt_m
         QtMocHelpers::SlotData<void(std::vector<GizmoTransformResult>)>(24, 2, QMC::AccessPrivate, QMetaType::Void, {{
             { 0x80000000 | 25, 26 },
         }}),
-        // Slot 'on_contents_tree_selection_changed'
-        QtMocHelpers::SlotData<void()>(27, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_primitives_reparented'
-        QtMocHelpers::SlotData<void()>(28, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_live_edit_changed'
-        QtMocHelpers::SlotData<void()>(29, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_param_expr_changed'
-        QtMocHelpers::SlotData<void()>(30, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_repetition_mode_changed'
-        QtMocHelpers::SlotData<void()>(31, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_light_type_changed'
-        QtMocHelpers::SlotData<void()>(32, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_add_light_clicked'
+        // Slot 'on_gizmo_drag_started'
+        QtMocHelpers::SlotData<void(PrimitiveRef)>(27, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { 0x80000000 | 28, 29 },
+        }}),
+        // Slot 'on_gizmo_drag_moved'
+        QtMocHelpers::SlotData<void(GizmoTransformResult)>(30, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { 0x80000000 | 31, 32 },
+        }}),
+        // Slot 'on_gizmo_drag_ended'
         QtMocHelpers::SlotData<void()>(33, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_remove_light_clicked'
-        QtMocHelpers::SlotData<void()>(34, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_pick_light_colour_clicked'
-        QtMocHelpers::SlotData<void()>(35, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_lights_list_selection_changed'
-        QtMocHelpers::SlotData<void()>(36, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_light_field_changed'
+        // Slot 'renderer_primitive_name'
+        QtMocHelpers::SlotData<std::string(PrimitiveRef) const>(34, 2, QMC::AccessPrivate, 0x80000000 | 35, {{
+            { 0x80000000 | 28, 36 },
+        }}),
+        // Slot 'on_contents_tree_selection_changed'
         QtMocHelpers::SlotData<void()>(37, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_ambient_changed'
+        // Slot 'on_primitives_reparented'
         QtMocHelpers::SlotData<void()>(38, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_volumetric_type_changed'
+        // Slot 'on_live_edit_changed'
         QtMocHelpers::SlotData<void()>(39, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_add_volumetric_clicked'
+        // Slot 'on_param_expr_changed'
         QtMocHelpers::SlotData<void()>(40, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_remove_volumetric_clicked'
+        // Slot 'on_repetition_mode_changed'
         QtMocHelpers::SlotData<void()>(41, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_pick_volumetric_colour_clicked'
+        // Slot 'on_light_type_changed'
         QtMocHelpers::SlotData<void()>(42, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_pick_volumetric_texture_clicked'
+        // Slot 'on_add_light_clicked'
         QtMocHelpers::SlotData<void()>(43, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_clear_volumetric_texture_clicked'
+        // Slot 'on_remove_light_clicked'
         QtMocHelpers::SlotData<void()>(44, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_volumetrics_list_selection_changed'
+        // Slot 'on_pick_light_colour_clicked'
         QtMocHelpers::SlotData<void()>(45, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'on_volumetric_field_changed'
+        // Slot 'on_lights_list_selection_changed'
         QtMocHelpers::SlotData<void()>(46, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_light_field_changed'
+        QtMocHelpers::SlotData<void()>(47, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_ambient_changed'
+        QtMocHelpers::SlotData<void()>(48, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_volumetric_type_changed'
+        QtMocHelpers::SlotData<void()>(49, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_add_volumetric_clicked'
+        QtMocHelpers::SlotData<void()>(50, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_remove_volumetric_clicked'
+        QtMocHelpers::SlotData<void()>(51, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_pick_volumetric_colour_clicked'
+        QtMocHelpers::SlotData<void()>(52, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_pick_volumetric_texture_clicked'
+        QtMocHelpers::SlotData<void()>(53, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_clear_volumetric_texture_clicked'
+        QtMocHelpers::SlotData<void()>(54, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_volumetrics_list_selection_changed'
+        QtMocHelpers::SlotData<void()>(55, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'on_volumetric_field_changed'
+        QtMocHelpers::SlotData<void()>(56, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -219,26 +243,31 @@ void SdfEditorWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int 
         case 17: _t->on_splat_visibility_toggled((*reinterpret_cast<std::add_pointer_t<bool>>(_a[1]))); break;
         case 18: _t->on_viewport_selection_changed((*reinterpret_cast<std::add_pointer_t<std::vector<PrimitiveRef>>>(_a[1]))); break;
         case 19: _t->on_viewport_primitives_transformed((*reinterpret_cast<std::add_pointer_t<std::vector<GizmoTransformResult>>>(_a[1]))); break;
-        case 20: _t->on_contents_tree_selection_changed(); break;
-        case 21: _t->on_primitives_reparented(); break;
-        case 22: _t->on_live_edit_changed(); break;
-        case 23: _t->on_param_expr_changed(); break;
-        case 24: _t->on_repetition_mode_changed(); break;
-        case 25: _t->on_light_type_changed(); break;
-        case 26: _t->on_add_light_clicked(); break;
-        case 27: _t->on_remove_light_clicked(); break;
-        case 28: _t->on_pick_light_colour_clicked(); break;
-        case 29: _t->on_lights_list_selection_changed(); break;
-        case 30: _t->on_light_field_changed(); break;
-        case 31: _t->on_ambient_changed(); break;
-        case 32: _t->on_volumetric_type_changed(); break;
-        case 33: _t->on_add_volumetric_clicked(); break;
-        case 34: _t->on_remove_volumetric_clicked(); break;
-        case 35: _t->on_pick_volumetric_colour_clicked(); break;
-        case 36: _t->on_pick_volumetric_texture_clicked(); break;
-        case 37: _t->on_clear_volumetric_texture_clicked(); break;
-        case 38: _t->on_volumetrics_list_selection_changed(); break;
-        case 39: _t->on_volumetric_field_changed(); break;
+        case 20: _t->on_gizmo_drag_started((*reinterpret_cast<std::add_pointer_t<PrimitiveRef>>(_a[1]))); break;
+        case 21: _t->on_gizmo_drag_moved((*reinterpret_cast<std::add_pointer_t<GizmoTransformResult>>(_a[1]))); break;
+        case 22: _t->on_gizmo_drag_ended(); break;
+        case 23: { std::string _r = _t->renderer_primitive_name((*reinterpret_cast<std::add_pointer_t<PrimitiveRef>>(_a[1])));
+            if (_a[0]) *reinterpret_cast<std::string*>(_a[0]) = std::move(_r); }  break;
+        case 24: _t->on_contents_tree_selection_changed(); break;
+        case 25: _t->on_primitives_reparented(); break;
+        case 26: _t->on_live_edit_changed(); break;
+        case 27: _t->on_param_expr_changed(); break;
+        case 28: _t->on_repetition_mode_changed(); break;
+        case 29: _t->on_light_type_changed(); break;
+        case 30: _t->on_add_light_clicked(); break;
+        case 31: _t->on_remove_light_clicked(); break;
+        case 32: _t->on_pick_light_colour_clicked(); break;
+        case 33: _t->on_lights_list_selection_changed(); break;
+        case 34: _t->on_light_field_changed(); break;
+        case 35: _t->on_ambient_changed(); break;
+        case 36: _t->on_volumetric_type_changed(); break;
+        case 37: _t->on_add_volumetric_clicked(); break;
+        case 38: _t->on_remove_volumetric_clicked(); break;
+        case 39: _t->on_pick_volumetric_colour_clicked(); break;
+        case 40: _t->on_pick_volumetric_texture_clicked(); break;
+        case 41: _t->on_clear_volumetric_texture_clicked(); break;
+        case 42: _t->on_volumetrics_list_selection_changed(); break;
+        case 43: _t->on_volumetric_field_changed(); break;
         default: ;
         }
     }
@@ -263,14 +292,14 @@ int SdfEditorWindow::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 40)
+        if (_id < 44)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 40;
+        _id -= 44;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 40)
+        if (_id < 44)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 40;
+        _id -= 44;
     }
     return _id;
 }

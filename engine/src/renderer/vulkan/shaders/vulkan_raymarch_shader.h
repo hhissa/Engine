@@ -288,6 +288,62 @@ public:
   // scene sweep. No effect unless KENGINE_PREWARM_CACHE asked for it.
   void request_cache_prewarm() noexcept { prewarm_done_ = false; }
 
+  // Marks one primitive as INTERACTIVELY MOVING: kept out of every chunk's
+  // candidate list, so no bake folds it and moving it invalidates no
+  // chunks, and unioned into the marched field analytically instead so it
+  // still draws and still moves at frame rate.
+  //
+  // The trade is that only the marched field knows about it: shadows,
+  // ambient occlusion and GI all read baked data, so they keep lighting
+  // the space it used to occupy until it is committed. That lag is
+  // precisely what makes dragging free.
+  //
+  // Pass an empty name to commit -- the next scene rebuild puts it back in
+  // the bake, and the ordinary dirty sweep re-bakes exactly the chunks its
+  // old and new bounds cover.
+  //
+  // Held by NAME, not index: primitive indices shift on every scene
+  // rebuild, and a stale index would silently drag a different primitive.
+  // The caller must trigger a scene rebuild after this (the backend sets
+  // scene_dirty_): the index is only resolvable while walking the scene,
+  // and the bounds list that excludes it is only rebuilt there.
+  // Returns whether anything actually changed.
+  b8 set_dynamic_primitive(std::string name) {
+    if (dynamic_primitive_name_ == name) {
+      return false;
+    }
+    // BOTH transitions need the chunks it currently occupies evicted once,
+    // for opposite reasons.
+    //
+    // Entering: it is still baked where it was, and those chunks are about
+    // to stop being invalidated -- without this it draws twice, a ghost at
+    // the old position plus the moving copy.
+    //
+    // Leaving: it must be baked back IN, and nothing else will ask for
+    // that. The drag moved it through set_primitive_transform(), which
+    // deliberately does not mark_dirty(), so by the time the editor
+    // reconciles on release the file and GeometrySystem already agree --
+    // no primitive is dirty, no chunk is invalidated, and the primitive
+    // simply never comes back. Live-confirmed: it vanished on release.
+    //
+    // Either way the name to resync is the one that is (or was) dynamic.
+    dynamic_primitive_resync_name_ =
+        name.empty() ? dynamic_primitive_name_ : name;
+    dynamic_primitive_name_ = std::move(name);
+    return true;
+  }
+  const std::string &dynamic_primitive_name() const noexcept {
+    return dynamic_primitive_name_;
+  }
+
+  // Rewrites one uploaded primitive's position/rotation in place, skipping
+  // the whole-scene rebuild and the graphics-queue idle that rebake() does.
+  // Only sound for a primitive that is currently dynamic -- see the
+  // definition. False means the name is not uploaded and the caller should
+  // fall back to a full rebake.
+  b8 update_primitive_transform(std::string_view name, glm::vec3 position,
+                                glm::vec3 rotation_euler);
+
   // Selects how render_to() uses the chunked field's baked point cloud --
   // see SplatMode above for what each value does. Just a push constant
   // (plus whether the splat prepass gets recorded at all), applied the very
@@ -1749,6 +1805,17 @@ private:
 
   // See set_selected_primitive() above.
   i32 selected_primitive_index_ = -1;
+  // The interactively-moved primitive -- see set_dynamic_primitive(). Held
+  // by name because indices shift on every scene rebuild; the index is
+  // re-resolved from it in rebuild_static_scene(), and is -1 whenever the
+  // name is empty or names nothing in the current scene.
+  std::string dynamic_primitive_name_;
+  i32 dynamic_primitive_index_ = -1;
+  // One-shot: the primitive whose currently-occupied chunks must be
+  // evicted once, set on entering AND on leaving the dynamic state -- see
+  // set_dynamic_primitive() for why both directions need it. Empty when
+  // there is nothing to do.
+  std::string dynamic_primitive_resync_name_;
 
   // See set_grid_visible() above.
   b8 grid_visible_ = false;

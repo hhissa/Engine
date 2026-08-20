@@ -265,6 +265,29 @@ void renderer_set_chunked_field_enabled(b8 enabled) {
   }
 }
 
+void renderer_set_dynamic_primitive(std::string_view name) {
+  if (backend) {
+    backend->set_dynamic_primitive(name);
+  } else {
+    KWARN("renderer backend does not exist to accept a dynamic-primitive "
+         "request.");
+  }
+}
+
+void renderer_request_cache_prewarm() {
+  if (backend) {
+    backend->request_cache_prewarm();
+  }
+}
+
+void renderer_set_primitive_transform(std::string_view name,
+                                      glm::vec3 position,
+                                      glm::vec3 rotation_euler) {
+  if (backend) {
+    backend->set_primitive_transform(name, position, rotation_euler);
+  }
+}
+
 void renderer_set_taa_enabled(b8 enabled) {
   if (backend) {
     backend->set_taa_enabled(enabled);

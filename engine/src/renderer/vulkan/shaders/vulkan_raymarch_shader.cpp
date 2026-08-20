@@ -111,6 +111,13 @@ struct PushConstants {
                    // in the block, and two scalars rather than a vec2, to
                    // keep it at exactly Vulkan's guaranteed 128 bytes --
                    // see Builtin.RaymarchShader.comp.glsl's matching note.
+  i32 dynamic_primitive; // Index into primitives[] of the one primitive
+                        // being interactively moved, or -1. It is excluded
+                        // from the bake entirely (see primitive_bounds_ in
+                        // rebuild_static_scene()) and unioned into the
+                        // marched field analytically instead, so dragging
+                        // it invalidates no chunks at all -- see
+                        // set_dynamic_primitive().
 };
 // PushConstants::flags bits -- must match RENDER_FLAG_* in Builtin.
 // RaymarchShader.comp.glsl and Builtin.DeferredShade.comp.glsl.
@@ -2759,14 +2766,21 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   }
   // Bake the whole scene into the disk cache at load, instead of warming it
   // by touring the scene. Only meaningful with KENGINE_CHUNK_CACHE_DIR set.
-  prewarm_requested_ = std::getenv("KENGINE_PREWARM_CACHE") != nullptr;
-  if (prewarm_requested_ && !chunk_cache_enabled_) {
-    KWARN("KENGINE_PREWARM_CACHE is set but KENGINE_CHUNK_CACHE_DIR is not -- "
-          "there is nowhere to pre-warm to, so it will do nothing.");
-    prewarm_requested_ = false;
-  } else if (prewarm_requested_) {
-    KINFO("Chunk cache pre-warm requested (KENGINE_PREWARM_CACHE) -- the "
-         "whole scene will be baked into the cache once the scene loads.");
+  // ON BY DEFAULT, opt out with KENGINE_NO_PREWARM_CACHE -- the same
+  // inverted-flag shape brick deduplication ended up with (see
+  // KENGINE_NO_CHUNK_DEDUP), and for the same reason: it shipped behind an
+  // opt-in flag until it had been watched running against real content, and
+  // has now done so. It only does anything at all when a cache directory is
+  // configured, so a run without KENGINE_CHUNK_CACHE_DIR is unaffected --
+  // silently, rather than warning about a default nobody asked for.
+  prewarm_requested_ = std::getenv("KENGINE_NO_PREWARM_CACHE") == nullptr;
+  if (!prewarm_requested_) {
+    KINFO("Chunk cache pre-warm DISABLED (KENGINE_NO_PREWARM_CACHE).");
+  } else if (!chunk_cache_enabled_) {
+    prewarm_requested_ = false; // nowhere to pre-warm to; not an error
+  } else {
+    KINFO("Chunk cache pre-warm enabled -- the whole scene is baked into the "
+         "cache once it loads. Disable with KENGINE_NO_PREWARM_CACHE.");
   }
   chunk_dedup_enabled_ = std::getenv("KENGINE_NO_CHUNK_DEDUP") == nullptr;
   if (!chunk_dedup_enabled_) {
@@ -3279,6 +3293,64 @@ void VulkanRaymarchShader::rebake() {
   rebuild_static_scene();
 }
 
+// Rewrites ONE already-uploaded primitive's transform in place, without the
+// full rebuild rebake() would do.
+//
+// rebake() is the wrong tool for a mouse-move. It does a
+// vkQueueWaitIdle(graphics) and then rebuild_static_scene(), which deep-
+// copies every Geometry via snapshot(), refills the whole
+// kMaxScenePrimitives-sized arrays, recomputes every primitive's content
+// hash and bounds, re-uploads the buffers and rewrites descriptor sets. All
+// of that scales with the SCENE, to change three floats, behind a full GPU
+// stall -- per mouse-move.
+//
+// Only valid for a primitive that is currently DYNAMIC, and that is what
+// makes the shortcuts sound: it is excluded from every chunk's candidate
+// list, so its bounds cannot affect which chunks bake, and its content hash
+// cannot affect any chunk's cache key. Neither needs updating, which is
+// exactly why nothing else has to be rebuilt.
+//
+// Returns false if the name is not currently uploaded, so the caller can
+// fall back to the full path rather than silently doing nothing.
+b8 VulkanRaymarchShader::update_primitive_transform(std::string_view name,
+                                                    glm::vec3 position,
+                                                    glm::vec3 rotation_euler) {
+  auto it = primitive_gpu_index_by_name_.find(std::string(name));
+  if (it == primitive_gpu_index_by_name_.end() || !primitive_buffer_) {
+    return false;
+  }
+  const u32 index = it->second;
+
+  // Only the two fields a transform touches, written straight into the
+  // host-visible buffer at this primitive's own offset. Deliberately NOT
+  // synchronised against frames in flight: the worst a torn read can do is
+  // show this one primitive at a position part-way between two mouse
+  // positions for a single frame, on an object the user is actively
+  // dragging. Paying a queue idle to avoid that would reintroduce the exact
+  // stall this function exists to remove.
+  const glm::quat rotation(rotation_euler);
+  const f32 position_type[3] = {position.x, position.y, position.z};
+  const f32 quat[4] = {rotation.x, rotation.y, rotation.z, rotation.w};
+
+  const u64 base = static_cast<u64>(index) * sizeof(GpuPrimitive);
+  if (void *mapped = primitive_buffer_->lock(
+          base + offsetof(GpuPrimitive, position_type), sizeof(position_type),
+          0)) {
+    std::memcpy(mapped, position_type, sizeof(position_type));
+    primitive_buffer_->unlock();
+  } else {
+    return false;
+  }
+  if (void *mapped = primitive_buffer_->lock(
+          base + offsetof(GpuPrimitive, rotation), sizeof(quat), 0)) {
+    std::memcpy(mapped, quat, sizeof(quat));
+    primitive_buffer_->unlock();
+  } else {
+    return false;
+  }
+  return true;
+}
+
 void VulkanRaymarchShader::rebuild_static_scene() {
   std::vector<Geometry> all = context_->geometry_system->snapshot();
   const std::vector<SceneLayer> &scene_layers =
@@ -3302,6 +3374,9 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   // new bake copy a brick baked from geometry that no longer exists.
   alias_cache_.clear();
   primitive_bounds_.clear();
+  // Re-resolved below from the name, because indices shift whenever the
+  // scene is rebuilt -- a stale index would drag the wrong primitive.
+  dynamic_primitive_index_ = -1;
   std::vector<GpuLayer> gpu_layers(kMaxLayers, GpuLayer{});
   std::vector<GpuParamExpr> gpu_param_exprs(static_cast<size_t>(kMaxScenePrimitives) * 4,
                                             GpuParamExpr{});
@@ -3336,21 +3411,67 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   // Primitives must land in primitive_buffer_ grouped contiguously by
   // layer (so each GpuLayer's start/count can slice a contiguous range),
   // but GeometrySystem::snapshot() has no ordering guarantee at all -- so
-  // walk layers in index order and, for each, pull out just its own
+  // walk layers one at a time and, for each, pull out just its own
   // primitives from the snapshot.
+  //
+  // In AUTHORED order, not GeometrySystem slot order, and compacted so the
+  // GPU array holds only layers that actually have primitives. Slot order is
+  // an allocation artifact: slots are reused as scenes come and go, and
+  // reconcile_scene() resolves a scene's layers before releasing the
+  // outgoing scene's, so the same scene's layers land in different slots --
+  // and in a different relative ORDER -- depending on what was loaded
+  // before. Two things depend on that order:
+  //
+  //   * The fold itself. scene_map() walks the GPU layer array in ascending
+  //     index, so a subtraction layer that runs before a union is not the
+  //     same scene as one that runs after. Live symptom: load A, load B,
+  //     load C, load A again, and A's layers come back interleaved with C's
+  //     surviving slots in whatever order the free-slot scan produced.
+  //   * Every primitive's uploaded index, which this loop assigns -- and
+  //     therefore the candidate list order and each chunk's cache key (see
+  //     chunk_content_hash()). That is why A -> B -> A hit the disk cache
+  //     but A -> B -> C -> A re-baked everything: two scenes alternating
+  //     happen to get their slots back each time, three do not.
+  //
+  // Emitting in authored order makes both a pure function of the scene.
+  // Nothing outside this function sees a compacted index: Geometry::layer
+  // stays a GeometrySystem slot, and packed_index below carries the
+  // compacted one, which is what the shaders index layers[] with.
+  std::vector<u32> layer_slots;
+  const u32 slot_count =
+      std::min(static_cast<u32>(scene_layers.size()), kMaxLayers);
+  layer_slots.reserve(slot_count);
+  for (u32 i = 0; i < slot_count; ++i) {
+    layer_slots.push_back(i);
+  }
+  std::sort(layer_slots.begin(), layer_slots.end(), [&](u32 a, u32 b) {
+    if (scene_layers[a].order != scene_layers[b].order) {
+      return scene_layers[a].order < scene_layers[b].order;
+    }
+    // Ties only among layers from DIFFERENT simultaneously-loaded scenes
+    // (each scene numbers its own layers from 1). Slot order is arbitrary
+    // between scenes anyway, so it is as good a tiebreak as any -- and a
+    // total order is what matters, so the sort is reproducible.
+    return a < b;
+  });
+
   u32 index = 0;
-  u32 layer_count = std::min(static_cast<u32>(scene_layers.size()), kMaxLayers);
-  // Largest smoothness across every registered layer -- see voxelize()'s
-  // own comment for why the fine-sample loop's cull_radius needs this
-  // (a smooth blend can reach beyond either operand's own bounding
-  // sphere, by up to its smoothness, so cull_radius has to account for
-  // whichever layer blends the widest).
+  u32 layer_count = 0; // Layers actually emitted -- see the loop below.
+  // Largest smoothness across every layer that ends up in the fold -- see
+  // voxelize()'s own comment for why the fine-sample loop's cull_radius
+  // needs this (a smooth blend can reach beyond either operand's own
+  // bounding sphere, by up to its smoothness, so cull_radius has to account
+  // for whichever layer blends the widest). Deliberately not over every
+  // REGISTERED layer: an emptied leftover slot from a scene that is no
+  // longer loaded must not widen this scene's cull radius, and must not
+  // change its chunk keys either.
   f32 max_smoothness = 0.0f;
-  for (u32 layer_i = 0; layer_i < layer_count; ++layer_i) {
+  for (u32 layer_slot : layer_slots) {
+    const u32 layer_i = layer_count;
     u32 layer_start = index;
 
     for (const Geometry &geometry : all) {
-      if (geometry.layer != layer_i) {
+      if (geometry.layer != layer_slot) {
         continue;
       }
       if (index >= kMaxScenePrimitives) {
@@ -3589,19 +3710,41 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       bound.repeat_count = geometry.repetition_count;
       bound.instance_radius = geometry_instance_radius(geometry);
       bound.rotation = glm::quat(geometry.rotation);
-      bound.layer_smoothness = scene_layers[layer_i].smoothness;
-      primitive_bounds_.push_back(bound);
+      bound.layer_smoothness = scene_layers[layer_slot].smoothness;
+      // The interactively-moved primitive is deliberately kept OUT of the
+      // bounds list, which is what build_chunk_candidates() draws every
+      // chunk's candidate list from. No candidate list names it, so no
+      // bake ever folds it, so moving it dirties nothing and re-bakes
+      // nothing. It stays in primitive_buffer_ and in its layer, so the
+      // render pass can still evaluate it analytically and shade it with
+      // the right material -- see PushConstants::dynamic_primitive.
+      if (!dynamic_primitive_name_.empty() &&
+          geometry.name == dynamic_primitive_name_) {
+        dynamic_primitive_index_ = static_cast<i32>(index);
+      } else {
+        primitive_bounds_.push_back(bound);
+      }
 
       ++index;
     }
 
+    // A slot holding nothing is not emitted at all, so layers_' leftovers
+    // from scenes that are no longer loaded cost neither a GPU array entry
+    // nor -- more importantly -- a shift in every later layer's index. An
+    // empty layer folds nothing by definition, so dropping it cannot change
+    // the image.
+    if (index == layer_start) {
+      continue;
+    }
     GpuLayer &gpu_layer = gpu_layers[layer_i];
     gpu_layer.op_smoothness[0] =
-        static_cast<f32>(static_cast<u32>(scene_layers[layer_i].operation));
-    gpu_layer.op_smoothness[1] = scene_layers[layer_i].smoothness;
+        static_cast<f32>(static_cast<u32>(scene_layers[layer_slot].operation));
+    gpu_layer.op_smoothness[1] = scene_layers[layer_slot].smoothness;
     gpu_layer.range[0] = static_cast<i32>(layer_start);
     gpu_layer.range[1] = static_cast<i32>(index - layer_start);
-    max_smoothness = std::max(max_smoothness, scene_layers[layer_i].smoothness);
+    max_smoothness =
+        std::max(max_smoothness, scene_layers[layer_slot].smoothness);
+    ++layer_count;
   }
 
   // Volumetric "light shaft" primitives -- appended directly after every
@@ -5073,14 +5216,20 @@ u64 VulkanRaymarchShader::chunk_content_hash(
   // Layer smoothness feeds every fold, so it belongs in the key even though
   // it is not per-primitive.
   key = mix_f32(key, max_smoothness_);
-  key = mix(key, static_cast<u64>(layer_count_));
-  // Every layer's op and smoothness by CONTENT, for the same reason each
-  // primitive is hashed by content below: the fold a candidate takes part
-  // in is chosen by its layer's op, so editing a layer from union to
-  // subtraction changes the bake without changing any primitive.
-  for (u64 h : layer_content_hash_) {
-    key = mix(key, h);
-  }
+  // Deliberately NOT the layer COUNT, nor a hash over every layer.
+  //
+  // Both are properties of the whole session's layer allocation rather than
+  // of this chunk. layers_ grows and reuses slots as scenes come and go, so
+  // loading a 21-layer scene and returning to a 4-layer one leaves the
+  // count -- and which slot each layer landed in -- different from what a
+  // fresh process would produce, and every chunk key changed with it. Live
+  // symptom: load A, load B, load A again, and every chunk missed and
+  // re-baked, while loading A first thing in a new process hit perfectly.
+  //
+  // Each candidate's own layer is hashed by CONTENT below instead, which is
+  // what actually affects the bake: a layer's op and smoothness choose the
+  // fold its primitives take part in. A layer this chunk never touches now
+  // cannot invalidate it, which is also just correct.
   // A whole-scene fallback list (count past the cap) means the bake folds
   // primitives this list does not name, so the key cannot describe it.
   if (count == 0 || count > kMaxCandidatesPerChunk) {
@@ -5103,7 +5252,18 @@ u64 VulkanRaymarchShader::chunk_content_hash(
     // of the scene, the common editor case, still shifts nothing and still
     // hits.
     key = mix(key, static_cast<u64>(prim));
-    key = mix(key, static_cast<u64>(static_cast<u32>(candidates[i]) >> 16));
+    // This candidate's LAYER, by content, never by index. The index is an
+    // allocation artifact -- reconcile_scene() resolves layers before it
+    // releases the outgoing scene's primitives, so the same layer of the
+    // same scene lands in a different slot depending on what was loaded
+    // before it. Its op and smoothness are what the bake actually folds
+    // with.
+    const u32 layer_i = static_cast<u32>(candidates[i]) >> 16;
+    if (layer_i < layer_content_hash_.size()) {
+      key = mix(key, layer_content_hash_[layer_i]);
+    } else {
+      return 0; // cannot describe the fold; not cacheable
+    }
     key = mix_f32(key, offsets[i].x);
     key = mix_f32(key, offsets[i].y);
     key = mix_f32(key, offsets[i].z);
@@ -6244,6 +6404,44 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
   // for those (not "every chunk"), so treating that as "nothing to evict"
   // would silently leave it unbaked wherever it's actually visible.
   GeometrySystem &geo = *context_->geometry_system;
+
+  // Evict the chunks the just-entered-or-just-left dynamic primitive
+  // currently occupies, exactly once. Both directions need it, for
+  // opposite reasons -- see set_dynamic_primitive(). Entering: it is still
+  // baked where it was and those chunks stop being invalidated, so without
+  // this it draws twice. Leaving: nothing else will ask for it to be baked
+  // back in, because the drag moved it without marking it dirty, so
+  // without this it stays invisible.
+  if (!dynamic_primitive_resync_name_.empty()) {
+    const std::string resync_name = std::move(dynamic_primitive_resync_name_);
+    dynamic_primitive_resync_name_.clear();
+    if (Geometry *geometry = geo.find(resync_name)) {
+      const f32 resync_radius = geometry_bounding_radius(*geometry);
+      for (u32 level = 0; level < kNumLevels; ++level) {
+        // Skip levels this primitive is too small to show up in at all --
+        // the same test the ordinary dirty sweep below applies, and
+        // omitting it here was making a grab or a release evict (and
+        // therefore re-bake) roughly five times as many chunks as it
+        // needed to, at ~10ms each. That burst is the stall felt on grab
+        // and release; the drag between them was already free.
+        if (!primitive_matters_at_level(resync_radius, level)) {
+          continue;
+        }
+        const f32 level_world_size = chunk_level_world_size(level);
+        ChunkStreamingManager &streaming = chunk_streaming_levels_[level];
+        for (ChunkKey key :
+             chunks_touched_by(*geometry, level_world_size, max_smoothness_)) {
+          ChunkState state = streaming.state_of(key);
+          if ((state == ChunkState::Ready || state == ChunkState::Baking) &&
+              pending_forced_eviction_keys_.emplace(level, key).second) {
+            pending_forced_evictions_.emplace_back(level, key);
+          }
+        }
+      }
+      gi_cascade_dirty_ = true;
+    }
+  }
+
   if (!geo.dirty_since_last_snapshot().empty()) {
     bool surgical = !geo.any_released_since_last_snapshot();
     struct SurgicalEntry {
@@ -6254,6 +6452,15 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
     if (surgical) {
       surgical_entries.reserve(geo.dirty_since_last_snapshot().size());
       for (const std::string &name : geo.dirty_since_last_snapshot()) {
+        // The interactively-moved primitive is not in the baked field, so
+        // its movement cannot have invalidated a single baked chunk. This
+        // is what makes a drag free: without it, every mouse-move would
+        // queue the whole old-union-new chunk set for re-baking, which is
+        // the ~10ms-per-chunk cost the dynamic path exists to avoid.
+        if (!dynamic_primitive_name_.empty() &&
+            name == dynamic_primitive_name_) {
+          continue;
+        }
         Geometry *geometry = geo.find(name);
         if (!geometry) {
           surgical = false; // defensive -- shouldn't happen, a removed
@@ -7989,6 +8196,7 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
           ? kRenderFlagIsm
           : 0;
   push_constants.frame_index = static_cast<i32>(noise_frame_);
+  push_constants.dynamic_primitive = dynamic_primitive_index_;
   push_constants.gi_cascade_center_x = gi_cascade_center_.x;
   push_constants.gi_cascade_center_y = gi_cascade_center_.y;
   push_constants.gi_cascade_center_z = gi_cascade_center_.z;
@@ -7997,8 +8205,19 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
   // Off everywhere else regardless of what set_splat_mode() was told -- the
   // one place that decision is made, so the push constant and whether the
   // dispatch below is recorded can never disagree.
-  const bool splat_active =
-      chunked_field_enabled_ && splat_mode_ != SplatMode::Off;
+  // ...and forced Off while a primitive is being dragged, for the whole
+  // frame. Splatting has no occlusion: the prepass primes each pixel with
+  // the nearest BAKED splat, and the dragged primitive has none, so a wall
+  // behind it primes the march to a depth past it and the ray starts there
+  // -- the dragged object reads as see-through against anything it passes
+  // in front of. (There is a partial safety net: a prime landing INSIDE
+  // geometry restarts the ray from the camera, so shallow overlaps
+  // self-correct. It is the prime landing cleanly BEYOND it that shows
+  // through.) Marching from the camera is slower but cannot be wrong, and
+  // it only costs while a drag is actually in progress.
+  const bool splat_active = chunked_field_enabled_ &&
+                            splat_mode_ != SplatMode::Off &&
+                            dynamic_primitive_index_ < 0;
   push_constants.splat_mode =
       splat_active ? static_cast<i32>(splat_mode_) : 0;
 

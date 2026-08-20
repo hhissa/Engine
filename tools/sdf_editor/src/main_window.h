@@ -112,6 +112,18 @@ private slots:
   // and calls sync_viewport_scene() to actually persist + rebake (dragging
   // itself never rebakes, see scene_viewport.h's class comment).
   void on_viewport_primitives_transformed(std::vector<GizmoTransformResult> results);
+  // --- Live gizmo drag. Hands the dragged primitive to the renderer as a
+  // "dynamic" one for the duration, so it is drawn analytically instead of
+  // from baked voxels and moving it re-bakes nothing -- see
+  // renderer_set_dynamic_primitive(). Without this a drag re-voxelizes
+  // every chunk its old and new bounds touch, on every mouse-move.
+  void on_gizmo_drag_started(PrimitiveRef primitive);
+  void on_gizmo_drag_moved(GizmoTransformResult transform);
+  void on_gizmo_drag_ended();
+  // The name the renderer knows a primitive by -- "scene<handle>/<layer>/
+  // <primitive>", matching GeometrySystem::load_scene()'s prefixing. Empty
+  // if the ref does not name a real primitive of the live scene.
+  std::string renderer_primitive_name(PrimitiveRef ref) const;
   // Connected to contents_tree_'s itemSelectionChanged -- the reverse
   // direction of on_viewport_selection_changed(), so selecting row(s) here
   // also shows the gizmo on the matching primitive(s) in the 3D view.

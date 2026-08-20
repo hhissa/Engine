@@ -187,6 +187,30 @@ signals:
   // stay in sync no matter which side drove the change.
   void selection_changed(std::vector<PrimitiveRef> selection);
 
+  // --- Live drag feedback. Together these let a drag show the primitive
+  // actually moving, which the end-of-drag primitives_transformed() signal
+  // below cannot: it fires once, on release, so nothing reached the
+  // renderer until the drag was already over.
+  //
+  // A drag of exactly ONE primitive (not a light, not a multi-selection)
+  // reports it here so the renderer can take it out of the chunk bake for
+  // the duration -- see renderer_set_dynamic_primitive(). Anything else
+  // sends the invalid ref, and that drag stays on the ordinary
+  // bake-on-release path rather than pretending to be interactive.
+  void gizmo_drag_started(PrimitiveRef primitive);
+  // Emitted on every mouse-move during a drag, after the scene has been
+  // updated, so the window can push the new transform straight to the
+  // renderer instead of waiting out the edit debounce.
+  // Carries the dragged primitive's CURRENT transform, read from this
+  // class's own scene copy -- which is the only one that has it. The
+  // window's copy is not updated until the drag ends, so anything that
+  // re-serialises that copy mid-drag sends the pre-drag transform and
+  // nothing appears to move.
+  void gizmo_drag_moved(GizmoTransformResult transform);
+  // Emitted on release, BEFORE primitives_transformed(), so the dynamic
+  // primitive is handed back to the bake before the edit is committed.
+  void gizmo_drag_ended();
+
   // Emitted once, when a gizmo drag ends (mouse release) -- one entry per
   // primitive that was part of the drag (a single-primitive selection
   // sends exactly one), each carrying that primitive's final position/
@@ -317,6 +341,9 @@ private:
   QElapsedTimer frame_timer_;
   QTimer *tick_timer_ = nullptr;
   SdfScene scene_; // see set_scene()
+  // The single primitive this drag handed to the renderer as dynamic, or
+  // an invalid ref. Only that one gets live transform updates.
+  PrimitiveRef drag_dynamic_ref_{};
 
   bool orbiting_ = false;
   QPoint last_mouse_pos_;

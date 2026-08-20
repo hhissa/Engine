@@ -41,6 +41,10 @@ public:
   i32 primitive_gpu_index(const std::string &name) const override;
   void set_grid_visible(b8 visible) override;
   void set_chunked_field_enabled(b8 enabled) override;
+  void set_dynamic_primitive(std::string_view name) override;
+  void request_cache_prewarm() override;
+  void set_primitive_transform(std::string_view name, glm::vec3 position,
+                               glm::vec3 rotation_euler) override;
   void set_splat_mode(RendererSplatMode mode) override;
   void set_taa_enabled(b8 enabled) override;
   void set_ism_enabled(b8 enabled) override;

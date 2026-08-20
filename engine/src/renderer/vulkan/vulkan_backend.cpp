@@ -599,6 +599,33 @@ bool VulkanRendererBackend::reconcile_scene(SceneHandle handle,
   return changed;
 }
 
+void VulkanRendererBackend::request_cache_prewarm() {
+  context_.raymarch_shader->request_cache_prewarm();
+}
+
+void VulkanRendererBackend::set_primitive_transform(std::string_view name,
+                                                    glm::vec3 position,
+                                                    glm::vec3 rotation_euler) {
+  Geometry *geometry = context_.geometry_system->find(name);
+  if (!geometry) {
+    return; // the caller's name did not resolve; nothing to move
+  }
+  geometry->position = position;
+  geometry->rotation = rotation_euler;
+  // Deliberately no mark_dirty(): that is what drives chunk invalidation,
+  // and a dynamic primitive is not in the bake, so there is nothing to
+  // invalidate and nothing to re-voxelize.
+  //
+  // Nor scene_dirty_, which would mean rebake() -- a graphics-queue idle
+  // plus a rebuild of every primitive in the scene, per mouse-move, to
+  // change three floats. Write just this primitive's own entry instead;
+  // only if it is not uploaded at all do we fall back to the full path.
+  if (!context_.raymarch_shader->update_primitive_transform(name, position,
+                                                            rotation_euler)) {
+    scene_dirty_ = true;
+  }
+}
+
 void VulkanRendererBackend::translate_scene(SceneHandle handle,
                                             glm::vec3 delta) {
   auto it = loaded_scenes_.find(handle);
@@ -904,6 +931,16 @@ void VulkanRendererBackend::set_grid_visible(b8 visible) {
 
 void VulkanRendererBackend::set_chunked_field_enabled(b8 enabled) {
   context_.raymarch_shader->set_chunked_field_enabled(enabled);
+}
+
+void VulkanRendererBackend::set_dynamic_primitive(std::string_view name) {
+  // A rebuild is what re-resolves the name to an index and rebuilds the
+  // bounds list that excludes it, so the change only takes effect through
+  // one. Deferred to begin_frame() like every other scene edit -- see
+  // scene_dirty_'s comment.
+  if (context_.raymarch_shader->set_dynamic_primitive(std::string(name))) {
+    scene_dirty_ = true;
+  }
 }
 
 // The two enums are declared separately (RendererSplatMode in the shared

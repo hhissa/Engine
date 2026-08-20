@@ -70,6 +70,22 @@ enum class RepetitionMode : u32 {
 struct SceneLayer {
   LayerOperation operation = LayerOperation::Union;
   f32 smoothness = 0.0f;
+  // This layer's position in the scene that authored it (1-based; 0 is the
+  // always-present default layer, which sorts first).
+  //
+  // A layer's INDEX in layers_ is an allocation artifact -- slots are reused
+  // as scenes come and go, and reconcile_scene() can even match a layer to a
+  // slot by name that a different scene pushed, so the same scene's layers
+  // land in different slots depending on load history. The fold, though, is
+  // strictly ordered: the voxelize shader walks the GPU layer array in
+  // ascending index and folds each layer's primitives into the running
+  // distance, so a subtraction that runs before a union is not the same
+  // scene as one that runs after. Slot order is therefore not a safe stand-in
+  // for authored order, and this field records the real thing so
+  // VulkanRaymarchShader::rebuild_static_scene() can emit the GPU array in
+  // it -- see that function, and [[deterministic-scene-order]] for the chunk
+  // cache half of the same problem.
+  u32 order = 0;
 };
 
 // Describes one primitive to register: its shape, world-space transform,
@@ -698,6 +714,10 @@ private:
   std::unordered_map<std::string, Entry> geometries_;
   std::unordered_map<std::string, LightEntry> lights_;
   std::unordered_map<std::string, VolumetricEntry> volumetrics_;
+  // Drops trailing layer slots nothing references -- see its definition for
+  // why an ever-growing layers_ silently invalidated the chunk cache.
+  void trim_unused_layers();
+
   std::vector<SceneLayer> layers_{SceneLayer{}};
   // Parallel to layers_: how many currently-registered geometries reference
   // each layer index. Index 0 (the default layer) is never touched by

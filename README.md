@@ -140,7 +140,7 @@ Two optimisations make this affordable, and both are about *not evaluating the s
 - **A persistent brick cache.** A baked chunk is gathered into one contiguous quantized blob on the GPU, read back, and written to disk under a hash of the scene content that reaches it. Re-entering that chunk — later in the session, or in a completely different run — uploads the blob and scatters it back into freshly allocated bricks, skipping the bake entirely. Because the key is content-derived rather than a scene version counter, moving one primitive invalidates only the chunks near it while every other chunk in the scene still hits.
 - **Brick deduplication.** Repeated architecture means most cells bake identical bricks. Each cell is keyed by *the function the voxelizer would fold there* — candidate identity plus this cell's position relative to each, reduced modulo the repetition period. Matching keys copy a brick instead of evaluating ~2,000 scene samples.
 
-**Pre-baking.** A cold bake is on the order of ten milliseconds of GPU work; restoring that same chunk from the cache is a fraction of one. That gap is worth paying at load time rather than during play, so a scene can be baked into the cache in full up front (`KENGINE_PREWARM_CACHE`).
+**Pre-baking.** A cold bake is on the order of ten milliseconds of GPU work; restoring that same chunk from the cache is a fraction of one. That gap is worth paying at load time rather than during play, so the whole scene is baked into the cache up front whenever a cache directory is configured (opt out with `KENGINE_NO_PREWARM_CACHE`).
 
 Doing that well means finding the chunks that contain surface without visiting the ones that do not — and a bounding volume cannot answer that question. An unbounded primitive (a plane, an infinite repetition, a parameter driven by a formula) reaches every chunk in the world, so every chunk has a candidate and nothing can be ruled out by candidacy alone. Enumerating one room-sized scene's bounding box across all five clip levels came to 316,329 chunks, not one of them provably empty.
 
@@ -266,7 +266,7 @@ cd ../../bin
 | `KENGINE_BAKE_STATS` | Tally per-bake cost counters (scene evaluations, voxels filled vs copied) and report them |
 | `KENGINE_NO_CHUNK_DEDUP` | Disable brick deduplication (on by default) |
 | `KENGINE_CHUNK_CACHE_DIR` | Directory for the persistent brick cache. Unset disables it — the engine will not pick a place to write files on its host's behalf. Entries are content-addressed, so a stale one can never be read back as valid. |
-| `KENGINE_PREWARM_CACHE` | Bake the whole scene into the brick cache at load, so play never pays a cold bake. Blocks while it runs, and reports what it found per clip level. Needs `KENGINE_CHUNK_CACHE_DIR`, and re-arms on every scene load (not on an edit, which must not stall the editor) |
+| `KENGINE_NO_PREWARM_CACHE` | Disable pre-baking the scene into the brick cache at load (on by default whenever `KENGINE_CHUNK_CACHE_DIR` is set). Pre-baking blocks while it runs, reports what it found per clip level, and re-arms on every scene load — but not on an edit, which must not stall the editor |
 | `KENGINE_PREWARM_MAX_CHUNKS` | Budget for the above (default 20000). Measured against chunks that actually need baking, and it aborts with a count rather than blocking on an unexpectedly large scene |
 
 ---

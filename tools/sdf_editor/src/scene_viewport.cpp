@@ -289,6 +289,18 @@ void SceneViewport::mousePressEvent(QMouseEvent *event) {
                          : hit_test_gizmo(pos);
     if (axis != GizmoAxis::None) {
       begin_gizmo_drag(axis, pos);
+      // Announced from here rather than inside begin_gizmo_drag(), which
+      // has several early returns that leave the drag un-started -- this is
+      // the one place that knows a drag actually began.
+      if (dragging_axis_ != GizmoAxis::None) {
+        // Only a lone primitive can go dynamic: the renderer tracks exactly
+        // one, and a light has no baked geometry to take out of the bake.
+        drag_dynamic_ref_ = PrimitiveRef{};
+        if (selected_.size() == 1 && !selected_[0].is_light()) {
+          drag_dynamic_ref_ = selected_[0];
+        }
+        emit gizmo_drag_started(drag_dynamic_ref_);
+      }
     }
     // Not a gizmo hit: do nothing on press -- mouseReleaseEvent's pick_at()
     // handles a plain click.
@@ -955,6 +967,23 @@ void SceneViewport::update_gizmo_drag(QPointF mouse_pos) {
 
   update_gizmo(); // reflect the new position/height in the gizmo lines now,
                   // not just next tick -- keeps the drag feeling responsive
+  // Read the just-updated transform out of THIS class's scene copy and send
+  // it -- the window's copy is not updated until the drag ends, so anything
+  // that re-serialises that copy mid-drag would send the pre-drag transform
+  // and nothing would appear to move.
+  if (drag_dynamic_ref_.layer_index >= 0 &&
+      drag_dynamic_ref_.layer_index < static_cast<int>(scene_.layers.size())) {
+    const auto &layer_primitives =
+        scene_.layers[drag_dynamic_ref_.layer_index].primitives;
+    if (drag_dynamic_ref_.primitive_index >= 0 &&
+        drag_dynamic_ref_.primitive_index <
+            static_cast<int>(layer_primitives.size())) {
+      const SdfPrimitiveDef &moved =
+          layer_primitives[drag_dynamic_ref_.primitive_index];
+      emit gizmo_drag_moved(GizmoTransformResult{
+          drag_dynamic_ref_, moved.position, moved.rotation, moved.params});
+    }
+  }
 }
 
 void SceneViewport::end_gizmo_drag() {
@@ -962,6 +991,10 @@ void SceneViewport::end_gizmo_drag() {
     return;
   }
   dragging_axis_ = GizmoAxis::None;
+  // Before the transform is committed below, so the primitive is handed
+  // back to the bake first and the commit re-bakes it exactly once.
+  emit gizmo_drag_ended();
+  drag_dynamic_ref_ = PrimitiveRef{};
 
   std::vector<GizmoTransformResult> results;
   for (const PrimitiveRef &ref : selected_) {

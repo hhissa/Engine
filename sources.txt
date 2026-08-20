@@ -1,1 +1,3 @@
 KOHI Game Engine
+Crassin et al., GigaVoxels: Ray-Guided Streaming for Efficient and Detailed Voxel Rendering (I3D 2009);
+Kämpe, Sintorn & Assarsson, High Resolution Sparse Voxel DAGs (SIGGRAPH 2013
