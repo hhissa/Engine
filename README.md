@@ -137,7 +137,16 @@ Two optimisations make this affordable, and both are about *not evaluating the s
 
 - **Per-chunk candidate lists.** For each chunk, the CPU works out which primitives can possibly reach it — resolving domain repetition down to the individual copies in range rather than folding the whole tiling. A sample then folds a handful of primitives instead of the entire scene.
 - **Sub-block rejection.** A brick is walked as 3³ sub-blocks; one evaluation at a sub-block's centre, compared against its circumradius, can fill every voxel in it arithmetically. An SDF changes by at most the distance travelled, so the fill is a conservative under-estimate — always safe in the direction that matters.
+- **A persistent brick cache.** A baked chunk is gathered into one contiguous quantized blob on the GPU, read back, and written to disk under a hash of the scene content that reaches it. Re-entering that chunk — later in the session, or in a completely different run — uploads the blob and scatters it back into freshly allocated bricks, skipping the bake entirely. Because the key is content-derived rather than a scene version counter, moving one primitive invalidates only the chunks near it while every other chunk in the scene still hits.
 - **Brick deduplication.** Repeated architecture means most cells bake identical bricks. Each cell is keyed by *the function the voxelizer would fold there* — candidate identity plus this cell's position relative to each, reduced modulo the repetition period. Matching keys copy a brick instead of evaluating ~2,000 scene samples.
+
+**Pre-baking.** A cold bake is on the order of ten milliseconds of GPU work; restoring that same chunk from the cache is a fraction of one. That gap is worth paying at load time rather than during play, so a scene can be baked into the cache in full up front (`KENGINE_PREWARM_CACHE`).
+
+Doing that well means finding the chunks that contain surface without visiting the ones that do not — and a bounding volume cannot answer that question. An unbounded primitive (a plane, an infinite repetition, a parameter driven by a formula) reaches every chunk in the world, so every chunk has a candidate and nothing can be ruled out by candidacy alone. Enumerating one room-sized scene's bounding box across all five clip levels came to 316,329 chunks, not one of them provably empty.
+
+So the pre-bake is **hierarchical rather than volumetric**. It walks the clip levels coarsest-first, bakes a level, asks each chunk how many bricks it actually allocated, and descends only into the eight children of the ones that found something. Empty space is rejected in 64-unit blocks at the top instead of being visited 4-unit chunk by 4-unit chunk, so the cost tracks the scene's surface *area* rather than its volume: the same scene resolves to under a thousand chunks visited, a few hundred of which hold surface and are written to disk. Chunks with no surface are deliberately never written — they cost almost nothing to bake at runtime, so a file would buy nothing and hundreds of thousands of them would bury the ones that matter.
+
+The descent is safe because the occupancy test is the bake's own, and it works at *cell* granularity: a cell takes a brick when its centre is within half a cell diagonal of the surface, independent of that level's voxel resolution. A thin wall is therefore still found by a coarse ancestor that could not render it well.
 
 **Sampling.** A ray sphere-traces the brick field, trilinearly interpolating within bricks and skipping analytically across empty cells and empty chunks (a ray-box slab exit, not a fixed step).
 
@@ -145,7 +154,7 @@ Two optimisations make this affordable, and both are about *not evaluating the s
 
 ## Streaming and level of detail
 
-The field is a **clipmap**: five levels, each with double the previous level's chunk size, each keeping a small window of chunks resident around the camera. A sample picks the finest level whose window contains it.
+The field is a **clipmap**: five levels, each with double the previous level's chunk size, each keeping a small window of chunks resident around the camera. A sample picks the finest level that is **actually resident** there — not merely the finest whose window contains it. Those are different things whenever a chunk is still baking, and conflating them is what turns "not ready yet" into "nothing here": the ray sails through geometry that exists and the surface renders as a chunk-shaped hole. Skipping a non-resident level hands the space to the coarser one that already covers it, so detail pops in for a frame or two instead. Both the marched field and the point-splat pass have to agree on this, since they describe the same surface to the same pixels.
 
 The streaming scheduler handles the parts that are easy to get subtly wrong:
 
@@ -256,6 +265,9 @@ cd ../../bin
 |---|---|
 | `KENGINE_BAKE_STATS` | Tally per-bake cost counters (scene evaluations, voxels filled vs copied) and report them |
 | `KENGINE_NO_CHUNK_DEDUP` | Disable brick deduplication (on by default) |
+| `KENGINE_CHUNK_CACHE_DIR` | Directory for the persistent brick cache. Unset disables it — the engine will not pick a place to write files on its host's behalf. Entries are content-addressed, so a stale one can never be read back as valid. |
+| `KENGINE_PREWARM_CACHE` | Bake the whole scene into the brick cache at load, so play never pays a cold bake. Blocks while it runs, and reports what it found per clip level. Needs `KENGINE_CHUNK_CACHE_DIR`, and re-arms on every scene load (not on an edit, which must not stall the editor) |
+| `KENGINE_PREWARM_MAX_CHUNKS` | Budget for the above (default 20000). Measured against chunks that actually need baking, and it aborts with a count rather than blocking on an unexpectedly large scene |
 
 ---
 
@@ -267,7 +279,7 @@ Stated plainly, because the interesting engineering is here rather than in the f
 
   Three approaches to *scheduling* that work differently have been built and rejected — Z-row bake slicing, a GPU work-list with time-bounded windows, and GigaVoxels-style ray-guided population. The first two failed for the same reason: they re-partitioned the same work instead of reducing it, and both closed a feedback loop around a timestamp that does not measure what it appears to. Those attempts are documented in the code, which is more useful than quietly deleting them.
 
-  The current direction is to reduce the work rather than reschedule it: brick deduplication (landed), and interval-arithmetic tape pruning à la Keeter's *Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces* (not yet started), which prunes the primitive expression hierarchically per region and is the only remaining idea with order-of-magnitude headroom.
+  The current direction is to reduce the work rather than reschedule it: brick deduplication and a persistent disk-backed brick cache (both landed), and interval-arithmetic tape pruning à la Keeter's *Massively Parallel Rendering of Complex Closed-Form Implicit Surfaces* (not yet started), which prunes the primitive expression hierarchically per region and is the only remaining idea with order-of-magnitude headroom.
 
 - **Brick pool capacity** is the binding constraint on how much of a scene can stay resident. Narrow-band quantized storage would cut it several-fold and has not been done.
 

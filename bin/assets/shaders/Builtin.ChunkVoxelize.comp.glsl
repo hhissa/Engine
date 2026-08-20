@@ -95,6 +95,29 @@ const int MAX_CLUSTERS = 131072;
 // free for the extra pages that carry the detail.
 const int CLUSTER_FIRST_PAGE_RESERVE = 16384;
 
+// ...but applying that full reserve to a brick's SECOND page was throttling
+// the whole scene's splat density, permanently. The LOD pyramid needs 8, 64,
+// 512 and 4096 points for its four levels, against 256 slots per page: one
+// page holds level 1 (64 points for a 16^3 brick), TWO hold level 2 (512).
+// So the second page is the entire difference between a brick that reads as
+// a solid surface and one that reads as sparse horizontal streaks -- pages
+// three and four, by contrast, buy nothing at all unless a brick carries two
+// surface sheets (level 3 would need sixteen pages).
+//
+// Gating the second page behind CLUSTER_FIRST_PAGE_RESERVE meant that once
+// the pool passed 87.5% used (131072 - 16384), EVERY brick baked from then
+// on was capped at 64 points. Live-confirmed: the pool gauge sat at 88-94%
+// through normal movement, so this was the steady state, not an edge case,
+// and because the cap is baked into the brick it persisted until that chunk
+// was re-baked -- which is why the streaking was patchy and did not follow
+// the camera.
+//
+// Degrade in the order that costs the least, then: everyone gets a second
+// page before anyone gets a third. Deliberately NOT zero -- a small floor
+// still keeps the pool from being drained to nothing by second pages, which
+// is what the first-page reserve exists to prevent.
+const int CLUSTER_SECOND_PAGE_RESERVE = 1024;
+
 // Sized kMaxResidentChunks * CHUNK_CELL_COUNT engine-side -- one
 // CHUNK_CELL_COUNT-sized dense sub-block per resident chunk slot, indexed by
 // each batch entry's chunk_slot (see ChunkVoxelizeBatchSlotBuffer below).
@@ -295,6 +318,17 @@ layout(binding = 17) readonly buffer ChunkCandidateRangeBuffer {
     ivec4 candidate_range[];
 };
 
+// Staging for the disk-backed brick cache -- see CHUNK_CACHE_* in Builtin.
+// SdfFieldConfig.inc.glsl for the payload layout. Pass 3 (gather) fills a
+// region of this from a freshly baked chunk for the CPU to read back and
+// write to disk; pass 4 (restore) reads a region the CPU uploaded from
+// disk and scatters it back into newly allocated bricks. Host-visible
+// engine-side, which is why it is a plain uint array rather than anything
+// typed.
+layout(binding = 20) buffer ChunkCacheStagingBuffer {
+    uint cache_staging[];
+};
+
 layout(push_constant) uniform PushConstants {
     int layer_count;
     float max_smoothness; // See CULL_RADIUS_CELLS below -- same role as the
@@ -314,7 +348,21 @@ layout(push_constant) uniform PushConstants {
                          // by the GPU -- see the buffers' creation comment
                          // engine-side.
     int pass;             // 0 = bake representative cells, 1 = copy aliased
-                         // cells from them. See ChunkCellAliasBuffer.
+                         // cells from them (see ChunkCellAliasBuffer),
+                         // 3 = gather a baked chunk into the cache staging
+                         // buffer, 4 = restore one from it.
+    int target_slot;      // passes 3/4: which chunk slot to gather from or
+                         // restore into.
+    int staging_offset;   // passes 3/4: first word of this chunk's payload
+                         // region within cache_staging.
+    // passes 3/4: the target chunk's own geometry. Four separate scalars
+    // rather than a vec4 deliberately -- a vec4's 16-byte alignment would
+    // pad this block, and every other multi-component value in this
+    // codebase's push constants is spelled out for the same reason.
+    float target_world_x;
+    float target_world_y;
+    float target_world_z;
+    float target_cell_size;
                          //
                          // MUST STAY IN THIS POSITION. The block is matched
                          // field-for-field against ChunkVoxelizePush
@@ -462,13 +510,32 @@ void generate_splat_points(int brick_index, int chunk_slot, vec3 cell_min,
                         // stack is already empty -- plus the reserve
                         // that keeps a first page available for every
                         // brick (see CLUSTER_FIRST_PAGE_RESERVE).
-                        uint floor_count = point_count == 0
-                            ? 0u
-                            : uint(CLUSTER_FIRST_PAGE_RESERVE);
+                        // Tiered, cheapest-degradation-first -- see
+                        // CLUSTER_SECOND_PAGE_RESERVE.
+                        uint floor_count =
+                            point_count == 0 ? 0u
+                            : (page_count == 1 ? uint(CLUSTER_SECOND_PAGE_RESERVE)
+                                               : uint(CLUSTER_FIRST_PAGE_RESERVE));
                         uint free_before = atomicAdd(cluster_free_top, 0xFFFFFFFFu);
                         if (free_before == 0u || free_before > uint(MAX_CLUSTERS) ||
                             free_before <= floor_count) {
                             atomicAdd(cluster_free_top, 1u);
+                            // Cluster-pool pressure specifically, as opposed
+                            // to the brick's own budget below -- this is the
+                            // one that silently costs the scene its splat
+                            // density, so it gets counted and reported (see
+                            // kChunkStatSplatRollbackWord engine-side).
+                            atomicAdd(chunk_brick_demand[9], 1u);
+                            if (point_count == 0) {
+                                // FIRST page refused: this brick emits no
+                                // points at all, so its surface is simply
+                                // absent from the splat pass -- a malformed
+                                // hole, not merely a coarser one. Counted
+                                // apart because the two read completely
+                                // differently on screen and have different
+                                // fixes.
+                                atomicAdd(chunk_brick_demand[10], 1u);
+                            }
                             overflowed = true; // pool dry, or this
                                               // brick already has
                                               // its guaranteed page
@@ -592,8 +659,149 @@ void generate_splat_points(int brick_index, int chunk_slot, vec3 cell_min,
     }
 }
 
+// --- Pass 3: gather a baked chunk into the cache staging region.
+//
+// One thread per cell. Cells that own a brick claim an ordinal with an
+// atomic and copy their voxels out, quantized (see CHUNK_CACHE_* in
+// Builtin.SdfFieldConfig.inc.glsl). The result is one contiguous blob the
+// CPU can read back in a single mapped read and write straight to disk.
+//
+// Recorded immediately after the bake that produced the chunk, in the same
+// submission, so the brick indices it reads are the ones the bake just
+// wrote -- the CPU never has to learn them.
+// Flat cell index for the two cache passes, which are dispatched 1-D as
+// ceil(CHUNK_CELL_COUNT / 64) workgroups of this shader's 8x8x1 = 64
+// threads.
+//
+// MUST NOT be gl_GlobalInvocationID.x. That is
+// gl_WorkGroupID.x * local_size_x + gl_LocalInvocationID.x, and local_size_x
+// is 8, not 64 -- so it only ever reaches 64 * 8 = 512 of the 4096 cells,
+// while gl_GlobalInvocationID.y silently runs 0..7 and makes eight
+// invocations collide on each of those 512.
+//
+// That was live for the whole life of the disk cache and is what made it
+// corrupt geometry: the GATHER stored a chunk whose cell map was written
+// for 512 cells (eight times each, so its brick count ran past the cap and
+// most payloads were thrown away), and the RESTORE wrote chunk_indirection
+// for only those 512 -- leaving cells 512..4095 pointing at whatever the
+// PREVIOUS occupant of that slot had, i.e. another chunk's bricks rendered
+// in this chunk's place. Brick-shaped debris, only ever with
+// KENGINE_CHUNK_CACHE_DIR set. It also leaked seven bricks per restored
+// cell, since all eight colliding invocations popped the free list.
+int cache_cell_index() {
+    uint threads_per_group =
+        gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
+    return int(gl_WorkGroupID.x * threads_per_group + gl_LocalInvocationIndex);
+}
+
+void gather_cached_chunk() {
+    int cell = cache_cell_index();
+    if (cell >= CHUNK_CELL_COUNT) {
+        return;
+    }
+    int base = push.staging_offset;
+    int brick_index = chunk_indirection[push.target_slot * CHUNK_CELL_COUNT + cell];
+    if (brick_index < 0) {
+        cache_staging[base + CHUNK_CACHE_CELLMAP_WORD + cell] = uint(-1);
+        return;
+    }
+    uint ordinal = atomicAdd(cache_staging[base], 1u);
+    if (ordinal >= uint(CHUNK_CACHE_MAX_BRICKS)) {
+        // Chunk is denser than the payload can hold. Mark the cell empty and
+        // let the count run past the cap -- the CPU sees the overflow and
+        // discards the whole payload rather than caching a partial chunk.
+        cache_staging[base + CHUNK_CACHE_CELLMAP_WORD + cell] = uint(-1);
+        return;
+    }
+    cache_staging[base + CHUNK_CACHE_CELLMAP_WORD + cell] = ordinal;
+    cache_staging[base + CHUNK_CACHE_PRIMITIVE_WORD + int(ordinal)] =
+        uint(chunk_brick_primitive[brick_index]);
+
+    float voxel_size = push.target_cell_size / float(CHUNK_BRICK_DIM);
+    float band = voxel_size * CHUNK_CACHE_BAND_VOXELS;
+    int src = brick_index * CHUNK_BRICK_VOXEL_COUNT;
+    int dst = base + CHUNK_CACHE_VOXEL_WORD + int(ordinal) * CHUNK_CACHE_BRICK_WORDS;
+    for (int w = 0; w < CHUNK_CACHE_BRICK_WORDS; ++w) {
+        uint packed = 0u;
+        for (int b = 0; b < 4; ++b) {
+            packed |= quantize_cached_voxel(chunk_bricks[src + w * 4 + b], band)
+                << (uint(b) * 8u);
+        }
+        cache_staging[dst + w] = packed;
+    }
+}
+
+// --- Pass 4: restore a chunk from a cache payload the CPU uploaded.
+//
+// The inverse of the gather, and the whole point of the cache: this does
+// everything the bake would have, minus every scene evaluation. Brick
+// allocation still goes through the same GPU free list the bake uses, so
+// nothing about the pool's ownership changes -- only where the voxels came
+// from.
+void restore_cached_chunk() {
+    int cell = cache_cell_index(); // NOT gl_GlobalInvocationID.x -- see it
+    if (cell >= CHUNK_CELL_COUNT) {
+        return;
+    }
+    int base = push.staging_offset;
+    int cell_index = push.target_slot * CHUNK_CELL_COUNT + cell;
+    int ordinal = int(cache_staging[base + CHUNK_CACHE_CELLMAP_WORD + cell]);
+    chunk_indirection[cell_index] = -1;
+    if (ordinal < 0 || ordinal >= CHUNK_CACHE_MAX_BRICKS) {
+        return; // this cell held no surface when the chunk was baked
+    }
+
+    atomicAdd(chunk_brick_demand[0], 1u);
+    uint free_count_before = atomicAdd(free_list_top, 0xFFFFFFFFu);
+    if (free_count_before == 0u || free_count_before > uint(MAX_BRICKS)) {
+        atomicAdd(free_list_top, 1u); // undo, exactly as the bake path does
+        return;
+    }
+    int brick_index = free_list[free_count_before - 1u];
+    chunk_indirection[cell_index] = brick_index;
+    chunk_brick_primitive[brick_index] =
+        int(cache_staging[base + CHUNK_CACHE_PRIMITIVE_WORD + ordinal]);
+
+    float voxel_size = push.target_cell_size / float(CHUNK_BRICK_DIM);
+    float band = voxel_size * CHUNK_CACHE_BAND_VOXELS;
+    int src = base + CHUNK_CACHE_VOXEL_WORD + ordinal * CHUNK_CACHE_BRICK_WORDS;
+    int dst = brick_index * CHUNK_BRICK_VOXEL_COUNT;
+    for (int w = 0; w < CHUNK_CACHE_BRICK_WORDS; ++w) {
+        uint packed = cache_staging[src + w];
+        for (int b = 0; b < 4; ++b) {
+            chunk_bricks[dst + w * 4 + b] =
+                dequantize_cached_voxel((packed >> (uint(b) * 8u)) & 255u, band);
+        }
+    }
+
+    // Splat points are NOT cached -- they are regenerated from the voxels
+    // just written. The generator only ever reads the brick, so this
+    // produces the same cluster pages the original bake did, and it is a
+    // small fraction of a bake's cost (a pyramid walk, no scene folds).
+    ivec3 local_cell = ivec3(cell % CHUNK_COARSE_DIM,
+                             (cell / CHUNK_COARSE_DIM) % CHUNK_COARSE_DIM,
+                             cell / (CHUNK_COARSE_DIM * CHUNK_COARSE_DIM));
+    vec3 cell_min = vec3(push.target_world_x, push.target_world_y,
+                         push.target_world_z) +
+                    vec3(local_cell) * push.target_cell_size;
+    generate_splat_points(brick_index, push.target_slot, cell_min,
+                          push.target_cell_size, voxel_size,
+                          push.collect_stats != 0);
+}
+
 void main() {
     bool stats = push.collect_stats != 0;
+
+    // The cache passes address cells directly and share nothing with the
+    // batched grid mapping below.
+    if (push.pass == 3) {
+        gather_cached_chunk();
+        return;
+    }
+    if (push.pass == 4) {
+        restore_cached_chunk();
+        return;
+    }
 
     // Z carries TWO things, packed by the dispatch shape (CPU issues
     // (CHUNK_COARSE_DIM/4, CHUNK_COARSE_DIM/4, (CHUNK_COARSE_DIM/4) *

@@ -1,6 +1,6 @@
 #sdf scene file
 version=0.1
-ambient=1
+ambient=0.5
 
 light light0 {
     type=point

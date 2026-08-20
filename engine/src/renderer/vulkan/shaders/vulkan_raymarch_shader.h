@@ -281,6 +281,13 @@ public:
     chunked_field_enabled_ = enabled;
   }
 
+  // Re-arms chunk cache pre-warming, so the next streaming tick bakes the
+  // newly loaded geometry into the cache. Called by
+  // VulkanRendererBackend::load_scene() -- NOT by reconcile_scene(), since
+  // an edit touches a handful of chunks and must not stall for a full
+  // scene sweep. No effect unless KENGINE_PREWARM_CACHE asked for it.
+  void request_cache_prewarm() noexcept { prewarm_done_ = false; }
+
   // Selects how render_to() uses the chunked field's baked point cloud --
   // see SplatMode above for what each value does. Just a push constant
   // (plus whether the splat prepass gets recorded at all), applied the very
@@ -517,7 +524,39 @@ private:
   // frame's demand ever spiking that high. Still the right first
   // diagnostic to add -- the old field's identical check has the same
   // "single bake" framing, which is exact there since it never streams.
+  // Bakes every chunk the scene's bounds cover straight into the disk
+  // cache, so play never pays a cold bake. See its definition.
+  void prewarm_chunk_cache();
+  // Brick count of a gathered payload sitting in a staging region; 0 means
+  // the chunk holds no surface.
+  u32 cached_chunk_brick_count(u32 region);
+  // KENGINE_PREWARM_CACHE requested it; and whether it has already run for
+  // this scene (it is a one-shot warm-up, not a per-frame concern).
+  b8 prewarm_requested_ = false;
+  b8 prewarm_done_ = false;
   void check_chunk_brick_overflow();
+  // Copies both GPU free-list stack pointers into the host-visible stats
+  // buffer -- see the definition for why neither pool running dry was
+  // otherwise visible at all.
+  void record_pool_gauges(VulkanCommandBuffer &cmd);
+  // Low-water marks over the current reporting interval, refilled to their
+  // pool sizes each time collect_frame_timings() prints them. UINT32_MAX
+  // means "no sample yet this interval".
+  u32 chunk_bricks_free_ = 0xFFFFFFFFu;
+  u32 chunk_clusters_free_ = 0xFFFFFFFFu;
+  // Run-total splat LOD rollbacks and the value at the last report, so the
+  // log can print the interval's delta from a counter the GPU never resets.
+  u32 splat_rollbacks_total_ = 0;
+  u32 splat_rollbacks_reported_ = 0;
+  // The subset that ended up with no points at all -- see
+  // kChunkStatSplatNoPointsWord.
+  u32 splat_no_points_total_ = 0;
+  u32 splat_no_points_reported_ = 0;
+  // Diagnostic only -- see KENGINE_SPLAT_ONLY_LEVEL. -1 = render normally.
+  i32 splat_only_level_ = -1;
+  // Incremented once per update_streaming() call; paces cold bakes (see
+  // kChunkColdBakeFrameStride).
+  u64 chunk_stream_tick_ = 0;
   // Seeds a device-local buffer from CPU data through a throwaway staging
   // buffer -- see its definition for why the chunked field's pools need it.
   void upload_to_device_local(VulkanBuffer &dest, const void *data, u64 size);
@@ -593,6 +632,66 @@ private:
                             const std::vector<GpuChunkBatchEntry> &entries,
                             u32 layer_count, f32 max_smoothness,
                             const std::unordered_set<u32> &evicting_slots = {});
+
+  // --- Disk-backed brick cache (strategy 1). See the .cpp definitions.
+  //
+  // Records the GPU gather of one freshly baked chunk into a staging
+  // region, and the restore of one from a region the CPU has filled.
+  void record_cache_gather(VulkanCommandBuffer &cmd, u32 slot, u32 region,
+                           glm::vec3 chunk_world_min, f32 cell_size);
+  void record_cache_restore(VulkanCommandBuffer &cmd, u32 slot, u32 region,
+                            glm::vec3 chunk_world_min, f32 cell_size);
+  // Hash of everything about the scene that can affect one chunk's bake --
+  // the cache key. Two chunks whose keys agree bake to identical bricks.
+  u64 chunk_content_hash(const std::vector<i32> &candidates,
+                         const std::vector<glm::vec4> &offsets, u32 count,
+                         glm::vec3 chunk_min, f32 cell_size) const;
+  // Path of a cache entry, and the read/write halves of the store.
+  std::string chunk_cache_path(u64 key) const;
+  // Content key for one chunk, built from the candidate list its bake would
+  // use. 0 means "not cacheable" (no usable candidate list).
+  u64 chunk_key_for(glm::vec3 chunk_world_min, f32 cell_size);
+  // Claims a staging region, or kInvalidChunkSlot if all are in flight.
+  u32 acquire_cache_region();
+  b8 load_cached_chunk(u64 key, u32 region);
+  void store_cached_chunk(u64 key, u32 region);
+
+  // Per-primitive content fingerprints, rebuilt with the scene -- the
+  // ingredient that makes a chunk key change exactly when the geometry
+  // reaching it changes, and not otherwise (so an edit invalidates only the
+  // chunks it actually touched).
+  std::vector<u64> primitive_content_hash_;
+  // The same, per LAYER (only the layer_count_ live ones) -- a layer's op
+  // and smoothness pick the fold its primitives take part in, so they can
+  // change a bake without any primitive changing.
+  std::vector<u64> layer_content_hash_;
+  // Where cache entries live, and whether the cache is usable at all.
+  std::string chunk_cache_dir_;
+  b8 chunk_cache_enabled_ = false;
+  // Keys known to be absent on disk, so a miss costs one lookup rather than
+  // a failed open every time the chunk is re-planned.
+  std::unordered_set<u64> chunk_cache_misses_;
+  u64 chunk_cache_hits_ = 0;
+  u64 chunk_cache_stores_ = 0;
+  // Chunks the gather produced but store_cached_chunk() refused because they
+  // held more than kChunkCacheMaxBricks bricks. These are the EXPENSIVE
+  // chunks, and a refusal means they re-bake in full on every visit.
+  u64 chunk_cache_too_dense_ = 0;
+  // Which staging regions are claimed by an in-flight gather or restore.
+  // A region is released when the submission that used it has signalled,
+  // which publish_completed_bakes() observes through the same ring fences
+  // everything else here is paced by.
+  b8 chunk_cache_region_busy_[8]{};
+  // Gathers to record once this frame's bake dispatch has been issued --
+  // they must follow it in the same submission, since they read the brick
+  // indices that bake writes.
+  struct PendingCacheGather {
+    u32 slot = 0;
+    u32 region = 0;
+    glm::vec3 chunk_world_min{0.0f};
+    f32 cell_size = 0.0f;
+  };
+  std::vector<PendingCacheGather> pending_cache_gathers_;
 
   // Builds one chunk's primitive candidate list -- see its .cpp comment.
   u32 build_chunk_candidates(glm::vec3 chunk_min, f32 cell_size,
@@ -946,6 +1045,12 @@ private:
     // chunk was evicted and reloaded meanwhile must not publish over the
     // newer bake's slot.
     u64 bake_generation = 0;
+    // Disk cache bookkeeping: the chunk's content key, and which staging
+    // region its gather was recorded into (kInvalidChunkSlot for a chunk
+    // that was restored from cache, or that no region was free for). When
+    // the fence signals, a region here is a finished payload to write out.
+    u64 cache_key = 0;
+    u32 cache_region = kInvalidChunkSlot;
   };
   // Ends and submits this frame's recorded chunk work, and hands its chunks
   // to the ring slot whose fence will report them finished -- see its
@@ -1123,6 +1228,8 @@ private:
   // is two parallel arrays rather than one array of structs). Host-visible:
   // update_streaming() writes them directly from the CPU every call that
   // records work.
+  // Staging for the disk-backed brick cache -- see kChunkCacheWords.
+  std::optional<VulkanBuffer> chunk_cache_staging_buffer_;
   std::optional<VulkanBuffer> chunk_voxelize_batch_slot_buffer_;
   std::optional<VulkanBuffer> chunk_voxelize_batch_data_buffer_;
   std::optional<VulkanBuffer> chunk_evict_batch_buffer_;
@@ -1429,6 +1536,13 @@ private:
   // across time rather than deduplication within a batch. Reported with the
   // bake timings.
   u64 alias_cells_cached_ = 0;
+  // Why deduplication declined, when it declines for every chunk -- see the
+  // report line. "no periodic candidate" means the CPU resolved every
+  // repeated primitive down to individual instances (so nothing looks
+  // periodic any more); "no cell step" means this level's cell size never
+  // lands on a whole repetition period within one chunk.
+  u64 alias_bail_no_periodic_ = 0;
+  u64 alias_bail_level_ = 0;
 
   // Cells the alias map found to be copies, against cells considered --
   // the one number that says whether brick deduplication is doing anything

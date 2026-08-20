@@ -145,6 +145,42 @@ layout(binding = 5) readonly buffer ClusterCullArgsBuffer {
     uint cull_args[];
 };
 
+// The toroidal chunk-lookup table and the per-slot published flags -- the
+// same two the marched field and the cull pass read. Needed here so
+// finest_level_at() can tell "this level owns this space" apart from "this
+// level actually HAS this space right now". See its own comment.
+layout(binding = 6) readonly buffer ChunkTableBuffer {
+    int chunk_table[];
+};
+layout(binding = 7) readonly buffer ChunkSlotPublishedBuffer {
+    uint chunk_slot_published[];
+};
+
+// Total chunk slots across every clip level -- mirrors CHUNK_MAX_SLOTS in
+// Builtin.ChunkClusterCull.comp.glsl and kMaxResidentChunks * kNumLevels
+// engine-side.
+const int SPLAT_CHUNK_MAX_SLOTS = NUM_CHUNK_LEVELS * 64;
+
+// GLSL has no integer mod that handles negatives the way a toroidal table
+// needs -- same helper, same reason, as floor_mod3() in Builtin.
+// ChunkedFieldCommon.inc.glsl.
+ivec3 splat_floor_mod3(ivec3 v, int m) {
+    return ((v % m) + m) % m;
+}
+
+// Is level `level` actually resident AND published at p?
+bool splat_level_resident_at(vec3 p, int level) {
+    float level_world_size = chunk_level_world_size(level);
+    ivec3 chunk_coord = ivec3(floor(p / level_world_size));
+    ivec3 wrapped = splat_floor_mod3(chunk_coord, CHUNK_TABLE_DIM);
+    int table_index = level * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM +
+        wrapped.x + wrapped.y * CHUNK_TABLE_DIM +
+        wrapped.z * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM;
+    int slot = chunk_table[table_index];
+    return slot >= 0 && slot < SPLAT_CHUNK_MAX_SLOTS &&
+        chunk_slot_published[slot] != 0u;
+}
+
 // Tile edge in pixels -- must match kSplatTileSize engine-side (it sizes the
 // buffer) and Builtin.RaymarchShader.comp.glsl's copy. A coarser tile costs
 // fewer atomics per declined cluster but rejects more good splats around
@@ -169,6 +205,10 @@ layout(push_constant) uniform PushConstants {
                          // for why those are seeded per point instead. Kept
                          // because the shadow pass shares this push layout
                          // and still uses it.
+    int only_level;       // Diagnostic: when >= 0, only this clip level may
+                         // splat, so an artefact can be attributed to one
+                         // level by isolating each in turn. -1 = normal.
+                         // See KENGINE_SPLAT_ONLY_LEVEL engine-side.
 } push;
 
 // Must match SPLAT_MODE_* in Builtin.RaymarchShader.comp.glsl / SplatMode
@@ -256,6 +296,11 @@ int level_of_cell_size(float cell_size) {
 // FRACTION does continuously for the marched field. Returns
 // NUM_CHUNK_LEVELS if p is outside every level's window.
 int finest_level_at(vec3 p, vec3 camera_pos, float dither) {
+    // Diagnostic isolation -- claim every point for the chosen level, so
+    // only clusters actually baked at that level match and splat.
+    if (push.only_level >= 0) {
+        return push.only_level;
+    }
     for (int level = 0; level < NUM_CHUNK_LEVELS; ++level) {
         float level_world_size = chunk_level_world_size(level);
         ivec3 chunk_coord = ivec3(floor(p / level_world_size));
@@ -264,6 +309,26 @@ int finest_level_at(vec3 p, vec3 camera_pos, float dither) {
         ivec3 abs_delta = abs(delta);
         int chebyshev = max(abs_delta.x, max(abs_delta.y, abs_delta.z));
         if (chebyshev > STREAM_RADIUS_CHUNKS) {
+            continue;
+        }
+        // Being in a level's WINDOW is not the same as that level having
+        // this space right now, and gating on the window alone is what made
+        // chunks vanish while the camera moved. The window test is pure
+        // camera arithmetic, so a fine chunk counts as "in window" the
+        // instant the camera moves -- but it still has to bake, which takes
+        // frames. During that gap the cull pass drops that chunk's own
+        // clusters (their slot is unpublished, see Builtin.ChunkCluster
+        // Cull.comp.glsl), AND every coarser level's points declined to
+        // splat here because this test said the fine level owned the space.
+        // Nothing splatted at all, so the surface simply disappeared until
+        // the bake landed. An in-place rebake after an edit unpublishes the
+        // slot exactly the same way.
+        //
+        // Skipping a non-resident level hands the space back to the coarser
+        // one that does have it -- the same rule sample_clipmap_field() now
+        // follows for the marched field, and the reason both must agree is
+        // that they describe the same surface to the same pixels.
+        if (!splat_level_resident_at(p, level)) {
             continue;
         }
         if (SPLAT_LEVEL_DITHER_BAND > 0.0 &&
@@ -287,7 +352,10 @@ int finest_level_at(vec3 p, vec3 camera_pos, float dither) {
             float t = clamp((outward - (1.0 - SPLAT_LEVEL_DITHER_BAND)) /
                                 SPLAT_LEVEL_DITHER_BAND,
                             0.0, 1.0);
-            if (dither < t) {
+            // Only hand the point to the coarser level if that level can
+            // actually take it -- otherwise this reintroduces exactly the
+            // hole the residency check above exists to close.
+            if (dither < t && splat_level_resident_at(p, level + 1)) {
                 return level + 1;
             }
         }

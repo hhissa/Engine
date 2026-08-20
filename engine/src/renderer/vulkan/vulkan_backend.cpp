@@ -530,6 +530,14 @@ SceneHandle VulkanRendererBackend::load_scene(std::string_view sdf_path) {
 
   loaded_scenes_.emplace(handle, std::move(names));
 
+  // Re-arm chunk cache pre-warming for the geometry that just arrived.
+  // Deliberately here and NOT in reconcile_scene(): loading a scene brings
+  // in a whole new set of chunks worth baking up front, while an edit
+  // touches a handful and must not stall the editor for seconds. Without
+  // this, pre-warming ran only for whichever scene happened to be loaded
+  // first in a session.
+  context_.raymarch_shader->request_cache_prewarm();
+
   // Deferred to begin_frame() -- see scene_dirty_'s comment.
   scene_dirty_ = true;
   return handle;

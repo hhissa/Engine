@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <filesystem>
 #include "vulkan_raymarch_shader.h"
 #include "../../../core/logger.h"
 #include "../../../resources/expression.h"
@@ -154,17 +156,44 @@ struct ChunkVoxelizePushConstants {
   i32 batch_count;
   i32 batch_offset; // Where this ring slot's region starts -- see the batch
                    // buffers' creation comment.
-  i32 pass;         // 0 = bake representatives, 1 = copy aliases. See
-                   // ChunkCellAliasBuffer in the shader.
+  i32 pass;         // 0 = bake representatives, 1 = copy aliases, 3 = gather
+                   // a baked chunk into the cache staging buffer, 4 =
+                   // restore one from it. See the shader.
+  i32 target_slot;    // passes 3/4 -- see the shader's identical fields.
+  i32 staging_offset;
+  f32 target_world_x;
+  f32 target_world_y;
+  f32 target_world_z;
+  f32 target_cell_size;
   i32 collect_stats; // See ChunkBrickDemandBuffer in the shader.
 };
 
 // How many u32s chunk_brick_demand_buffer_ holds: [0] is the brick demand
-// the overflow check reads, [1..5] are the bake-cost counters (see the
-// shader's own comment). Kept as one buffer rather than two because the
-// counters share its "written by every invocation, read once by the CPU"
-// access pattern exactly.
-constexpr u32 kChunkBakeStatCount = 6;
+// the overflow check reads, [1..5] are the bake-cost counters, [6] is the
+// aliased-voxel counter (see the shader's own comment), and [7]/[8] are the
+// two POOL GAUGES copied in by record_pool_gauges(). Kept as one buffer
+// rather than several because they share its "written on the GPU, read once
+// by the CPU after the fence" access pattern exactly.
+//
+// Was 6 while the shader already wrote [6] -- an out-of-bounds SSBO store
+// on every aliased cell, which robustBufferAccess discards on most drivers
+// but is undefined behaviour and cost the alias counter its value.
+constexpr u32 kChunkBakeStatCount = 11;
+// Indices into that buffer for the two gauges, so the copy and the read
+// cannot drift apart.
+constexpr u32 kChunkStatBricksFreeWord = 7;
+constexpr u32 kChunkStatClustersFreeWord = 8;
+// How many times generate_splat_points() rolled a whole LOD level back
+// because the cluster page pool would not give it another page. This is
+// the direct measure of "the scene is being rendered at lower splat
+// density than it was baked to want" -- the thing that reads on screen as
+// sparse, streaky surfaces. MONOTONIC across the run (the per-batch fill
+// only clears word 0), so the report prints the interval's delta.
+constexpr u32 kChunkStatSplatRollbackWord = 9;
+// The subset of those where the brick's FIRST page was refused, so it
+// emitted no points at all and its surface is missing rather than coarse.
+// Non-zero here means the cluster pool is genuinely out, not merely tight.
+constexpr u32 kChunkStatSplatNoPointsWord = 10;
 
 // Matches Builtin.ChunkedFieldDebugQuery.comp.glsl's push constant block.
 struct ChunkDebugQueryPushConstants {
@@ -221,6 +250,11 @@ struct ChunkPointSplatPushConstants {
                   // roulette thinning, clip-level dithering). Only has to
                   // differ between frames -- TAA is what turns that noise
                   // back into a smooth image.
+  // Diagnostic: when >= 0, only this clip level is allowed to splat, so a
+  // suspect artefact can be attributed to one level by isolating each in
+  // turn. -1 (the default, and anything but KENGINE_SPLAT_ONLY_LEVEL being
+  // set) is normal rendering. See splat_only_level_.
+  i32 only_level;
 };
 
 // Matches Builtin.ChunkVoxelCascade.comp.glsl's push constant block: per
@@ -569,6 +603,13 @@ constexpr i32 kStreamRadiusChunks = 1;
 // camera jump. Applied per level, so total per-frame chunk work scales
 // with kNumLevels -- still far cheaper than one full rebake either way.
 constexpr u32 kMaxChunkBakesPerFrame = 2;
+
+// Start a COLD bake only every Nth update_streaming() call. Cache restores
+// are exempt (see the pacing block in the to_load loop for the full
+// rationale and why this only became safe once a non-resident chunk fell
+// back to a coarser level instead of a hole). 1 restores the old
+// every-frame behaviour.
+constexpr u64 kChunkColdBakeFrameStride = 3;
 // Separate, larger per-level budget for pending_forced_evictions_ (a
 // dirty-scene-edit-triggered in-place rebake -- see update_streaming()'s
 // own comment) rather than sharing kMaxChunkBakesPerFrame with ordinary
@@ -717,6 +758,67 @@ constexpr f32 kStreamVelocitySmoothing = 0.1f;
 // candidate buffers together are 20 bytes per entry, so the whole ring is
 // under 2MB.
 constexpr u32 kMaxCandidatesPerChunk = 256;
+
+// --- Disk-backed brick cache (strategy 1). Mirrors CHUNK_CACHE_* in
+// Builtin.SdfFieldConfig.inc.glsl exactly -- see that block for the payload
+// layout and the quantization's precision argument.
+// Raised 512 -> 2048 on 2026-08-20, from measurement rather than taste: a
+// live session baked 315 chunks holding 148,195 bricks between them, i.e.
+// **470 bricks per chunk on average**, against a cap of 512. The cap sat
+// almost exactly on the mean, so roughly half of all chunks were refused by
+// the cache -- and being refused for DENSITY means it was always the
+// expensive half. The cheap chunks cached; the ones actually worth caching
+// re-baked from scratch on every single visit, which is why baking stayed
+// prevalent no matter how warm the cache got.
+//
+// 2048 covers a chunk with half its 4096 cells on a surface. The cost is
+// staging memory (~12MB per region, host-visible, so system RAM not VRAM),
+// which is why kChunkCacheStagingRegions drops to 8 alongside this.
+constexpr u32 kChunkCacheMaxBricks = 2048;
+constexpr u32 kChunkCacheBrickWords = kChunkBrickVoxelCount / 4;
+constexpr u32 kChunkCacheCellMapWord = 1;
+constexpr u32 kChunkCachePrimitiveWord = kChunkCacheCellMapWord + kChunkCellCount;
+constexpr u32 kChunkCacheVoxelWord =
+    kChunkCachePrimitiveWord + kChunkCacheMaxBricks;
+constexpr u32 kChunkCacheWords =
+    kChunkCacheVoxelWord + kChunkCacheMaxBricks * kChunkCacheBrickWords;
+
+// How many chunk payloads the staging buffer holds. Gathers and restores
+// both draw from it, and a region stays claimed until the submission that
+// touched it has signalled -- so this is also the cap on how many chunks
+// can be cached or restored in one frame. ~2.9MB per region.
+// Raised from 4 after a live run: at 4, only four chunks per frame could be
+// gathered or restored, so most bakes were never cached and most cache hits
+// never got a region to land in (measured 25 restores against 97 stores and
+// several hundred chunks published). This is the cap on cache throughput in
+// both directions, and at ~2.9MB per region it is cheap to widen.
+constexpr u32 kChunkCacheStagingRegions = 8;
+// Threads per workgroup in Builtin.ChunkVoxelize.comp.glsl (8 * 8 * 1), which
+// the 1-D cache-pass dispatches below divide the cell count by. The shader
+// flattens the same way in cache_cell_index(); the two MUST agree, and did
+// not until 2026-08-20 -- see that function's comment.
+constexpr u32 kChunkCacheThreadsPerGroup = 64;
+// chunk_cache_region_busy_ (header) must have one entry per region; the
+// header cannot see this constant, so the two are reconciled inside
+// acquire_cache_region(), which can see both.
+
+// On-disk format version. Bumped whenever the payload layout or the
+// quantization changes -- an entry written by an older build must never be
+// restored by a newer one, and the version is the only thing standing
+// between "stale cache" and "silently wrong geometry".
+//
+// 2: CHUNK_CACHE_BAND_VOXELS 2 -> 8. Same layout, but every voxel byte
+//    means four times the distance it used to, so a version-1 entry read
+//    by this build would be geometry that is simply wrong rather than
+//    stale. Also the version at which the key started covering primitive
+//    indices and layer content (see chunk_content_hash()).
+// 3: the gather that wrote every version-1 and version-2 entry only ever
+//    visited 512 of a chunk's 4096 cells (see cache_cell_index() in the
+//    shader), so every existing file on disk is a partial, wrong snapshot.
+//    They must never be restored again.
+// 4: CHUNK_CACHE_MAX_BRICKS 512 -> 2048, which moves the voxel word offset
+//    within the payload. Layout change, so v3 entries are unreadable.
+constexpr u32 kChunkCacheFormatVersion = 4;
 
 
 // Cap on how many repetition instances of a SINGLE primitive one chunk's
@@ -870,6 +972,149 @@ struct GpuParamExpr {
   f32 operand[kMaxExprInstructions]{};
   i32 instruction_count = 0;
 };
+
+// Largest magnitude a compiled parameter expression can ever produce, or
+// infinity when that cannot be proven.
+//
+// geometry_instance_radius() gives up on ANY primitive carrying a parametric
+// expression, because the formula's runtime value can differ arbitrarily
+// from the constant fallback (see its header comment). That is sound but
+// blunt, and expensive: an unbounded primitive is in every chunk's candidate
+// list at every level, so the whole scene folds it at every voxel of every
+// bake, and nothing can ever be proved empty. Live on DiegosOffice that was
+// seven primitives.
+//
+// But an expression is a 16-instruction stack machine, and every one of its
+// ops has a well-defined interval extension. Evaluating it with x/y/z left
+// FULLY UNBOUNDED still yields a finite range for the common shapes -- a
+// wavy parameter like `0.5 + 0.1*sin(x)` is [0.4, 0.6] no matter where it is
+// sampled, because sin/cos are bounded regardless of their argument.
+//
+// Deliberately conservative in every direction: anything that cannot be
+// proven finite (x*x, an unbounded pow, a division that may span zero)
+// returns infinity and the caller keeps treating the primitive as unbounded.
+// Over-estimating only costs culling; under-estimating would cull real
+// geometry, which is the one outcome that must never happen.
+f32 expression_max_magnitude(const GpuParamExpr &expr, f32 domain_radius) {
+  constexpr f32 inf = std::numeric_limits<f32>::infinity();
+  // The sample point is in the primitive's own LOCAL space (see
+  // resolve_params()), so bounding |p| bounds the variables directly.
+  const f32 var_lo = -domain_radius;
+  const f32 var_hi = domain_radius;
+  struct Interval {
+    f32 lo, hi;
+    b8 finite() const { return std::isfinite(lo) && std::isfinite(hi); }
+  };
+  Interval stack[kMaxExprInstructions];
+  i32 sp = 0;
+  auto push = [&](Interval v) {
+    if (sp < static_cast<i32>(kMaxExprInstructions)) {
+      stack[sp++] = v;
+    }
+  };
+  auto span = [](f32 a, f32 b, f32 c, f32 d) {
+    return Interval{std::min(std::min(a, b), std::min(c, d)),
+                    std::max(std::max(a, b), std::max(c, d))};
+  };
+
+  for (i32 i = 0; i < expr.instruction_count; ++i) {
+    const ExprOp op = static_cast<ExprOp>(expr.op[i]);
+    switch (op) {
+    case ExprOp::Const:
+      push({expr.operand[i], expr.operand[i]});
+      break;
+    case ExprOp::VarX:
+    case ExprOp::VarY:
+    case ExprOp::VarZ:
+      push({var_lo, var_hi});
+      break;
+    case ExprOp::Sin:
+    case ExprOp::Cos:
+      if (sp < 1) return inf;
+      // Bounded whatever the argument -- the whole reason this pays off.
+      stack[sp - 1] = {-1.0f, 1.0f};
+      break;
+    case ExprOp::Neg:
+      if (sp < 1) return inf;
+      stack[sp - 1] = {-stack[sp - 1].hi, -stack[sp - 1].lo};
+      break;
+    case ExprOp::Abs: {
+      if (sp < 1) return inf;
+      const Interval a = stack[sp - 1];
+      const f32 hi = std::max(std::abs(a.lo), std::abs(a.hi));
+      const f32 lo = (a.lo <= 0.0f && a.hi >= 0.0f)
+                         ? 0.0f
+                         : std::min(std::abs(a.lo), std::abs(a.hi));
+      stack[sp - 1] = {lo, hi};
+      break;
+    }
+    case ExprOp::Sqrt: {
+      if (sp < 1) return inf;
+      const Interval a = stack[sp - 1];
+      // The shader clamps the argument at 0, so a negative low is 0 here.
+      stack[sp - 1] = {std::sqrt(std::max(a.lo, 0.0f)),
+                       std::sqrt(std::max(a.hi, 0.0f))};
+      break;
+    }
+    case ExprOp::Add: {
+      if (sp < 2) return inf;
+      const Interval b = stack[--sp], a = stack[sp - 1];
+      stack[sp - 1] = {a.lo + b.lo, a.hi + b.hi};
+      break;
+    }
+    case ExprOp::Sub: {
+      if (sp < 2) return inf;
+      const Interval b = stack[--sp], a = stack[sp - 1];
+      stack[sp - 1] = {a.lo - b.hi, a.hi - b.lo};
+      break;
+    }
+    case ExprOp::Mul: {
+      if (sp < 2) return inf;
+      const Interval b = stack[--sp], a = stack[sp - 1];
+      if (!a.finite() || !b.finite()) return inf;
+      stack[sp - 1] = span(a.lo * b.lo, a.lo * b.hi, a.hi * b.lo, a.hi * b.hi);
+      break;
+    }
+    case ExprOp::Div: {
+      if (sp < 2) return inf;
+      const Interval b = stack[--sp], a = stack[sp - 1];
+      // A divisor spanning zero makes the result unbounded.
+      if (!a.finite() || !b.finite() || (b.lo <= 0.0f && b.hi >= 0.0f)) {
+        return inf;
+      }
+      stack[sp - 1] = span(a.lo / b.lo, a.lo / b.hi, a.hi / b.lo, a.hi / b.hi);
+      break;
+    }
+    case ExprOp::Min: {
+      if (sp < 2) return inf;
+      const Interval b = stack[--sp], a = stack[sp - 1];
+      stack[sp - 1] = {std::min(a.lo, b.lo), std::min(a.hi, b.hi)};
+      break;
+    }
+    case ExprOp::Max: {
+      if (sp < 2) return inf;
+      const Interval b = stack[--sp], a = stack[sp - 1];
+      stack[sp - 1] = {std::max(a.lo, b.lo), std::max(a.hi, b.hi)};
+      break;
+    }
+    case ExprOp::Clamp: {
+      // clamp(v, lo, hi) -- the result can never leave [lo, hi].
+      if (sp < 3) return inf;
+      const Interval hi = stack[--sp], lo = stack[--sp];
+      if (!lo.finite() || !hi.finite()) return inf;
+      stack[sp - 1] = {lo.lo, hi.hi};
+      break;
+    }
+    case ExprOp::Pow:
+    default:
+      return inf; // not worth reasoning about; stay unbounded
+    }
+  }
+  if (sp < 1 || !stack[sp - 1].finite()) {
+    return inf;
+  }
+  return std::max(std::abs(stack[sp - 1].lo), std::abs(stack[sp - 1].hi));
+}
 
 // Mirrors ChunkCluster in Builtin.SdfFieldConfig.inc.glsl -- used here only
 // to size chunk_cluster_buffer_ and to zero records at reset, never built
@@ -1117,6 +1362,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       static_cast<u64>(kMaxChunkBatchSize) * kAsyncRingDepth * sizeof(glm::vec4),
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  // Disk-cache staging: host-visible so the CPU can read a gathered chunk
+  // straight out of it and write it to disk, and upload a restored one back
+  // the same way, with no extra copy.
+  chunk_cache_staging_buffer_.emplace(
+      *context_,
+      static_cast<u64>(kChunkCacheWords) * kChunkCacheStagingRegions *
+          sizeof(u32),
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   chunk_evict_batch_buffer_.emplace(
       *context_,
       static_cast<u64>(kMaxChunkBatchSize) * kAsyncRingDepth * sizeof(i32),
@@ -1269,6 +1523,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       !chunk_debug_query_output_buffer_->is_valid() ||
       !chunk_voxelize_batch_slot_buffer_->is_valid() ||
       !chunk_voxelize_batch_data_buffer_->is_valid() ||
+      !chunk_cache_staging_buffer_->is_valid() ||
       !chunk_evict_batch_buffer_->is_valid() ||
       !chunk_cluster_point_buffer_->is_valid() ||
       !chunk_cluster_buffer_->is_valid() ||
@@ -1406,10 +1661,11 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // fills -- see their own comment), 16=chunk_candidate, 17=chunk_candidate_
   // range, 18=chunk_candidate_offset (the per-chunk primitive lists and
   // their resolved repetition instances -- see their own comment),
-  // 19=chunk_cell_alias} -- must match Builtin.ChunkVoxelize.comp.glsl's
-  // bindings exactly.
-  VkDescriptorSetLayoutBinding chunk_voxelize_bindings[20]{};
-  for (u32 i = 0; i < 20; ++i) {
+  // 19=chunk_cell_alias, 20=chunk_cache_staging (the disk-backed brick
+  // cache's gather/restore region -- see CHUNK_CACHE_* in the shader)} --
+  // must match Builtin.ChunkVoxelize.comp.glsl's bindings exactly.
+  VkDescriptorSetLayoutBinding chunk_voxelize_bindings[21]{};
+  for (u32 i = 0; i < 21; ++i) {
     chunk_voxelize_bindings[i].binding = i;
     chunk_voxelize_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     chunk_voxelize_bindings[i].descriptorCount = 1;
@@ -1417,7 +1673,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   }
   VkDescriptorSetLayoutCreateInfo chunk_voxelize_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  chunk_voxelize_layout_info.bindingCount = 20;
+  chunk_voxelize_layout_info.bindingCount = 21;
   chunk_voxelize_layout_info.pBindings = chunk_voxelize_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &chunk_voxelize_layout_info,
@@ -1489,12 +1745,16 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
 
   // chunk_point_splat_set_: {0=chunk_cluster_point, 1=chunk_cluster,
   // 2=splat_visibility, 3=splat_tile_bound, 4=visible_clusters,
-  // 5=cull_args} -- must match Builtin.
-  // ChunkPointSplat.comp.glsl's bindings exactly. Binding 3 is re-pointed
-  // by rebind_render_target_descriptors() whenever splat_visibility_buffer_ is
-  // recreated (resize/render-scale change).
-  VkDescriptorSetLayoutBinding chunk_point_splat_bindings[6]{};
-  for (u32 i = 0; i < 6; ++i) {
+  // 5=cull_args, 6=chunk_table, 7=chunk_slot_published} -- must match
+  // Builtin.ChunkPointSplat.comp.glsl's bindings exactly. Binding 3 is
+  // re-pointed by rebind_render_target_descriptors() whenever
+  // splat_visibility_buffer_ is recreated (resize/render-scale change).
+  //
+  // 6 and 7 exist so finest_level_at() can ask whether a clip level is
+  // actually RESIDENT at a point, not merely in-window -- see its comment
+  // in the shader for the holes that gating on the window alone punched.
+  VkDescriptorSetLayoutBinding chunk_point_splat_bindings[8]{};
+  for (u32 i = 0; i < 8; ++i) {
     chunk_point_splat_bindings[i].binding = i;
     chunk_point_splat_bindings[i].descriptorType =
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1503,7 +1763,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   }
   VkDescriptorSetLayoutCreateInfo chunk_point_splat_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  chunk_point_splat_layout_info.bindingCount = 6;
+  chunk_point_splat_layout_info.bindingCount = 8;
   chunk_point_splat_layout_info.pBindings = chunk_point_splat_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &chunk_point_splat_layout_info,
@@ -1572,7 +1832,13 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // chunk_voxelize_set_ + chunk_debug_query_set_ + chunk_evict_set_ +
   // chunk_probe_bake_set_/_odd_ (x2, like probe_bake_set_/_odd_ above) +
   // chunk_point_splat_set_.
-  chunk_pool_size.descriptorCount = 20 + 5 + 8 + 8 * 2 + 6 + 9 + 7 + 5;
+  // One term per set, in the order chunk_layouts[] allocates them, and each
+  // term MUST equal that set's binding count -- a set whose bindings grow
+  // without its term growing here under-sizes the pool, and the sets
+  // allocated after it are the ones that come up short. (The point-splat
+  // term went 6 -> 8 when finest_level_at() gained the chunk table and the
+  // published flags.)
+  chunk_pool_size.descriptorCount = 21 + 5 + 8 + 8 * 2 + 8 + 9 + 7 + 5;
   VkDescriptorPoolCreateInfo chunk_pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   chunk_pool_info.poolSizeCount = 1;
@@ -1606,7 +1872,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   chunk_shadow_splat_set_ = chunk_sets[7];
   chunk_voxel_cascade_set_ = chunk_sets[8];
 
-  VkDescriptorBufferInfo chunk_voxelize_buffer_infos[20] = {
+  VkDescriptorBufferInfo chunk_voxelize_buffer_infos[21] = {
       {chunk_indirection_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_brick_pool_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_brick_demand_buffer_->handle(), 0, VK_WHOLE_SIZE},
@@ -1627,9 +1893,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       {chunk_candidate_range_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_candidate_offset_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_cell_alias_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_cache_staging_buffer_->handle(), 0, VK_WHOLE_SIZE},
   };
-  VkWriteDescriptorSet chunk_voxelize_writes[20]{};
-  for (u32 i = 0; i < 20; ++i) {
+  VkWriteDescriptorSet chunk_voxelize_writes[21]{};
+  for (u32 i = 0; i < 21; ++i) {
     chunk_voxelize_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     chunk_voxelize_writes[i].dstSet = chunk_voxelize_set_;
     chunk_voxelize_writes[i].dstBinding = i;
@@ -1637,7 +1904,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     chunk_voxelize_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     chunk_voxelize_writes[i].pBufferInfo = &chunk_voxelize_buffer_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 20,
+  vkUpdateDescriptorSets(context_->device.logical_device, 21,
                         chunk_voxelize_writes, 0, nullptr);
 
   VkDescriptorBufferInfo chunk_debug_query_buffer_infos[5] = {
@@ -1684,16 +1951,18 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // chunk_point_splat_set_ -- see its layout comment above. Binding 3
   // (splat_visibility_buffer_) gets an initial write here and is re-pointed by
   // rebind_render_target_descriptors() on every recreate.
-  VkDescriptorBufferInfo chunk_point_splat_buffer_infos[6] = {
+  VkDescriptorBufferInfo chunk_point_splat_buffer_infos[8] = {
       {chunk_cluster_point_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_cluster_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {splat_visibility_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {splat_tile_bound_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_visible_cluster_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_cull_args_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_table_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_slot_published_buffer_->handle(), 0, VK_WHOLE_SIZE},
   };
-  VkWriteDescriptorSet chunk_point_splat_writes[6]{};
-  for (u32 i = 0; i < 6; ++i) {
+  VkWriteDescriptorSet chunk_point_splat_writes[8]{};
+  for (u32 i = 0; i < 8; ++i) {
     chunk_point_splat_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     chunk_point_splat_writes[i].dstSet = chunk_point_splat_set_;
     chunk_point_splat_writes[i].dstBinding = i;
@@ -1702,7 +1971,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     chunk_point_splat_writes[i].pBufferInfo = &chunk_point_splat_buffer_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 6,
+  vkUpdateDescriptorSets(context_->device.logical_device, 8,
                         chunk_point_splat_writes, 0, nullptr);
 
   VkDescriptorBufferInfo chunk_cluster_cull_buffer_infos[9] = {
@@ -2360,10 +2629,25 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     // (16) comfortably covers a burst of double-buffered forced rebakes
     // plus new boundary loads before pressure-driven eviction has to kick
     // in.
+    // Raised from a quarter (16) to a half (32) on 2026-08-19, i.e. the
+    // cache is trimmed sooner and holds ~32 chunks per level instead of
+    // ~45, against a window that only needs 27. MEASURED, from two live
+    // runs of the same scene: quiet intervals (no bakes at all) cost
+    // 16.3-16.9ms at 27 resident per level and 20.4-23.9ms at 45, and the
+    // difference is all in the passes that walk resident clusters --
+    // cascade 1.28 -> 2.18ms, shadow 2.48 -> 4.48ms, splat 1.43 ->
+    // 3.25ms. So the deep cache was costing 4-7ms of EVERY frame, whether
+    // or not the camera ever went back for those chunks.
+    //
+    // That trade made sense when re-entering a chunk meant a full re-bake
+    // (~10ms of GPU work). It does not now that the disk brick cache
+    // makes a revisit a restore instead: a restore-dominated interval in
+    // the same run measured 0.090ms mean across 21 submissions. Paying
+    // per-frame to avoid an almost-free reload is backwards.
     chunk_streaming_levels_.emplace_back(kMaxResidentChunks, kStreamRadiusChunks,
                                          kFramesInFlightDelay,
                                          level * kMaxResidentChunks,
-                                         kMaxResidentChunks / 4);
+                                         kMaxResidentChunks / 2);
   }
 
   // GPU timing query pools -- see the GraphicsTimestamp enum's comment.
@@ -2448,6 +2732,42 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // mechanism behind both deduplication and the persistent alias cache
   // (see alias_cache_), i.e. the main defence against re-baking geometry
   // this engine has already baked. The escape hatch inverts accordingly.
+  // --- Disk-backed brick cache. Off unless a directory is given, because
+  // where a cache may write files is not something an engine should decide
+  // for its host application.
+  if (const char *dir = std::getenv("KENGINE_CHUNK_CACHE_DIR")) {
+    chunk_cache_dir_ = dir;
+    std::error_code ec;
+    std::filesystem::create_directories(chunk_cache_dir_, ec);
+    chunk_cache_enabled_ = !ec;
+    if (chunk_cache_enabled_) {
+      KINFO("Chunk brick cache enabled at '{}'.", chunk_cache_dir_);
+    } else {
+      KERROR("Chunk brick cache directory '{}' is unusable: {}",
+            chunk_cache_dir_, ec.message());
+    }
+  }
+  // Diagnostic: isolate one clip level in the splat pass. Run the editor
+  // with KENGINE_SPLAT_ONLY_LEVEL=0 (then 1, 2, ...) to see exactly which
+  // level a suspect artefact comes from -- the fastest way to tell a real
+  // bug apart from the hard LOD cutoff at a level boundary.
+  if (const char *only = std::getenv("KENGINE_SPLAT_ONLY_LEVEL")) {
+    splat_only_level_ = std::atoi(only);
+    KINFO("Splatting ONLY clip level {} (KENGINE_SPLAT_ONLY_LEVEL) -- "
+         "diagnostic mode, every other level is suppressed.",
+         splat_only_level_);
+  }
+  // Bake the whole scene into the disk cache at load, instead of warming it
+  // by touring the scene. Only meaningful with KENGINE_CHUNK_CACHE_DIR set.
+  prewarm_requested_ = std::getenv("KENGINE_PREWARM_CACHE") != nullptr;
+  if (prewarm_requested_ && !chunk_cache_enabled_) {
+    KWARN("KENGINE_PREWARM_CACHE is set but KENGINE_CHUNK_CACHE_DIR is not -- "
+          "there is nowhere to pre-warm to, so it will do nothing.");
+    prewarm_requested_ = false;
+  } else if (prewarm_requested_) {
+    KINFO("Chunk cache pre-warm requested (KENGINE_PREWARM_CACHE) -- the "
+         "whole scene will be baked into the cache once the scene loads.");
+  }
   chunk_dedup_enabled_ = std::getenv("KENGINE_NO_CHUNK_DEDUP") == nullptr;
   if (!chunk_dedup_enabled_) {
     KINFO("Chunk brick deduplication DISABLED (KENGINE_NO_CHUNK_DEDUP).");
@@ -2601,6 +2921,7 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   chunk_shadow_args_buffer_.reset();
   chunk_shadow_pair_buffer_.reset();
   chunk_cell_alias_buffer_.reset();
+  chunk_cache_staging_buffer_.reset();
   chunk_candidate_offset_buffer_.reset();
   chunk_candidate_range_buffer_.reset();
   chunk_candidate_buffer_.reset();
@@ -3162,6 +3483,105 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       PrimitiveBound bound;
       bound.position = geometry.position;
       bound.radius = geometry_bounding_radius(geometry);
+      // geometry_bounding_radius() gives up on any primitive with a
+      // parametric expression. Try to prove a finite bound anyway: if every
+      // expression's range can be bounded by interval analysis (see
+      // expression_max_magnitude()), substitute each slot's largest possible
+      // magnitude for its constant and re-ask. Every per-type local bound in
+      // that function is monotonically non-decreasing in |params|, so the
+      // largest magnitude gives the largest shape -- conservative by
+      // construction. Falls straight back to unbounded if any slot cannot be
+      // proven finite.
+      if (bound.radius >= kUnboundedBoundingRadius &&
+          geometry.type != PrimitiveType::Plane &&
+          geometry.repetition_mode != RepetitionMode::Infinite) {
+        // Solved as a FIXED POINT, because the honest domain is circular:
+        // the parameter depends on where it is sampled, and the primitive's
+        // extent depends on the parameter. Evaluating with p unbounded gives
+        // up immediately on the most common authored form, a taper like
+        // `0.5 + 0.2*p.x`, which is linear in position and therefore
+        // unbounded over all space -- yet obviously finite as a shape.
+        //
+        // The resolution: a point p can only be ON the surface if it lies
+        // within the local bound of the shape that p's own parameters
+        // describe. So if every p inside a ball of radius R yields a local
+        // bound <= R, no surface can exist outside that ball. Iterate
+        // R <- bound(params over |p| <= R) from zero; the map is monotone,
+        // so it converges to the least such R whenever the expression's
+        // growth per unit distance is below 1 (0.2 for that taper), and
+        // runs away otherwise -- which is exactly the "genuinely unbounded"
+        // case, correctly rejected.
+        const f32 expr_scale = std::abs(geometry.param_expr_scale) > 0.0f
+                                   ? std::abs(geometry.param_expr_scale)
+                                   : 1.0f;
+        f32 radius = 0.0f;
+        b8 converged = false;
+        for (u32 iteration = 0; iteration < 64; ++iteration) {
+          Geometry probe = geometry;
+          b8 all_finite = true;
+          for (size_t slot = 0; slot < geometry.param_expressions.size();
+               ++slot) {
+            if (geometry.param_expressions[slot].empty()) {
+              continue;
+            }
+            const GpuParamExpr &expr =
+                gpu_param_exprs[static_cast<size_t>(index) * 4 + slot];
+            // The expression is authored in pre-scale units (resolve_params()
+            // divides p by expr_scale and multiplies the result back), so the
+            // domain shrinks and the result grows by the same factor.
+            const f32 magnitude =
+                expression_max_magnitude(expr, radius / expr_scale);
+            if (!std::isfinite(magnitude)) {
+              all_finite = false;
+              break;
+            }
+            const f32 scaled = magnitude * expr_scale;
+            if (slot < 3) {
+              probe.params[static_cast<glm::length_t>(slot)] = scaled;
+            } else {
+              probe.extra_param = scaled;
+            }
+            probe.param_expressions[slot].clear();
+          }
+          if (!all_finite) {
+            break;
+          }
+          const f32 next = geometry_bounding_radius(probe);
+          if (!std::isfinite(next) || next >= kUnboundedBoundingRadius) {
+            break;
+          }
+          if (next <= radius * 1.0001f + 1e-5f) {
+            converged = true; // self-consistent: bound(|p| <= R) <= R
+            break;
+          }
+          radius = next;
+        }
+        if (converged && radius > 0.0f) {
+          // Small margin over the fixed point, for the float slop in
+          // reaching it. Safe for a monotone map: widening the ball can
+          // only widen the bound by less than the same factor once the
+          // growth rate is below 1.
+          bound.radius = radius * 1.05f + 1e-3f;
+        }
+      }
+      // An unbounded primitive is in EVERY chunk's candidate list, forever,
+      // which means every chunk in the scene folds it at every voxel it
+      // evaluates. That is a scene-wide bake cost, not a rounding error, and
+      // it is also why nothing can ever be proved empty (see prewarm_chunk_
+      // cache()). Worth naming precisely, because two of the three causes
+      // are usually fixable in the scene rather than the engine.
+      if (bound.radius >= kUnboundedBoundingRadius) {
+        const char *reason = "a parametric attribute expression";
+        if (geometry.type == PrimitiveType::Plane) {
+          reason = "being a Plane (no finite extent)";
+        } else if (geometry.repetition_mode == RepetitionMode::Infinite) {
+          reason = "RepetitionMode::Infinite";
+        }
+        KWARN("Primitive '{}' is UNBOUNDED ({}), so it cannot be culled from "
+              "any chunk and is folded at every voxel of every bake in the "
+              "scene.",
+              geometry.name, reason);
+      }
       bound.packed_index =
           static_cast<i32>(index) | (static_cast<i32>(layer_i) << 16);
       bound.repeat_mode = static_cast<u32>(geometry.repetition_mode);
@@ -3266,6 +3686,35 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   // light_count_.
   layer_count_ = static_cast<i32>(layer_count);
   max_smoothness_ = max_smoothness;
+
+  // Fingerprint each primitive by the bytes actually uploaded, so a chunk's
+  // cache key changes exactly when the geometry reaching it changes -- see
+  // chunk_content_hash(). Hashing the GPU struct rather than the authoring
+  // data is deliberate: it is what the voxelizer folds, so anything that
+  // cannot change the bake cannot change the key either.
+  primitive_content_hash_.assign(gpu_primitives.size(), 0);
+  for (size_t i = 0; i < gpu_primitives.size(); ++i) {
+    const auto *bytes = reinterpret_cast<const unsigned char *>(&gpu_primitives[i]);
+    u64 h = 1469598103934665603ull;
+    for (size_t b = 0; b < sizeof(GpuPrimitive); ++b) {
+      h = (h ^ bytes[b]) * 1099511628211ull;
+    }
+    primitive_content_hash_[i] = h;
+  }
+  // Same fingerprint over the layers, for the same reason -- see chunk_
+  // content_hash(). Only the first layer_count_ entries are ever folded;
+  // gpu_layers is padded out to kMaxLayers with default-constructed
+  // entries that no candidate can name.
+  layer_content_hash_.assign(static_cast<size_t>(layer_count_), 0);
+  for (size_t i = 0; i < layer_content_hash_.size() && i < gpu_layers.size();
+       ++i) {
+    const auto *bytes = reinterpret_cast<const unsigned char *>(&gpu_layers[i]);
+    u64 h = 1469598103934665603ull;
+    for (size_t b = 0; b < sizeof(GpuLayer); ++b) {
+      h = (h ^ bytes[b]) * 1099511628211ull;
+    }
+    layer_content_hash_[i] = h;
+  }
 
   primitive_buffer_->load_data(0, gpu_primitives.size() * sizeof(GpuPrimitive),
                                0, gpu_primitives.data());
@@ -3619,6 +4068,50 @@ void VulkanRaymarchShader::check_brick_overflow() {
   }
 }
 
+// Copies both GPU free-list stack pointers into the host-visible stats
+// buffer, so the CPU can see how much of each pool is still available.
+//
+// This exists because neither pool running dry produced ANY diagnostic.
+// check_chunk_brick_overflow() below compares one BATCH's demand against
+// the whole pool, which a batch of a few chunks can never exceed -- but
+// exhaustion is cumulative across every resident chunk, not per batch, and
+// when it happens the shaders just leave chunk_indirection at -1 (a missing
+// patch of surface) or roll back a whole splat LOD level (a brick with no
+// points). Both render as "broken chunks" with nothing in the log. These
+// two numbers are the difference between seeing that and guessing at it.
+void VulkanRaymarchShader::record_pool_gauges(VulkanCommandBuffer &cmd) {
+  // The tops are device-local and written by the bake/evict/restore
+  // dispatches this submission just recorded.
+  record_compute_buffer_barriers(
+      cmd.handle(), VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+      {chunk_brick_free_list_top_buffer_->handle(),
+       chunk_cluster_free_top_buffer_->handle()});
+  VkBufferCopy brick_copy{};
+  brick_copy.srcOffset = 0;
+  brick_copy.dstOffset = kChunkStatBricksFreeWord * sizeof(u32);
+  brick_copy.size = sizeof(u32);
+  vkCmdCopyBuffer(cmd.handle(), chunk_brick_free_list_top_buffer_->handle(),
+                 chunk_brick_demand_buffer_->handle(), 1, &brick_copy);
+  VkBufferCopy cluster_copy{};
+  cluster_copy.srcOffset = 0;
+  cluster_copy.dstOffset = kChunkStatClustersFreeWord * sizeof(u32);
+  cluster_copy.size = sizeof(u32);
+  vkCmdCopyBuffer(cmd.handle(), chunk_cluster_free_top_buffer_->handle(),
+                 chunk_brick_demand_buffer_->handle(), 1, &cluster_copy);
+  // Host-visible destination, read after this submission's fence.
+  VkBufferMemoryBarrier to_host{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  to_host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  to_host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+  to_host.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  to_host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  to_host.buffer = chunk_brick_demand_buffer_->handle();
+  to_host.offset = 0;
+  to_host.size = VK_WHOLE_SIZE;
+  vkCmdPipelineBarrier(cmd.handle(), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                      VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &to_host,
+                      0, nullptr);
+}
+
 void VulkanRaymarchShader::check_chunk_brick_overflow() {
   // See this method's own header comment for the "per-batch, not per-
   // resident-chunk" caveat and exactly when it's safe to call this.
@@ -3626,6 +4119,25 @@ void VulkanRaymarchShader::check_chunk_brick_overflow() {
           0, sizeof(u32) * kChunkBakeStatCount, 0)) {
     const u32 *stats = static_cast<const u32 *>(mapped);
     u32 bricks_demanded = stats[0];
+    // The two pool gauges (see record_pool_gauges()). Held as the LOW-WATER
+    // mark across the reporting interval rather than the latest sample:
+    // exhaustion is a transient that a once-per-120-frames snapshot would
+    // usually miss, and the worst moment is the one that dropped geometry.
+    //
+    // Only once this ring slot has actually carried a submission -- every
+    // submission ends with the gauge copy, so a slot that has run before
+    // holds real numbers, and one that has not holds whatever the buffer
+    // was created with. Reading that would report a 100%-full pool on the
+    // first few frames and cry wolf about the exact failure this is here
+    // to detect.
+    if (async_bake_recorded_[async_ring_index_]) {
+      chunk_bricks_free_ =
+          std::min(chunk_bricks_free_, stats[kChunkStatBricksFreeWord]);
+      chunk_clusters_free_ =
+          std::min(chunk_clusters_free_, stats[kChunkStatClustersFreeWord]);
+      splat_rollbacks_total_ = stats[kChunkStatSplatRollbackWord];
+      splat_no_points_total_ = stats[kChunkStatSplatNoPointsWord];
+    }
     // Where a bake's milliseconds actually go -- see ChunkBrickDemand
     // Buffer in the shader. Only populated while bake stats are on.
     if (bake_stats_enabled_ && stats[1] > 0) {
@@ -3677,6 +4189,301 @@ void VulkanRaymarchShader::upload_to_device_local(VulkanBuffer &dest,
   staging.load_data(0, size, 0, data);
   staging.copy_to(dest, 0, 0, size, context_->device.graphics_queue,
                  context_->device.graphics_command_pool);
+}
+
+// --- Cache pre-warming: bake the whole scene into the disk cache once, up
+// front, so play never pays a cold bake.
+//
+// The streaming path can only ever warm what the camera has actually walked
+// past, which is why the scene had to be toured before it stopped
+// stuttering: a first visit is ~470 bricks x 5832 voxels of real evaluation
+// (~10ms), a later one is a file read and a scatter. This walks the scene's
+// own bounds instead and pays all of it at load.
+//
+// Deliberately synchronous and on the GRAPHICS queue via single-use command
+// buffers: it runs before any streaming has been recorded, so the async ring
+// is idle and there is nothing to race. It is a load-time cost, not a
+// per-frame one, so submit-and-wait per batch costs nothing worth avoiding.
+// Reads a gathered payload's brick count out of its staging region -- the
+// gather writes it to word 0 (see gather_cached_chunk()). Zero means the
+// chunk holds no surface at all.
+u32 VulkanRaymarchShader::cached_chunk_brick_count(u32 region) {
+  const u64 offset = static_cast<u64>(region) * kChunkCacheWords * sizeof(u32);
+  u32 count = 0;
+  if (void *mapped = chunk_cache_staging_buffer_->lock(offset, sizeof(u32), 0)) {
+    count = *static_cast<const u32 *>(mapped);
+    chunk_cache_staging_buffer_->unlock();
+  }
+  return count;
+}
+
+// --- Cache pre-warming: bake the scene into the disk cache once, up front,
+// so play never pays a cold bake.
+//
+// HIERARCHICAL, NOT VOLUMETRIC. The obvious implementation -- enumerate the
+// scene's bounding box at every clip level and bake it -- does not work,
+// and the reason is worth keeping: a chunk is only skippable if something
+// can prove it holds no surface, and the candidate list cannot prove that.
+// A ground plane's bounding SPHERE reaches every chunk in the world, so
+// every chunk has a candidate and every chunk looks like work. Live
+// measurement on DiegosOffice: 316,329 chunks enumerated, *zero* classified
+// empty, an hour of estimated baking for a scene that is one room.
+//
+// The number that actually matters is the count of chunks containing
+// SURFACE, which grows with the scene's area, not its volume. So walk the
+// clip levels coarsest-first and refine: bake a level, ask each chunk how
+// many bricks it allocated, and descend only into the eight children of the
+// ones that found something. Empty space is rejected in 64-unit blocks at
+// the top instead of being visited 4-unit chunk by 4-unit chunk.
+//
+// The occupancy test is the bake's own: a cell takes a brick when its centre
+// is within half a cell diagonal of the surface. That is conservative at
+// CELL granularity regardless of the level's voxel size, so a thin wall is
+// still found by a coarse ancestor -- which is what makes the descent safe.
+//
+// Deliberately synchronous, on the graphics queue via single-use command
+// buffers: it runs before any streaming has been recorded, so the async ring
+// is idle and there is nothing to race.
+void VulkanRaymarchShader::prewarm_chunk_cache() {
+  if (!chunk_cache_enabled_ || primitive_bounds_.empty()) {
+    KWARN("Chunk cache pre-warm skipped: cache {}, {} primitives bounded.",
+          chunk_cache_enabled_ ? "enabled" : "DISABLED",
+          primitive_bounds_.size());
+    return;
+  }
+
+  // Bounds only decide where the COARSEST level starts looking, so an
+  // over-large box now costs a handful of 64-unit chunks rather than
+  // hundreds of thousands of 4-unit ones. Still not taken from
+  // PrimitiveBound::radius directly: that covers a repeated primitive's
+  // whole tiling, and is effectively infinite for an unbounded one.
+  // kUnboundedBoundingRadius is a SENTINEL ("never cull"), not a size, and
+  // an unbounded primitive cannot contribute to a finite box -- including
+  // it produced the +/-1e8 bounds this used to report. Skip those; the
+  // hierarchical descent finds their surface anyway, wherever it is, as
+  // long as SOMETHING bounded puts a coarse chunk near it.
+  glm::vec3 scene_min(std::numeric_limits<f32>::max());
+  glm::vec3 scene_max(std::numeric_limits<f32>::lowest());
+  for (const PrimitiveBound &bound : primitive_bounds_) {
+    const f32 reach =
+        bound.repeat_mode != 0 ? bound.instance_radius : bound.radius;
+    if (reach >= kUnboundedBoundingRadius) {
+      continue;
+    }
+    scene_min = glm::min(scene_min, bound.position - glm::vec3(reach));
+    scene_max = glm::max(scene_max, bound.position + glm::vec3(reach));
+  }
+  if (glm::any(glm::greaterThan(scene_min, scene_max))) {
+    KWARN("Chunk cache pre-warm skipped: the scene's bounds are empty.");
+    return;
+  }
+
+  u64 max_chunks = 20000;
+  if (const char *limit = std::getenv("KENGINE_PREWARM_MAX_CHUNKS")) {
+    max_chunks = std::strtoull(limit, nullptr, 10);
+  }
+
+  const u32 batch_cap = kChunkCacheStagingRegions;
+  struct PrewarmEntry {
+    u64 key;
+    glm::ivec3 coord;
+    u32 slot;
+    u32 region;
+    glm::vec3 world_min;
+    f32 cell_size;
+  };
+  std::vector<PrewarmEntry> batch;
+  std::vector<GpuChunkBatchEntry> voxelize_entries;
+  batch.reserve(batch_cap);
+  u64 baked = 0, stored = 0, already = 0, visited = 0;
+  // Exactly which scratch slots have had something baked into them. A slot
+  // may ONLY be evicted once it appears here: chunk_indirection_buffer_ is
+  // undefined until a bake writes it, and evict_chunk_batch() reads that
+  // indirection to decide which bricks to push back onto the free list --
+  // so evicting a virgin slot pushes garbage indices, drives free_list_top
+  // past MAX_BRICKS, and every future allocation then fails its bounds
+  // check. That renders as an entirely empty world with `bricks 0/81920`.
+  //
+  // A single "has anything baked yet" flag is NOT enough, and assuming so
+  // is what caused exactly that: the per-batch evict cleared the CURRENT
+  // batch's slots on the assumption they matched the previous batch's, but
+  // the slot range is per-level, so the first batch after a level change
+  // evicted eight slots that had never been touched.
+  std::unordered_set<u32> baked_slots;
+
+  // Chunks at the current level that turned out to hold surface -- the seed
+  // for the next, finer level.
+  std::vector<glm::ivec3> occupied;
+
+  auto flush = [&]() {
+    if (batch.empty()) {
+      return;
+    }
+    auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+        *context_, context_->device.graphics_command_pool);
+    // Free whatever these slots already hold before rebaking into them, or
+    // the pool drains -- but ONLY the ones a previous batch actually baked.
+    // See baked_slots.
+    {
+      std::vector<i32> slots;
+      slots.reserve(batch.size());
+      for (const PrewarmEntry &entry : batch) {
+        if (baked_slots.count(entry.slot) != 0) {
+          slots.push_back(static_cast<i32>(entry.slot));
+        }
+      }
+      evict_chunk_batch(*cmd, slots);
+    }
+    voxelize_entries.clear();
+    for (const PrewarmEntry &entry : batch) {
+      voxelize_entries.push_back({static_cast<i32>(entry.slot),
+                                  entry.world_min.x, entry.world_min.y,
+                                  entry.world_min.z, entry.cell_size});
+    }
+    voxelize_chunk_batch(*cmd, voxelize_entries, static_cast<u32>(layer_count_),
+                         max_smoothness_, {});
+    for (const PrewarmEntry &entry : batch) {
+      record_cache_gather(*cmd, entry.slot, entry.region, entry.world_min,
+                          entry.cell_size);
+    }
+    VulkanCommandBuffer::end_single_use(
+        *context_, context_->device.graphics_command_pool, std::move(cmd),
+        context_->device.graphics_queue);
+    for (const PrewarmEntry &entry : batch) {
+      baked_slots.insert(entry.slot);
+    }
+
+    for (const PrewarmEntry &entry : batch) {
+      // An empty chunk is deliberately NOT written. It costs almost nothing
+      // to bake at runtime (cell-centre tests, no brick work), so a file
+      // would buy nothing -- and writing them is what filled the cache
+      // directory with hundreds of thousands of tiny useless entries.
+      if (cached_chunk_brick_count(entry.region) > 0) {
+        store_cached_chunk(entry.key, entry.region);
+        ++stored;
+        occupied.push_back(entry.coord);
+      }
+      chunk_cache_region_busy_[entry.region] = false;
+    }
+    baked += batch.size();
+    batch.clear();
+  };
+
+  auto enqueue = [&](const glm::ivec3 &coord, u32 level, f32 level_world_size,
+                     f32 level_cell_size) {
+    ++visited;
+    const glm::vec3 world_min = glm::vec3(coord) * level_world_size;
+    const u64 key = chunk_key_for(world_min, level_cell_size);
+    if (key == 0) {
+      return; // nothing reaches it, or a list the key cannot describe
+    }
+    // Already on disk: its header carries the brick count, so occupancy is
+    // known without baking anything.
+    if (std::FILE *f = std::fopen(chunk_cache_path(key).c_str(), "rb")) {
+      u32 header[2] = {0, 0};
+      const b8 ok = std::fread(header, sizeof(u32), 2, f) == 2;
+      std::fclose(f);
+      ++already;
+      if (ok && header[0] == kChunkCacheFormatVersion && header[1] > 0) {
+        occupied.push_back(coord);
+      }
+      return;
+    }
+    if (batch.size() >= batch_cap) {
+      flush();
+    }
+    const u32 region = acquire_cache_region();
+    if (region == kInvalidChunkSlot) {
+      return; // cannot happen while batch_cap == kChunkCacheStagingRegions
+    }
+    batch.push_back({key, coord,
+                     level * kMaxResidentChunks +
+                         static_cast<u32>(batch.size()),
+                     region, world_min, level_cell_size});
+  };
+
+  KINFO("Chunk cache pre-warm starting: bounds ({:.1f}, {:.1f}, {:.1f}) to "
+       "({:.1f}, {:.1f}, {:.1f}), refining coarsest-to-finest. This blocks "
+       "until done.",
+       scene_min.x, scene_min.y, scene_min.z, scene_max.x, scene_max.y,
+       scene_max.z);
+
+  // The coarsest level is the only one enumerated over the whole box, and
+  // at 64 units a chunk that is a handful of them.
+  std::vector<glm::ivec3> frontier;
+  {
+    const f32 size = chunk_level_world_size(kNumLevels - 1);
+    const glm::ivec3 lo(glm::floor(scene_min / size));
+    const glm::ivec3 hi(glm::floor(scene_max / size));
+    for (i32 cz = lo.z; cz <= hi.z; ++cz) {
+      for (i32 cy = lo.y; cy <= hi.y; ++cy) {
+        for (i32 cx = lo.x; cx <= hi.x; ++cx) {
+          frontier.push_back({cx, cy, cz});
+        }
+      }
+    }
+  }
+
+  for (i32 level = static_cast<i32>(kNumLevels) - 1; level >= 0; --level) {
+    const f32 level_world_size = chunk_level_world_size(static_cast<u32>(level));
+    const f32 level_cell_size =
+        level_world_size / static_cast<f32>(kChunkCoarseDim);
+    if (frontier.size() > max_chunks) {
+      KERROR("Chunk cache pre-warm ABORTED at level {}: {} chunks in the "
+            "frontier, over the {} budget. Raise KENGINE_PREWARM_MAX_CHUNKS "
+            "if that is genuinely intended.",
+            level, frontier.size(), max_chunks);
+      break;
+    }
+    occupied.clear();
+    for (const glm::ivec3 &coord : frontier) {
+      enqueue(coord, static_cast<u32>(level), level_world_size,
+              level_cell_size);
+    }
+    flush();
+    KINFO("  pre-warm level {} ({:.0f}u chunks): {} visited, {} hold surface",
+         level, level_world_size, frontier.size(), occupied.size());
+    if (level == 0) {
+      break;
+    }
+    // Descend: each occupied chunk splits into the eight finer chunks that
+    // tile exactly the same space.
+    frontier.clear();
+    frontier.reserve(occupied.size() * 8);
+    for (const glm::ivec3 &coord : occupied) {
+      for (i32 dz = 0; dz < 2; ++dz) {
+        for (i32 dy = 0; dy < 2; ++dy) {
+          for (i32 dx = 0; dx < 2; ++dx) {
+            frontier.push_back({coord.x * 2 + dx, coord.y * 2 + dy,
+                                coord.z * 2 + dz});
+          }
+        }
+      }
+    }
+  }
+
+  // Hand the scratch slots' bricks back, so streaming starts with the whole
+  // pool free rather than whatever the last batch happened to hold.
+  if (!baked_slots.empty()) {
+    auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+        *context_, context_->device.graphics_command_pool);
+    // Only slots that were actually baked -- sweeping every level's whole
+    // scratch range here is what corrupted the free list before.
+    std::vector<i32> slots;
+    slots.reserve(baked_slots.size());
+    for (u32 slot : baked_slots) {
+      slots.push_back(static_cast<i32>(slot));
+    }
+    evict_chunk_batch(*cmd, slots);
+    VulkanCommandBuffer::end_single_use(
+        *context_, context_->device.graphics_command_pool, std::move(cmd),
+        context_->device.graphics_queue);
+  }
+
+  KINFO("Chunk cache pre-warm complete: {} chunks visited, {} baked, {} "
+       "cached ({} empty, not worth a file), {} already on disk, {} refused "
+       "as too dense.",
+       visited, baked, stored, baked - stored, already, chunk_cache_too_dense_);
 }
 
 void VulkanRaymarchShader::reset_chunked_field() {
@@ -3864,6 +4671,15 @@ void VulkanRaymarchShader::publish_completed_bakes() {
         pending_slot_retirements_.push_back(pending.retire_slot);
         streaming.release_slot(pending.retire_slot);
       }
+      // This ring slot's fence has signalled, so any staging region it used
+      // now holds a finished payload (a gather) or has been fully consumed
+      // (a restore). Write the former out and release either.
+      if (pending.cache_region != kInvalidChunkSlot) {
+        if (pending.cache_key != 0) {
+          store_cached_chunk(pending.cache_key, pending.cache_region);
+        }
+        chunk_cache_region_busy_[pending.cache_region] = false;
+      }
     }
     async_pending_publish_[ring].clear();
   }
@@ -4041,6 +4857,7 @@ u32 VulkanRaymarchShader::build_cell_alias_map(
     terms.push_back(term);
   }
   if (!any_periodic) {
+    ++alias_bail_no_periodic_;
     // Without a repeating candidate two distinct cells would have to
     // coincidentally sit at matching offsets from every primitive around
     // them, which does not happen in authored scenes.
@@ -4083,6 +4900,7 @@ u32 VulkanRaymarchShader::build_cell_alias_map(
     }
   }
   if (!level_can_alias) {
+    ++alias_bail_level_;
     return 0;
   }
 
@@ -4216,6 +5034,321 @@ u32 VulkanRaymarchShader::build_cell_alias_map(
         AliasCacheEntry{global_cell, slot_content_generation_[chunk_slot]};
   }
   return aliased;
+}
+
+// --- Disk-backed brick cache: bake a chunk once, ever. ------------------
+//
+// A chunk's baked bricks are gathered into one contiguous quantized blob on
+// the GPU, read back, and written to a file named by a hash of the scene
+// content that reaches that chunk. Re-entering the chunk -- later in this
+// run, or in a completely different run -- uploads the blob and scatters it
+// back into freshly allocated bricks instead of evaluating the field again.
+//
+// The key is what makes this safe across scene edits. It covers every
+// primitive that can reach the chunk (by content, not by index), the
+// instance offsets repetition resolved to, and the chunk's own position and
+// cell size. Move one primitive and the chunks near it get new keys -- and
+// therefore miss and re-bake -- while every other chunk in the scene still
+// hits. That is the property a whole-scene generation counter would not
+// have, and it is what makes this useful in the editor rather than only
+// across restarts.
+u64 VulkanRaymarchShader::chunk_content_hash(
+    const std::vector<i32> &candidates, const std::vector<glm::vec4> &offsets,
+    u32 count, glm::vec3 chunk_min, f32 cell_size) const {
+  auto mix = [](u64 h, u64 v) {
+    h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    return h;
+  };
+  auto mix_f32 = [&](u64 h, f32 v) {
+    u32 bits;
+    std::memcpy(&bits, &v, sizeof(bits));
+    return mix(h, bits);
+  };
+
+  u64 key = mix(1469598103934665603ull, kChunkCacheFormatVersion);
+  key = mix_f32(key, chunk_min.x);
+  key = mix_f32(key, chunk_min.y);
+  key = mix_f32(key, chunk_min.z);
+  key = mix_f32(key, cell_size);
+  // Layer smoothness feeds every fold, so it belongs in the key even though
+  // it is not per-primitive.
+  key = mix_f32(key, max_smoothness_);
+  key = mix(key, static_cast<u64>(layer_count_));
+  // Every layer's op and smoothness by CONTENT, for the same reason each
+  // primitive is hashed by content below: the fold a candidate takes part
+  // in is chosen by its layer's op, so editing a layer from union to
+  // subtraction changes the bake without changing any primitive.
+  for (u64 h : layer_content_hash_) {
+    key = mix(key, h);
+  }
+  // A whole-scene fallback list (count past the cap) means the bake folds
+  // primitives this list does not name, so the key cannot describe it.
+  if (count == 0 || count > kMaxCandidatesPerChunk) {
+    return 0; // 0 means "not cacheable"
+  }
+  for (u32 i = 0; i < count; ++i) {
+    const u32 prim = static_cast<u32>(candidates[i]) & 0xFFFFu;
+    if (prim >= primitive_content_hash_.size()) {
+      return 0;
+    }
+    key = mix(key, primitive_content_hash_[prim]);
+    // The INDEX as well as the content, even though hashing by content is
+    // what lets an edit elsewhere in the scene leave this chunk's key
+    // alone. The payload is not index-independent: the gather stores each
+    // brick's nearest primitive as a raw index (chunk_brick_primitive,
+    // which every consumer reads as the material index), so a scene whose
+    // primitives are the same but RENUMBERED -- inserting or deleting a
+    // primitive shifts every later one -- would hit on a payload whose
+    // material indices now name the wrong primitives. Appending to the end
+    // of the scene, the common editor case, still shifts nothing and still
+    // hits.
+    key = mix(key, static_cast<u64>(prim));
+    key = mix(key, static_cast<u64>(static_cast<u32>(candidates[i]) >> 16));
+    key = mix_f32(key, offsets[i].x);
+    key = mix_f32(key, offsets[i].y);
+    key = mix_f32(key, offsets[i].z);
+    key = mix_f32(key, offsets[i].w);
+  }
+  return key == 0 ? 1 : key; // never collide with the "not cacheable" marker
+}
+
+// Builds a chunk's content key by constructing exactly the candidate list
+// its bake would fold. That work is duplicated with voxelize_chunk_batch()
+// deliberately: the key has to be known BEFORE deciding whether to bake at
+// all, and a candidate list is cheap next to the bake it might avoid.
+u64 VulkanRaymarchShader::chunk_key_for(glm::vec3 chunk_world_min,
+                                        f32 cell_size) {
+  std::vector<i32> candidates(kMaxCandidatesPerChunk, 0);
+  std::vector<glm::vec4> offsets(kMaxCandidatesPerChunk, glm::vec4(0.0f));
+  const u32 count = build_chunk_candidates(chunk_world_min, cell_size,
+                                           max_smoothness_, candidates.data(),
+                                           offsets.data());
+  return chunk_content_hash(candidates, offsets, count, chunk_world_min,
+                            cell_size);
+}
+
+u32 VulkanRaymarchShader::acquire_cache_region() {
+  static_assert(kChunkCacheStagingRegions ==
+                    sizeof(chunk_cache_region_busy_) / sizeof(b8),
+                "chunk_cache_region_busy_ must have one entry per staging "
+                "region -- see kChunkCacheStagingRegions.");
+  for (u32 i = 0; i < kChunkCacheStagingRegions; ++i) {
+    if (!chunk_cache_region_busy_[i]) {
+      chunk_cache_region_busy_[i] = true;
+      return i;
+    }
+  }
+  return kInvalidChunkSlot; // all in flight -- this chunk just isn't cached
+}
+
+std::string VulkanRaymarchShader::chunk_cache_path(u64 key) const {
+  char name[32];
+  std::snprintf(name, sizeof(name), "%016llx.brk",
+               static_cast<unsigned long long>(key));
+  return chunk_cache_dir_ + "/" + name;
+}
+
+// Reads one entry into a staging region, ready for record_cache_restore().
+// Returns false on any doubt at all -- a missing file, a short read, a
+// version mismatch, an implausible brick count. A cache is an optimisation;
+// the only unacceptable outcome is restoring something wrong, so every
+// failure path falls back to baking.
+b8 VulkanRaymarchShader::load_cached_chunk(u64 key, u32 region) {
+  if (!chunk_cache_enabled_ || key == 0) {
+    return false;
+  }
+  std::FILE *f = std::fopen(chunk_cache_path(key).c_str(), "rb");
+  if (!f) {
+    chunk_cache_misses_.insert(key);
+    return false;
+  }
+  u32 header[2] = {0, 0}; // version, brick count
+  b8 ok = std::fread(header, sizeof(u32), 2, f) == 2 &&
+          header[0] == kChunkCacheFormatVersion &&
+          header[1] <= kChunkCacheMaxBricks;
+  const u64 region_offset =
+      static_cast<u64>(region) * kChunkCacheWords * sizeof(u32);
+  if (ok) {
+    // Only the words actually occupied by this chunk are stored, not the
+    // whole fixed-size region -- a sparse chunk's file is a few hundred KB
+    // rather than 2.9MB.
+    const u32 words =
+        kChunkCacheVoxelWord + header[1] * kChunkCacheBrickWords;
+    if (void *mapped = chunk_cache_staging_buffer_->lock(
+            region_offset, static_cast<u64>(words) * sizeof(u32), 0)) {
+      ok = std::fread(mapped, sizeof(u32), words, f) == words;
+      chunk_cache_staging_buffer_->unlock();
+    } else {
+      ok = false;
+    }
+  }
+  std::fclose(f);
+  if (!ok) {
+    chunk_cache_misses_.insert(key);
+    return false;
+  }
+  ++chunk_cache_hits_;
+  return true;
+}
+
+// Writes a gathered region out. Called once a gather's fence has signalled,
+// so the region holds the finished payload.
+void VulkanRaymarchShader::store_cached_chunk(u64 key, u32 region) {
+  if (!chunk_cache_enabled_ || key == 0) {
+    return;
+  }
+  const u64 region_offset =
+      static_cast<u64>(region) * kChunkCacheWords * sizeof(u32);
+  void *mapped = chunk_cache_staging_buffer_->lock(
+      region_offset, static_cast<u64>(kChunkCacheWords) * sizeof(u32), 0);
+  if (!mapped) {
+    return;
+  }
+  const u32 *words = static_cast<const u32 *>(mapped);
+  const u32 brick_count = words[0];
+  if (brick_count > kChunkCacheMaxBricks) {
+    // Denser than the payload can hold -- the gather deliberately let the
+    // count run past the cap to say so. Skip it rather than store a chunk
+    // with holes in it. Counted, because a chunk refused here is refused
+    // for being EXPENSIVE, and will re-bake in full on every visit for the
+    // rest of the session -- silently, until this number said so.
+    ++chunk_cache_too_dense_;
+    chunk_cache_staging_buffer_->unlock();
+    return;
+  }
+  const u32 payload_words =
+      kChunkCacheVoxelWord + brick_count * kChunkCacheBrickWords;
+  const std::string path = chunk_cache_path(key);
+  const std::string temp = path + ".tmp";
+  if (std::FILE *f = std::fopen(temp.c_str(), "wb")) {
+    const u32 header[2] = {kChunkCacheFormatVersion, brick_count};
+    const b8 ok = std::fwrite(header, sizeof(u32), 2, f) == 2 &&
+                  std::fwrite(words, sizeof(u32), payload_words, f) ==
+                      payload_words;
+    std::fclose(f);
+    // Written to a temp name and renamed, so a crash mid-write can never
+    // leave a truncated file that a later run would read as valid.
+    if (ok) {
+      std::rename(temp.c_str(), path.c_str());
+      ++chunk_cache_stores_;
+      chunk_cache_misses_.erase(key);
+    } else {
+      std::remove(temp.c_str());
+    }
+  }
+  chunk_cache_staging_buffer_->unlock();
+}
+
+// Records the GPU half of a store: compact this chunk's bricks into its
+// staging region. Must follow the bake that produced them, in the same
+// submission, with a barrier -- it reads the brick indices that bake wrote.
+void VulkanRaymarchShader::record_cache_gather(VulkanCommandBuffer &cmd,
+                                               u32 slot, u32 region,
+                                               glm::vec3 chunk_world_min,
+                                               f32 cell_size) {
+  const u64 region_offset =
+      static_cast<u64>(region) * kChunkCacheWords * sizeof(u32);
+  // A previous gather in this same submission may still be writing its own
+  // region. The two ranges are disjoint, but the fill below is a transfer
+  // write to the same BUFFER, so it needs ordering against that shader
+  // write regardless.
+  VkBufferMemoryBarrier pre_fill{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  pre_fill.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  pre_fill.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  pre_fill.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  pre_fill.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  pre_fill.buffer = chunk_cache_staging_buffer_->handle();
+  pre_fill.offset = 0;
+  pre_fill.size = VK_WHOLE_SIZE;
+  vkCmdPipelineBarrier(cmd.handle(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1,
+                      &pre_fill, 0, nullptr);
+  // The ordinal counter accumulates, so it starts from zero every gather.
+  vkCmdFillBuffer(cmd.handle(), chunk_cache_staging_buffer_->handle(),
+                 region_offset, sizeof(u32), 0);
+  VkBufferMemoryBarrier fill_barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  fill_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  fill_barrier.dstAccessMask =
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+  fill_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  fill_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  fill_barrier.buffer = chunk_cache_staging_buffer_->handle();
+  fill_barrier.offset = 0;
+  fill_barrier.size = VK_WHOLE_SIZE;
+  vkCmdPipelineBarrier(cmd.handle(), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1,
+                      &fill_barrier, 0, nullptr);
+  record_compute_buffer_barriers(
+      cmd.handle(), VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+      {chunk_indirection_buffer_->handle(), chunk_brick_pool_buffer_->handle(),
+       chunk_brick_primitive_buffer_->handle()});
+
+  chunk_voxelize_pipeline_->bind(cmd);
+  vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                         chunk_voxelize_pipeline_->layout(), 0, 1,
+                         &chunk_voxelize_set_, 0, nullptr);
+  ChunkVoxelizePushConstants push{
+      static_cast<i32>(layer_count_), max_smoothness_, 0, 0,
+      /*pass=*/3, static_cast<i32>(slot),
+      static_cast<i32>(region * kChunkCacheWords),
+      chunk_world_min.x, chunk_world_min.y, chunk_world_min.z, cell_size,
+      bake_stats_enabled_ ? 1 : 0};
+  vkCmdPushConstants(cmd.handle(), chunk_voxelize_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                    sizeof(ChunkVoxelizePushConstants), &push);
+  // 1-D over cells, kChunkCacheThreadsPerGroup threads per group. The
+  // shader must index with that same flattening (cache_cell_index(),
+  // NOT gl_GlobalInvocationID.x) -- see its comment for the corruption
+  // the mismatch caused.
+  vkCmdDispatch(cmd.handle(),
+               (kChunkCellCount + kChunkCacheThreadsPerGroup - 1) /
+                   kChunkCacheThreadsPerGroup,
+               1, 1);
+}
+
+// Records the GPU half of a restore: scatter an uploaded payload back into
+// freshly allocated bricks. Everything a bake does, minus the field.
+void VulkanRaymarchShader::record_cache_restore(VulkanCommandBuffer &cmd,
+                                                u32 slot, u32 region,
+                                                glm::vec3 chunk_world_min,
+                                                f32 cell_size) {
+  record_compute_buffer_barriers(
+      cmd.handle(), VK_ACCESS_SHADER_WRITE_BIT,
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+      {chunk_indirection_buffer_->handle(),
+       chunk_brick_free_list_buffer_->handle(),
+       chunk_brick_free_list_top_buffer_->handle()});
+
+  chunk_voxelize_pipeline_->bind(cmd);
+  vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                         chunk_voxelize_pipeline_->layout(), 0, 1,
+                         &chunk_voxelize_set_, 0, nullptr);
+  ChunkVoxelizePushConstants push{
+      static_cast<i32>(layer_count_), max_smoothness_, 0, 0,
+      /*pass=*/4, static_cast<i32>(slot),
+      static_cast<i32>(region * kChunkCacheWords),
+      chunk_world_min.x, chunk_world_min.y, chunk_world_min.z, cell_size,
+      bake_stats_enabled_ ? 1 : 0};
+  vkCmdPushConstants(cmd.handle(), chunk_voxelize_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                    sizeof(ChunkVoxelizePushConstants), &push);
+  // 1-D over cells, kChunkCacheThreadsPerGroup threads per group. The
+  // shader must index with that same flattening (cache_cell_index(),
+  // NOT gl_GlobalInvocationID.x) -- see its comment for the corruption
+  // the mismatch caused.
+  vkCmdDispatch(cmd.handle(),
+               (kChunkCellCount + kChunkCacheThreadsPerGroup - 1) /
+                   kChunkCacheThreadsPerGroup,
+               1, 1);
+
+  record_compute_buffer_barriers(
+      cmd.handle(), VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+      {chunk_indirection_buffer_->handle(), chunk_brick_pool_buffer_->handle(),
+       chunk_brick_primitive_buffer_->handle(),
+       chunk_cluster_point_buffer_->handle(), chunk_cluster_buffer_->handle(),
+       chunk_cluster_free_list_buffer_->handle(),
+       chunk_cluster_free_top_buffer_->handle(),
+       chunk_brick_cluster_buffer_->handle()});
 }
 
 // Builds one chunk's primitive candidate list -- the primitives whose
@@ -4570,7 +5703,9 @@ void VulkanRaymarchShader::voxelize_chunk_batch(
   ChunkVoxelizePushConstants push_constants{
       static_cast<i32>(layer_count), max_smoothness,
       static_cast<i32>(entries.size()), static_cast<i32>(batch_offset),
-      /*pass=*/0, bake_stats_enabled_ ? 1 : 0};
+      /*pass=*/0, /*target_slot=*/0, /*staging_offset=*/0,
+      /*target_world=*/0.0f, 0.0f, 0.0f, /*target_cell_size=*/0.0f,
+      bake_stats_enabled_ ? 1 : 0};
   vkCmdPushConstants(cmd.handle(), chunk_voxelize_pipeline_->layout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0,
                     sizeof(ChunkVoxelizePushConstants), &push_constants);
@@ -4811,6 +5946,23 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
   }
   last_stream_camera_pos_ = camera_pos;
   have_last_stream_camera_pos_ = true;
+  // Once per update_streaming() call -- paces cold bakes, see
+  // kChunkColdBakeFrameStride.
+  ++chunk_stream_tick_;
+
+  // One-shot, the first time streaming runs against a scene that has
+  // actually been uploaded (primitive_bounds_ is what prewarm reads the
+  // scene's extent from). Deliberately here rather than at scene-load: this
+  // is the earliest point where the chunked field is known to be in use and
+  // the async ring is guaranteed idle.
+  // Marked done only once it has ACTUALLY run. Setting the flag before the
+  // call meant a single early return -- streaming ticking once before the
+  // scene upload populates primitive_bounds_ -- disabled pre-warming for
+  // the whole session, silently.
+  if (prewarm_requested_ && !prewarm_done_ && !primitive_bounds_.empty()) {
+    prewarm_done_ = true;
+    prewarm_chunk_cache();
+  }
   // A floating-origin recenter teleports the camera in render space (see
   // consume_origin_shift()); so does loading a new scene. Neither is
   // motion, and treating it as motion would fling the window across the
@@ -5311,7 +6463,7 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
     for (auto it = pending_forced_evictions_.begin();
         it != pending_forced_evictions_.end() &&
         forced_rebaked < kMaxForcedRebakesPerFrame &&
-        voxelize_batch_entries.size() < kMaxChunksPerSubmission; ) {
+        voxelize_batch_entries.size() < submission_budget; ) {
       if (it->first != level) {
         ++it;
         continue;
@@ -5381,13 +6533,14 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
                                             // one until publication.
       queued_publishes.push_back(
           {level, key, new_slot, old_slot,
-           streaming.resident_chunks().at(key).bake_generation});
+           streaming.resident_chunks().at(key).bake_generation, 0,
+           kInvalidChunkSlot});
     }
 
     u32 loaded = 0;
     for (ChunkKey key : plan.to_load) {
       if (loaded >= kMaxChunkBakesPerFrame ||
-          voxelize_batch_entries.size() >= kMaxChunksPerSubmission) {
+          voxelize_batch_entries.size() >= submission_budget) {
         break;
       }
       u32 slot = streaming.acquire_free_slot();
@@ -5402,9 +6555,71 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
                              static_cast<i32>(key.cz));
       glm::vec3 chunk_world_min = glm::vec3(chunk_coord) * level_world_size;
       invalidate_slot_content(slot);
+      // --- Has this exact chunk been baked before, in this run or any
+      // earlier one? If so it is a file read and a scatter, not a bake.
+      u64 cache_key = 0;
+      u32 cache_region = kInvalidChunkSlot;
+      if (chunk_cache_enabled_) {
+        cache_key = chunk_key_for(chunk_world_min, level_cell_size);
+        if (cache_key != 0 &&
+            chunk_cache_misses_.find(cache_key) == chunk_cache_misses_.end()) {
+          cache_region = acquire_cache_region();
+          if (cache_region != kInvalidChunkSlot) {
+            if (load_cached_chunk(cache_key, cache_region)) {
+              record_cache_restore(ensure_async_cmd(), slot, cache_region,
+                                   chunk_world_min, level_cell_size);
+              streaming.commit_load(key, slot);
+              queued_publishes.push_back(
+                  {level, key, slot, kInvalidChunkSlot,
+                   streaming.resident_chunks().at(key).bake_generation,
+                   /*cache_key=*/0, cache_region});
+              ++loaded;
+              continue; // restored -- no bake for this chunk at all
+            }
+            chunk_cache_region_busy_[cache_region] = false;
+            cache_region = kInvalidChunkSlot;
+          }
+        }
+      }
+      // --- Cold-bake pacing. Restores are handled above and are NOT
+      // throttled (a restore costs a fraction of a millisecond); this gates
+      // only a genuine bake, which costs on the order of a frame of GPU
+      // time all by itself.
+      //
+      // Crossing a chunk boundary wants a whole 3x3 face at once -- nine
+      // chunks, ~90ms of GPU work. Even at the existing one-chunk-per-frame
+      // floor that is ~10ms added to each of nine consecutive frames, which
+      // is exactly the hitch felt when moving between chunks. Spreading the
+      // same work over kChunkColdBakeFrameStride times as many frames cuts
+      // the per-frame share proportionally.
+      //
+      // This is only acceptable because a chunk that is not resident yet
+      // now falls back to the coarser clip level that already covers it
+      // (see finest_level_at()/sample_clipmap_field()) instead of rendering
+      // as a hole. Before that fix, pacing the bakes slower would have
+      // meant holes for longer -- which is why the floor was one per frame.
+      // Detail arriving a few frames later is the trade; a hole was not.
+      if (chunk_stream_tick_ % kChunkColdBakeFrameStride != 0) {
+        if (cache_region != kInvalidChunkSlot) {
+          chunk_cache_region_busy_[cache_region] = false;
+        }
+        // Hand the slot back rather than holding it idle; update() will
+        // re-offer this chunk (still nearest-first) on a later frame.
+        streaming.release_slot(slot);
+        break;
+      }
+      // A miss: bake it, and gather the result so the next visit hits.
+      if (chunk_cache_enabled_ && cache_key != 0 &&
+          cache_region == kInvalidChunkSlot) {
+        cache_region = acquire_cache_region();
+      }
       voxelize_batch_entries.push_back(
           {static_cast<i32>(slot), chunk_world_min.x, chunk_world_min.y,
            chunk_world_min.z, level_cell_size});
+      if (cache_region != kInvalidChunkSlot) {
+        pending_cache_gathers_.push_back(
+            {slot, cache_region, chunk_world_min, level_cell_size});
+      }
       streaming.commit_load(key, slot);
       // NO write_chunk_table_entry() here. Naming the slot before the bake
       // has run is what forced the graphics queue to wait on it -- the table
@@ -5414,7 +6629,8 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
       // chunk is exactly what it was a moment ago anyway.
       queued_publishes.push_back(
           {level, key, slot, kInvalidChunkSlot,
-           streaming.resident_chunks().at(key).bake_generation});
+           streaming.resident_chunks().at(key).bake_generation, cache_key,
+           cache_region});
       ++loaded;
     }
   }
@@ -5453,8 +6669,21 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
     voxelize_chunk_batch(ensure_async_cmd(), voxelize_batch_entries,
                          static_cast<u32>(layer_count_), max_smoothness_,
                          evicting_slots);
+    // Gathers ride the same submission as the bake that produced their
+    // chunks, immediately after it -- they read the brick indices that bake
+    // just wrote, which is exactly why the CPU never needs to learn them.
+    for (const PendingCacheGather &gather : pending_cache_gathers_) {
+      record_cache_gather(ensure_async_cmd(), gather.slot, gather.region,
+                          gather.chunk_world_min, gather.cell_size);
+    }
   }
+  pending_cache_gathers_.clear();
 
+  // Last thing recorded, so the gauges reflect every pop and push this
+  // submission made.
+  if (async_cmd) {
+    record_pool_gauges(*async_cmd);
+  }
   submit_async_chunk_work(async_cmd, queued_publishes);
 }
 
@@ -7068,6 +8297,7 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
     // roulette thinning, clip-level dithering) -- it only has to differ from
     // frame to frame for TAA to average them out.
     splat_push.frame_index = static_cast<i32>(noise_frame_);
+    splat_push.only_level = splat_only_level_;
 
     chunk_point_splat_pipeline_->bind(command_buffer);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -7534,6 +8764,11 @@ void VulkanRaymarchShader::collect_frame_timings() {
   }
   // Candidate-list health. A non-zero fallback share means those chunks
   // folded the WHOLE scene at every voxel -- see voxelize_chunk_batch().
+  if (chunk_cache_enabled_) {
+    KINFO("  brick cache          {} chunks restored from disk, {} written, "
+         "{} refused (too dense to cache -- these re-bake every visit)",
+         chunk_cache_hits_, chunk_cache_stores_, chunk_cache_too_dense_);
+  }
   if (candidate_chunks_total_ > 0) {
     KINFO("  candidate lists      {}/{} chunks fell back to whole-scene",
          candidate_chunks_fallback_, candidate_chunks_total_);
@@ -7566,6 +8801,55 @@ void VulkanRaymarchShader::collect_frame_timings() {
     KINFO("  chunk residency      {}forced {}", residency,
          pending_forced_evictions_.size());
   }
+  // Pool occupancy, at its worst point in this interval (see record_pool_
+  // gauges()). Both pools are shared across every level, and both fail
+  // SILENTLY -- a dry brick pool leaves cells with no geometry, a dry
+  // cluster pool leaves bricks with no splat points. Either reads as
+  // "broken chunks" on screen. Percentages are of the pool, so "100% used"
+  // is the number to look for.
+  if (chunk_bricks_free_ != 0xFFFFFFFFu) {
+    const u32 bricks_used = kMaxChunkBricks - std::min(chunk_bricks_free_,
+                                                       kMaxChunkBricks);
+    const u32 clusters_used =
+        kMaxChunkClusters - std::min(chunk_clusters_free_, kMaxChunkClusters);
+    KINFO("  pool peak use        bricks {}/{} ({:.0f}%)  clusters {}/{} "
+         "({:.0f}%)",
+         bricks_used, kMaxChunkBricks,
+         100.0 * static_cast<f64>(bricks_used) / kMaxChunkBricks,
+         clusters_used, kMaxChunkClusters,
+         100.0 * static_cast<f64>(clusters_used) / kMaxChunkClusters);
+    // The cliff that actually matters is not zero -- it is the reserve.
+    // Once free pages fall to CLUSTER_FIRST_PAGE_RESERVE, every brick baked
+    // from then on is capped at one page (64 points for a 16^3 brick
+    // instead of 512), which reads as sparse, streaky surfaces.
+    const u32 rollbacks = splat_rollbacks_total_ - splat_rollbacks_reported_;
+    splat_rollbacks_reported_ = splat_rollbacks_total_;
+    const u32 no_points = splat_no_points_total_ - splat_no_points_reported_;
+    splat_no_points_reported_ = splat_no_points_total_;
+    if (rollbacks > 0) {
+      KINFO("  splat LOD rollbacks  {} coarser, {} WITH NO POINTS AT ALL "
+           "(cluster-pool pressure)",
+           rollbacks - std::min(no_points, rollbacks), no_points);
+    }
+    if (no_points > 0) {
+      KWARN("{} bricks baked with NO splat points -- the cluster pool ran "
+            "genuinely dry, so those surfaces are missing from the splat "
+            "pass entirely (not just coarser). Raise kMaxChunkClusters, or "
+            "lower kChunkMaxClustersPerBrick to halve per-brick demand.",
+            no_points);
+    }
+    if (chunk_bricks_free_ == 0 || chunk_clusters_free_ == 0) {
+      KWARN("Chunked-field pool EXHAUSTED this interval ({} bricks / {} "
+            "cluster pages free at the low point) -- cells and splat points "
+            "were dropped, which renders as missing or corrupted chunks. "
+            "Raise kMaxChunkBricksPerLevel / kMaxChunkClusters (and "
+            "MAX_BRICKS / MAX_CLUSTERS in the shaders), or hold fewer chunks "
+            "resident (ChunkStreamingManager's lazy_evict_min_free).",
+            chunk_bricks_free_, chunk_clusters_free_);
+    }
+  }
+  chunk_bricks_free_ = 0xFFFFFFFFu;
+  chunk_clusters_free_ = 0xFFFFFFFFu;
   // Brick deduplication -- how much of the baked content was a copy of
   // something already baked rather than freshly evaluated.
   if (alias_cells_total_ > 0) {
@@ -7574,6 +8858,14 @@ void VulkanRaymarchShader::collect_frame_timings() {
          100.0 * static_cast<f64>(alias_cells_aliased_) /
              static_cast<f64>(alias_cells_total_),
          alias_cells_aliased_, alias_cells_total_, alias_cells_cached_);
+    // When nothing aliases, the useful question is which precondition
+    // failed -- otherwise "0%" is indistinguishable between "this scene has
+    // no periodicity to exploit" and "the key is broken".
+    if (alias_cells_aliased_ == 0) {
+      KINFO("    dedup declined: {} chunks had no periodic candidate, {} had"
+           " no cell step matching a repetition period at this level",
+           alias_bail_no_periodic_, alias_bail_level_);
+    }
   }
 
   for (u32 i = 0; i < kGraphicsTimestampCount; ++i) {
@@ -7589,4 +8881,6 @@ void VulkanRaymarchShader::collect_frame_timings() {
   alias_cells_total_ = 0;
   alias_cells_aliased_ = 0;
   alias_cells_cached_ = 0;
+  alias_bail_no_periodic_ = 0;
+  alias_bail_level_ = 0;
 }

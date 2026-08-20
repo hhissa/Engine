@@ -60,6 +60,25 @@ ivec3 floor_mod3(ivec3 v, int m) {
     return ((v % m) + m) % m;
 }
 
+// Which chunk-table slot currently holds p's level-`level` chunk, or a
+// negative value if none does -- either nothing is resident there yet, or
+// the wrapped table entry has been claimed by a DIFFERENT chunk (see
+// ChunkStreamingManager's ring-delay for why that can briefly happen).
+//
+// Factored out so sample_chunked_field_at_level() below and sample_clipmap_
+// field()'s residency test resolve a slot through exactly the same wrap
+// arithmetic. They must agree: if the residency test disagreed with the
+// sampler about which slot a point maps to, the sampler could be handed a
+// level the test believed was resident and read another chunk's data.
+int chunk_table_slot_at(vec3 p, int level) {
+    float chunk_world_size = chunk_level_world_size(level);
+    ivec3 chunk_coord = ivec3(floor(p / chunk_world_size));
+    ivec3 wrapped = floor_mod3(chunk_coord, CHUNK_TABLE_DIM);
+    int table_index = level * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM +
+        wrapped.x + wrapped.y * CHUNK_TABLE_DIM + wrapped.z * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM;
+    return chunk_table[table_index];
+}
+
 // Looks up the chunked field at p (render space -- see Builtin.
 // SdfFieldConfig.inc.glsl's comment on chunk_world_min) within ONE
 // specific level. Same dist/skip_dist/material_index contract as Builtin.
@@ -76,18 +95,17 @@ ivec3 floor_mod3(ivec3 v, int m) {
 // (sample_chunked_field()/sample_clipmap_field() below) are responsible
 // for only calling this with a level whose own streaming window actually
 // contains p -- this function has no way to check that itself.
-void sample_chunked_field_at_level(vec3 p, vec3 ray_dir, int level, out float dist,
-                                   out float skip_dist, out int material_index) {
+// Variant taking a slot the caller has ALREADY resolved via chunk_table_
+// slot_at(), so sample_clipmap_field()'s residency test doesn't have to
+// pay for the same table read twice on the raymarcher's hottest path.
+void sample_chunked_field_at_level_slot(vec3 p, vec3 ray_dir, int level, int slot,
+                                        out float dist, out float skip_dist,
+                                        out int material_index) {
     float chunk_world_size = chunk_level_world_size(level);
     float cell_size = chunk_world_size / float(CHUNK_COARSE_DIM);
 
     ivec3 chunk_coord = ivec3(floor(p / chunk_world_size));
     vec3 chunk_world_min = vec3(chunk_coord) * chunk_world_size;
-
-    ivec3 wrapped = floor_mod3(chunk_coord, CHUNK_TABLE_DIM);
-    int table_index = level * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM +
-        wrapped.x + wrapped.y * CHUNK_TABLE_DIM + wrapped.z * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM;
-    int slot = chunk_table[table_index];
 
     vec3 local = (p - chunk_world_min) / cell_size;
     ivec3 cell = ivec3(floor(local));
@@ -186,6 +204,14 @@ void sample_chunked_field_at_level(vec3 p, vec3 ray_dir, int level, out float di
     dist = mix(c0, c1, t.z);
 }
 
+// Resolves the slot itself, for callers that have not already done so.
+void sample_chunked_field_at_level(vec3 p, vec3 ray_dir, int level, out float dist,
+                                   out float skip_dist, out int material_index) {
+    sample_chunked_field_at_level_slot(p, ray_dir, level,
+                                       chunk_table_slot_at(p, level), dist,
+                                       skip_dist, material_index);
+}
+
 // Level-0-only convenience wrapper -- kept for Builtin.ChunkedFieldDebugQuery.
 // comp.glsl's existing (Phase 3a/3b) single-level query harness, whose
 // verification numbers were captured against exactly this call shape; see
@@ -266,6 +292,10 @@ const float LOD_BLEND_FRACTION = 0.0;
 // it, with no extra streaming radius needed.
 void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
                           out float skip_dist, out int material_index) {
+    // The finest level whose WINDOW contains p, resident or not -- what
+    // this function used to commit to unconditionally. Kept only as the
+    // last resort below.
+    int windowed_level = -1;
     for (int level = 0; level < NUM_CHUNK_LEVELS; ++level) {
         float level_world_size = chunk_level_world_size(level);
         ivec3 chunk_coord = ivec3(floor(p / level_world_size));
@@ -274,6 +304,33 @@ void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
         ivec3 abs_delta = abs(delta);
         int chebyshev = max(abs_delta.x, max(abs_delta.y, abs_delta.z));
         if (chebyshev > STREAM_RADIUS_CHUNKS) {
+            continue;
+        }
+        if (windowed_level < 0) {
+            windowed_level = level;
+        }
+
+        // Being inside a level's window is NOT the same as that level
+        // having data here yet, and conflating the two is what made
+        // moving through the scene punch holes in it. The window test is
+        // pure camera arithmetic, so the instant the camera moves, p's
+        // fine-level chunk is "in window" -- but that chunk still has to
+        // be baked, which takes several frames (a cold bake is milliseconds
+        // of GPU work, and only a couple of chunks are submitted per
+        // frame). In that gap the old code sampled the fine level anyway,
+        // found no slot, and returned MAX_DIST: the ray sailed through
+        // geometry that exists, rendering as a chunk-shaped hole with
+        // brick-stepped edges. An in-place rebake after an edit nulls the
+        // slot the same way, which is why editing punched the same holes.
+        //
+        // A coarser level covers the identical space and is guaranteed
+        // resident wherever this could reach (level L's whole window sits
+        // inside level L+1's -- see this function's comment above), so
+        // falling through to it shows the surface at lower detail for the
+        // frame or two the fine bake needs, instead of showing nothing.
+        // Popping detail in is a clipmap working; a hole is not.
+        int level_slot = chunk_table_slot_at(p, level);
+        if (level_slot < 0) {
             continue;
         }
 
@@ -339,7 +396,48 @@ void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
             }
         }
 
-        sample_chunked_field_at_level(p, ray_dir, level, dist, skip_dist,
+        float level_dist, level_skip;
+        int level_material;
+        sample_chunked_field_at_level_slot(p, ray_dir, level, level_slot,
+                                           level_dist, level_skip,
+                                           level_material);
+        if (level == windowed_level || level_skip == 0.0) {
+            // Either this is the level we would have used anyway, or a
+            // coarser stand-in that actually FOUND a surface here.
+            dist = level_dist;
+            skip_dist = level_skip;
+            material_index = level_material;
+            return;
+        }
+        // A coarser stand-in reporting "no brick in this cell" is NOT
+        // evidence that the space is empty, and must not be trusted as a
+        // licence to step over it: its cell is 2^n times the fine level's,
+        // and its voxels are routinely too coarse to resolve detail the
+        // fine level holds at all (thin walls and panels vanish between
+        // adjacent coarse samples -- see kChunkBrickDim's comment engine-
+        // side, which is why CHUNK_BRICK_DIM was doubled). Taking that
+        // skip made the ray vault straight over near-camera geometry, so
+        // fall through to the fine level's own chunk-bounded skip below --
+        // the pre-fallback behaviour, which advances a bounded amount and
+        // re-asks once the bake lands. Same rule the LOD blend above
+        // already follows: never let a "no brick" placeholder masquerade
+        // as a real answer.
+        break;
+    }
+
+    // Reached either because no level has this point resident at all (the
+    // coarse levels are still filling after a scene load, or an edit
+    // invalidated the whole column at once), or because the only stand-in
+    // available was a coarser level that could not vouch for this space
+    // (the break above). Both mean the same thing: nothing trustworthy
+    // here yet. Sample the finest
+    // windowed level exactly as this function always did: its own
+    // non-resident branch steps the ray to that chunk's exit boundary,
+    // which is the bounded, correct way to advance past a genuinely
+    // unknown region. Deliberately not the coarsest level's much larger
+    // skip, which could vault the ray over a region a finer level has.
+    if (windowed_level >= 0) {
+        sample_chunked_field_at_level(p, ray_dir, windowed_level, dist, skip_dist,
                                       material_index);
         return;
     }
