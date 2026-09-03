@@ -1,3 +1,5 @@
+#extension GL_EXT_control_flow_attributes : enable
+
 // Shared analytic scene-SDF evaluation, included (via
 // GL_GOOGLE_include_directive, which glslc enables) by BOTH
 // Builtin.RaymarchVoxelize.comp.glsl (to bake the field) and
@@ -66,13 +68,37 @@ struct Primitive {
     // Domain deformation (Inigo Quilez, https://iquilezles.org/articles/
     // distfunctions/ "Deforming" section) -- see evaluate_primitive_at()
     // below for exactly how each is applied. x = twist (radians per
-    // world-unit of local Y), y = bend (radians per world-unit of local
-    // X), z = displace_amplitude (a length), w = displace_frequency (a
+    // world-unit of local Y), y = bend (radians per world-unit along
+    // whichever axis layer_repeat_count.w names -- see bend_axes() below),
+    // z = displace_amplitude (a length), w = displace_frequency (a
     // sin() rate). All zero-init to 0 except this engine's own
     // displace_frequency default of 20 -- see rebuild_static_scene(),
     // engine-side -- meaning a volumetric primitive (which never sets this
     // field) gets deform = (0,0,0,0), i.e. no deformation at all.
     vec4 deform;
+    // The repetition of the LAYER this primitive belongs to, packed
+    // exactly like repeat_mode_cell/repeat_count above (x = mode, yzw =
+    // cell; then xyz = count, w unused). Unlike those, it folds the sample
+    // point in WORLD space, BEFORE the primitive's own rotation -- so a
+    // rotated primitive still steps along world axes, and every primitive
+    // in the layer steps by the same world vector, which is what makes the
+    // arrangement between them repeat as a unit. (The finite modes measure
+    // the instance id from the primitive's own position -- see
+    // layer_fold_candidate() below for why the world origin is the wrong
+    // place to measure it from; Rotational still turns about the world Y
+    // axis.) See
+    // GpuPrimitive::layer_repeat_mode_cell engine-side, and
+    // layer_fold_candidates()/primitive_sdf() below. (0,...) = None, which
+    // is what an ordinary layer and every volumetric get.
+    vec4 layer_repeat_mode_cell;
+    // xyz = that layer repetition's count. w = this primitive's BEND AXIS
+    // (see bend_axes()/evaluate_primitive_at() below) -- unrelated to layer
+    // repetition, and living here only because deform above has no spare
+    // component and this was the struct's last unused float, the same
+    // repurposing repeat_count.w got for its bounding radius. 0
+    // (BEND_X_TO_Y, the classic bend) is what every primitive authored
+    // before bend had a direction, and every volumetric, gets.
+    vec4 layer_repeat_count;
 };
 
 layout(binding = SDF_PRIMITIVE_BUFFER_BINDING) readonly buffer PrimitiveBuffer {
@@ -410,6 +436,16 @@ const int REPEAT_LIMITED = 2;
 const int REPEAT_ROTATIONAL = 3;
 const int REPEAT_RECTANGULAR = 4;
 
+// Bend directions -- Primitive::layer_repeat_count.w, decoded by
+// bend_axes() below. Matches SdfBendAxis/BendAxis engine-side
+// value-for-value, and bend_axes()' arithmetic depends on this exact order.
+const int BEND_X_TO_Y = 0;
+const int BEND_X_TO_Z = 1;
+const int BEND_Y_TO_Z = 2;
+const int BEND_Y_TO_X = 3;
+const int BEND_Z_TO_X = 4;
+const int BEND_Z_TO_Y = 5;
+
 // Dispatches to the primitive-specific distance function by type -- the
 // same switch primitive_sdf() used to do directly; factored out so every
 // repeat_*() function below can call it once per candidate point.
@@ -451,6 +487,23 @@ float evaluate_shape(int type, vec3 local, vec4 params) {
     return ellipsoid_sdf(local, params.xyz);
 }
 
+// Decodes a primitive's bend axis (Primitive::layer_repeat_count.w, and
+// SdfBendAxis/BendAxis engine-side) into the two local-axis indices the
+// bend rotates: `drive`, whose coordinate scales the rotation angle, and
+// `target`, the axis a positive bend swings the shape toward. Mode 0
+// (BEND_X_TO_Y) gives drive=X, target=Y -- the classic opCheapBend, and
+// what every primitive that never sets a bend axis evaluates as.
+//
+// The six modes are ordered (drive, then the two remaining axes in cyclic
+// order), which is what lets this be arithmetic instead of a switch: the
+// high bit picks the drive axis and the low bit picks which of the other
+// two follows it. Engine-side SdfBendAxis must keep exactly that ordering.
+void bend_axes(int mode, out int drive, out int target) {
+    mode = clamp(mode, BEND_X_TO_Y, BEND_Z_TO_Y);
+    drive = mode >> 1;
+    target = (drive + 1 + (mode & 1)) % 3;
+}
+
 // Resolves index's parametric-attribute params fresh at candidate point r,
 // then evaluates its shape there -- the one place every repeat_*() function
 // below actually samples the primitive, so a formula-driven param (e.g.
@@ -463,9 +516,10 @@ float evaluate_shape(int type, vec3 local, vec4 params) {
 //
 // Order (Inigo Quilez, https://iquilezles.org/articles/distfunctions/
 // "Deforming"): twist warps r.xz by an angle proportional to r.y, then
-// bend warps the twisted result's .xy by an angle proportional to its own
-// (already-twisted) x -- so the two compose, matching
-// opCheapBend(opTwist(primitive)) -- then the shape is evaluated at that
+// bend warps the twisted result's drive/target axis pair (see bend_axes()
+// above) by an angle proportional to its own (already-twisted) drive
+// component -- so the two compose, matching opCheapBend(opTwist(primitive))
+// for the default XToY pair -- then the shape is evaluated at that
 // final warped point. Displacement is instead a post-evaluation offset
 // added to the returned distance, computed from the *original* r (not the
 // twisted/bent point) -- mirrors opDisplace(primitive, p)'s own p being
@@ -486,10 +540,15 @@ float evaluate_primitive_at(int index, int type, vec3 r, vec4 prim_params, float
         float s = sin(deform.x * q.y);
         q = vec3(c * q.x + s * q.z, q.y, -s * q.x + c * q.z);
     }
-    if (deform.y != 0.0) { // bend, around local Z
-        float c = cos(deform.y * q.x);
-        float s = sin(deform.y * q.x);
-        q = vec3(c * q.x + s * q.y, -s * q.x + c * q.y, q.z);
+    if (deform.y != 0.0) { // bend, in the drive/target plane
+        int drive, target;
+        bend_axes(int(primitives[index].layer_repeat_count.w), drive, target);
+        float a = q[drive];
+        float b = q[target];
+        float c = cos(deform.y * a);
+        float s = sin(deform.y * a);
+        q[drive] = c * a + s * b;
+        q[target] = -s * a + c * b;
     }
 
     float d = evaluate_shape(type, q, params);
@@ -670,7 +729,10 @@ vec3 primitive_local_space(int index, vec3 p) {
     return local;
 }
 
-float primitive_sdf(int index, vec3 p) {
+// primitive_sdf() for ONE point, with the layer fold (if any) already
+// applied -- everything this function does happens in the primitive's own
+// local space, which the layer fold sits strictly outside of.
+float primitive_sdf_unfolded(int index, vec3 p) {
     Primitive prim = primitives[index];
     vec3 local = p - prim.position_type.xyz;
     int type = int(prim.position_type.w);
@@ -709,6 +771,164 @@ float primitive_sdf(int index, vec3 p) {
     return evaluate_primitive_at(index, type, local, prim.params, prim.expr_scale.x);
 }
 
+// Maximum candidate points a layer fold produces -- the same 2x2x2
+// neighbour check the linear repeat_*() modes do (see repeat_infinite()
+// for why every neighbour tile has to be checked rather than just the
+// nearest one).
+const int MAX_LAYER_FOLD_CANDIDATES = 8;
+
+// The layer-level half of domain repetition: returns the i'th world point
+// at which this primitive must be evaluated for its LAYER's fold, and
+// reports through `total` how many there are. The fold math per mode is
+// exactly the repeat_*() functions above -- same candidate/neighbour
+// reasoning, same "an axis with cell <= 0 doesn't repeat" and "count <= 1
+// keeps one centred copy" conventions -- but it produces a POINT instead of
+// a distance, because what gets evaluated at it is a whole primitive
+// (rotation, its own repetition, deformation and all), not one shape
+// function.
+//
+// `pivot` is the primitive's own authored world position, and the linear
+// modes measure the instance id RELATIVE TO IT rather than to the world
+// origin. That is not a cosmetic choice: a finite fold clamps the id to
+// +/-(count-1)/2, so measuring from the origin means a layer whose content
+// sits more than that many cells out has every one of its copies clamped
+// onto the same instance -- the whole layer collapses to ONE copy, offset
+// from where it was authored. (Measured: the four primitives of
+// hikikimoriroom's layer6, a glass at x=0.31 z=-0.58 with a 0.2 cell and
+// counts 3x1x5, kept 1 of 15 copies.) Pivoting on the primitive instead
+// puts the authored copy at instance 0 for every primitive in the layer,
+// and since they all share one cell and one count they all get the SAME
+// integer instance set -- so the arrangement between them still translates
+// rigidly, which is the whole point of a layer fold. It is also the
+// semantics the engine-side bound already assumes: geometry_bounding_
+// radius() adds half_span*cell as a reach around the primitive's own
+// position (see Geometry::layer_repetition_mode).
+//
+// Rotational is deliberately NOT pivoted -- it turns about the world Y
+// axis, so a primitive standing off that axis is meant to orbit it, and
+// its bound (2 * axis distance) says so.
+//
+// Folding the point is what makes the layer repeat as a unit: every
+// primitive in the layer is handed the same folded point, so their
+// positions relative to each other are carried into every copy. Folding
+// each primitive individually (its own repetition_mode) instead repeats
+// each one around its own centre, which is a different result for anything
+// built out of more than one piece.
+//
+// ONE POINT PER CALL, RE-DERIVING THE SETUP EACH TIME, rather than the
+// obvious "fill a vec3[8] and loop over it". A local array indexed by a
+// loop counter makes the driver's compiler fully unroll the loop around it
+// to keep the array in registers -- and the loop body here is an entire
+// primitive evaluation, which already contains its own 8-candidate
+// repetition fold and the whole shape switch. That squares the biggest
+// function in this file: measured on this scene's Builtin.RaymarchVoxelize
+// pipeline, 18.9s to compile before the layer fold existed and 104.4s with
+// the array version, with Builtin.ChunkVoxelize (bigger still) not finished
+// after ten minutes -- which is a hung editor at startup, not a slow one.
+// Recomputing round()/sign() per candidate costs a few ALU ops next to a
+// full primitive evaluation and keeps exactly one copy of it in the loop.
+vec3 layer_fold_candidate(vec4 mode_cell, vec3 count, vec3 pivot, vec3 p,
+                          int i, out int total) {
+    int mode = int(mode_cell.x);
+    vec3 cell = mode_cell.yzw;
+
+    // The overwhelmingly common case, and the reason this early-out lives
+    // HERE rather than as an `if` around the call in primitive_sdf(): a
+    // second call to primitive_sdf_unfolded() on a fast path gives the
+    // driver's inliner a second copy of the largest function in this file
+    // at every one of primitive_sdf()'s call sites. Measured on
+    // Builtin.RaymarchVoxelize: 18.4s to compile with one call site, 127s
+    // with two. A branch inside this small callee costs nothing and keeps
+    // the call site count at one.
+    if (mode == REPEAT_NONE) {
+        total = 1;
+        return p;
+    }
+
+    if (mode == REPEAT_ROTATIONAL) {
+        // n evenly-spaced copies about the world Y axis. Same two-wedge
+        // neighbour check as repeat_rotational(), and the same n < 2
+        // disable.
+        int n = int(count.x);
+        if (n < 2) {
+            total = 1;
+            return p;
+        }
+        total = 2;
+        float sector = 6.283185307 / float(n);
+        float angle = atan(p.z, p.x);
+        float id = floor(angle / sector);
+        float a = sector * (id + float(i));
+        float c = cos(a);
+        float s = sin(a);
+        return vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
+    }
+
+    // The three linear modes differ only in which axes are live and
+    // whether the instance id is clamped, so they share one body.
+    bool rect = (mode == REPEAT_RECTANGULAR);
+    vec3 active_cell = rect ? vec3(cell.x, 0.0, cell.z) : cell;
+    vec3 counts = rect ? vec3(count.x, 1.0, count.z) : count;
+
+    bvec3 axis_active = greaterThan(active_cell, vec3(1e-5));
+    vec3 safe_cell = mix(vec3(1.0), active_cell, axis_active);
+    // Infinite never clamps; the finite modes stop after `counts` copies.
+    vec3 half_span = (mode == REPEAT_INFINITE)
+        ? vec3(1e9)
+        : max(counts - 1.0, 0.0) * 0.5;
+
+    // Instance ids measured from the primitive, not from the world origin
+    // -- see this function's header for what the origin costs a finite
+    // fold. The returned point is still p - cell*rid, in world space: the
+    // pivot picks WHICH copy, it is not a change of frame.
+    vec3 rel = p - pivot;
+    vec3 id = round(rel / safe_cell);
+    vec3 o = mix(vec3(0.0), sign(rel - safe_cell * id), axis_active);
+    // Same duplicate-candidate elimination as repeat_limited(): an axis
+    // pinned to a single instance evaluates the identical point twice.
+    o = mix(vec3(0.0), o, greaterThan(half_span, vec3(0.0)));
+    ivec3 candidates = ivec3(mix(vec3(1.0), vec3(2.0), notEqual(o, vec3(0.0))));
+    total = candidates.x * candidates.y * candidates.z;
+
+    // Unpack i into the same (i, j, k) order the nested loops in
+    // repeat_limited() visit.
+    ivec3 step_index = ivec3(i % candidates.x,
+                             (i / candidates.x) % candidates.y,
+                             i / (candidates.x * candidates.y));
+    vec3 rid = clamp(id + vec3(step_index) * o, -half_span, half_span);
+    return mix(p, p - safe_cell * rid, axis_active);
+}
+
+// The whole primitive at p: its layer's fold first (if the layer has one),
+// then everything the primitive itself does, at each folded point.
+//
+// The min() over the layer's candidate copies is a plain union of them, and
+// that is right for a subtraction layer too -- carving with the union of
+// the copies is the same cut as carving with each copy in turn, since
+// max(-min(a,b), s) == max(-a, max(-b, s)).
+float primitive_sdf(int index, vec3 p) {
+    Primitive prim = primitives[index];
+
+    // ONE call to primitive_sdf_unfolded(), from inside the loop, and the
+    // loop deliberately left rolled -- see layer_fold_candidate() above for
+    // what a second copy of that function costs, and why an unrepeated
+    // layer takes its early-out inside the callee instead of skipping this
+    // loop entirely. layer_fold_candidate() reports total = 1 for such a
+    // layer, so this runs exactly one iteration over the unfolded point.
+    float d = 1e30;
+    int total = 1;
+    [[dont_unroll]] for (int i = 0; i < MAX_LAYER_FOLD_CANDIDATES; ++i) {
+        vec3 q = layer_fold_candidate(prim.layer_repeat_mode_cell,
+                                      prim.layer_repeat_count.xyz,
+                                      prim.position_type.xyz, p, i, total);
+        d = min(d, primitive_sdf_unfolded(index, q));
+        if (i + 1 >= total) {
+            break;
+        }
+    }
+    return d;
+}
+
 // primitive_sdf() for ONE already-chosen repetition instance: same rotation
 // and shape evaluation, but the domain-repetition fold is replaced by a
 // single local-space offset naming which copy to evaluate.
@@ -728,6 +948,10 @@ float primitive_sdf(int index, vec3 p) {
 // gives the same result the min() over repeat_*()'s candidates would (and
 // the caller declines to split when the layer's smoothness would make that
 // fold a blend rather than a min -- see PrimitiveBound::layer_smoothness).
+// It also declines whenever the primitive's LAYER repeats (PrimitiveBound::
+// layer_repeated): this function deliberately evaluates one named copy and
+// nothing else, so it has no place to apply a layer fold, and every copy
+// that fold makes would simply be missing.
 float primitive_sdf_at_instance(int index, vec3 p, vec3 local_offset) {
     Primitive prim = primitives[index];
     vec3 local = p - prim.position_type.xyz;

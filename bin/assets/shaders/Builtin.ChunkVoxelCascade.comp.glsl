@@ -57,6 +57,21 @@ layout(binding = 4) buffer VoxelCascadeBuffer {
     uint voxel_cascades[];
 };
 
+// Per-brick primitive provenance (see Builtin.ChunkVoxelize.comp.glsl's
+// nearest_primitive store) -- needed to look up the material of the surface
+// a cluster's points came from, below.
+layout(binding = 5) readonly buffer ChunkBrickPrimitiveBuffer {
+    int chunk_brick_primitive[];
+};
+
+// Per-primitive material scalars (see VulkanRaymarchShader::
+// material_scalar_buffer_ engine-side) -- only .z, "does this primitive cast
+// shadows", is read here. Same buffer the render pass binds at its own
+// binding 11 and Builtin.ChunkShadowSplat.comp.glsl at its binding 7.
+layout(binding = 6) readonly buffer ScenePrimitiveMaterialScalars {
+    vec4 material_scalars[];
+};
+
 layout(push_constant) uniform PushConstants {
     // Per cascade: xyz = the min corner of its volume in RENDER space, w =
     // its voxel size. Computed engine-side (snapped to the voxel grid) so
@@ -76,6 +91,24 @@ void main() {
     }
 
     ChunkCluster cluster = chunk_clusters[cluster_index];
+
+    // A material that opts out of casting (Material::casts_shadow) must not
+    // occlude here either. These cascades are the ambient-occlusion trace's
+    // only view of the world beyond contact scale (Builtin.StochasticAo.
+    // comp.glsl stage 2), and they are read by nothing else -- so leaving a
+    // non-casting surface out of them is exactly "ambient light passes
+    // through it", the same way SHADOW_CASTER_TEST (Builtin.BakedField
+    // Common.inc.glsl) already lets direct light through and Builtin.Chunk
+    // ShadowSplat.comp.glsl keeps it out of the imperfect shadow maps.
+    // Otherwise a primitive the author excused from shadowing still stamps
+    // its own darkening onto every ambient-lit surface near it, which is
+    // the one place the flag used to be ignored. Brick-provenance
+    // granularity, same as the splat path's own test.
+    int cluster_primitive = chunk_brick_primitive[int(cluster.meta.z)];
+    if (cluster_primitive >= 0 && material_scalars[cluster_primitive].z <= 0.5) {
+        return;
+    }
+
     uint used = cluster.meta.y;
     uint local_index = gl_LocalInvocationID.x;
     if (local_index >= used) {

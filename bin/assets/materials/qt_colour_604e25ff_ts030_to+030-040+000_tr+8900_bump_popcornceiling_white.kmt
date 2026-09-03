@@ -1,0 +1,10 @@
+#material file
+
+version=0.1
+name=qt_colour_604e25ff_ts030_to+030-040+000_tr+8900_bump_popcornceiling_white
+diffuse_colour=0.376471 0.305882 0.145098 1
+texture_scale=0.3
+texture_offset=0.3 -0.4 0
+texture_rotation=1.55334
+diffuse_map_name=white
+bump_map_name=popcornceiling

@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts090_to+010+060+000_tr+0000_pissbottle
+diffuse_colour=1 1 1 1
+texture_scale=0.9
+texture_offset=0.1 0.6 0
+diffuse_map_name=pissbottle

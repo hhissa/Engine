@@ -1,0 +1,9 @@
+#material file
+
+version=0.1
+name=qt_colour_faffc9ff_ts060_bump_popcornceiling_bs0180_popcornceiling
+diffuse_colour=0.980392 1 0.788235 1
+texture_scale=0.6
+diffuse_map_name=popcornceiling
+bump_map_name=popcornceiling
+bump_strength=1.8

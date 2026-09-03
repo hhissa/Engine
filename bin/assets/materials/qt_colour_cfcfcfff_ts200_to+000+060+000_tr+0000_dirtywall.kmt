@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_cfcfcfff_ts200_to+000+060+000_tr+0000_dirtywall
+diffuse_colour=0.811765 0.811765 0.811765 1
+texture_scale=2
+texture_offset=0 0.6 0
+diffuse_map_name=dirtywall

@@ -220,6 +220,41 @@ const int SHADOW_MAX_STEPS = 256;
 #define BAKED_FIELD_INDIRECTION_BINDING 1
 #define BAKED_FIELD_BRICKPOOL_BINDING 2
 #define BAKED_FIELD_BRICKPRIMITIVE_BINDING 4
+// Two loose per-material scalars per registered static primitive (parallel
+// to scene_diffuse_colours), packed together because neither fills a vec4
+// and the two already-existing per-primitive vec4 buffers
+// (scene_diffuse_colours, scene_tex_transform) have no free component
+// left:
+//   x = 1.0 if that primitive's material is pixelation-exempt
+//       (Material::pixelation_exempt), 0.0 otherwise. Written into
+//       out_image's alpha channel below (see main()) for
+//       Builtin.PostComposite.comp.glsl's pixelation pass to read.
+//   y = its bump-map magnitude (Material::bump_strength) -- a multiplier
+//       on BUMP_STRENGTH_BASE, so 1.0 (the engine-side default) is the
+//       fixed strength this used to be hardcoded at, 0.0 is a flat surface
+//       even with a bump map set, and >1 deepens the relief. Only
+//       Builtin.DeferredShade.comp.glsl reads it.
+//   z = 1.0 if this primitive casts shadows (Material::casts_shadow), 0.0
+//       if shadow rays should pass straight through it -- see
+//       SHADOW_CASTER_TEST below.
+//   w = its dielectric surface roughness (Material -> MaterialDef::
+//       roughness), 0 = mirror-sharp, 1 = fully diffuse. Read only by
+//       Builtin.DeferredShade.comp.glsl's specular lobe. This slot was
+//       documented as unused until that lobe existed; roughness is what
+//       every dielectric needs and what glass, plastic and still water all
+//       differ in, so it is the natural occupant.
+layout(binding = 11) readonly buffer ScenePrimitiveMaterialScalars {
+    vec4 material_scalars[];
+};
+
+// How the shared shadow marches (shadow_march() in Builtin.BakedFieldCommon.
+// inc.glsl, chunked_shadow_march() in Builtin.ChunkedFieldCommon.inc.glsl)
+// ask whether a surface they ran into actually casts. Defined here, BEFORE
+// those includes, because they are shared with shaders that have no
+// material data bound at all (the GI bakes) and so fall back to their own
+// "everything casts" default -- see SHADOW_CASTER_TEST's definition there.
+#define SHADOW_CASTER_TEST(material) (material_scalars[material].z > 0.5)
+
 #include "Builtin.BakedFieldCommon.inc.glsl"
 
 // Phase 4: the chunked/streamed field -- fully separate bindings/buffers
@@ -303,17 +338,6 @@ const int PROBE_DIM = 16; // must match kProbeDim in vulkan_raymarch_shader.cpp
 layout(binding = 10) readonly buffer ProbeBuffer {
     vec4 probes[]; // rgb = baked indirect irradiance at this probe; see
                    // Builtin.ProbeBake.comp.glsl for how it's computed.
-};
-
-// One entry per registered static primitive (parallel to
-// scene_diffuse_colours) -- 1.0 if that primitive's material is
-// pixelation-exempt (Material::pixelation_exempt), 0.0 otherwise. Written
-// into out_image's alpha channel below (see main()) for
-// Builtin.PostComposite.comp.glsl's pixelation pass to read; nothing else
-// in this shader uses it, so a plain float array is simpler than folding
-// it into an already-full vec4 buffer.
-layout(binding = 11) readonly buffer PixelationExemptBuffer {
-    float pixelation_exempt[];
 };
 
 // Optional skybox -- a single equirectangular (lat/long) image, sampled by

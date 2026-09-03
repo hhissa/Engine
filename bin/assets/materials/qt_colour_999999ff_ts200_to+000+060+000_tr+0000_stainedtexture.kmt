@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_999999ff_ts200_to+000+060+000_tr+0000_stainedtexture
+diffuse_colour=0.6 0.6 0.6 1
+texture_scale=2
+texture_offset=0 0.6 0
+diffuse_map_name=stainedtexture

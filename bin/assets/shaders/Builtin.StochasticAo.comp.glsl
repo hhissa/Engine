@@ -44,6 +44,18 @@ layout(binding = 2, r16f) uniform writeonly image2D ao_output;
 layout(binding = 3) readonly buffer VoxelCascadeBuffer {
     uint voxel_cascades[];
 };
+// Per-primitive material scalars (see VulkanRaymarchShader::
+// material_scalar_buffer_ engine-side) -- only .z, "does this primitive cast
+// shadows" (Material::casts_shadow), is read here. Same buffer the render
+// pass binds at its own binding 11. Stage 1 below uses it to let a
+// non-casting surface pass ambient light through, exactly as the marched
+// shadow paths let direct light through it (SHADOW_CASTER_TEST, Builtin.
+// BakedFieldCommon.inc.glsl). Stage 2 needs no equivalent test: those
+// surfaces are already absent from the voxel cascades, excluded when they
+// are built (see Builtin.ChunkVoxelCascade.comp.glsl).
+layout(binding = 4) readonly buffer ScenePrimitiveMaterialScalars {
+    vec4 material_scalars[];
+};
 
 layout(push_constant) uniform PushConstants {
     vec4 camera_position;
@@ -190,6 +202,17 @@ void main() {
         }
         float difference = length(v) - scene_depth;
         if (difference > 0.02 && difference < 0.5) {
+            // A surface whose material opts out of casting occludes
+            // nothing -- keep marching past it rather than stopping, so
+            // whatever real caster stands behind it is still found. The
+            // G-buffer's .w is the visibility pass's own material
+            // provenance (see Builtin.RaymarchShader.comp.glsl's
+            // out_normal_material store); it is -1 only for background,
+            // which the scene_depth test above already skipped.
+            int occluder = int(imageLoad(gbuffer_normal_material, sp).w);
+            if (occluder >= 0 && material_scalars[occluder].z <= 0.5) {
+                continue;
+            }
             occlusion = max(occlusion, falloff(travel));
             break; // the nearest occluder along the ray is the one that counts
         }

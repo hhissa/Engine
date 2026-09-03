@@ -1,0 +1,9 @@
+#material file
+
+version=0.1
+name=qt_colour_604e25ff_ts015_to+030-040+000_tr+1400_whitebook
+diffuse_colour=0.376471 0.305882 0.145098 1
+texture_scale=0.15
+texture_offset=0.3 -0.4 0
+texture_rotation=0.244346
+diffuse_map_name=whitebook

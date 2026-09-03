@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_a4a4a4ff_ts050_to+000+060+000_tr+0000_woodfloor
+diffuse_colour=0.643137 0.643137 0.643137 1
+texture_scale=0.5
+texture_offset=0 0.6 0
+diffuse_map_name=woodfloor

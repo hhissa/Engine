@@ -462,6 +462,18 @@ void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
 // field at all (and shouldn't yet -- a later phase's GI cascades are what
 // actually needs GI to read this field) -- see Builtin.SdfFieldConfig.inc.
 // glsl's comment on why the two fields stay fully separate.
+// Whether a surface a shadow ray ran into actually casts a shadow, by the
+// primitive index the field attributes it to (see Material::casts_shadow
+// engine-side). A shader with the per-primitive material scalars bound
+// defines this before this #include -- see Builtin.DeferredShade.comp.glsl.
+// The default here is "everything casts", which is what the GI bakes want:
+// they include this file for its field sampling and have no material data
+// bound at all, and a non-casting surface is an authoring note about direct
+// light, not a claim that bounce light passes through it.
+#ifndef SHADOW_CASTER_TEST
+#define SHADOW_CASTER_TEST(material) true
+#endif
+
 float chunked_shadow_march(vec3 origin, vec3 dir, vec3 camera_pos, float max_dist,
                            float k, int max_steps, int exclude_material) {
     const float SELF_SKIP_STEP = 0.1;
@@ -477,7 +489,9 @@ float chunked_shadow_march(vec3 origin, vec3 dir, vec3 camera_pos, float max_dis
         bool valid = (skip_dist == 0.0);
 
         if (valid && abs(dist) < SURF_DIST) {
-            if (material == exclude_material) {
+            // Same two pass-through cases as shadow_march() -- see there.
+            if (material == exclude_material ||
+                !SHADOW_CASTER_TEST(material)) {
                 travelled += SELF_SKIP_STEP;
                 continue;
             }

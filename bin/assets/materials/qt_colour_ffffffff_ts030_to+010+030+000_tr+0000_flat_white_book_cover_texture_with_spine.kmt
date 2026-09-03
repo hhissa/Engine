@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts030_to+010+030+000_tr+0000_flat_white_book_cover_texture_with_spine
+diffuse_colour=1 1 1 1
+texture_scale=0.3
+texture_offset=0.1 0.3 0
+diffuse_map_name=flat_white_book_cover_texture_with_spine

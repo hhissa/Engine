@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_vol_colour_ffffffff_ts020_to+000+000+000_tr+4500
+diffuse_colour=1 1 1 1
+texture_scale=0.2
+texture_rotation=0.785398

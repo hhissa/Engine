@@ -1,0 +1,7 @@
+#material file
+
+version=0.1
+name=qt_colour_ffffffff_ts040_15_heavy_two_massive_diffuse
+diffuse_colour=1 1 1 1
+texture_scale=0.4
+diffuse_map_name=15_heavy_two_massive_diffuse

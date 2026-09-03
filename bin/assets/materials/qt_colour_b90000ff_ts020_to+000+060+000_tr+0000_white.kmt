@@ -1,0 +1,8 @@
+#material file
+
+version=0.1
+name=qt_colour_b90000ff_ts020_to+000+060+000_tr+0000_white
+diffuse_colour=0.72549 0 0 1
+texture_scale=0.2
+texture_offset=0 0.6 0
+diffuse_map_name=white
