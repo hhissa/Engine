@@ -9,24 +9,6 @@ Roughly 40,000 lines of C++ and 7,500 lines of GLSL, written from scratch on top
 
 ---
 
-## Screenshots
-
-### SDF Scene Editor
-
-*Add a screenshot or two of `tools/sdf_editor` in action here — e.g. a scene mid-edit with the gizmo visible, or the Lights tab.*
-
-<!-- ![Editor screenshot](docs/screenshots/editor/editor-1.png) -->
-
-### Games built with the engine
-
-#### SH
-
-*Add gameplay screenshots of `games/SH` here.*
-
-<!-- ![SH screenshot](docs/screenshots/games/SH/sh-1.png) -->
-
----
-
 ## Why build it this way?
 
 Triangle rasterization is a solved problem with excellent off-the-shelf implementations. Signed distance fields are not, and they buy properties that meshes make awkward:
