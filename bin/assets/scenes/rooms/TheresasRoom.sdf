@@ -205,6 +205,7 @@ material white 4 {
 material white 5 {
     id=5a9d9795d0f76049
     base_colour=1 1 0.498039216 1
+    base_map=Stripes
 }
 
 material floral4 3 {
@@ -324,6 +325,15 @@ material white 9 {
     roughness=1
 }
 
+material white 10 {
+    id=5fb77a7311b9cb84
+    base_map=white
+    uv_scale=1
+    uv_offset=0 0.600000024 0
+    roughness=1
+    casts_shadow=false
+}
+
 light light0 {
     type=point
     position=0 -0.521995664 0.271108449
@@ -366,7 +376,7 @@ layer layer0 {
 
     primitive primitive1 {
         type=box
-        position=0.0500000007 -1.23000002 0.819999993
+        position=0.0500000007 -1.17272532 0.819999993
         rotation=0 0 0
         half_extents=1.5 0.75 0.100000001
         material=74d970e8fd8f93f9
@@ -1054,7 +1064,7 @@ layer layer13 {
 
     primitive primitive82 {
         type=round_box
-        position=-0.0601665378 -0.85409826 0.238284692
+        position=-0.0599999987 -0.850000024 0.239999995
         rotation=0 0 0
         params=0.200000003 0.200000003 0.0500000007 0.0199999996
         param_expr=2 0.02
@@ -1209,6 +1219,201 @@ layer layer15 {
 layer layer16 {
     operation=union
     smoothness=0
+
+    primitive primitive101 {
+        type=box
+        position=-0.0500000007 -0.800000012 0.0599999987
+        rotation=0 0 0
+        half_extents=0.100000001 0.0500000007 0.0500000007
+        param_expr=0 0.1 - 0.2*p.y
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive102 {
+        type=sphere
+        position=0.0199999996 -0.75999999 -0.209999993
+        rotation=0 0 0
+        radius=0.0299999993
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive103 {
+        type=sphere
+        position=0.106855527 -0.762911618 0.0460992567
+        rotation=0 0 0
+        radius=0.0399999991
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive104 {
+        type=capped_cylinder
+        position=0.0165518746 -0.643170416 -0.25
+        rotation=0 -0.296705961 0
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.04 + 0.1*p.y
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive105 {
+        type=capped_cylinder
+        position=0.0700000003 -0.75999999 -0.0799999982
+        rotation=1.57079637 0.296705961 0
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.04 + 0.1*p.y
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive106 {
+        type=sphere
+        position=-0.0398006812 -0.933991194 0.0399999991
+        rotation=0 0 0
+        radius=0.0799999982
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive107 {
+        type=sphere
+        position=-0.119999997 -0.75999999 -0.209999993
+        rotation=0 0 0
+        radius=0.0299999993
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive108 {
+        type=capped_cylinder
+        position=-0.159999996 -0.75999999 -0.0799999982
+        rotation=1.57079637 -0.296705961 0
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.04 + 0.1*p.y
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive109 {
+        type=capped_cylinder
+        position=-0.119999997 -0.639999986 -0.25
+        rotation=0 -0.296705961 0
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.04 + 0.1*p.y
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive110 {
+        type=sphere
+        position=-0.200000003 -0.75999999 0.0399999991
+        rotation=0 0 0
+        radius=0.0399999991
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive111 {
+        type=ellipsoid
+        position=-0.0399999991 -1.15225959 0.0399999991
+        rotation=0 0 0
+        params=0.119999997 0.150000006 0.100000001 0
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive113 {
+        type=sphere
+        position=-0.200000003 -1.23381126 0.0399999991
+        rotation=0 0 0
+        radius=0.0399999991
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive114 {
+        type=sphere
+        position=0.115037486 -1.23381126 0.0399999991
+        rotation=0 0 0
+        radius=0.0399999991
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive115 {
+        type=capped_cylinder
+        position=-0.20237112 -1.11000001 0.0599999987
+        rotation=0 -0.296705961 0
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.04 - 0.1*p.y
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive116 {
+        type=capped_cylinder
+        position=0.126069486 -1.11000001 0.0599999987
+        rotation=0 -0.296705961 0
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.04 - 0.1*p.y
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive117 {
+        type=sphere
+        position=-0.200000003 -0.962102652 0.0399999991
+        rotation=0 0 0
+        radius=0.0399999991
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive118 {
+        type=sphere
+        position=0.115037486 -0.962102652 0.0399999991
+        rotation=0 0 0
+        radius=0.0399999991
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive119 {
+        type=capped_cylinder
+        position=-0.20237112 -0.874209821 -0.0240888856
+        rotation=-1.21982002 -0.104730085 0.278119564
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.04 - 0.1*p.y
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive121 {
+        type=capped_cylinder
+        position=0.130526349 -0.870000005 -0.0199999996
+        rotation=-1.21981061 -0.104719758 0.278205484
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.04 - 0.1*p.y
+        material=5fb77a7311b9cb84
+    }
+}
+
+layer layer17 {
+    operation=subtraction
+    smoothness=0
+
+    primitive primitive112 {
+        type=ellipsoid
+        position=-0.0399999991 -1.07000005 -0.0403237641
+        rotation=0 0 0
+        params=0.119999997 0.0500000007 0.100000001 0
+        material=5fb77a7311b9cb84
+    }
+}
+
+layer layer18 {
+    operation=union
+    smoothness=0.0199999996
+
+    primitive primitive122 {
+        type=capsule
+        position=-0.035872791 -1.25551939 0.0599999987
+        rotation=0 0 0
+        params=0.0399999991 0.0900000036 0 0
+        material=5fb77a7311b9cb84
+    }
+
+    primitive primitive123 {
+        type=sphere
+        position=-0.0399999991 -1.43812668 0.0599999987
+        rotation=0 0 0
+        radius=0.0900000036
+        material=5fb77a7311b9cb84
+    }
 }
 
 volumetric volumetric0 {
