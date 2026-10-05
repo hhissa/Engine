@@ -1,4 +1,4 @@
 chapter_index=0
-scene_state=MelRoom1
-asked=1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+scene_state=MelRoom3
+asked=1 1 1 1 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 flags=

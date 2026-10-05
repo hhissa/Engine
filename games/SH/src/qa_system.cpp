@@ -47,6 +47,17 @@ constexpr glm::vec4 kHint{0.5f, 0.5f, 0.5f, 1.0f};
 // a name label like everyone else's.
 constexpr glm::vec4 kPhotographer{1.0f, 0.9f, 0.5f, 1.0f};
 constexpr glm::vec4 kLink{0.45f, 0.75f, 1.0f, 1.0f};
+// A character's line is a small block: their name, a short rule under it,
+// and the dialogue under that -- see render(). The rule spans
+// kSpeakerRuleWidthFraction of the screen. Text positions are baselines,
+// so the gaps are measured from the dialogue's first baseline up:
+// kTextAscent clears the dialogue's capitals, kSpeakerRuleGap is the space
+// on each side of the rule.
+constexpr glm::vec4 kSpeakerName{1.0f, 1.0f, 1.0f, 1.0f};
+constexpr glm::vec4 kSpeakerRule{0.6f, 0.6f, 0.6f, 1.0f};
+constexpr f32 kSpeakerRuleWidthFraction = 1.0f / 5.0f;
+constexpr f32 kTextAscent = 21.0f;
+constexpr f32 kSpeakerRuleGap = 10.0f;
 // [overlay] text -- see script_line.h. Laid out in the upper part of the
 // frame, each line of a run stepped further down and across so the run
 // fills the open space instead of stacking into one block.
@@ -689,27 +700,39 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
       return;
     }
 
-    // Ordinary dialogue, bottom-left. Everyone but the photographer is
-    // named; his lines are the player's own, so they're told apart by
-    // colour instead (see kPhotographer). A long line wraps onto further
-    // lines above answer_bottom_y, growing upward -- same "bottom edge
-    // never moves" reasoning as the question list's own row stacking
-    // below, just per-wrapped-line instead of per-entry.
+    // Ordinary dialogue, bottom-left. A long line wraps onto further lines
+    // above answer_bottom_y, growing upward -- same "bottom edge never
+    // moves" reasoning as the question list's own row stacking below, just
+    // per-wrapped-line instead of per-entry.
+    //
+    // A character's line sits under their name and a short rule (see
+    // kSpeakerRuleWidthFraction), stacked above the dialogue's first
+    // line. The photographer's lines are the player's own, so they get no
+    // name block and are told apart by colour instead (see kPhotographer).
     f32 answer_bottom_y = hint_y - kAnswerHintGap;
     const bool photographer = line.speaker == kPhotographerSpeaker;
-    std::string shown = line.text;
-    if (line.speaker && !photographer) {
-      shown = *line.speaker + ": " + shown;
-    }
     glm::vec4 colour = photographer ? kPhotographer : kAnswer;
     if (line.link) {
       colour = kLink;
     }
-    std::vector<std::string> wrapped = wrap_text(shown, max_text_width);
+    std::vector<std::string> wrapped = wrap_text(line.text, max_text_width);
+    const f32 first_line_y =
+        answer_bottom_y - static_cast<f32>(wrapped.size() - 1) * kLineSpacing;
     for (size_t i = 0; i < wrapped.size(); ++i) {
-      f32 line_y = answer_bottom_y -
-          static_cast<f32>(wrapped.size() - 1 - i) * kLineSpacing;
-      renderer_draw_text(wrapped[i], glm::vec2(kListX, line_y), colour);
+      renderer_draw_text(
+          wrapped[i],
+          glm::vec2(kListX, first_line_y + static_cast<f32>(i) * kLineSpacing),
+          colour);
+    }
+    if (line.speaker && !photographer) {
+      const f32 rule_y = first_line_y - kTextAscent - kSpeakerRuleGap;
+      renderer_draw_line(
+          glm::vec2(kListX, rule_y),
+          glm::vec2(kListX + width * kSpeakerRuleWidthFraction, rule_y),
+          kSpeakerRule);
+      renderer_draw_text(*line.speaker,
+                         glm::vec2(kListX, rule_y - kSpeakerRuleGap),
+                         kSpeakerName);
     }
     if (line.link) {
       // Underlined like a link -- under the last wrapped line, which is

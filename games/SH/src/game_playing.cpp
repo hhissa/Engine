@@ -36,6 +36,10 @@ constexpr f32 kCutCoverMaxSeconds = 1.5f;
 // moves between stations or zooms (see CameraSystem's scroll-to-zoom).
 // No-op if target is behind the camera (Camera::project_to_screen()
 // returns nullopt then -- e.g. the free-fly debug camera flew past it).
+//
+// A backdrop quad, not a solid one: it covers the scene but sits under
+// every line of text, so a box over a face never hides the dialogue or
+// the speaker's name when the two overlap on screen.
 void draw_censor_box(const Camera &camera, const CensorPoint &target,
                      u32 width, u32 height) {
   std::optional<glm::vec2> center =
@@ -47,9 +51,9 @@ void draw_censor_box(const Camera &camera, const CensorPoint &target,
     return;
   }
   f32 half_size_px = glm::length(*edge - *center);
-  renderer_draw_solid_quad(*center - glm::vec2(half_size_px),
-                           glm::vec2(half_size_px * 2.0f),
-                           glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+  renderer_draw_backdrop_quad(*center - glm::vec2(half_size_px),
+                              glm::vec2(half_size_px * 2.0f),
+                              glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
 }
 
 } // namespace
@@ -178,7 +182,8 @@ void SHGame::render_playing() const {
   // has run.
   //
   // Not while something covers the room, though -- a censor box is a
-  // solid quad, which draws over everything, title text included.
+  // backdrop quad queued after the title card's/placeholder card's own,
+  // so it would land on top of that card rather than the room under it.
   const ScriptLine *line = qa_.current_line();
   const bool room_covered = placeholder_up || cut_cover_ || (line && line->title);
   if (current_state_ && !room_covered) {

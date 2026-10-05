@@ -303,26 +303,33 @@ const std::array<ChapterStaging, 8> kStaging = {{
 
     // --- Chapter 6: Pat --------------------------------------------------
     // Floor y = 0, ceiling y = -1.69 -- a low room, so even the "high"
-    // station in each set only gets to y = -1.5. Pat is sat at the -x end
-    // facing +x, head at (-1.19, -1.06, -0.01), so the camera works down
-    // the room towards him from +x. Also ~0.65x life size.
+    // station in each set only gets to y = -1.5. Pat is sat in the armchair
+    // at the -x end, head at (-1.19, -1.06, -0.01), facing +x down the
+    // room's long axis. The +z wall (z = 0.86) is the window and lattice;
+    // -z is the open side. Every station stands out on that open side near
+    // the middle of the room (x around 0), well back past the floor's edge
+    // at z = -0.9, looking +z towards the window wall -- so Pat is seen
+    // side-on. Each one aims between the room's centre and Pat rather than
+    // at him, which puts him in the left third of the frame with the
+    // window filling the rest; the tiers close in by stepping forward and
+    // towards him. Also ~0.65x life size.
     {"assets/scenes/rooms/PatsRoom.sdf",
      /*world_scale=*/4.3f, // head radius 0.07
      /*figure=*/{},
      {{
-         {{{1.23f, -1.05f, -0.59f}, {-1.08f, -0.82f, 0.0f}, 0.1f, 0.22f, 0.7f},
-          {{1.18f, -1.05f, 0.6f}, {-1.08f, -0.82f, 0.0f}, 0.1f, 0.27f, 0.7f},
-          {{0.87f, -1.49f, 0.02f}, {-1.08f, -0.88f, 0.0f}, 0.08f, 0.12f, 0.7f}},
-         {{{0.55f, -1.05f, -0.55f}, {-1.12f, -0.88f, 0.0f}, 0.12f, 0.4f, 0.5f},
-          {{0.5f, -1.05f, 0.55f}, {-1.12f, -0.88f, 0.0f}, 0.12f, 0.4f, 0.5f},
-          {{0.34f, -0.31f, 0.0f}, {-1.12f, -0.94f, 0.0f}, 0.1f, 0.34f, 0.5f}},
-         {{{0.1f, -1.05f, -0.45f}, {-1.15f, -0.94f, 0.0f}, 0.1f, 0.3f, 0.35f},
-          {{0.05f, -1.05f, 0.45f}, {-1.15f, -0.94f, 0.0f}, 0.1f, 0.3f, 0.35f},
-          {{0.0f, -1.4f, 0.0f}, {-1.15f, -0.97f, 0.0f}, 0.1f, 0.3f, 0.35f}},
-         {{{-0.35f, -1.05f, -0.35f}, {-1.17f, -1.0f, 0.0f}, 0.07f, 0.25f, 0.25f},
-          {{-0.4f, -1.05f, 0.35f}, {-1.17f, -1.0f, 0.0f}, 0.07f, 0.25f, 0.25f}},
-         {{{-0.62f, -1.04f, 0.0f}, {-1.19f, -1.05f, -0.01f}, 0.05f, 0.2f, 0.15f},
-          {{-0.55f, -0.72f, 0.15f}, {-1.19f, -1.03f, -0.01f}, 0.05f, 0.2f, 0.15f}},
+         {{{0.0f, -1.1f, -2.1f}, {-0.55f, -0.85f, 0.1f}, 0.1f, 0.3f, 1.2f},
+          {{0.25f, -1.1f, -2.0f}, {-0.5f, -0.85f, 0.1f}, 0.1f, 0.3f, 1.2f},
+          {{-0.1f, -1.5f, -2.0f}, {-0.55f, -0.9f, 0.1f}, 0.08f, 0.3f, 1.2f}},
+         {{{-0.1f, -1.05f, -1.7f}, {-0.65f, -0.88f, 0.05f}, 0.12f, 0.3f, 0.9f},
+          {{0.2f, -1.05f, -1.65f}, {-0.6f, -0.88f, 0.05f}, 0.12f, 0.3f, 0.9f},
+          {{-0.05f, -0.6f, -1.6f}, {-0.65f, -0.94f, 0.05f}, 0.1f, 0.3f, 0.9f}},
+         {{{-0.2f, -1.05f, -1.35f}, {-0.75f, -0.94f, 0.0f}, 0.1f, 0.3f, 0.7f},
+          {{0.1f, -1.05f, -1.3f}, {-0.72f, -0.94f, 0.0f}, 0.1f, 0.3f, 0.7f},
+          {{-0.25f, -1.45f, -1.3f}, {-0.75f, -0.97f, 0.0f}, 0.1f, 0.3f, 0.7f}},
+         {{{-0.35f, -1.05f, -1.05f}, {-0.85f, -1.0f, 0.0f}, 0.07f, 0.25f, 0.5f},
+          {{-0.15f, -1.05f, -1.0f}, {-0.85f, -1.0f, 0.0f}, 0.07f, 0.25f, 0.5f}},
+         {{{-0.5f, -1.04f, -0.8f}, {-0.95f, -1.04f, 0.0f}, 0.05f, 0.2f, 0.35f},
+          {{-0.4f, -0.85f, -0.8f}, {-0.95f, -1.02f, 0.0f}, 0.05f, 0.2f, 0.35f}},
      }},
      {{{-1.19f, -1.05f, -0.01f}, 0.10f}, {{-1.22f, -0.55f, 0.00f}, 0.09f}}},
 
