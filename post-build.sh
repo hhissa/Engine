@@ -19,7 +19,23 @@ fi
 # is also enabled, which it isn't, because on a 1.2 device the feature is
 # core. Targeting 1.2 emits SPIR-V 1.5 where the capability needs no
 # extension declaration at all.
-GLSLC_ARGS="--target-env=vulkan1.2"
+#
+# -O runs spirv-opt over the module before it ever reaches the driver, and
+# on these shaders that is the difference between a startup that looks hung
+# and one that doesn't. glslc's default (-O0) hands the driver's back-end
+# compiler a mountain of unoptimised SPIR-V and lets it do all the work,
+# per pipeline, on every launch. Measured on a Quadro T2000:
+#
+#   Builtin.RaymarchVoxelize   18.9s -> 3.0s
+#   Builtin.ChunkVoxelize     775s   -> 14.8s   (yes, thirteen minutes)
+#
+# The .spv files get BIGGER (spirv-opt inlines aggressively), which is the
+# point: the expensive work moves to build time, once, instead of running
+# in every user's driver at every start. It is a plain optimiser, not a
+# fast-math switch -- float semantics are untouched -- but it is also the
+# one flag here that can change generated code, so if a shader ever starts
+# rendering subtly wrong, dropping back to no -O is the first thing to try.
+GLSLC_ARGS="--target-env=vulkan1.2 -O"
 
 echo "assets/shaders/Builtin.ObjectShader.vert.glsl -> bin/assets/shaders/Builtin.ObjectShader.vert.spv"
 $GLSLC $GLSLC_ARGS -fshader-stage=vert assets/shaders/Builtin.ObjectShader.vert.glsl -o bin/assets/shaders/Builtin.ObjectShader.vert.spv

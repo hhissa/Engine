@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 #include "../../core/asserts.h"
 #include "../../defines.h"
 
@@ -126,6 +127,16 @@ struct VulkanContext {
 #endif
 
   VulkanDevice device;
+
+  // Driver-compiled pipeline binaries, reloaded from disk each run and
+  // handed to every vkCreate*Pipelines() call -- see
+  // vulkan_pipeline_cache.h for why this is the difference between a
+  // multi-minute cold start and an instant one. VK_NULL_HANDLE is a
+  // perfectly valid value to pass a pipeline creation, so nothing has to
+  // branch on it. pipeline_cache_path is empty when the cache is in-memory
+  // only (KENGINE_NO_PIPELINE_CACHE, or no home directory to put it in).
+  VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
+  std::string pipeline_cache_path;
 
   VulkanSwapchain swapchain;
   std::unique_ptr<VulkanRenderpass> main_renderpass;

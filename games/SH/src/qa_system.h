@@ -1,4 +1,6 @@
 #pragma once
+#include "script_line.h"
+
 #include <defines.h>
 #include <glm/glm.hpp>
 #include <functional>
@@ -167,6 +169,10 @@ public:
     // Copied from ConversationQuestion::is_ending -- see update()'s "past
     // the last answer line" handling and set_on_ending_reached() below.
     bool is_ending = false;
+    // Copied from ConversationQuestion::is_auto -- asked by update() the
+    // moment the cursor lands on it, never listed by render(). See
+    // resources/conversation.h's `auto` marker.
+    bool is_auto = false;
     // Copied from ConversationQuestion::ending_lines -- this ending's own
     // outro text (see resources/conversation.h's `ending_text=` lines),
     // meaningful only when is_ending is true. set_on_ending_reached()'s
@@ -379,6 +385,28 @@ public:
   // just for endings.
   void set_on_ending_reached(std::function<void(const Entry &)> callback);
 
+  // Attaches callback as the "a new answer line is now showing" hook --
+  // fired from update() for every answer line, the first one included, the
+  // moment it becomes current, with that line already read as script (see
+  // script_line.h) and its speaker filled in from the previous line when
+  // it doesn't name one itself. This is how a line's directives -- who is
+  // speaking, a cutaway, a title card -- reach game code that stages the
+  // shot to match.
+  void set_on_line_shown(std::function<void(const ScriptLine &)> callback);
+
+  // The answer line currently showing, read as script (see
+  // set_on_line_shown()), or nullptr while the question list is up.
+  const ScriptLine *current_line() const;
+
+  // Puts the view back on the top-level list, cursor on the first question
+  // there that's still unasked -- for a resumed save, where the asked flags
+  // are restored (apply_asked_flags()) but the navigation position isn't.
+  // In a conversation authored as a chain of `auto` questions that's
+  // exactly where the player left off, and it's asked straight away on the
+  // next update(). No-op on the cursor if every top-level question has
+  // been asked.
+  void resume_at_first_unasked();
+
   void update();
 
   // screen_width/screen_height are the current framebuffer size (screen
@@ -533,6 +561,30 @@ private:
                           std::optional<std::string> layer_tag);
 
   std::unordered_map<std::string, LoopTarget> loop_targets_;
+
+  // Asks (*current_list_)[cursor_]: marks it asked, sets its flags, fires
+  // its hooks and its tag, and opens its answer. Shared by an Enter press
+  // and an `auto` question being landed on -- see update().
+  void ask_current();
+
+  // Reads answer line answer_line_ of the open question into current_line_
+  // (carrying the speaker over from the previous line when it names none,
+  // and extending/resetting overlay_run_) and fires on_line_shown_. No-op
+  // past the last line.
+  void show_current_line();
+
+  // See set_on_line_shown() above.
+  std::function<void(const ScriptLine &)> on_line_shown_;
+
+  // The answer line currently showing, read as script -- see
+  // current_line(). Only meaningful while state_ is State::Answer.
+  ScriptLine current_line_;
+
+  // Every [overlay] line of the open answer that runs, unbroken, up to and
+  // including the current one -- render() keeps them all on screen at
+  // once, so a run of overlay lines builds up across the frame instead of
+  // each replacing the last. Cleared by the first non-overlay line.
+  std::vector<std::string> overlay_run_;
 
   State state_ = State::QuestionList;
   size_t cursor_ = 0;      // which question the selection cursor is on, within *current_list_

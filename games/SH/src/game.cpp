@@ -15,7 +15,9 @@
 
 #include <glm/glm.hpp>
 
+#include <cstdlib>
 #include <format>
+#include <string>
 
 SHGame::SHGame() {
   app_config.start_pos_x = 100;
@@ -25,6 +27,25 @@ SHGame::SHGame() {
   app_config.name = "SH";
   width_ = app_config.start_width;
   height_ = app_config.start_height;
+
+  // Keep baked room chunks on disk between runs, so a room this machine
+  // has shown before streams back in from a file instead of being baked
+  // again -- the difference between a room cut that's seamless and one
+  // that visibly fills in. The engine leaves where such files go to its
+  // host (see VulkanRaymarchShader's KENGINE_CHUNK_CACHE_DIR handling), and
+  // reads it before the renderer starts, which is after this constructor.
+  // An explicit KENGINE_CHUNK_CACHE_DIR still wins.
+  if (!std::getenv("KENGINE_CHUNK_CACHE_DIR")) {
+    std::string cache_dir;
+    if (const char *xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg) {
+      cache_dir = std::string(xdg) + "/kengine/sh_chunks";
+    } else if (const char *home = std::getenv("HOME")) {
+      cache_dir = std::string(home) + "/.cache/kengine/sh_chunks";
+    }
+    if (!cache_dir.empty()) {
+      setenv("KENGINE_CHUNK_CACHE_DIR", cache_dir.c_str(), /*overwrite=*/0);
+    }
+  }
 }
 
 b8 SHGame::initialize() {
@@ -58,6 +79,35 @@ b8 SHGame::initialize() {
   load_settings(); // leaves render_scale_ at its 0.75 default if no
                    // sh_settings.txt exists yet (e.g. first launch)
   renderer_set_render_scale(render_scale_);
+
+  // Rooms are swapped on every cut, and pre-warming blocks until the whole
+  // scene is in the disk cache -- so it must not run on each of those
+  // loads. Each room is warmed once instead, behind the Preparing screen
+  // (see prepare_speaker_rooms()).
+  renderer_set_cache_prewarm_on_load(false);
+
+  // Sample the chunked/clipmap field rather than the fixed-cube one.
+  // OFF by default (see set_chunked_field_enabled()), and sdf_editor opts
+  // in while this didn't -- which is the whole reason the game and the
+  // modeller stopped looking alike:
+  //
+  //   - the fixed-cube field's voxel is COARSE_CELL_SIZE/BRICK_DIM =
+  //     0.25/8 = 0.03125 world units; the chunked field's level 0 is
+  //     0.25/16 = 0.015625, i.e. exactly twice as fine near the camera;
+  //   - stochastic AO, the imperfect shadow maps and the whole point-splat
+  //     path are each gated on this flag as well (see the ao_active/
+  //     kRenderFlagIsm/splat_active lines in the raymarch shader), so with
+  //     it off the game silently ran with no AO and no ISM shadows at all.
+  //
+  // It costs almost nothing to turn on here, because the work was already
+  // happening: VulkanRendererBackend::begin_frame() drives
+  // update_streaming() from the camera unconditionally, so this game has
+  // been baking and streaming chunks every frame and then not sampling
+  // them. The trade is that the clipmap is finer near the camera but falls
+  // off with distance, where the fixed cube was a uniform 0.03125 out to
+  // BOUNDS=16 -- the right way round for a game of close interviews in
+  // small rooms.
+  renderer_set_chunked_field_enabled(true);
 
   // Stronger than the engine's subtle defaults -- this scene is a dim
   // attic room lit mainly by one bright window, so the default bloom
@@ -102,6 +152,9 @@ b8 SHGame::update(f32 dt) {
   case AppScreen::Intertitle:
     update_intertitle();
     break;
+  case AppScreen::Preparing:
+    update_preparing();
+    break;
   case AppScreen::Playing:
     update_playing();
     break;
@@ -126,6 +179,9 @@ b8 SHGame::render(f32 dt) {
     break;
   case AppScreen::Intertitle:
     render_intertitle();
+    break;
+  case AppScreen::Preparing:
+    render_preparing();
     break;
   case AppScreen::Playing:
     render_playing();

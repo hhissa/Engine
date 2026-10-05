@@ -133,6 +133,12 @@ void parse_question_body(const std::vector<std::string> &lines, size_t &pos,
       question.is_ending = true;
       continue;
     }
+    // Also a bare marker -- see the file format comment's "marked
+    // *automatic*" section.
+    if (trimmed == "auto") {
+      question.is_auto = true;
+      continue;
+    }
     // This ending's own outro text -- see the file format comment's
     // "marked as an ending" section. Repeatable, like answer=.
     if (eq != std::string::npos && trimmed.compare(0, eq, "ending_text") == 0) {
@@ -267,6 +273,7 @@ ConversationQuestion resolve_question(
   resolved.requires_not_flags = question.requires_not_flags;
   resolved.sets_flags = question.sets_flags;
   resolved.is_ending = question.is_ending;
+  resolved.is_auto = question.is_auto;
   resolved.ending_lines = question.ending_lines;
   if (preserve_shared_id) {
     resolved.shared_id = question.shared_id;

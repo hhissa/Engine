@@ -4,6 +4,7 @@
 #include "../../platform/platform.h"
 #include "vulkan_commandbuffer.h"
 #include "vulkan_device.h"
+#include "vulkan_pipeline_cache.h"
 #include "vulkan_renderpass.h"
 #include "vulkan_swapchain.h"
 #include "vulkan_utils.h"
@@ -160,6 +161,10 @@ b8 VulkanRendererBackend::initialize(std::string_view application_name,
     KERROR("failed to create device");
     return FALSE;
   }
+
+  // Before anything creates a pipeline (the shaders below all do, in their
+  // constructors) -- a warm cache is what keeps that from taking minutes.
+  vulkan_pipeline_cache_create(context_);
 
   KINFO("Vulkan renderer initialized successfully.");
   if (!vulkan_swapchain_create(&context_, context_.framebuffer_width,
@@ -329,6 +334,11 @@ void VulkanRendererBackend::shutdown() {
   destroy_queue_complete_semaphores();
   in_flight_fences_.clear();
   images_in_flight_.clear();
+
+  // After every pipeline is gone (the shaders were destroyed above) so the
+  // cache holds everything this run compiled, and before the device it
+  // belongs to.
+  vulkan_pipeline_cache_destroy(context_);
 
   KDEBUG("Destroying Vulkan device...");
   vulkan_device_destroy(context_);
@@ -512,6 +522,12 @@ void VulkanRendererBackend::draw_solid_quad(glm::vec2 position, glm::vec2 size,
   queued_solid_quad_draws_.push_back({position, size, colour});
 }
 
+void VulkanRendererBackend::draw_backdrop_quad(glm::vec2 position,
+                                              glm::vec2 size,
+                                              glm::vec4 colour) {
+  queued_backdrop_quad_draws_.push_back({position, size, colour});
+}
+
 SceneHandle VulkanRendererBackend::load_scene(std::string_view sdf_path) {
   auto scene = load_sdf_scene(sdf_path);
   if (!scene) {
@@ -535,8 +551,20 @@ SceneHandle VulkanRendererBackend::load_scene(std::string_view sdf_path) {
   // in a whole new set of chunks worth baking up front, while an edit
   // touches a handful and must not stall the editor for seconds. Without
   // this, pre-warming ran only for whichever scene happened to be loaded
-  // first in a session.
-  context_.raymarch_shader->request_cache_prewarm();
+  // first in a session. A host can turn this off (see
+  // set_cache_prewarm_on_load()) and arm it itself instead.
+  if (prewarm_on_load_) {
+    context_.raymarch_shader->request_cache_prewarm();
+  }
+
+  // The scene's own backdrop, if it names one. Deliberately only when it
+  // does: an empty SdfScene::skybox means "unspecified", not "off" (see its
+  // comment), so a scene file that predates the field must not switch off a
+  // skybox the game set from code. set_skybox() is a no-op when the named
+  // image is already the one bound, so re-loading a scene costs nothing.
+  if (!scene->skybox.empty()) {
+    context_.raymarch_shader->set_skybox(scene->skybox);
+  }
 
   // Deferred to begin_frame() -- see scene_dirty_'s comment.
   scene_dirty_ = true;
@@ -592,11 +620,25 @@ bool VulkanRendererBackend::reconcile_scene(SceneHandle handle,
       *scene, it->second, /*auto_release=*/true, name_prefix,
       destructive_wait);
 
+  // Outside the `changed` check on purpose: GeometrySystem::reconcile_scene()
+  // reports whether any GEOMETRY changed, and the skybox is not geometry --
+  // an edit that only swapped the backdrop would report false and never
+  // reach this. Cheap to run unconditionally, since set_skybox() returns
+  // immediately when the named image is already bound (which is every
+  // reconcile but the one that actually changed it).
+  if (!scene->skybox.empty()) {
+    context_.raymarch_shader->set_skybox(scene->skybox);
+  }
+
   if (changed) {
     // Deferred to begin_frame() -- see scene_dirty_'s comment.
     scene_dirty_ = true;
   }
   return changed;
+}
+
+void VulkanRendererBackend::set_cache_prewarm_on_load(b8 enabled) {
+  prewarm_on_load_ = enabled;
 }
 
 void VulkanRendererBackend::request_cache_prewarm() {
@@ -685,6 +727,11 @@ void VulkanRendererBackend::translate_scene(SceneHandle handle,
 
   // Deferred to begin_frame() -- see scene_dirty_'s comment.
   scene_dirty_ = true;
+}
+
+u32 VulkanRendererBackend::streaming_backlog() const {
+  return context_.raymarch_shader ? context_.raymarch_shader->streaming_backlog()
+                                  : 0;
 }
 
 void VulkanRendererBackend::rotate_scene(SceneHandle handle,
@@ -802,9 +849,15 @@ void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
     // would leave repeated instances at their old, now-relatively-larger
     // spacing. repetition_count is a plain instance count and never scales.
     geometry->repetition_cell *= factor;
+    // The layer fold's cell spacing is a length for exactly the same
+    // reason (see Geometry::layer_repetition_cell). Scaled on the
+    // primitive's own copy, not on the SceneLayer -- a layer holding
+    // several of this scene's primitives would otherwise be scaled once
+    // per primitive.
+    geometry->layer_repetition_cell *= factor;
     // The texture's own world-space tiling frequency is a length too, and
     // needs to shrink/grow with the primitive the same way -- accumulated
-    // per-Geometry rather than scaling geometry->material->texture_scale
+    // per-Geometry rather than scaling geometry->material->def.uv_scale
     // directly, since Material is shared/reference-counted (see
     // Geometry::texture_scale_factor's comment for why mutating it here
     // would leak into every other primitive using that same material).
@@ -824,14 +877,27 @@ void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
       continue;
     }
     // Same reasoning as the opaque primitives above -- position/params/
-    // extra_param are all lengths. density is a per-world-unit accumulation
-    // rate, not a length, so it's deliberately left alone: a bigger shaft
-    // reads brighter simply because the ray now travels further through it
-    // at the same density, exactly like a thicker fog bank looks denser
-    // without its extinction coefficient changing.
+    // extra_param are all lengths.
     volumetric->position *= factor;
     volumetric->params *= factor;
     volumetric->extra_param *= factor;
+    // density is NOT a length -- it's a per-world-unit accumulation rate,
+    // so what a viewer actually sees is the optical depth density * the
+    // distance the ray travels through the medium. Scaling the shape
+    // without it multiplies that path by factor and so multiplies the
+    // optical depth too: a 4x scale turns a light shaft authored as a
+    // gentle haze (depth 0.4, 67% transmittance) into a near-solid slab
+    // (depth 1.7, 18%), which reads as the god rays blowing out. Dividing
+    // by factor cancels the longer path exactly, so a scaled scene's
+    // volumetrics read the same as authored.
+    //
+    // This is the same appearance-preserving rule the Point light block
+    // below applies for the same reason -- it cancels the extra distance^2
+    // in the attenuation denominator with intensity *= factor^2. Scaling a
+    // whole authored scene means "show this at a different size", not "this
+    // fog bank is physically bigger", so every term that would otherwise
+    // shift the look gets compensated here rather than left to the caller.
+    volumetric->density /= factor;
   }
   for (const std::string &name : it->second.light_names) {
     Light *light = context_.geometry_system->find_light(name);
@@ -1112,6 +1178,14 @@ b8 VulkanRendererBackend::end_frame(f32 delta_time) {
   // its own.
   context_.ui_renderpass->begin(
       *command_buffer, ui_framebuffers_[context_.image_index].handle());
+  // Drawn first of all: a backdrop is what everything else in this pass is
+  // meant to sit on -- see draw_backdrop_quad().
+  for (const SolidQuadDrawRequest &request : queued_backdrop_quad_draws_) {
+    context_.solid_quad_shader->render_to(
+        *command_buffer, context_.framebuffer_width,
+        context_.framebuffer_height, request.position, request.size,
+        request.colour);
+  }
   for (const UiQuadDrawRequest &request : queued_ui_quad_draws_) {
     context_.ui_shader->render_to(*command_buffer, context_.framebuffer_width,
                                   context_.framebuffer_height,
@@ -1146,6 +1220,7 @@ b8 VulkanRendererBackend::end_frame(f32 delta_time) {
   queued_text_draws_.clear();
   queued_line_draws_.clear();
   queued_solid_quad_draws_.clear();
+  queued_backdrop_quad_draws_.clear();
 
   command_buffer->end();
 

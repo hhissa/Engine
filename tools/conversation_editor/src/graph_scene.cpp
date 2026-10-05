@@ -127,6 +127,7 @@ QuestionNode *place(GraphScene &scene, const ConversationQuestion &question,
       node->set_sets_flags(sets_flags);
     }
     node->set_is_ending(source->is_ending);
+    node->set_is_auto(source->is_auto);
     {
       QStringList ending_lines;
       for (const std::string &line : source->ending_lines) {
@@ -231,6 +232,7 @@ ConversationQuestion to_question(const GraphScene &scene, QuestionNode *node,
     question.sets_flags.push_back(flag.toStdString());
   }
   question.is_ending = node->is_ending();
+  question.is_auto = node->is_auto();
   for (const QString &line : node->ending_lines()) {
     question.ending_lines.push_back(line.toStdString());
   }

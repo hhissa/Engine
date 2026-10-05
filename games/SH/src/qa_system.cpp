@@ -42,9 +42,31 @@ constexpr glm::vec4 kAsked{0.35f, 0.35f, 0.35f, 1.0f};
 constexpr glm::vec4 kCursor{1.0f, 0.9f, 0.5f, 1.0f};
 constexpr glm::vec4 kAnswer{0.85f, 0.85f, 0.85f, 1.0f};
 constexpr glm::vec4 kHint{0.5f, 0.5f, 0.5f, 1.0f};
+// The photographer's own lines -- the player is the one holding the
+// camera, so his lines take the same warm tone as the cursor rather than
+// a name label like everyone else's.
+constexpr glm::vec4 kPhotographer{1.0f, 0.9f, 0.5f, 1.0f};
+constexpr glm::vec4 kLink{0.45f, 0.75f, 1.0f, 1.0f};
+// [overlay] text -- see script_line.h. Laid out in the upper part of the
+// frame, each line of a run stepped further down and across so the run
+// fills the open space instead of stacking into one block.
+constexpr glm::vec4 kOverlay{0.45f, 0.6f, 1.0f, 1.0f};
+constexpr f32 kOverlayTopFraction = 0.14f;
+constexpr f32 kOverlayLineStep = 58.0f;
+constexpr f32 kOverlayIndentFraction = 0.11f;
+// [title] cards -- same centred-on-black look as SHGame's own intertitle
+// screen (game_menus.cpp), just drawn over a scene that stays loaded.
+constexpr f32 kTitleLineSpacing = 36.0f;
+constexpr f32 kTitleHintGap = 40.0f;
+constexpr f32 kTitleMaxWidthFraction = 0.7f;
 
 bool key_pressed(input::Key key) {
   return input::is_key_down(key) && !input::was_key_down(key);
+}
+
+f32 centered_x(f32 screen_width, size_t char_count) {
+  return (screen_width - static_cast<f32>(char_count) * kAverageCharWidth) /
+         2.0f;
 }
 
 } // namespace
@@ -80,6 +102,7 @@ QASystem::Entry to_entry(const ConversationQuestion &question) {
   entry.requires_not_flags = question.requires_not_flags;
   entry.sets_flags = question.sets_flags;
   entry.is_ending = question.is_ending;
+  entry.is_auto = question.is_auto;
   entry.ending_lines = question.ending_lines;
   entry.follow_ups.reserve(question.follow_ups.size());
   for (const ConversationQuestion &child : question.follow_ups) {
@@ -269,6 +292,82 @@ void QASystem::apply_flags(const std::vector<std::string> &flags) {
   flags_ = std::unordered_set<std::string>(flags.begin(), flags.end());
 }
 
+void QASystem::set_on_line_shown(
+    std::function<void(const ScriptLine &)> callback) {
+  on_line_shown_ = std::move(callback);
+}
+
+const ScriptLine *QASystem::current_line() const {
+  return state_ == State::Answer ? &current_line_ : nullptr;
+}
+
+void QASystem::resume_at_first_unasked() {
+  current_list_ = &entries_;
+  list_stack_.clear();
+  layer_tag_stack_.clear();
+  current_layer_tag_.reset();
+  state_ = State::QuestionList;
+  answer_line_ = 0;
+  for (size_t i = 0; i < entries_.size(); ++i) {
+    if (!entries_[i].asked && entry_visible(entries_[i])) {
+      cursor_ = i;
+      return;
+    }
+  }
+}
+
+void QASystem::ask_current() {
+  std::vector<Entry> &list = *current_list_;
+  list[cursor_].asked = true; // permanent -- never cleared
+  // Flags this question sets are applied the same instant, before
+  // on_selected/the tag reaction fire below -- so either can already see
+  // the consequence of this question having been asked (e.g. a registered
+  // scene state that itself checks game-side state influenced by a flag
+  // wouldn't need to, but on_selected reaching back into game code might
+  // reasonably expect flags_ to be current).
+  for (const std::string &flag : list[cursor_].sets_flags) {
+    flags_.insert(flag);
+  }
+  if (on_any_asked_) {
+    on_any_asked_();
+  }
+  if (list[cursor_].on_selected) {
+    list[cursor_].on_selected();
+  }
+  // The question is being asked right now -- fire its own tag's scene
+  // state immediately (the "reaction shot"; see the class comment), rather
+  // than waiting for its answer to finish.
+  fire_scene_state(list[cursor_]);
+  answer_line_ = 0;
+  state_ = State::Answer;
+  // A fresh answer starts with nobody speaking yet and no overlay run --
+  // speakers carry over between lines of one answer, never between
+  // answers.
+  current_line_ = ScriptLine{};
+  overlay_run_.clear();
+  show_current_line();
+}
+
+void QASystem::show_current_line() {
+  const Entry &entry = (*current_list_)[cursor_];
+  if (answer_line_ >= entry.answer_lines.size()) {
+    return;
+  }
+  std::optional<std::string> previous_speaker = current_line_.speaker;
+  current_line_ = parse_script_line(entry.answer_lines[answer_line_]);
+  if (!current_line_.speaker) {
+    current_line_.speaker = std::move(previous_speaker);
+  }
+  if (current_line_.overlay) {
+    overlay_run_.push_back(current_line_.text);
+  } else {
+    overlay_run_.clear();
+  }
+  if (on_line_shown_) {
+    on_line_shown_(current_line_);
+  }
+}
+
 void QASystem::set_on_ending_reached(std::function<void(const Entry &)> callback) {
   on_ending_reached_ = std::move(callback);
 }
@@ -403,34 +502,22 @@ void QASystem::update() {
         cursor_ = visible[visible_pos + 1];
       }
     }
-    if (key_pressed(input::Key::Enter) && entry_visible(list[cursor_])) {
-      list[cursor_].asked = true; // permanent -- never cleared
-      // Flags this question sets are applied the same instant, before
-      // on_selected/the tag reaction fire below -- so either can already
-      // see the consequence of this question having been asked (e.g. a
-      // registered scene state that itself checks game-side state
-      // influenced by a flag wouldn't need to, but on_selected reaching
-      // back into game code might reasonably expect flags_ to be current).
-      for (const std::string &flag : list[cursor_].sets_flags) {
-        flags_.insert(flag);
+    if (cursor_ < list.size() && entry_visible(list[cursor_])) {
+      // An `auto` question asks itself the moment the cursor lands on it
+      // (see resources/conversation.h) -- whether that's a loop_to= jump,
+      // a descent into follow-ups, or the very first frame of a fresh
+      // chapter. Only while still unasked, so one the player somehow
+      // navigates back onto doesn't replay on its own.
+      const Entry &entry = list[cursor_];
+      if ((entry.is_auto && !entry.asked) || key_pressed(input::Key::Enter)) {
+        ask_current();
       }
-      if (on_any_asked_) {
-        on_any_asked_();
-      }
-      if (list[cursor_].on_selected) {
-        list[cursor_].on_selected();
-      }
-      // The question is being asked right now -- fire its own tag's scene
-      // state immediately (the "reaction shot"; see the class comment),
-      // rather than waiting for its answer to finish.
-      fire_scene_state(list[cursor_]);
-      answer_line_ = 0;
-      state_ = State::Answer;
     }
   } else { // State::Answer
     if (key_pressed(input::Key::Enter)) {
       ++answer_line_;
       Entry &answered = (*current_list_)[cursor_];
+      show_current_line();
       if (answer_line_ >= answered.answer_lines.size()) {
         // Past the last answer line -- the question is now fully read.
         // Decide what the question list shows next (see the class comment
@@ -528,6 +615,13 @@ void QASystem::update() {
         // nothing to do.
         apply_layer_scene_state();
         state_ = State::QuestionList;
+        // Landed on an `auto` question -- ask it now rather than next
+        // frame, so the list never flashes up for the one frame in between.
+        std::vector<Entry> &landed = *current_list_;
+        if (cursor_ < landed.size() && landed[cursor_].is_auto &&
+            !landed[cursor_].asked && entry_visible(landed[cursor_])) {
+          ask_current();
+        }
       }
     }
   }
@@ -543,25 +637,105 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
   f32 max_text_width = static_cast<f32>(screen_width) - kListX - kRightMargin;
 
   if (state_ == State::Answer) {
-    // The question list is hidden entirely while an answer is showing --
-    // only the answer line(s) and its own hint are drawn. A long answer
-    // line wraps onto further lines above answer_bottom_y, growing
-    // upward -- same "bottom edge never moves" reasoning as the question
-    // list's own row stacking below, just per-wrapped-line instead of
-    // per-entry.
-    f32 answer_bottom_y = hint_y - kAnswerHintGap;
-    const Entry &entry = (*current_list_)[cursor_];
-    if (answer_line_ < entry.answer_lines.size()) {
+    const ScriptLine &line = current_line_;
+    const f32 width = static_cast<f32>(screen_width);
+    const f32 height = static_cast<f32>(screen_height);
+
+    if (line.title) {
+      // A [title] card: the text alone, centred on black, over a scene
+      // that stays loaded underneath -- a backdrop quad rather than
+      // clearing the scene the way SHGame::show_intertitle() does, so the
+      // room the card interrupts doesn't have to be re-baked afterwards.
+      renderer_draw_backdrop_quad(glm::vec2(0.0f), glm::vec2(width, height),
+                                  glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
       std::vector<std::string> wrapped =
-          wrap_text(entry.answer_lines[answer_line_], max_text_width);
+          wrap_text(line.text, width * kTitleMaxWidthFraction);
+      f32 block_height =
+          static_cast<f32>(wrapped.size() - 1) * kTitleLineSpacing;
+      f32 top_y = height / 2.0f - block_height / 2.0f;
       for (size_t i = 0; i < wrapped.size(); ++i) {
-        f32 line_y = answer_bottom_y -
-            static_cast<f32>(wrapped.size() - 1 - i) * kLineSpacing;
-        renderer_draw_text(wrapped[i], glm::vec2(kListX, line_y), kAnswer);
+        renderer_draw_text(
+            wrapped[i],
+            glm::vec2(centered_x(width, wrapped[i].size()),
+                      top_y + static_cast<f32>(i) * kTitleLineSpacing),
+            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
       }
+      constexpr std::string_view kTitleHint = "[Enter] continue";
+      renderer_draw_text(kTitleHint,
+                         glm::vec2(centered_x(width, kTitleHint.size()),
+                                   top_y + block_height + kTitleHintGap),
+                         kHint);
+      return;
+    }
+
+    if (line.overlay) {
+      // An [overlay] run (see overlay_run_): every line so far stays up,
+      // each stepped down and across from the one before, wrapping back
+      // to the left after three -- out in the open frame rather than in
+      // the dialogue corner.
+      for (size_t i = 0; i < overlay_run_.size(); ++i) {
+        f32 x = kListX + width * kOverlayIndentFraction * static_cast<f32>(i % 3);
+        f32 y = height * kOverlayTopFraction +
+                static_cast<f32>(i) * kOverlayLineStep;
+        std::vector<std::string> wrapped =
+            wrap_text(overlay_run_[i], width - x - kRightMargin);
+        for (size_t w = 0; w < wrapped.size(); ++w) {
+          renderer_draw_text(wrapped[w],
+                             glm::vec2(x, y + static_cast<f32>(w) * kLineSpacing),
+                             kOverlay);
+        }
+      }
+      renderer_draw_text("[Enter] continue", glm::vec2(kListX, hint_y), kHint);
+      return;
+    }
+
+    // Ordinary dialogue, bottom-left. Everyone but the photographer is
+    // named; his lines are the player's own, so they're told apart by
+    // colour instead (see kPhotographer). A long line wraps onto further
+    // lines above answer_bottom_y, growing upward -- same "bottom edge
+    // never moves" reasoning as the question list's own row stacking
+    // below, just per-wrapped-line instead of per-entry.
+    f32 answer_bottom_y = hint_y - kAnswerHintGap;
+    const bool photographer = line.speaker == kPhotographerSpeaker;
+    std::string shown = line.text;
+    if (line.speaker && !photographer) {
+      shown = *line.speaker + ": " + shown;
+    }
+    glm::vec4 colour = photographer ? kPhotographer : kAnswer;
+    if (line.link) {
+      colour = kLink;
+    }
+    std::vector<std::string> wrapped = wrap_text(shown, max_text_width);
+    for (size_t i = 0; i < wrapped.size(); ++i) {
+      f32 line_y = answer_bottom_y -
+          static_cast<f32>(wrapped.size() - 1 - i) * kLineSpacing;
+      renderer_draw_text(wrapped[i], glm::vec2(kListX, line_y), colour);
+    }
+    if (line.link) {
+      // Underlined like a link -- under the last wrapped line, which is
+      // where the linked text itself ends up. The text baseline sits a
+      // few pixels above line_y's anchor.
+      f32 underline_y = answer_bottom_y + 6.0f;
+      f32 underline_width =
+          static_cast<f32>(wrapped.back().size()) * kAverageCharWidth;
+      renderer_draw_line(glm::vec2(kListX, underline_y),
+                         glm::vec2(kListX + underline_width, underline_y),
+                         kLink);
+      renderer_draw_text("[Enter] continue   [L] open link",
+                         glm::vec2(kListX, hint_y), kHint);
+      return;
     }
     renderer_draw_text("[Enter] continue", glm::vec2(kListX, hint_y), kHint);
     return;
+  }
+
+  // The cursor is parked on an `auto` question update() is about to ask --
+  // nothing to offer the player, so draw no list at all for this frame.
+  {
+    const std::vector<Entry> &list = *current_list_;
+    if (cursor_ < list.size() && list[cursor_].is_auto && !list[cursor_].asked) {
+      return;
+    }
   }
 
   renderer_draw_text("[Up/Down] choose   [Enter] ask   [Tab] camera",
@@ -585,6 +759,9 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
   for (size_t n = 0; n < visible.size(); ++n) {
     size_t i = visible[n];
     const Entry &entry = list[i];
+    if (entry.is_auto) {
+      continue; // never a choice -- see Entry::is_auto
+    }
     bool on_cursor = i == cursor_;
 
     glm::vec4 colour = entry.asked ? kAsked : kUnasked;

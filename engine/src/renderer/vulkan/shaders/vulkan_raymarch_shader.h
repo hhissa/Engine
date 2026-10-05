@@ -288,6 +288,13 @@ public:
   // scene sweep. No effect unless KENGINE_PREWARM_CACHE asked for it.
   void request_cache_prewarm() noexcept { prewarm_done_ = false; }
 
+  // How many chunks the last update_streaming() still wanted around the
+  // camera -- not yet loaded, or loaded but still baking -- across every
+  // clip level. 0 once the field around the camera is complete; jumps up
+  // the frame after the camera is moved somewhere new, and drains as the
+  // chunks there are restored from the cache or baked.
+  u32 streaming_backlog() const noexcept { return streaming_backlog_; }
+
   // Marks one primitive as INTERACTIVELY MOVING: kept out of every chunk's
   // candidate list, so no bake folds it and moving it invalidates no
   // chunks, and unioned into the marched field analytically instead so it
@@ -598,6 +605,8 @@ private:
   // this scene (it is a one-shot warm-up, not a per-frame concern).
   b8 prewarm_requested_ = false;
   b8 prewarm_done_ = false;
+  // See streaming_backlog().
+  u32 streaming_backlog_ = 0;
   void check_chunk_brick_overflow();
   // Copies both GPU free-list stack pointers into the host-visible stats
   // buffer -- see the definition for why neither pool running dry was
@@ -1400,6 +1409,13 @@ private:
     // radius, folding two instances one after another would blend them into
     // each other instead, which is a different shape.
     f32 layer_smoothness = 0.0f;
+    // Whether this primitive's LAYER repeats (Geometry::
+    // layer_repetition_mode). Its spread is already inside `radius`; this
+    // flag is what keeps the two optimisations that reason about
+    // repetition -- per-chunk instance resolution and the cell alias map --
+    // away from a primitive whose fold they don't model. See their uses in
+    // build_chunk_candidates()/build_cell_alias_map().
+    bool layer_repeated = false;
   };
   std::vector<PrimitiveBound> primitive_bounds_;
 
@@ -1743,15 +1759,44 @@ private:
   VkDescriptorSet render_set_ = VK_NULL_HANDLE;
   std::optional<VulkanComputePipeline> render_pipeline_;
 
-  // Each static primitive's Material::pixelation_exempt, parallel to
-  // primitive_colour_buffer_ -- read by the render pass and written into
-  // output_image_'s alpha channel (see rebuild_static_scene()) for the
-  // post-process pass's pixelation step to read.
-  std::optional<VulkanBuffer> pixelation_exempt_buffer_;
+  // Four loose per-material scalars per static primitive, parallel to
+  // primitive_colour_buffer_ -- the odds and ends that don't each justify
+  // a buffer and binding of their own, and that the two existing
+  // per-primitive vec4 buffers (primitive_colour_buffer_'s rgb+
+  // texture_scale, tex_transform_buffer_'s offset+rotation) have no free
+  // component left to carry:
+  //   x = Material::pixelation_exempt (1/0) -- written into output_image_'s
+  //       alpha channel by the render pass for the post-process pass's
+  //       pixelation step to read.
+  //   y = Material::bump_strength -- scales the bump-map normal
+  //       perturbation in Builtin.DeferredShade.comp.glsl.
+  //   z = Material::casts_shadow (1/0) -- a 0 makes the shadow paths treat
+  //       this primitive's surface as if it weren't there (see
+  //       SHADOW_CASTER_TEST in Builtin.BakedFieldCommon.inc.glsl).
+  //   w = unused padding (a vec4 is what std430 gives this array anyway).
+  // Every slot defaults to "not exempt, ordinary bump, casts shadows", so
+  // a slot no registered primitive claims behaves like a plain material.
+  std::optional<VulkanBuffer> material_scalar_buffer_;
+  // One vec4 per primitive index: xyz = the per-channel Beer-Lambert
+  // absorption coefficient (solved engine-side from the material's
+  // authored absorption tint and reference thickness, so nobody has to
+  // author reciprocal metres), w = index of refraction, 0 meaning opaque.
+  //
+  // A separate buffer rather than more slots on material_scalar_buffer_
+  // because that vec4 is full (pixelation-exempt, bump strength, shadow
+  // casting, roughness), and rather than push constants because the
+  // shading pass's push block is at 124 of Vulkan's guaranteed 128 bytes.
+  std::optional<VulkanBuffer> transmission_buffer_;
+  // The transmissive tail range in primitive_buffer_ -- appended
+  // immediately after the volumetric one, so its start is derivable
+  // shader-side as volumetric_start + volumetric_count and only the count
+  // has to be pushed. See rebuild_static_scene().
+  i32 transmissive_start_ = 0;
+  i32 transmissive_count_ = 0;
 
   // Each static (and volumetric) primitive's effective texture offset/
-  // rotation -- xyz = material->texture_offset * geometry.
-  // texture_offset_scale (world units), w = material->texture_rotation
+  // rotation -- xyz = material->def.uv_offset * geometry.
+  // texture_offset_scale (world units), w = material->def.uv_rotation
   // (radians) -- parallel to primitive_colour_buffer_, read by the render
   // pass's triplanar sampling. A separate binding rather than widening
   // primitive_colour_buffer_'s existing vec4 (rgb=tint, a=texture_scale):
@@ -1894,6 +1939,37 @@ private:
   // See gpu_index_for_primitive() above -- rebuilt from scratch by every
   // rebuild_static_scene() call (construction, and every rebake()).
   std::unordered_map<std::string, u32> primitive_gpu_index_by_name_;
+
+  // Each primitive's bounding radius AS REBUILT, i.e. after the interval-
+  // analysis + fixed-point refinement rebuild_static_scene() applies to
+  // parametric primitives that geometry_bounding_radius() gives up on.
+  // Rebuilt from scratch alongside primitive_bounds_, and holding an entry
+  // for the dynamic primitive too (which primitive_bounds_ deliberately
+  // omits). Read through refined_bounding_radius().
+  std::unordered_map<std::string, f32> refined_bound_radius_by_name_;
+  // The same map as of the PREVIOUS rebuild, which is the state
+  // GeometrySystem::dirty_previous_state() describes -- so the dirty sweep
+  // can bound where a primitive USED to be, not just where it is now. Read
+  // through previous_refined_bounding_radius().
+  std::unordered_map<std::string, f32> previous_refined_bound_radius_by_name_;
+
+  // The bound rebuild_static_scene() actually settled on for this
+  // primitive, falling back to geometry_bounding_radius() for anything it
+  // has not seen (a primitive registered since the last rebuild).
+  //
+  // Always prefer this over calling geometry_bounding_radius() directly on
+  // a Geometry. That function returns the kUnboundedBoundingRadius sentinel
+  // for ANY primitive carrying a parametric attribute expression, while the
+  // rebuild usually proves a real finite bound for the same primitive --
+  // and chunks_touched_by() answers "no chunks at all" for an unbounded
+  // radius, which a caller reads as "nothing to do". A taper like
+  // "0.15 - 0.1*p.y" is a normal authored shape roughly a unit across; it
+  // must not be treated as touching nothing.
+  f32 refined_bounding_radius(const Geometry &geometry) const;
+  // The same, against the previous rebuild's map -- for a Geometry that is
+  // a SNAPSHOT of a pre-edit state (dirty_previous_state()), whose params
+  // no longer match anything the current map describes.
+  f32 previous_refined_bounding_radius(const Geometry &geometry) const;
 
   bool valid_ = false;
 };

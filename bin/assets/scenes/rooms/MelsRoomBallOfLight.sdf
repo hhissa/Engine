@@ -1,6 +1,7 @@
 #sdf scene file
 version=0.2
 ambient=0.150000006
+skybox=skybox_to_equirect_2
 
 material popcornceiling (faffc9) {
     id=e98c019c3bbbdf6b
@@ -175,6 +176,17 @@ material white 2 {
     uv_scale=0.5
     uv_offset=0 0.600000024 0
     roughness=1
+}
+
+material white 3 {
+    id=4890e2c38d759914
+    base_map=white
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+    roughness=1
+    emissive_colour=1 1 0.498039216
+    emissive_intensity=1
+    casts_shadow=false
 }
 
 light light0 {
@@ -760,10 +772,10 @@ layer layer8 {
 
     primitive primitive72 {
         type=sphere
-        position=0.0399999991 -0.42851311 0.0199999996
+        position=0.0399999991 -0.430000007 0.0199999996
         rotation=0 0 0
         radius=0.0399999991
-        material=8cc29333139bec18
+        material=4890e2c38d759914
     }
 
     primitive primitive77 {

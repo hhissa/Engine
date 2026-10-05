@@ -230,6 +230,41 @@ const int SHADOW_MAX_STEPS = 256;
 #define BAKED_FIELD_INDIRECTION_BINDING 1
 #define BAKED_FIELD_BRICKPOOL_BINDING 2
 #define BAKED_FIELD_BRICKPRIMITIVE_BINDING 4
+// Two loose per-material scalars per registered static primitive (parallel
+// to scene_diffuse_colours), packed together because neither fills a vec4
+// and the two already-existing per-primitive vec4 buffers
+// (scene_diffuse_colours, scene_tex_transform) have no free component
+// left:
+//   x = 1.0 if that primitive's material is pixelation-exempt
+//       (Material::pixelation_exempt), 0.0 otherwise. Written into
+//       out_image's alpha channel below (see main()) for
+//       Builtin.PostComposite.comp.glsl's pixelation pass to read.
+//   y = its bump-map magnitude (Material::bump_strength) -- a multiplier
+//       on BUMP_STRENGTH_BASE, so 1.0 (the engine-side default) is the
+//       fixed strength this used to be hardcoded at, 0.0 is a flat surface
+//       even with a bump map set, and >1 deepens the relief. Only
+//       Builtin.DeferredShade.comp.glsl reads it.
+//   z = 1.0 if this primitive casts shadows (Material::casts_shadow), 0.0
+//       if shadow rays should pass straight through it -- see
+//       SHADOW_CASTER_TEST below.
+//   w = its dielectric surface roughness (Material -> MaterialDef::
+//       roughness), 0 = mirror-sharp, 1 = fully diffuse. Read only by
+//       Builtin.DeferredShade.comp.glsl's specular lobe. This slot was
+//       documented as unused until that lobe existed; roughness is what
+//       every dielectric needs and what glass, plastic and still water all
+//       differ in, so it is the natural occupant.
+layout(binding = 11) readonly buffer ScenePrimitiveMaterialScalars {
+    vec4 material_scalars[];
+};
+
+// How the shared shadow marches (shadow_march() in Builtin.BakedFieldCommon.
+// inc.glsl, chunked_shadow_march() in Builtin.ChunkedFieldCommon.inc.glsl)
+// ask whether a surface they ran into actually casts. Defined here, BEFORE
+// those includes, because they are shared with shaders that have no
+// material data bound at all (the GI bakes) and so fall back to their own
+// "everything casts" default -- see SHADOW_CASTER_TEST's definition there.
+#define SHADOW_CASTER_TEST(material) (material_scalars[material].z > 0.5)
+
 #include "Builtin.BakedFieldCommon.inc.glsl"
 
 // Phase 4: the chunked/streamed field -- fully separate bindings/buffers
@@ -286,17 +321,6 @@ const int PROBE_DIM = 16; // must match kProbeDim in vulkan_raymarch_shader.cpp
 layout(binding = 10) readonly buffer ProbeBuffer {
     vec4 probes[]; // rgb = baked indirect irradiance at this probe; see
                    // Builtin.ProbeBake.comp.glsl for how it's computed.
-};
-
-// One entry per registered static primitive (parallel to
-// scene_diffuse_colours) -- 1.0 if that primitive's material is
-// pixelation-exempt (Material::pixelation_exempt), 0.0 otherwise. Written
-// into out_image's alpha channel below (see main()) for
-// Builtin.PostComposite.comp.glsl's pixelation pass to read; nothing else
-// in this shader uses it, so a plain float array is simpler than folding
-// it into an already-full vec4 buffer.
-layout(binding = 11) readonly buffer PixelationExemptBuffer {
-    float pixelation_exempt[];
 };
 
 // Optional skybox -- a single equirectangular (lat/long) image, sampled by
@@ -591,6 +615,18 @@ float calc_contact_ao(vec3 p, vec3 normal) {
         sample_active_field(sample_pos, normal, dist, skip_dist, material);
         float d = (skip_dist == 0.0) ? dist : step_dist;
 
+        // A material that opts out of casting (Material::casts_shadow)
+        // darkens nothing here either -- this term is what occludes the
+        // ambient floor and the indirect light on the frames the traced AO
+        // pass did not run, so without the test the flag would hold for
+        // direct light and silently not hold for ambient. Treated as the
+        // fully open reading (d == step_dist, zero contribution) rather
+        // than skipped, so the tap still costs its weight and a caster
+        // further along the normal is not promoted into its place.
+        if (skip_dist == 0.0 && material >= 0 && !SHADOW_CASTER_TEST(material)) {
+            d = step_dist;
+        }
+
         occlusion += weight * max(step_dist - d, 0.0);
         weight *= 0.6; // farther taps count for progressively less
     }
@@ -677,7 +713,11 @@ vec3 sample_scene_texture(int index, vec2 uv) {
 // derived from whatever diffuse texture (even the default checkerboard)
 // happens to be assigned.
 const float BUMP_UV_EPSILON = 0.015;
-const float BUMP_STRENGTH = 0.25;
+// The magnitude a material of bump_strength 1.0 perturbs at -- the value
+// this whole computation used to be fixed at, kept as the base so an
+// authored strength reads as a plain multiple of "the usual amount" (see
+// Material::bump_strength engine-side / material_scalars.y above).
+const float BUMP_STRENGTH_BASE = 0.25;
 
 float luminance(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -688,10 +728,15 @@ float luminance(vec3 c) {
 // negated and scaled so brighter neighbours slope the normal away from
 // them, then normalized -- the same convention an authored tangent-space
 // normal-map texture's RGB channels would encode.
-vec3 bump_from_heights(float h_centre, float h_u, float h_v) {
+// strength is the material's own bump magnitude, already multiplied by
+// BUMP_STRENGTH_BASE by the caller. 0 makes both slopes vanish and this
+// returns the unperturbed (0,0,1), i.e. exactly what a material with no
+// bump map set already produced -- so a bump map can be dialled all the
+// way out without clearing it.
+vec3 bump_from_heights(float h_centre, float h_u, float h_v, float strength) {
     float du = (h_u - h_centre) / BUMP_UV_EPSILON;
     float dv = (h_v - h_centre) / BUMP_UV_EPSILON;
-    return normalize(vec3(-du * BUMP_STRENGTH, -dv * BUMP_STRENGTH, 1.0));
+    return normalize(vec3(-du * strength, -dv * strength, 1.0));
 }
 
 // Same direct indexing as sample_scene_texture() above, for the same
@@ -835,6 +880,289 @@ const int VOLUMETRIC_STEPS = 48;
 // scene_diffuse_colours[idx].a, same as an opaque primitive's) which still
 // controls the pattern's overall tiling frequency.
 const float VOLUMETRIC_SCROLL_SPEED = 0.06;
+
+// One entry per primitive index, but only ever read for indices inside the
+// TRANSMISSIVE tail range (see transmissive_range() below).
+//   xyz = the per-channel Beer-Lambert absorption coefficient, solved
+//         engine-side from the material's authored absorption tint and
+//         reference thickness so nobody has to author reciprocal metres.
+//   w   = index of refraction, with its SIGN carrying the thin-walled
+//         flag: |w| is the IOR, w < 0 means parallel-walled glass thin
+//         enough that refraction displaces the ray by less than a pixel.
+//         Packed into the sign rather than given its own slot because
+//         material_scalars' vec4 is full and the push block is at exactly
+//         Vulkan's guaranteed 128 bytes. w == 0 means opaque, which is
+//         what every slot outside the range holds.
+layout(binding = 28) readonly buffer ScenePrimitiveTransmission {
+    vec4 transmission[];
+};
+
+// --- Dielectric specular -------------------------------------------
+//
+// Until this existed the shading model terminated at
+// `colour = albedo * lighting`, a pure Lambert sum with no specular term,
+// no Fresnel and no environment reflection anywhere in the frame. That is
+// a bigger gap than it sounds: an opaque plastic IS a diffuse substrate
+// under a dielectric coat and needs nothing else, and for glass the
+// Fresnel reflection is a stronger recognition cue than the refraction --
+// a pane with a correct highlight and no refraction reads as glass, while
+// one with perfect refraction and no reflection reads as a warped hole.
+//
+// Everything here is DIELECTRIC. There is no metalness input, so the
+// specular colour is always white: tinting it is precisely what makes a
+// surface read as metal, so keeping it neutral is what keeps plastic
+// looking like plastic.
+
+// Reflectance at normal incidence for an air-to-medium interface.
+// n = 1.5 gives 0.04, the "dielectric default" every PBR renderer
+// hardcodes -- which is exactly glass, and near enough every plastic.
+const float DEFAULT_DIELECTRIC_F0 = 0.04;
+
+float fresnel_schlick(float cos_theta, float f0) {
+    // The 5th power is the whole effect: reflectance sits near 4% face-on
+    // and climbs toward 1 at grazing incidence. That climb is why a still
+    // pond mirrors the far shore but shows you the bottom at your feet.
+    float m = clamp(1.0 - cos_theta, 0.0, 1.0);
+    float m2 = m * m;
+    return f0 + (1.0 - f0) * (m2 * m2 * m);
+}
+
+// Reflectance at normal incidence implied by an index of refraction.
+// ior <= 0 means "not authored as transmissive", which is the overwhelming
+// majority of materials, and those take the dielectric default above.
+float f0_from_ior(float ior) {
+    if (ior <= 0.0) {
+        return DEFAULT_DIELECTRIC_F0;
+    }
+    float r = (1.0 - ior) / (1.0 + ior);
+    return r * r;
+}
+
+// Cook-Torrance GGX, Smith height-correlated visibility folded in.
+// Returns the specular response for one light, WITHOUT the light colour or
+// attenuation, and without any albedo -- specular does not tint by the
+// diffuse texture.
+float specular_ggx(vec3 normal, vec3 view_dir, vec3 light_dir,
+                   float roughness, float f0) {
+    vec3 h = normalize(light_dir + view_dir);
+    float n_dot_l = max(dot(normal, light_dir), 0.0);
+    float n_dot_v = max(dot(normal, view_dir), 0.0);
+    if (n_dot_l <= 0.0 || n_dot_v <= 0.0) {
+        return 0.0;
+    }
+    float n_dot_h = max(dot(normal, h), 0.0);
+    float v_dot_h = max(dot(view_dir, h), 0.0);
+
+    // Clamped away from a perfect mirror: at alpha == 0 the distribution
+    // becomes a delta function that a single point sample either misses
+    // entirely or resolves as one blown-out pixel, which reads as fireflies
+    // rather than as a sharp highlight.
+    float alpha = max(roughness * roughness, 0.002);
+    float alpha2 = alpha * alpha;
+
+    float denom = n_dot_h * n_dot_h * (alpha2 - 1.0) + 1.0;
+    float d = alpha2 / max(3.14159265 * denom * denom, 1e-7);
+
+    // Smith height-correlated visibility (Heitz), which already carries
+    // the 1/(4 NoL NoV) of the microfacet denominator.
+    float lambda_v = n_dot_l * sqrt(n_dot_v * n_dot_v * (1.0 - alpha2) + alpha2);
+    float lambda_l = n_dot_v * sqrt(n_dot_l * n_dot_l * (1.0 - alpha2) + alpha2);
+    float vis = 0.5 / max(lambda_v + lambda_l, 1e-7);
+
+    float f = fresnel_schlick(v_dot_h, f0);
+    return d * vis * f * n_dot_l;
+}
+
+// --- Transmission ---------------------------------------------------
+//
+// Transmissive primitives are registered like any other but deliberately
+// excluded from the voxel bake (see rebuild_static_scene(), engine-side),
+// so the primary ray passed straight through them. That is not an
+// approximation, it is what makes this affordable: by the time this block
+// runs, `colour` and `travelled` already describe the opaque surface
+// BEHIND the glass, which is exactly the backdrop refraction needs to
+// distort. No depth peel, no second visibility pass, no sorted blending.
+//
+// They live in a contiguous tail range that no GpuLayer covers, appended
+// immediately after the volumetric range -- which is why the start is
+// derived here rather than pushed (the push block is full).
+
+const int TRANSMISSIVE_MAX_COUNT = 16;
+const int TRANSMISSIVE_MARCH_STEPS = 96;
+const int TRANSMISSIVE_INTERIOR_STEPS = 48;
+const float TRANSMISSIVE_SURF_DIST = 0.002;
+const float TRANSMISSIVE_MAX_DIST = 64.0;
+// Sphere tracing through a NON-EUCLIDEAN field over-steps, and the
+// interior of a smooth blend or a subtraction is the worst case for it --
+// max(a, -b) can report more distance than there really is, so a full-
+// length step walks through the surface and the thickness comes back too
+// short. Too-short thickness goes straight into an exp(), so the symptom
+// is absorption that is wildly too weak in exactly the places the model is
+// most interesting. Same reasoning, and the same value, as
+// SPLAT_SNAP_RELAXATION in Builtin.RaymarchShader.comp.glsl.
+const float TRANSMISSIVE_RELAXATION = 0.7;
+
+// [start, end) of the transmissive tail range.
+//
+// Self-terminating rather than counted: every transmissive primitive has a
+// non-zero IOR and every slot outside the range is zeroed, so scanning
+// until w == 0 recovers the count exactly. That is what lets this feature
+// add no push constant at all to a block already at 128 bytes.
+void transmissive_range(out int start, out int end) {
+    start = push.volumetric_start + push.volumetric_count;
+    end = start;
+    for (int i = 0; i < TRANSMISSIVE_MAX_COUNT; ++i) {
+        if (transmission[start + i].w == 0.0) {
+            break;
+        }
+        end = start + i + 1;
+    }
+}
+
+// Nearest transmissive surface at p, and which primitive it belongs to.
+// Reuses primitive_sdf() -- the same analytic evaluator the opaque scene
+// and the volumetrics go through, so the full shape catalogue, rotation,
+// repetition and deformation all come along for free.
+float transmissive_sdf(vec3 p, int start, int end, out int nearest) {
+    float d = TRANSMISSIVE_MAX_DIST;
+    nearest = -1;
+    for (int i = start; i < end; ++i) {
+        float di = primitive_sdf(i, p);
+        if (di < d) {
+            d = di;
+            nearest = i;
+        }
+    }
+    return d;
+}
+
+// Central-difference gradient of the transmissive union. Analytic, not the
+// field's trilinear brick gradient -- a brick normal is far too coarse for
+// a mirror-grade interface, and this is one of the reasons transmissive
+// primitives are better off unbaked.
+vec3 transmissive_normal(vec3 p, int start, int end) {
+    const float e = 0.0015;
+    int ignored;
+    vec2 k = vec2(1.0, -1.0);
+    return normalize(
+        k.xyy * transmissive_sdf(p + k.xyy * e, start, end, ignored) +
+        k.yyx * transmissive_sdf(p + k.yyx * e, start, end, ignored) +
+        k.yxy * transmissive_sdf(p + k.yxy * e, start, end, ignored) +
+        k.xxx * transmissive_sdf(p + k.xxx * e, start, end, ignored));
+}
+
+// First transmissive surface along the ray within max_t. Returns false if
+// the ray reaches the opaque backdrop without meeting one.
+bool transmissive_march(vec3 origin, vec3 dir, float max_t, int start, int end,
+                        out float t_hit, out int hit_index) {
+    float t = 0.0;
+    t_hit = 0.0;
+    hit_index = -1;
+    for (int i = 0; i < TRANSMISSIVE_MARCH_STEPS; ++i) {
+        vec3 p = origin + dir * t;
+        int nearest;
+        float d = transmissive_sdf(p, start, end, nearest);
+        if (d < TRANSMISSIVE_SURF_DIST) {
+            t_hit = t;
+            hit_index = nearest;
+            return true;
+        }
+        t += max(d * TRANSMISSIVE_RELAXATION, TRANSMISSIVE_SURF_DIST);
+        if (t >= max_t) {
+            return false;
+        }
+    }
+    return false;
+}
+
+// How far the ray travels before leaving the medium it is currently
+// inside. THE reason an SDF renderer is well-placed for this: the field is
+// signed, so marching -d from just inside the surface gives the exit
+// distance exactly. Everywhere else that thickness has to be baked into a
+// texture or guessed from a depth difference; here it is measured.
+float transmissive_interior_distance(vec3 origin, vec3 dir, int start,
+                                     int end) {
+    float t = TRANSMISSIVE_SURF_DIST * 2.0;
+    for (int i = 0; i < TRANSMISSIVE_INTERIOR_STEPS; ++i) {
+        int nearest;
+        float d = transmissive_sdf(origin + dir * t, start, end, nearest);
+        if (d > -TRANSMISSIVE_SURF_DIST) {
+            return t; // back outside -- this is the exit interface
+        }
+        t += max(-d * TRANSMISSIVE_RELAXATION, TRANSMISSIVE_SURF_DIST);
+        if (t >= TRANSMISSIVE_MAX_DIST) {
+            break;
+        }
+    }
+    // Did not converge. Reporting the distance travelled so far would feed
+    // a wrong (too large) thickness into an exponential and read as a
+    // near-black surface, so the honest fallback is "thin".
+    return TRANSMISSIVE_SURF_DIST * 2.0;
+}
+
+// A cheap shade for whatever a refracted or reflected ray lands on:
+// albedo times baked indirect plus ambient, with no shadow rays and no
+// specular. Full shading of a secondary hit would roughly double the cost
+// of the frame for something seen through a distorting interface.
+vec3 shade_secondary_hit(vec3 p, vec3 normal) {
+    int material;
+    scene_map(p, push.layer_count, ANALYTIC_HIT_CULL_RADIUS, material);
+    if (material < 0) {
+        return vec3(0.0);
+    }
+    float texture_scale = max(scene_diffuse_colours[material].a, 0.01);
+    vec3 tri_p = (p + scene_tex_transform[material].xyz) / texture_scale;
+    vec3 blend = abs(normal);
+    blend /= (blend.x + blend.y + blend.z);
+    float rot = scene_tex_transform[material].w;
+    vec3 tex =
+        sample_scene_texture(material, rotate_uv(tri_p.yz, rot)) * blend.x +
+        sample_scene_texture(material, rotate_uv(tri_p.xz, rot)) * blend.y +
+        sample_scene_texture(material, rotate_uv(tri_p.xy, rot)) * blend.z;
+    vec3 indirect = (push.flags & RENDER_FLAG_CHUNKED_FIELD) != 0
+        ? sample_gi_cascade(p)
+        : sample_probe_grid(p);
+    return tex * scene_diffuse_colours[material].rgb *
+          (indirect + vec3(push.ambient)) +
+          primitives[material].expr_scale.yzw;
+}
+
+// What a secondary ray sees: the opaque scene if it hits anything, the
+// environment if it escapes.
+//
+// Marched rather than resolved in screen space. A screen-space lookup
+// would be cheaper, but it would read `out_image` while this same dispatch
+// is still writing it -- the backdrop pixel may not have been shaded yet,
+// which is a race, not an approximation. Marching also sees what is
+// offscreen or hidden behind other geometry, which is most of what makes a
+// refraction look attached to its surroundings.
+const int SECONDARY_MAX_STEPS = 96;
+vec3 trace_secondary(vec3 origin, vec3 dir) {
+    float t = 0.02;
+    // Its own, much smaller step budget than a shadow ray's: this runs
+    // only on transmissive pixels, but it runs up to twice on each of them
+    // (a reflected branch and a transmitted one), and a secondary ray seen
+    // through a distorting interface does not need to resolve fine detail.
+    for (int i = 0; i < SECONDARY_MAX_STEPS; ++i) {
+        vec3 p = origin + dir * t;
+        float dist, skip;
+        int material;
+        sample_active_field(p, dir, dist, skip, material);
+        if (skip != 0.0) {
+            t += skip;
+        } else {
+            if (dist < SURF_DIST) {
+                return shade_secondary_hit(p, calc_static_normal(p));
+            }
+            t += dist;
+        }
+        if (t > MAX_DIST) {
+            break;
+        }
+    }
+    return (push.flags & RENDER_FLAG_SKYBOX) != 0 ? sample_skybox(dir)
+                                                  : vec3(0.02, 0.02, 0.05);
+}
 
 // Secondary analytic pass, run once per pixel after raymarch() has already
 // resolved the opaque hit: marches the *same* primary ray a second time,
@@ -1037,7 +1365,7 @@ void main() {
         if (analytic_material >= 0) {
             hit_material = analytic_material;
         }
-        exempt_flag = pixelation_exempt[hit_material];
+        exempt_flag = material_scalars[hit_material].x;
 
         // World units per texture tile, from this hit's material (packed
         // in the colour's alpha slot -- see ScenePrimitiveColours above).
@@ -1068,13 +1396,19 @@ void main() {
                           sample_scene_texture(hit_material, uv_xy) * blend.z;
         vec3 tint = scene_diffuse_colours[hit_material].rgb;
 
+        // This primitive's authored bump magnitude (see material_scalars
+        // above). A material with no bump map reads flat_texture() and
+        // comes out to zero perturbation whatever this is; a strength of
+        // 0 does the same for one that HAS a bump map.
+        float bump_strength = BUMP_STRENGTH_BASE * material_scalars[hit_material].y;
+
         float h_centre, h_u, h_v;
         sample_scene_heights(hit_material, uv_yz, h_centre, h_u, h_v);
-        vec3 bump_x = bump_from_heights(h_centre, h_u, h_v);
+        vec3 bump_x = bump_from_heights(h_centre, h_u, h_v, bump_strength);
         sample_scene_heights(hit_material, uv_xz, h_centre, h_u, h_v);
-        vec3 bump_y = bump_from_heights(h_centre, h_u, h_v);
+        vec3 bump_y = bump_from_heights(h_centre, h_u, h_v, bump_strength);
         sample_scene_heights(hit_material, uv_xy, h_centre, h_u, h_v);
-        vec3 bump_z = bump_from_heights(h_centre, h_u, h_v);
+        vec3 bump_z = bump_from_heights(h_centre, h_u, h_v, bump_strength);
 
         normal = apply_triplanar_bump(normal, blend, bump_x, bump_y, bump_z);
 
@@ -1127,6 +1461,18 @@ void main() {
         float occlusion = mix(INDIRECT_AO_FLOOR, 1.0, ao);
         vec3 lighting = indirect * occlusion +
             vec3(push.ambient) * mix(AMBIENT_AO_FLOOR, 1.0, ao);
+
+        // Specular is accumulated SEPARATELY from `lighting` because the
+        // two are combined differently: diffuse is modulated by the
+        // surface albedo, specular is not (it is light reflected off the
+        // dielectric coat, not scattered out of the substrate). Folding it
+        // into `lighting` would tint every highlight by the diffuse
+        // texture, which is what makes a plastic read as metal.
+        vec3 specular = vec3(0.0);
+        vec3 view_dir = -ray_dir;
+        float roughness = clamp(material_scalars[hit_material].w, 0.0, 1.0);
+        float f0 = DEFAULT_DIELECTRIC_F0;
+
         for (int i = 0; i < push.light_count; ++i) {
             Light light = lights[i];
             int light_type = int(light.vector_type.w);
@@ -1174,6 +1520,13 @@ void main() {
                     float ism_shadow = sample_ism(i, p, light.vector_type.xyz,
                                                   diffuse, ism_dither);
                     lighting += light_colour * attenuation * diffuse * ism_shadow;
+                    // This branch `continue`s, so its specular has to be
+                    // added here rather than after the loop body -- easy to
+                    // miss, and the symptom would be highlights that vanish
+                    // for exactly the lights that have shadow maps.
+                    specular += light_colour * attenuation * ism_shadow *
+                                specular_ggx(normal, view_dir, light_dir,
+                                             roughness, f0);
                     continue;
                 }
                 float shadow = (push.flags & RENDER_FLAG_CHUNKED_FIELD) != 0
@@ -1185,11 +1538,41 @@ void main() {
                                    SHADOW_SOFTNESS, SHADOW_MAX_STEPS,
                                    int(light.source_primitive.x));
                 diffuse *= shadow;
+                // The same shadow term gates the highlight: a surface in
+                // shadow has no light reaching it to reflect specularly
+                // either.
+                specular += light_colour * attenuation * shadow *
+                            specular_ggx(normal, view_dir, light_dir,
+                                         roughness, f0);
             }
             lighting += light_colour * diffuse * attenuation;
         }
 
-        colour = tex_colour * tint * lighting;
+        // AMBIENT SPECULAR -- the environment reflected off the coat.
+        //
+        // Without this a dielectric only ever highlights where a punctual
+        // light happens to line up, so a smooth plastic in a lit room reads
+        // as flat matte everywhere else. Reflecting the skybox at a
+        // Fresnel-weighted strength is the cheap version of the right
+        // answer, and it is what makes the grazing edges of a surface come
+        // alive.
+        //
+        // Occluded by the same AO term the indirect diffuse uses: a
+        // surface deep in a crease cannot see the sky, and letting it
+        // reflect the sky anyway is what makes interiors glow.
+        if ((push.flags & RENDER_FLAG_SKYBOX) != 0) {
+            float n_dot_v = max(dot(normal, view_dir), 0.0);
+            float env_fresnel = fresnel_schlick(n_dot_v, f0);
+            // Rough surfaces do not mirror, they scatter -- and there is no
+            // prefiltered environment here to sample a blurred version
+            // from, so the honest approximation is to fade the reflection
+            // out as roughness rises rather than to reflect a sharp sky off
+            // a matte surface.
+            float env_strength = env_fresnel * (1.0 - roughness) * ao;
+            specular += sample_skybox(reflect(ray_dir, normal)) * env_strength;
+        }
+
+        colour = tex_colour * tint * lighting + specular;
 
         // Self-illumination: added straight in, independent of every light/
         // ambient/GI term above -- an emissive primitive (Material::
@@ -1215,6 +1598,137 @@ void main() {
             float rim = pow(1.0 - facing, 3.0);
             const vec3 HIGHLIGHT_COLOUR = vec3(1.0, 0.55, 0.1);
             colour += HIGHLIGHT_COLOUR * rim * 1.5;
+        }
+    }
+
+    // --- Transmission -------------------------------------------------
+    //
+    // Composited over the opaque result, which at this point IS the
+    // backdrop: the primary ray passed straight through any transmissive
+    // surface, because those are excluded from the bake.
+    {
+        int tm_start, tm_end;
+        transmissive_range(tm_start, tm_end);
+        float reach = travelled < MAX_DIST ? travelled : TRANSMISSIVE_MAX_DIST;
+        float t_enter;
+        int tm_prim;
+        if (tm_end > tm_start &&
+            transmissive_march(ray_origin, ray_dir, reach, tm_start, tm_end,
+                               t_enter, tm_prim)) {
+            vec3 p_in = ray_origin + ray_dir * t_enter;
+            vec3 n_in = transmissive_normal(p_in, tm_start, tm_end);
+            // The gradient points out of the solid; the ray is coming in,
+            // so if they agree the ray started inside and the interface
+            // has to be flipped to stay facing the incoming direction.
+            if (dot(n_in, ray_dir) > 0.0) {
+                n_in = -n_in;
+            }
+
+            vec4 tm = transmission[tm_prim];
+            // Belt and braces with the engine-side clamp: an IOR below 1
+            // makes f0_from_ior() approach 1 AND makes eta = 1/ior total-
+            // internal-reflect every ray, so the surface renders as a
+            // perfect mirror. Two independent paths to the same wrong
+            // image is worth guarding on both sides of the upload.
+            float ior = max(abs(tm.w), 1.0);
+            bool thin_walled = tm.w < 0.0;
+            vec3 absorption = tm.xyz;
+            float tm_f0 = f0_from_ior(ior);
+            float cos_in = max(dot(-ray_dir, n_in), 0.0);
+            float fresnel = fresnel_schlick(cos_in, tm_f0);
+
+            // Reflected branch. This is the cue that matters most: a pane
+            // with a correct Fresnel reflection and no refraction reads as
+            // glass, while one with perfect refraction and no reflection
+            // reads as a warped hole. The climb toward 1 at grazing
+            // incidence is what makes a still liquid mirror the far shore
+            // while showing you the bottom at your feet.
+            vec3 reflected =
+                trace_secondary(p_in + n_in * 0.004, reflect(ray_dir, n_in));
+
+            vec3 transmitted;
+            float thickness;
+            if (thin_walled) {
+                // Two parallel interfaces a few millimetres apart displace
+                // the ray by less than a pixel. Simulating that adds noise,
+                // not fidelity -- so a windowpane keeps the backdrop
+                // exactly where it already is, and only gets tinted.
+                thickness = 0.0;
+                transmitted = colour;
+            } else {
+                vec3 dir_in = refract(ray_dir, n_in, 1.0 / ior);
+                if (dot(dir_in, dir_in) < 1e-6) {
+                    // Total internal reflection at the entry interface --
+                    // rare, but free to handle correctly here.
+                    thickness = 0.0;
+                    transmitted = reflected;
+                } else {
+                    thickness = transmissive_interior_distance(
+                        p_in, dir_in, tm_start, tm_end);
+                    vec3 p_out = p_in + dir_in * thickness;
+                    vec3 n_out = -transmissive_normal(p_out, tm_start, tm_end);
+                    if (dot(n_out, dir_in) > 0.0) {
+                        n_out = -n_out;
+                    }
+                    vec3 dir_out = refract(dir_in, n_out, ior);
+                    if (dot(dir_out, dir_out) < 1e-6) {
+                        // TOTAL INTERNAL REFLECTION at the exit interface,
+                        // past the critical angle (41 degrees for glass,
+                        // 49 for water). This is what draws the bright rim
+                        // on a tumbler and what stops the silhouette
+                        // reading as a hole -- three lines for a
+                        // disproportionate amount of credibility.
+                        transmitted = trace_secondary(
+                            p_out - n_out * 0.004, reflect(dir_in, n_out));
+                    } else {
+                        transmitted =
+                            trace_secondary(p_out + dir_out * 0.004, dir_out);
+                    }
+                }
+            }
+
+            // Beer-Lambert. This is what makes thick glass green at its
+            // edges and deep water blue, and it is exact here because the
+            // thickness above was MEASURED against a signed field rather
+            // than baked into a texture or guessed from a depth
+            // difference.
+            transmitted *= exp(-absorption * thickness);
+
+            colour = mix(transmitted, reflected, fresnel);
+
+            // Direct highlights, on top: a glass still catches the scene's
+            // lights itself, independently of what it transmits, and
+            // that highlight is most of what tells you there is a surface
+            // there at all where the transmission happens to match the
+            // backdrop.
+            //
+            // Roughness comes from the material like any other surface, so
+            // frosted glass and polished glass differ here as well as in
+            // what they transmit. Unshadowed, deliberately -- a
+            // transmissive surface is normally authored with
+            // casts_shadow=false, so there is nothing coherent to test
+            // against, and a highlight is a reflection off the near face
+            // rather than light that had to reach the far one.
+            float tm_roughness =
+                clamp(material_scalars[tm_prim].w, 0.0, 1.0);
+            for (int i = 0; i < push.light_count; ++i) {
+                Light light = lights[i];
+                vec3 light_dir;
+                float attenuation;
+                if (int(light.vector_type.w) == 1) {
+                    vec3 to_light = light.vector_type.xyz - p_in;
+                    float dist = length(to_light);
+                    light_dir = to_light / max(dist, 0.0001);
+                    attenuation =
+                        light.colour_intensity.a / max(dist * dist, 0.0001);
+                } else {
+                    light_dir = normalize(light.vector_type.xyz);
+                    attenuation = light.colour_intensity.a;
+                }
+                colour += light.colour_intensity.rgb * attenuation *
+                          specular_ggx(n_in, -ray_dir, light_dir,
+                                       tm_roughness, tm_f0);
+            }
         }
     }
 

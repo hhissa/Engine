@@ -149,6 +149,18 @@ void sample_field(vec3 p, vec3 ray_dir, out float dist, out float skip_dist, out
 // to it (via brick_primitive[]) transparent to this one shadow ray instead
 // of a real occluder -- pass -1 (no primitive can ever match) for a light
 // with no associated primitive, i.e. every authored/fallback light.
+// Whether a surface a shadow ray ran into actually casts a shadow, by the
+// primitive index the field attributes it to (see Material::casts_shadow
+// engine-side). A shader with the per-primitive material scalars bound
+// defines this before this #include -- see Builtin.DeferredShade.comp.glsl.
+// The default here is "everything casts", which is what the GI bakes want:
+// they include this file for its field sampling and have no material data
+// bound at all, and a non-casting surface is an authoring note about direct
+// light, not a claim that bounce light passes through it.
+#ifndef SHADOW_CASTER_TEST
+#define SHADOW_CASTER_TEST(material) true
+#endif
+
 float shadow_march(vec3 origin, vec3 dir, float max_dist, float k, int max_steps, int exclude_material) {
     // Larger than SURF_DIST: how far shadow_march steps forward when it
     // hits exclude_material's own shell, to actually make progress through
@@ -168,7 +180,15 @@ float shadow_march(vec3 origin, vec3 dir, float max_dist, float k, int max_steps
         bool valid = (skip_dist == 0.0);
 
         if (valid && abs(dist) < SURF_DIST) {
-            if (material == exclude_material) {
+            // Two separate reasons to step through a surface rather than
+            // stop at it: it is the light's own emissive primitive (see
+            // exclude_material above), or its material opts out of casting
+            // entirely. Both walk forward by SELF_SKIP_STEP instead of
+            // returning, and both deliberately leave `shadow` untouched --
+            // a surface this ray is allowed to pass through must not
+            // darken the penumbra on its way through either.
+            if (material == exclude_material ||
+                !SHADOW_CASTER_TEST(material)) {
                 travelled += SELF_SKIP_STEP;
                 continue;
             }

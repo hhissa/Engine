@@ -296,9 +296,18 @@ inline f32 evaluate_repeated(const SdfPrimitiveDef &primitive,
       q = glm::vec3(c * q.x + s * q.z, q.y, -s * q.x + c * q.z);
     }
     if (primitive.bend != 0.0f) {
-      f32 c = std::cos(primitive.bend * q.x);
-      f32 s = std::sin(primitive.bend * q.x);
-      q = glm::vec3(c * q.x + s * q.y, -s * q.x + c * q.y, q.z);
+      // Same drive/target decode as bend_axes() in GLSL -- the six
+      // SdfBendAxis values are ordered so this is arithmetic, not a switch
+      // (see that enum's comment for the ordering it depends on).
+      const int mode = static_cast<int>(primitive.bend_axis);
+      const int drive = mode >> 1;
+      const int target = (drive + 1 + (mode & 1)) % 3;
+      const f32 a = q[drive];
+      const f32 b = q[target];
+      const f32 c = std::cos(primitive.bend * a);
+      const f32 s = std::sin(primitive.bend * a);
+      q[drive] = c * a + s * b;
+      q[target] = -s * a + c * b;
     }
     f32 d = sdf::evaluate(primitive.type, params, q);
     if (primitive.displace_amplitude != 0.0f) {
@@ -408,6 +417,93 @@ inline f32 evaluate_repeated(const SdfPrimitiveDef &primitive,
   }
 }
 
+// The world points a LAYER's repetition folds `p` onto -- the CPU mirror of
+// layer_fold_candidate() in Builtin.SdfSceneCommon.inc.glsl, same modes,
+// though filled into an array here rather than returned one at a time: the
+// GLSL side is written that way purely to keep the driver from unrolling
+// the loop around a whole primitive evaluation (see its comment), which is
+// not a concern for CPU code that picks one ray per click.
+//
+// same neighbour-checked/clamped-id technique the per-primitive
+// evaluate_repeated() above already mirrors. Returns how many of `out` were
+// filled (at most 8).
+//
+// A layer fold can't be pushed into the ray the way a primitive's own
+// position/rotation can (see raymarch_primitive() below, which transforms
+// the ray once and marches in local space): domain repetition is a fold of
+// the sample point, not a rigid transform, so the march for a repeated
+// layer has to happen in world space and fold each sample -- exactly what
+// the GPU does.
+inline int layer_fold_candidates(const SdfLayerDef &layer, glm::vec3 p,
+                                 glm::vec3 (&out)[8]) {
+  if (layer.repetition_mode == SdfRepetitionMode::Rotational) {
+    int n = static_cast<int>(std::lround(layer.repetition_count.x));
+    if (n < 2) {
+      out[0] = p;
+      return 1;
+    }
+    f32 sector = 6.283185307f / static_cast<f32>(n);
+    f32 angle = std::atan2(p.z, p.x);
+    f32 id = std::floor(angle / sector);
+    for (int i = 0; i < 2; ++i) {
+      f32 a = sector * (id + static_cast<f32>(i));
+      f32 c = std::cos(a);
+      f32 sn = std::sin(a);
+      out[i] = glm::vec3(c * p.x + sn * p.z, p.y, -sn * p.x + c * p.z);
+    }
+    return 2;
+  }
+
+  bool rect = layer.repetition_mode == SdfRepetitionMode::Rectangular;
+  glm::vec3 cell = rect ? glm::vec3(layer.repetition_cell.x, 0.0f,
+                                    layer.repetition_cell.z)
+                        : layer.repetition_cell;
+  glm::vec3 count = rect ? glm::vec3(layer.repetition_count.x, 1.0f,
+                                     layer.repetition_count.z)
+                         : layer.repetition_count;
+  glm::bvec3 active(cell.x > 1e-5f, cell.y > 1e-5f, cell.z > 1e-5f);
+  glm::vec3 safe_cell(active.x ? cell.x : 1.0f, active.y ? cell.y : 1.0f,
+                     active.z ? cell.z : 1.0f);
+  glm::vec3 half_span =
+      layer.repetition_mode == SdfRepetitionMode::Infinite
+          ? glm::vec3(1e9f)
+          : glm::max(count - 1.0f, glm::vec3(0.0f)) * 0.5f;
+
+  glm::vec3 id = glm::round(p / safe_cell);
+  glm::vec3 sgn = glm::sign(p - safe_cell * id);
+  glm::vec3 o(active.x && half_span.x > 0.0f ? sgn.x : 0.0f,
+             active.y && half_span.y > 0.0f ? sgn.y : 0.0f,
+             active.z && half_span.z > 0.0f ? sgn.z : 0.0f);
+  glm::ivec3 candidates(o.x != 0.0f ? 2 : 1, o.y != 0.0f ? 2 : 1,
+                       o.z != 0.0f ? 2 : 1);
+
+  int n = 0;
+  for (int k = 0; k < candidates.z; ++k) {
+    for (int j = 0; j < candidates.y; ++j) {
+      for (int i = 0; i < candidates.x; ++i) {
+        glm::vec3 rid = glm::clamp(id + glm::vec3(i, j, k) * o, -half_span, half_span);
+        glm::vec3 r = p - safe_cell * rid;
+        out[n++] = glm::vec3(active.x ? r.x : p.x, active.y ? r.y : p.y,
+                            active.z ? r.z : p.z);
+      }
+    }
+  }
+  return n;
+}
+
+// One primitive's distance at a WORLD point -- the transform
+// raymarch_primitive() normally folds into the ray, done per sample instead
+// (see layer_fold_candidates() above for why a repeated layer needs that).
+inline f32 evaluate_primitive_world(const SdfPrimitiveDef &primitive,
+                                    const CompiledParamExprs &compiled,
+                                    glm::vec3 world_p) {
+  glm::vec3 local = world_p - primitive.position;
+  if (primitive.type != SdfPrimitiveType::Plane) {
+    local = glm::conjugate(glm::quat(primitive.rotation)) * local;
+  }
+  return evaluate_repeated(primitive, compiled, local);
+}
+
 // Sphere-traces along origin+dir*t against primitive's distance function,
 // in its own local space (world position subtracted, then rotated by the
 // inverse of primitive.rotation -- skipped for Plane, which never rotates,
@@ -418,10 +514,37 @@ inline f32 evaluate_repeated(const SdfPrimitiveDef &primitive,
 // inside the shape, the same safe-stepping convention
 // Builtin.RaymarchShader.comp.glsl's raymarch() already uses.
 inline std::optional<f32> raymarch_primitive(const SdfPrimitiveDef &primitive,
-                                             glm::vec3 origin, glm::vec3 dir) {
+                                             glm::vec3 origin, glm::vec3 dir,
+                                             const SdfLayerDef *layer = nullptr) {
   constexpr int kMaxSteps = 128;
   constexpr f32 kMaxDist = 100.0f;
   constexpr f32 kSurfaceEpsilon = 0.0005f;
+
+  // A repeated layer marches in world space, folding every sample -- so
+  // clicking any COPY of a repeated layer picks the primitive that copy
+  // came from, which is the one an edit has to change.
+  if (layer && layer->repetition_mode != SdfRepetitionMode::None) {
+    CompiledParamExprs folded_compiled = compile_param_expressions(primitive);
+    f32 t = 0.0f;
+    for (int i = 0; i < kMaxSteps; ++i) {
+      glm::vec3 p = origin + dir * t;
+      glm::vec3 points[8];
+      int n = layer_fold_candidates(*layer, p, points);
+      f32 d = kMaxDist;
+      for (int c = 0; c < n; ++c) {
+        d = std::min(d, evaluate_primitive_world(primitive, folded_compiled,
+                                                 points[c]));
+      }
+      if (std::fabs(d) < kSurfaceEpsilon) {
+        return t;
+      }
+      t += std::max(std::fabs(d), kSurfaceEpsilon);
+      if (t > kMaxDist) {
+        break;
+      }
+    }
+    return std::nullopt;
+  }
 
   glm::vec3 local_origin = origin - primitive.position;
   glm::vec3 local_dir = dir;
@@ -456,9 +579,21 @@ inline std::optional<SceneRayHit> raycast_scene(const SdfScene &scene,
   std::optional<SceneRayHit> best;
 
   for (int i = 0; i < static_cast<int>(scene.layers.size()); ++i) {
-    const std::vector<SdfPrimitiveDef> &primitives = scene.layers[i].primitives;
+    const SdfLayerDef &layer = scene.layers[i];
+    const std::vector<SdfPrimitiveDef> &primitives = layer.primitives;
     for (int j = 0; j < static_cast<int>(primitives.size()); ++j) {
-      std::optional<f32> t = raymarch_primitive(primitives[j], origin, dir);
+      // March the primitive where it actually RENDERS, i.e. with its
+      // layer's own transform composed in -- exactly what
+      // GeometrySystem::load_scene()/reconcile_scene() hand the bake (see
+      // SdfLayerDef::position). Composing here, rather than pushing the
+      // layer transform into the ray, is what keeps the picker and the
+      // bake in agreement about a rotated layer that ALSO repeats: the
+      // fold below stays in world space in both.
+      SdfPrimitiveDef world = primitives[j];
+      const SdfTransform transform = sdf_layer_world_transform(layer, world);
+      world.position = transform.position;
+      world.rotation = transform.rotation;
+      std::optional<f32> t = raymarch_primitive(world, origin, dir, &layer);
       if (t && (!best || *t < best->distance)) {
         best = SceneRayHit{*t, i, j};
       }

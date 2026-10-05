@@ -63,6 +63,25 @@ const char *to_string(SdfRepetitionMode mode) {
   }
 }
 
+// The two-letter shorthand parse_bend_axis() (sdf_scene.cpp) reads back.
+const char *to_string(SdfBendAxis axis) {
+  switch (axis) {
+  case SdfBendAxis::XToZ:
+    return "xz";
+  case SdfBendAxis::YToZ:
+    return "yz";
+  case SdfBendAxis::YToX:
+    return "yx";
+  case SdfBendAxis::ZToX:
+    return "zx";
+  case SdfBendAxis::ZToY:
+    return "zy";
+  case SdfBendAxis::XToY:
+  default:
+    return "xy";
+  }
+}
+
 const char *to_string(SdfLightType type) {
   return type == SdfLightType::Point ? "point" : "directional";
 }
@@ -76,12 +95,24 @@ std::optional<SdfScene> read_scene(std::string_view path) {
   return load_sdf_scene(path);
 }
 
-bool save_scene(std::string_view path, const SdfScene &scene) {
+bool save_scene(std::string_view path, const SdfScene &input) {
   std::ofstream file{std::string(path)};
   if (!file.is_open()) {
     KERROR("Failed to open SDF scene file for writing: '{}'.", path);
     return false;
   }
+
+  // Written scenes are ALWAYS fully converted to the material library
+  // form. Converting a copy here (rather than requiring every caller to
+  // have done it, or writing whichever form each binding happens to be
+  // in) is what makes the conversion total: a file this function produces
+  // never mixes id bindings with legacy .kmt names, so it cannot later be
+  // read back into a half-converted state.
+  //
+  // The caller's own scene is left alone -- a code-driven scene built with
+  // add_box(..., "test_material") keeps working exactly as it did.
+  SdfScene scene = input;
+  sdf_scene_import_legacy_materials(scene);
 
   // ostream's default float precision is 6 significant digits -- lossy
   // for an f32 (needs up to max_digits10 == 9 to round-trip exactly).
@@ -98,8 +129,34 @@ bool save_scene(std::string_view path, const SdfScene &scene) {
   file << std::setprecision(std::numeric_limits<f32>::max_digits10);
 
   file << "#sdf scene file\n";
-  file << "version=0.1\n";
+  // 0.2 introduced the scene-embedded material library below. The reader
+  // accepts both -- a 0.1 file names its materials by .kmt filename and is
+  // converted on load (see sdf_scene_import_legacy_materials()) -- but
+  // everything written from here on is 0.2.
+  file << "version=0.2\n";
   file << "ambient=" << scene.ambient << "\n";
+  // Only written when the scene actually names one -- an empty skybox means
+  // "unspecified" rather than "off" (see SdfScene::skybox), so emitting an
+  // empty line would be writing a value the reader would have to invent a
+  // meaning for, and it keeps every file authored before this existed
+  // byte-for-byte unchanged.
+  if (!scene.skybox.empty()) {
+    file << "skybox=" << scene.skybox << "\n";
+  }
+
+  // The material library, written FIRST so the file reads top-down: every
+  // "material=<id>" line below refers to something already defined. (The
+  // reader does not require this -- it resolves bindings in a pass after
+  // the whole file is read -- but a file a human may open should not make
+  // them scroll to find out what a primitive is made of.)
+  //
+  // The block header carries the display name, exactly as a layer or light
+  // block does, which is why material_def_write() does not emit one.
+  for (const MaterialDef &material : scene.materials) {
+    file << "\nmaterial " << material.display_name << " {\n";
+    material_def_write(material, file, "    ");
+    file << "}\n";
+  }
 
   for (const SdfLightDef &light : scene.lights) {
     file << "\nlight " << light.name << " {\n";
@@ -123,6 +180,29 @@ bool save_scene(std::string_view path, const SdfScene &scene) {
     file << "\nlayer " << layer.name << " {\n";
     file << "    operation=" << to_string(layer.operation) << "\n";
     file << "    smoothness=" << layer.smoothness << "\n";
+    // The layer's own transform -- only emitted when it is not the
+    // identity, the same "keeps files written before this existed
+    // byte-for-byte unchanged" convention the repetition below uses. Both
+    // are written whenever either is set, so the pair always reads
+    // together.
+    if (layer.position != glm::vec3(0.0f) || layer.rotation != glm::vec3(0.0f)) {
+      file << "    position=";
+      write_vec3(file, layer.position);
+      file << "\n    rotation=";
+      write_vec3(file, layer.rotation);
+      file << "\n";
+    }
+    // The layer's own repetition -- only emitted when it actually repeats,
+    // same "keeps files written before this existed byte-for-byte
+    // unchanged" convention the per-primitive repetition below uses.
+    if (layer.repetition_mode != SdfRepetitionMode::None) {
+      file << "    repetition=" << to_string(layer.repetition_mode) << "\n";
+      file << "    repetition_cell=";
+      write_vec3(file, layer.repetition_cell);
+      file << "\n    repetition_count=";
+      write_vec3(file, layer.repetition_count);
+      file << "\n";
+    }
 
     for (const SdfPrimitiveDef &primitive : layer.primitives) {
       file << "\n    primitive " << primitive.name << " {\n";
@@ -185,14 +265,28 @@ bool save_scene(std::string_view path, const SdfScene &scene) {
       // defaults to 20 (not 0, see SdfPrimitiveDef's own comment), so its
       // own check is against that default, not 0.
       if (primitive.twist != 0.0f || primitive.bend != 0.0f ||
+          primitive.bend_axis != SdfBendAxis::XToY ||
           primitive.displace_amplitude != 0.0f ||
           primitive.displace_frequency != 20.0f) {
         file << "        twist=" << primitive.twist << "\n";
         file << "        bend=" << primitive.bend << "\n";
+        file << "        bend_axis=" << to_string(primitive.bend_axis) << "\n";
         file << "        displace_amplitude=" << primitive.displace_amplitude << "\n";
         file << "        displace_frequency=" << primitive.displace_frequency << "\n";
       }
-      file << "        material=" << primitive.material_name << "\n";
+      // Only ever the id form: a scene converts on its first save and
+      // never half-converts, so a legacy .kmt name cannot survive a
+      // round trip through the editor.
+      file << "        material="
+          << (primitive.material_id != kInvalidMaterialId
+                  ? material_id_to_string(primitive.material_id)
+                  : primitive.material_name)
+          << "\n";
+      for (const MaterialOverride &override_entry :
+           primitive.material_overrides) {
+        file << "        material_override=" << override_entry.key << ' '
+            << override_entry.value << "\n";
+      }
       file << "    }\n";
     }
 
@@ -209,7 +303,16 @@ bool save_scene(std::string_view path, const SdfScene &scene) {
     file << "\n    params=" << volumetric.params.x << ' ' << volumetric.params.y
         << ' ' << volumetric.params.z << ' ' << volumetric.extra_param << "\n";
     file << "    density=" << volumetric.density << "\n";
-    file << "    material=" << volumetric.material_name << "\n";
+    file << "    material="
+        << (volumetric.material_id != kInvalidMaterialId
+                ? material_id_to_string(volumetric.material_id)
+                : volumetric.material_name)
+        << "\n";
+    for (const MaterialOverride &override_entry :
+         volumetric.material_overrides) {
+      file << "    material_override=" << override_entry.key << ' '
+          << override_entry.value << "\n";
+    }
     file << "}\n";
   }
 

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <functional>
+#include <optional>
 #include <glm/glm.hpp>
 #include <string>
 #include <string_view>
@@ -58,6 +59,19 @@ enum class RepetitionMode : u32 {
   Rectangular = 4,
 };
 
+// Mirrors SdfBendAxis (sdf_scene.h) value-for-value -- see its comment for
+// what each pair means and why the numeric order matters (the shader
+// decodes it arithmetically). XToY is the classic bend, and the default
+// everywhere, so nothing that never sets this changes behaviour.
+enum class BendAxis : u32 {
+  XToY = 0,
+  XToZ = 1,
+  YToZ = 2,
+  YToX = 3,
+  ZToX = 4,
+  ZToY = 5,
+};
+
 // One layer's combine rule. Geometry::layer indexes into
 // GeometrySystem::layers() to find the SceneLayer it belongs to -- a layer
 // can hold as many primitives as you like, and this operation/smoothness
@@ -86,6 +100,17 @@ struct SceneLayer {
   // it -- see that function, and [[deterministic-scene-order]] for the chunk
   // cache half of the same problem.
   u32 order = 0;
+  // Domain repetition applied to this layer as a whole -- see
+  // SdfLayerDef::repetition_mode (sdf_scene.h) for what that means and why
+  // it is not the same thing as repeating each primitive in it. Kept here
+  // as the authored value: GeometrySystem::reconcile_scene() diffs against
+  // it to notice a layer's fold changing, and every primitive in the layer
+  // carries its own copy (Geometry::layer_repetition_mode) because every
+  // consumer downstream -- bounding radius, chunk assignment, the GPU
+  // upload -- works per primitive, not per layer.
+  RepetitionMode repetition_mode = RepetitionMode::None;
+  glm::vec3 repetition_cell{1.0f};
+  glm::vec3 repetition_count{1.0f};
 };
 
 // Describes one primitive to register: its shape, world-space transform,
@@ -104,12 +129,13 @@ struct GeometryConfig {
   glm::vec3 params{1.0f}; // Per-type meaning -- see SdfPrimitiveDef::params
                          // (sdf_scene.h), which this mirrors exactly.
   f32 extra_param = 0.0f; // See SdfPrimitiveDef::extra_param.
-  // Domain deformation -- see SdfPrimitiveDef::twist/bend/
+  // Domain deformation -- see SdfPrimitiveDef::twist/bend/bend_axis/
   // displace_amplitude/displace_frequency's comment (sdf_scene.h); mirrored
   // here verbatim, exactly like every other primitive attribute in this
   // struct.
   f32 twist = 0.0f;
   f32 bend = 0.0f;
+  BendAxis bend_axis = BendAxis::XToY;
   f32 displace_amplitude = 0.0f;
   f32 displace_frequency = 20.0f;
   // Optional per-slot formula overriding the corresponding params.x/y/z/
@@ -124,6 +150,24 @@ struct GeometryConfig {
   RepetitionMode repetition_mode = RepetitionMode::None;
   glm::vec3 repetition_cell{1.0f};
   glm::vec3 repetition_count{1.0f};
+  // The owning LAYER's repetition, copied down onto the primitive -- see
+  // Geometry::layer_repetition_mode below for why it rides here rather
+  // than being looked up from the layer at each use.
+  RepetitionMode layer_repetition_mode = RepetitionMode::None;
+  glm::vec3 layer_repetition_cell{1.0f};
+  glm::vec3 layer_repetition_count{1.0f};
+  // The resolved material for this primitive, when the caller has one --
+  // which is every scene-driven path, since load_scene()/reconcile_scene()
+  // resolve each binding against the scene's material library (and fold in
+  // any per-primitive overrides) before getting here.
+  //
+  // When set, this wins and material_name below is ignored: the runtime
+  // material is acquired by CONTENT (MaterialSystem::acquire_def()), so
+  // Geometry::material_name ends up holding that content key rather than
+  // anything an author typed. Leave it unset to acquire a legacy
+  // assets/materials/<material_name>.kmt file instead, which is what the
+  // code-driven sphere()/box()/plane() helpers below still do.
+  std::optional<MaterialDef> material_def;
   std::string material_name;
 
   static GeometryConfig sphere(std::string name, glm::vec3 position,
@@ -152,14 +196,17 @@ struct Geometry {
   glm::vec3 rotation{0.0f}; // Euler angles, radians -- see GeometryConfig.
   glm::vec3 params{1.0f};
   f32 extra_param = 0.0f; // See GeometryConfig::extra_param.
-  // Domain deformation -- see GeometryConfig::twist/bend/
+  // Domain deformation -- see GeometryConfig::twist/bend/bend_axis/
   // displace_amplitude/displace_frequency above. twist/bend/
   // displace_frequency are rates (radians, or a sin() argument multiplier,
   // per world-unit) so scale_scene() divides them by its factor to keep
   // the same *visual* twist/bend/ripple density regardless of scale;
   // displace_amplitude is a length, scaled up like params/extra_param.
+  // bend_axis is neither -- it names a pair of axes, so scaling leaves it
+  // alone.
   f32 twist = 0.0f;
   f32 bend = 0.0f;
+  BendAxis bend_axis = BendAxis::XToY;
   f32 displace_amplitude = 0.0f;
   f32 displace_frequency = 20.0f;
   std::array<std::string, 4> param_expressions; // See GeometryConfig::param_expressions.
@@ -180,11 +227,37 @@ struct Geometry {
   RepetitionMode repetition_mode = RepetitionMode::None;
   glm::vec3 repetition_cell{1.0f};
   glm::vec3 repetition_count{1.0f};
+  // The repetition of the LAYER this primitive belongs to (see
+  // SceneLayer::repetition_mode), applied in WORLD space before the
+  // primitive's own rotation/repetition -- so a whole layer's worth of
+  // primitives steps by the same world vector and repeats as one
+  // arrangement, instead of each one repeating around its own rotated axes
+  // (see SdfLayerDef::repetition_mode, sdf_scene.h, for the authoring
+  // story). The finite modes still measure the instance id from this
+  // primitive's own position -- see layer_fold_candidate() in
+  // Builtin.SdfSceneCommon.inc.glsl for why measuring it from the world
+  // origin collapses an off-origin layer to a single copy.
+  //
+  // A COPY of the layer's value rather than a lookup through `layer`
+  // because every consumer is per primitive and several have no
+  // GeometrySystem to look through: geometry_bounding_radius()/
+  // chunks_touched_by() are free functions taking only a Geometry, and the
+  // GPU fold reads it out of each primitive's own uploaded struct (see
+  // GpuPrimitive::layer_repeat_mode_cell) so that primitive_sdf() needs no
+  // layer index at any of its call sites. load_scene()/reconcile_scene()
+  // are what keep the copies in step with the layer.
+  //
+  // layer_repetition_cell is a length, scaled by scale_scene() exactly like
+  // repetition_cell above; layer_repetition_count is a plain instance count
+  // and never scales.
+  RepetitionMode layer_repetition_mode = RepetitionMode::None;
+  glm::vec3 layer_repetition_cell{1.0f};
+  glm::vec3 layer_repetition_count{1.0f};
   // Accumulated uniform scale applied to this primitive's *effective*
   // texture_scale (world units per texture tile -- see Material::
-  // texture_scale) at upload time: effective = material->texture_scale *
+  // texture_scale) at upload time: effective = material->def.uv_scale *
   // texture_scale_factor. A separate per-Geometry factor rather than
-  // scaling material->texture_scale directly, because Material is a
+  // scaling material->def.uv_scale directly, because Material is a
   // shared, reference-counted resource (MaterialSystem::acquire() caches
   // by name) -- multiple primitives, even across different loaded scenes,
   // can point at the exact same Material instance, so mutating it in
@@ -199,10 +272,10 @@ struct Geometry {
   f32 texture_scale_factor = 1.0f;
   // Accumulated uniform scale applied to this primitive's *effective*
   // texture offset (world units -- see Material::texture_offset) at upload
-  // time: effective = material->texture_offset * texture_offset_scale.
+  // time: effective = material->def.uv_offset * texture_offset_scale.
   // Same rationale as texture_scale_factor above (Material is shared/
   // reference-counted, so scale_scene() can't just multiply
-  // material->texture_offset directly) and the same reason it needs
+  // material->def.uv_offset directly) and the same reason it needs
   // rescaling at all: texture_offset is a world-unit *length* (how far the
   // pattern is shifted), so it must shrink/grow in lockstep with the
   // primitive and its texture_scale, or the offset ends up relatively too
@@ -242,7 +315,10 @@ constexpr f32 kUnboundedBoundingRadius = 1e8f;
 //
 // Returns kUnboundedBoundingRadius (never cull) for:
 //  - a Plane, which has no finite extent at all;
-//  - a primitive with RepetitionMode::Infinite, likewise unbounded;
+//  - a primitive with RepetitionMode::Infinite, likewise unbounded -- its
+//    own, or its layer's (Geometry::layer_repetition_mode), since an
+//    infinitely repeated layer puts a copy of this primitive in every cell
+//    of the fold just as surely;
 //  - a primitive with any active parametric-attribute formula (see
 //    Geometry::param_expressions) -- a formula's actual runtime value can
 //    differ arbitrarily from params' plain-constant fallback (see
@@ -313,6 +389,23 @@ std::vector<ChunkKey> chunks_touched_by(const Geometry &geometry,
                                         f32 chunk_size,
                                         f32 extra_margin = 0.0f);
 
+// The same, for a caller that already knows a better bound than
+// geometry_bounding_radius() can give from the Geometry alone.
+//
+// That is not hypothetical: geometry_bounding_radius() gives up on any
+// primitive carrying a parametric attribute expression and returns the
+// kUnboundedBoundingRadius sentinel, but VulkanRaymarchShader::rebuild_
+// static_scene() then proves a real finite bound for most of them by
+// interval analysis plus a fixed-point solve (a taper like "0.15 - 0.1*p.y"
+// is obviously finite as a shape even though it is linear in position, and
+// resolves to a bound of about a unit). Callers holding that refined radius
+// must pass it here, or they get the empty vector the overload above
+// returns for anything unbounded -- which reads as "touches no chunks",
+// the opposite of the truth.
+std::vector<ChunkKey> chunks_touched_by(glm::vec3 position, f32 radius,
+                                        f32 chunk_size,
+                                        f32 extra_margin = 0.0f);
+
 // Mirrors SdfLightType (sdf_scene.h) value-for-value.
 enum class LightType : u32 {
   Directional = 0,
@@ -367,6 +460,18 @@ struct VolumetricConfig {
   // accumulate_volumetrics() in Builtin.RaymarchShader.comp.glsl. Higher
   // reads as a denser/brighter shaft.
   f32 density = 1.0f;
+  // The resolved material for this primitive, when the caller has one --
+  // which is every scene-driven path, since load_scene()/reconcile_scene()
+  // resolve each binding against the scene's material library (and fold in
+  // any per-primitive overrides) before getting here.
+  //
+  // When set, this wins and material_name below is ignored: the runtime
+  // material is acquired by CONTENT (MaterialSystem::acquire_def()), so
+  // Geometry::material_name ends up holding that content key rather than
+  // anything an author typed. Leave it unset to acquire a legacy
+  // assets/materials/<material_name>.kmt file instead, which is what the
+  // code-driven sphere()/box()/plane() helpers below still do.
+  std::optional<MaterialDef> material_def;
   std::string material_name;
 };
 

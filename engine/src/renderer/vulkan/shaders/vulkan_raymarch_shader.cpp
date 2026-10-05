@@ -126,9 +126,27 @@ constexpr i32 kRenderFlagSkybox = 2;
 constexpr i32 kRenderFlagChunkedField = 4;
 constexpr i32 kRenderFlagIsm = 8;
 
-// 4 vec4s + 15 scalars = 124 bytes -- within Vulkan's guaranteed minimum
-// push constant size of 128 bytes, so no device limit query is
-// needed here.
+// 4 vec4s + 16 scalars = 128 bytes -- EXACTLY Vulkan's guaranteed minimum
+// push constant size, so no device limit query is needed here and there is
+// no room left at all. Anything new the shading pass needs has to ride in a
+// buffer instead (see transmission_buffer_, whose tail range deliberately
+// self-terminates rather than being given a count here).
+//
+// Machine-checked because the comment above was wrong for a while: it said
+// 15 scalars / 124 bytes, having not been updated when dynamic_primitive
+// was added, which reads as "there is room for one more" to anyone who
+// trusts it. A silent overflow here is a validation error at best and four
+// bytes of garbage in every field after the overflow at worst.
+static_assert(sizeof(PushConstants) <= 128,
+              "PushConstants must fit Vulkan's guaranteed 128-byte minimum -- "
+              "put new per-frame data in a buffer instead.");
+
+// Must match TRANSMISSIVE_MAX_COUNT in Builtin.DeferredShade.comp.glsl.
+// Every transmissive primitive is evaluated analytically at every pixel
+// the range is tested against, so this is a per-pixel loop bound rather
+// than a storage limit -- which is why it is small, and why exceeding it
+// is worth a warning (see rebuild_static_scene()).
+constexpr i32 kMaxShadedTransmissivePrimitives = 16;
 
 // Fallback when GeometrySystem has no registered lights at all (e.g. an
 // .sdf file with no "light" blocks, or nothing loaded yet) -- without this,
@@ -825,7 +843,17 @@ constexpr u32 kChunkCacheThreadsPerGroup = 64;
 //    They must never be restored again.
 // 4: CHUNK_CACHE_MAX_BRICKS 512 -> 2048, which moves the voxel word offset
 //    within the payload. Layout change, so v3 entries are unreadable.
-constexpr u32 kChunkCacheFormatVersion = 4;
+// 5: layer_fold_candidate() (Builtin.SdfSceneCommon.inc.glsl) now measures
+//    a finite layer fold's instance id from the primitive's own position
+//    instead of the world origin, so a layer authored away from the origin
+//    bakes to a genuinely different field. Nothing in the KEY changed --
+//    the key is hashed over the uploaded primitive/layer bytes, which are
+//    identical either side of this -- so without a bump every chunk of
+//    every repeated layer would restore its pre-fix, collapsed geometry
+//    from disk and the fix would be invisible. THIS IS THE GENERAL RULE:
+//    a change to what the voxelize shaders COMPUTE needs a version bump
+//    just as much as a change to what the file HOLDS.
+constexpr u32 kChunkCacheFormatVersion = 5;
 
 
 // Cap on how many repetition instances of a SINGLE primitive one chunk's
@@ -934,8 +962,34 @@ struct GpuPrimitive {
   f32 repeat_count[4];
   // Domain deformation -- see Geometry::twist/bend/displace_amplitude/
   // displace_frequency's comment. x = twist, y = bend, z =
-  // displace_amplitude, w = displace_frequency.
+  // displace_amplitude, w = displace_frequency. The bend's DIRECTION
+  // (Geometry::bend_axis) does not fit here -- all four slots were already
+  // spoken for -- and rides in layer_repeat_count[3] below instead.
   f32 deform[4];
+  // The repetition of the LAYER this primitive belongs to, in the same
+  // packing as repeat_mode_cell/repeat_count above: x = RepetitionMode as
+  // a float, yzw = cell; then xyz = count (w unused). Folded in WORLD
+  // space before the primitive's own rotation, so a whole layer repeats
+  // as one arrangement -- see Geometry::layer_repetition_mode and
+  // primitive_sdf() in Builtin.SdfSceneCommon.inc.glsl. The fold's own
+  // pivot is position_type.xyz above (layer_fold_candidate()'s `pivot`),
+  // so nothing beyond these two vec4s needs uploading for it.
+  //
+  // Carried per primitive rather than read from the Layer struct so that
+  // every existing primitive_sdf() call site keeps working unchanged: the
+  // bake's per-chunk candidate lists evaluate primitives one at a time,
+  // outside any enclosing layer loop, and would otherwise each need to
+  // pass a layer index down. Zero-init (None) is what a volumetric and a
+  // primitive in an ordinary layer both get.
+  f32 layer_repeat_mode_cell[4];
+  // xyz = the layer's repetition count, per the comment above. w = this
+  // primitive's BendAxis as a float (see Geometry::bend_axis) -- nothing to
+  // do with layer repetition, just the last unused float in the struct, and
+  // repurposed rather than growing every GpuPrimitive by another vec4, the
+  // same call already made for repeat_count[3]'s bounding radius. Zero
+  // (BendAxis::XToY, the classic bend) is what the value-initialised
+  // default and every volumetric both leave here.
+  f32 layer_repeat_count[4];
 };
 
 // Matches the `Layer` struct in Builtin.RaymarchVoxelize.comp.glsl.
@@ -1607,11 +1661,20 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       *context_, param_expr_buffer_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  // One float (0.0/1.0) per primitive -- see Material::pixelation_exempt.
-  const u64 pixelation_exempt_buffer_size =
-      static_cast<u64>(kMaxScenePrimitives) * sizeof(f32);
-  pixelation_exempt_buffer_.emplace(
-      *context_, pixelation_exempt_buffer_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+  // One vec4 (pixelation_exempt, bump_strength, casts_shadow, _) per
+  // primitive -- see material_scalar_buffer_'s own comment.
+  const u64 material_scalar_buffer_size =
+      static_cast<u64>(kMaxScenePrimitives) * sizeof(f32) * 4;
+  material_scalar_buffer_.emplace(
+      *context_, material_scalar_buffer_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  // One vec4 (xyz = Beer-Lambert absorption coefficient, w = index of
+  // refraction) per primitive -- see transmission_buffer_'s own comment.
+  const u64 transmission_buffer_size =
+      static_cast<u64>(kMaxScenePrimitives) * sizeof(f32) * 4;
+  transmission_buffer_.emplace(
+      *context_, transmission_buffer_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
   // One vec4 (xyz=texture_offset, w=texture_rotation) per primitive -- see
@@ -1627,7 +1690,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       !primitive_colour_buffer_->is_valid() || !layer_buffer_->is_valid() ||
       !brick_primitive_buffer_->is_valid() || !light_buffer_->is_valid() ||
       !param_expr_buffer_->is_valid() || !probe_buffer_a_->is_valid() ||
-      !probe_buffer_b_->is_valid() || !pixelation_exempt_buffer_->is_valid() ||
+      !probe_buffer_b_->is_valid() || !material_scalar_buffer_->is_valid() ||
+      !transmission_buffer_->is_valid() ||
       !tex_transform_buffer_->is_valid()) {
     KERROR("Failed to create sparse voxel field buffers.");
     return;
@@ -1799,8 +1863,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        &chunk_cluster_cull_set_layout_));
 
   // chunk_shadow_splat_set_ -- see the writes below for the binding list.
-  VkDescriptorSetLayoutBinding chunk_shadow_splat_bindings[7]{};
-  for (u32 i = 0; i < 7; ++i) {
+  VkDescriptorSetLayoutBinding chunk_shadow_splat_bindings[8]{};
+  for (u32 i = 0; i < 8; ++i) {
     chunk_shadow_splat_bindings[i].binding = i;
     chunk_shadow_splat_bindings[i].descriptorType =
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1809,7 +1873,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   }
   VkDescriptorSetLayoutCreateInfo chunk_shadow_splat_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  chunk_shadow_splat_layout_info.bindingCount = 7;
+  chunk_shadow_splat_layout_info.bindingCount = 8;
   chunk_shadow_splat_layout_info.pBindings = chunk_shadow_splat_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &chunk_shadow_splat_layout_info,
@@ -1817,8 +1881,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        &chunk_shadow_splat_set_layout_));
 
   // chunk_voxel_cascade_set_ -- see its writes below.
-  VkDescriptorSetLayoutBinding chunk_voxel_cascade_bindings[5]{};
-  for (u32 i = 0; i < 5; ++i) {
+  VkDescriptorSetLayoutBinding chunk_voxel_cascade_bindings[7]{};
+  for (u32 i = 0; i < 7; ++i) {
     chunk_voxel_cascade_bindings[i].binding = i;
     chunk_voxel_cascade_bindings[i].descriptorType =
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1827,7 +1891,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   }
   VkDescriptorSetLayoutCreateInfo chunk_voxel_cascade_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  chunk_voxel_cascade_layout_info.bindingCount = 5;
+  chunk_voxel_cascade_layout_info.bindingCount = 7;
   chunk_voxel_cascade_layout_info.pBindings = chunk_voxel_cascade_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &chunk_voxel_cascade_layout_info,
@@ -1845,7 +1909,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // allocated after it are the ones that come up short. (The point-splat
   // term went 6 -> 8 when finest_level_at() gained the chunk table and the
   // published flags.)
-  chunk_pool_size.descriptorCount = 21 + 5 + 8 + 8 * 2 + 8 + 9 + 7 + 5;
+  chunk_pool_size.descriptorCount = 21 + 5 + 8 + 8 * 2 + 8 + 9 + 8 + 7;
   VkDescriptorPoolCreateInfo chunk_pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   chunk_pool_info.poolSizeCount = 1;
@@ -2007,17 +2071,23 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                         chunk_cluster_cull_writes, 0, nullptr);
 
   // chunk_voxel_cascade_set_: {0=chunk_cluster_point, 1=chunk_cluster,
-  // 2=resident_clusters, 3=resident_args, 4=voxel_cascades} -- must match
-  // Builtin.ChunkVoxelCascade.comp.glsl.
-  VkDescriptorBufferInfo chunk_voxel_cascade_buffer_infos[5] = {
+  // 2=resident_clusters, 3=resident_args, 4=voxel_cascades,
+  // 5=chunk_brick_primitive, 6=material_scalars} -- must match
+  // Builtin.ChunkVoxelCascade.comp.glsl. The last two are only there for
+  // Material::casts_shadow: a non-casting primitive is left out of the
+  // cascades entirely, which is what stops it occluding ambient light --
+  // same pair, for the same reason, as chunk_shadow_splat_set_'s 6/7.
+  VkDescriptorBufferInfo chunk_voxel_cascade_buffer_infos[7] = {
       {chunk_cluster_point_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_cluster_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_resident_cluster_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_resident_args_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {voxel_cascade_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_primitive_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {material_scalar_buffer_->handle(), 0, VK_WHOLE_SIZE},
   };
-  VkWriteDescriptorSet chunk_voxel_cascade_writes[5]{};
-  for (u32 i = 0; i < 5; ++i) {
+  VkWriteDescriptorSet chunk_voxel_cascade_writes[7]{};
+  for (u32 i = 0; i < 7; ++i) {
     chunk_voxel_cascade_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     chunk_voxel_cascade_writes[i].dstSet = chunk_voxel_cascade_set_;
     chunk_voxel_cascade_writes[i].dstBinding = i;
@@ -2027,13 +2097,14 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     chunk_voxel_cascade_writes[i].pBufferInfo =
         &chunk_voxel_cascade_buffer_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 5,
+  vkUpdateDescriptorSets(context_->device.logical_device, 7,
                         chunk_voxel_cascade_writes, 0, nullptr);
 
   // chunk_shadow_splat_set_: {0=chunk_cluster_point, 1=chunk_cluster,
   // 2=light_buffer, 3=shadow_atlas, 4=shadow_pairs, 5=shadow_args,
-  // 6=chunk_brick_primitive} -- must match Builtin.ChunkShadowSplat.comp.glsl.
-  VkDescriptorBufferInfo chunk_shadow_splat_buffer_infos[7] = {
+  // 6=chunk_brick_primitive, 7=material_scalars} -- must match
+  // Builtin.ChunkShadowSplat.comp.glsl.
+  VkDescriptorBufferInfo chunk_shadow_splat_buffer_infos[8] = {
       {chunk_cluster_point_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_cluster_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {light_buffer_->handle(), 0, VK_WHOLE_SIZE},
@@ -2041,9 +2112,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       {chunk_shadow_pair_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_shadow_args_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_brick_primitive_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {material_scalar_buffer_->handle(), 0, VK_WHOLE_SIZE},
   };
-  VkWriteDescriptorSet chunk_shadow_splat_writes[7]{};
-  for (u32 i = 0; i < 7; ++i) {
+  VkWriteDescriptorSet chunk_shadow_splat_writes[8]{};
+  for (u32 i = 0; i < 8; ++i) {
     chunk_shadow_splat_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     chunk_shadow_splat_writes[i].dstSet = chunk_shadow_splat_set_;
     chunk_shadow_splat_writes[i].dstBinding = i;
@@ -2053,7 +2125,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     chunk_shadow_splat_writes[i].pBufferInfo =
         &chunk_shadow_splat_buffer_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 7,
+  vkUpdateDescriptorSets(context_->device.logical_device, 8,
                         chunk_shadow_splat_writes, 0, nullptr);
 
   // chunk_probe_bake_set_ is bounce parity "write_to_b" (Prev=a_/Curr=b_);
@@ -2144,8 +2216,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // push.splat_mode is nonzero -- same always-bound reasoning again. 23 =
   // the splat pass's per-tile near bound, which decides whether a splat
   // can be trusted at all (see splat_tile_bound_buffer_'s own comment).
-  VkDescriptorSetLayoutBinding render_bindings[28]{};
-  for (u32 i = 0; i < 28; ++i) {
+  VkDescriptorSetLayoutBinding render_bindings[29]{};
+  for (u32 i = 0; i < 29; ++i) {
     render_bindings[i].binding = i;
     render_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     render_bindings[i].descriptorCount = 1;
@@ -2166,10 +2238,12 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // 27 = the ambient-occlusion estimate the shading pass multiplies its
   // indirect term by (26 is the shadow atlas, a buffer).
   render_bindings[27].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  // 28 = per-primitive transmission (absorption + IOR), a plain storage
+  // buffer like 11/13 -- see transmission_buffer_.
 
   VkDescriptorSetLayoutCreateInfo render_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  render_layout_info.bindingCount = 28;
+  render_layout_info.bindingCount = 29;
   render_layout_info.pBindings = render_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &render_layout_info, context_->allocator,
@@ -2260,21 +2334,24 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        &taa_resolve_set_layout_));
 
   // stochastic_ao_set_: {0=gbuffer_depth, 1=gbuffer_normal_material,
-  // 2=ao_image (write), 3=voxel_cascades} -- must match Builtin.
-  // StochasticAo.comp.glsl. The three images are render targets, so this set
-  // is re-pointed by rebind_render_target_descriptors() like every other set
-  // that references one.
-  VkDescriptorSetLayoutBinding stochastic_ao_bindings[4]{};
-  for (u32 i = 0; i < 4; ++i) {
+  // 2=ao_image (write), 3=voxel_cascades, 4=material_scalars} -- must match
+  // Builtin.StochasticAo.comp.glsl. The three images are render targets, so
+  // this set is re-pointed by rebind_render_target_descriptors() like every
+  // other set that references one. Binding 4 is there only for
+  // Material::casts_shadow: the screen-space stage reads it to march past a
+  // non-casting occluder instead of darkening ambient light with it.
+  VkDescriptorSetLayoutBinding stochastic_ao_bindings[5]{};
+  for (u32 i = 0; i < 5; ++i) {
     stochastic_ao_bindings[i].binding = i;
     stochastic_ao_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     stochastic_ao_bindings[i].descriptorCount = 1;
     stochastic_ao_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   }
   stochastic_ao_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  stochastic_ao_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   VkDescriptorSetLayoutCreateInfo stochastic_ao_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  stochastic_ao_layout_info.bindingCount = 4;
+  stochastic_ao_layout_info.bindingCount = 5;
   stochastic_ao_layout_info.pBindings = stochastic_ao_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &stochastic_ao_layout_info,
@@ -2289,8 +2366,9 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // buffer, point pool, point meta, per-tile near bound) + probe bake's
   // 7 x2 (probe_bake_set_ and probe_bake_set_odd_ -- see their
   // declaration comment).
-  // ...plus the AO pass's one storage buffer (the voxel cascades).
-  pool_sizes[0].descriptorCount = 43;
+  // ...plus the AO pass's two storage buffers (the voxel cascades, and the
+  // material scalars its screen-space stage tests casts_shadow with).
+  pool_sizes[0].descriptorCount = 44;
   pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   // render's 2 (output + depth) + bloom blur h's 2 + post composite's 3 +
   // TAA resolve's 5 x2 sets.
@@ -2376,13 +2454,14 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // re-evaluation reads, 10 = whichever probe buffer holds the final
   // bounce's result (see kProbeFinalInBufferB) -- fixed at construction,
   // since which physical buffer is "final" never changes once
-  // kProbeBounceCount is compiled in -- 11 = per-primitive
-  // pixelation-exempt flags, and 13 = per-primitive texture offset/
+  // kProbeBounceCount is compiled in -- 11 = the per-primitive material
+  // scalars (pixelation-exempt/bump strength/shadow casting -- see
+  // material_scalar_buffer_), and 13 = per-primitive texture offset/
   // rotation.
   struct RenderBufferBinding {
     u32 binding;
     VkBuffer buffer;
-  } render_buffer_bindings[21] = {
+  } render_buffer_bindings[22] = {
       {1, indirection_buffer_->handle()},
       {2, brick_pool_buffer_->handle()},
       {3, light_buffer_->handle()},
@@ -2393,7 +2472,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       {9, param_expr_buffer_->handle()},
       {10, kProbeFinalInBufferB ? probe_buffer_b_->handle()
                                : probe_buffer_a_->handle()},
-      {11, pixelation_exempt_buffer_->handle()},
+      {11, material_scalar_buffer_->handle()},
       {13, tex_transform_buffer_->handle()},
       {15, chunk_table_buffer_->handle()},
       {16, chunk_indirection_buffer_->handle()},
@@ -2414,10 +2493,13 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       // 26 = the imperfect shadow maps the shading pass samples (24/25 are
       // the G-buffer images, written by rebind_render_target_descriptors()).
       {26, shadow_atlas_buffer_->handle()},
+      // 28 = per-primitive absorption + IOR, read only by the transmissive
+      // shading block in Builtin.DeferredShade.comp.glsl.
+      {28, transmission_buffer_->handle()},
   };
 
-  VkDescriptorBufferInfo render_buffer_infos[21];
-  VkWriteDescriptorSet render_writes[22]{};
+  VkDescriptorBufferInfo render_buffer_infos[22];
+  VkWriteDescriptorSet render_writes[23]{};
   render_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   render_writes[0].dstSet = render_set_;
   render_writes[0].dstBinding = 0;
@@ -2425,7 +2507,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   render_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   render_writes[0].pImageInfo = &render_image_info;
 
-  for (u32 i = 0; i < 21; ++i) {
+  for (u32 i = 0; i < 22; ++i) {
     render_buffer_infos[i] = {render_buffer_bindings[i].buffer, 0,
                               VK_WHOLE_SIZE};
     render_writes[i + 1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2436,7 +2518,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     render_writes[i + 1].pBufferInfo = &render_buffer_infos[i];
   }
 
-  vkUpdateDescriptorSets(context_->device.logical_device, 22, render_writes,
+  vkUpdateDescriptorSets(context_->device.logical_device, 23, render_writes,
                         0, nullptr);
 
   // Binding 12 (skybox_texture) starts pointed at the filler texture --
@@ -2910,7 +2992,8 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   layer_buffer_.reset();
   light_buffer_.reset();
   param_expr_buffer_.reset();
-  pixelation_exempt_buffer_.reset();
+  material_scalar_buffer_.reset();
+  transmission_buffer_.reset();
   tex_transform_buffer_.reset();
   primitive_colour_buffer_.reset();
   brick_primitive_buffer_.reset();
@@ -3152,17 +3235,20 @@ void VulkanRaymarchShader::rebind_render_target_descriptors() {
   vkUpdateDescriptorSets(context_->device.logical_device, 4,
                         render_writes_images, 0, nullptr);
 
-  // The AO pass's own set: two G-buffer reads, the AO write, and the voxel
-  // cascades it traces against (a buffer, not a render target, but written
-  // here so the whole set is populated in one place).
+  // The AO pass's own set: two G-buffer reads, the AO write, the voxel
+  // cascades it traces against, and the material scalars its screen-space
+  // stage tests Material::casts_shadow with (both buffers, not render
+  // targets, but written here so the whole set is populated in one place).
   VkDescriptorImageInfo ao_image_infos[3] = {
       {VK_NULL_HANDLE, depth_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, normal_material_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, ao_image_.view, VK_IMAGE_LAYOUT_GENERAL},
   };
-  VkDescriptorBufferInfo ao_cascade_info{voxel_cascade_buffer_->handle(), 0,
-                                         VK_WHOLE_SIZE};
-  VkWriteDescriptorSet ao_writes[4]{};
+  VkDescriptorBufferInfo ao_buffer_infos[2] = {
+      {voxel_cascade_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {material_scalar_buffer_->handle(), 0, VK_WHOLE_SIZE},
+  };
+  VkWriteDescriptorSet ao_writes[5]{};
   for (u32 i = 0; i < 3; ++i) {
     ao_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     ao_writes[i].dstSet = stochastic_ao_set_;
@@ -3171,13 +3257,15 @@ void VulkanRaymarchShader::rebind_render_target_descriptors() {
     ao_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     ao_writes[i].pImageInfo = &ao_image_infos[i];
   }
-  ao_writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  ao_writes[3].dstSet = stochastic_ao_set_;
-  ao_writes[3].dstBinding = 3;
-  ao_writes[3].descriptorCount = 1;
-  ao_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  ao_writes[3].pBufferInfo = &ao_cascade_info;
-  vkUpdateDescriptorSets(context_->device.logical_device, 4, ao_writes, 0,
+  for (u32 i = 3; i < 5; ++i) {
+    ao_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    ao_writes[i].dstSet = stochastic_ao_set_;
+    ao_writes[i].dstBinding = i;
+    ao_writes[i].descriptorCount = 1;
+    ao_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    ao_writes[i].pBufferInfo = &ao_buffer_infos[i - 3];
+  }
+  vkUpdateDescriptorSets(context_->device.logical_device, 5, ao_writes, 0,
                         nullptr);
 
   // Both TAA parities: set N reads history_images_[N] and writes
@@ -3351,6 +3439,22 @@ b8 VulkanRaymarchShader::update_primitive_transform(std::string_view name,
   return true;
 }
 
+f32 VulkanRaymarchShader::refined_bounding_radius(
+    const Geometry &geometry) const {
+  auto it = refined_bound_radius_by_name_.find(geometry.name);
+  return it != refined_bound_radius_by_name_.end()
+             ? it->second
+             : geometry_bounding_radius(geometry);
+}
+
+f32 VulkanRaymarchShader::previous_refined_bounding_radius(
+    const Geometry &geometry) const {
+  auto it = previous_refined_bound_radius_by_name_.find(geometry.name);
+  return it != previous_refined_bound_radius_by_name_.end()
+             ? it->second
+             : geometry_bounding_radius(geometry);
+}
+
 void VulkanRaymarchShader::rebuild_static_scene() {
   std::vector<Geometry> all = context_->geometry_system->snapshot();
   const std::vector<SceneLayer> &scene_layers =
@@ -3359,7 +3463,25 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   std::vector<GpuPrimitive> gpu_primitives(kMaxScenePrimitives, GpuPrimitive{});
   std::vector<f32> gpu_colours(static_cast<size_t>(kMaxScenePrimitives) * 4,
                               1.0f);
-  std::vector<f32> gpu_pixelation_exempt(kMaxScenePrimitives, 0.0f);
+  // 4 per primitive: pixelation_exempt, bump_strength, casts_shadow,
+  // roughness -- see material_scalar_buffer_. Pre-filled with the "plain
+  // material" defaults so a slot no primitive below claims still reads
+  // sanely.
+  std::vector<f32> gpu_material_scalars(static_cast<size_t>(kMaxScenePrimitives) * 4,
+                                        0.0f);
+  for (size_t i = 0; i < static_cast<size_t>(kMaxScenePrimitives); ++i) {
+    gpu_material_scalars[i * 4 + 1] = 1.0f; // ordinary bump magnitude
+    gpu_material_scalars[i * 4 + 2] = 1.0f; // casts shadows
+    // Matches MaterialDef::roughness's own default. An unclaimed slot must
+    // NOT read as 0 here: 0 is a perfect mirror, so a stale index would
+    // produce a blown-out highlight rather than a plausible surface.
+    gpu_material_scalars[i * 4 + 3] = 0.5f;
+  }
+  // xyz = absorption coefficient, w = IOR, per primitive -- see
+  // transmission_buffer_. Zeroed means opaque, which is what every slot no
+  // transmissive primitive claims must read as.
+  std::vector<f32> gpu_transmission(static_cast<size_t>(kMaxScenePrimitives) * 4,
+                                    0.0f);
   // xyz=texture_offset, w=texture_rotation per primitive -- see
   // tex_transform_buffer_'s comment. Left zeroed (no offset, no rotation)
   // for any slot a material/volumetric below doesn't explicitly set.
@@ -3374,6 +3496,13 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   // new bake copy a brick baked from geometry that no longer exists.
   alias_cache_.clear();
   primitive_bounds_.clear();
+  // This rebuild's radii become the PREVIOUS ones, so the dirty sweep can
+  // ask what a primitive's bound was as of the last snapshot -- which is
+  // exactly the state GeometrySystem::dirty_previous_state() reports, since
+  // that snapshot is the one taken at the top of this function.
+  previous_refined_bound_radius_by_name_ =
+      std::move(refined_bound_radius_by_name_);
+  refined_bound_radius_by_name_.clear();
   // Re-resolved below from the name, because indices shift whenever the
   // scene is rebuilt -- a stale index would drag the wrong primitive.
   dynamic_primitive_index_ = -1;
@@ -3474,6 +3603,27 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       if (geometry.layer != layer_slot) {
         continue;
       }
+      // A TRANSMISSIVE primitive is not part of the opaque scene and must
+      // not be baked into the field. It is uploaded instead into its own
+      // tail range below, exactly like a volumetric.
+      //
+      // Three things fall out of that, and they are the reason this is the
+      // right place to do it rather than a special case in the shader:
+      //
+      //   * The primary ray passes straight THROUGH it, so `travelled` and
+      //     the shaded colour the deferred pass already computed describe
+      //     the opaque surface BEHIND the glass -- which is precisely the
+      //     backdrop refraction needs to distort. No depth peel, no second
+      //     visibility pass.
+      //   * Refraction gets the analytic surface, whose gradient is a
+      //     clean normal and whose interior distance is exact. A trilinear
+      //     brick gradient is too coarse for a mirror-grade interface.
+      //   * Moving or editing a glass re-bakes nothing, and it never
+      //     enters the splat pipeline or the chunk cache.
+      if (geometry.material != nullptr &&
+          material_effective_ior(geometry.material->def) > 0.0f) {
+        continue;
+      }
       if (index >= kMaxScenePrimitives) {
         KWARN("GeometrySystem has more static primitives than this shader "
              "supports ({}); '{}' will not be rendered.",
@@ -3504,12 +3654,21 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       // Builtin.SdfSceneCommon.inc.glsl) -- (0,0,0) for a non-emissive
       // material, since both fields default to a state that multiplies to
       // zero.
-      prim.expr_scale[1] = geometry.material->emissive_colour.r *
-                          geometry.material->emissive_intensity;
-      prim.expr_scale[2] = geometry.material->emissive_colour.g *
-                          geometry.material->emissive_intensity;
-      prim.expr_scale[3] = geometry.material->emissive_colour.b *
-                          geometry.material->emissive_intensity;
+      prim.expr_scale[1] = geometry.material->def.emissive_colour.r *
+                          geometry.material->def.emissive_intensity;
+      prim.expr_scale[2] = geometry.material->def.emissive_colour.g *
+                          geometry.material->def.emissive_intensity;
+      prim.expr_scale[3] = geometry.material->def.emissive_colour.b *
+                          geometry.material->def.emissive_intensity;
+
+      prim.layer_repeat_mode_cell[0] =
+          static_cast<f32>(static_cast<u32>(geometry.layer_repetition_mode));
+      prim.layer_repeat_mode_cell[1] = geometry.layer_repetition_cell.x;
+      prim.layer_repeat_mode_cell[2] = geometry.layer_repetition_cell.y;
+      prim.layer_repeat_mode_cell[3] = geometry.layer_repetition_cell.z;
+      prim.layer_repeat_count[0] = geometry.layer_repetition_count.x;
+      prim.layer_repeat_count[1] = geometry.layer_repetition_count.y;
+      prim.layer_repeat_count[2] = geometry.layer_repetition_count.z;
 
       prim.repeat_mode_cell[0] =
           static_cast<f32>(static_cast<u32>(geometry.repetition_mode));
@@ -3519,12 +3678,16 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       prim.repeat_count[0] = geometry.repetition_count.x;
       prim.repeat_count[1] = geometry.repetition_count.y;
       prim.repeat_count[2] = geometry.repetition_count.z;
-      prim.repeat_count[3] = geometry_bounding_radius(geometry);
+      prim.repeat_count[3] = refined_bounding_radius(geometry);
 
       prim.deform[0] = geometry.twist;
       prim.deform[1] = geometry.bend;
       prim.deform[2] = geometry.displace_amplitude;
       prim.deform[3] = geometry.displace_frequency;
+      // The bend's direction -- deform has no room left for it, see
+      // GpuPrimitive::layer_repeat_count's comment.
+      prim.layer_repeat_count[3] =
+          static_cast<f32>(static_cast<u32>(geometry.bend_axis));
 
       // Compile each slot's "parametric attribute" formula, if it has one
       // -- an empty string (the default) or a compile failure both just
@@ -3549,7 +3712,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
         }
       }
 
-      const glm::vec4 &colour = geometry.material->diffuse_colour;
+      const glm::vec4 &colour = geometry.material->def.base_colour;
       gpu_colours[index * 4 + 0] = colour.r;
       gpu_colours[index * 4 + 1] = colour.g;
       gpu_colours[index * 4 + 2] = colour.b;
@@ -3559,24 +3722,31 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       // buffer + binding. See ScenePrimitiveColours in
       // Builtin.RaymarchShader.comp.glsl, the only reader. Multiplied by
       // texture_scale_factor (see its comment on Geometry) rather than
-      // uploading material->texture_scale directly, so a scaled scene's
+      // uploading material->def.uv_scale directly, so a scaled scene's
       // texture tiling scales right along with it instead of staying at
       // its authored-size frequency.
       gpu_colours[index * 4 + 3] =
-          geometry.material->texture_scale * geometry.texture_scale_factor;
+          geometry.material->def.uv_scale * geometry.texture_scale_factor;
 
-      gpu_pixelation_exempt[index] =
-          geometry.material->pixelation_exempt ? 1.0f : 0.0f;
+      gpu_material_scalars[index * 4 + 0] =
+          geometry.material->def.pixelation_exempt ? 1.0f : 0.0f;
+      gpu_material_scalars[index * 4 + 1] = geometry.material->def.bump_strength;
+      gpu_material_scalars[index * 4 + 2] =
+          geometry.material->def.casts_shadow ? 1.0f : 0.0f;
+      // Dielectric surface roughness -- see Builtin.DeferredShade.comp.
+      // glsl's specular lobe, the only reader. This slot was spare padding
+      // until that lobe existed.
+      gpu_material_scalars[index * 4 + 3] = geometry.material->def.roughness;
 
       // Effective texture offset scales with the primitive the same way
       // texture_scale does above (see Geometry::texture_offset_scale's
       // comment); rotation is an angle, so it's used as-is.
       const glm::vec3 effective_offset =
-          geometry.material->texture_offset * geometry.texture_offset_scale;
+          geometry.material->def.uv_offset * geometry.texture_offset_scale;
       gpu_tex_transform[index * 4 + 0] = effective_offset.x;
       gpu_tex_transform[index * 4 + 1] = effective_offset.y;
       gpu_tex_transform[index * 4 + 2] = effective_offset.z;
-      gpu_tex_transform[index * 4 + 3] = geometry.material->texture_rotation;
+      gpu_tex_transform[index * 4 + 3] = geometry.material->def.uv_rotation;
 
       texture_infos[index].imageView =
           geometry.material->diffuse_texture->view();
@@ -3613,9 +3783,16 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       // largest magnitude gives the largest shape -- conservative by
       // construction. Falls straight back to unbounded if any slot cannot be
       // proven finite.
+      // The three causes with no bound to refine toward are skipped
+      // outright. The iteration below would reject an infinitely repeated
+      // layer anyway -- its probe copy keeps the layer fold, so every
+      // geometry_bounding_radius() call inside returns the sentinel and it
+      // breaks without converging -- but there is no reason to spin 64
+      // times to find that out.
       if (bound.radius >= kUnboundedBoundingRadius &&
           geometry.type != PrimitiveType::Plane &&
-          geometry.repetition_mode != RepetitionMode::Infinite) {
+          geometry.repetition_mode != RepetitionMode::Infinite &&
+          geometry.layer_repetition_mode != RepetitionMode::Infinite) {
         // Solved as a FIXED POINT, because the honest domain is circular:
         // the parameter depends on where it is sampled, and the primitive's
         // extent depends on the parameter. Evaluating with p unbounded gives
@@ -3697,6 +3874,8 @@ void VulkanRaymarchShader::rebuild_static_scene() {
           reason = "being a Plane (no finite extent)";
         } else if (geometry.repetition_mode == RepetitionMode::Infinite) {
           reason = "RepetitionMode::Infinite";
+        } else if (geometry.layer_repetition_mode == RepetitionMode::Infinite) {
+          reason = "its LAYER repeating infinitely";
         }
         KWARN("Primitive '{}' is UNBOUNDED ({}), so it cannot be culled from "
               "any chunk and is folded at every voxel of every bake in the "
@@ -3708,9 +3887,20 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       bound.repeat_mode = static_cast<u32>(geometry.repetition_mode);
       bound.repeat_cell = geometry.repetition_cell;
       bound.repeat_count = geometry.repetition_count;
+      bound.layer_repeated =
+          geometry.layer_repetition_mode != RepetitionMode::None;
       bound.instance_radius = geometry_instance_radius(geometry);
       bound.rotation = glm::quat(geometry.rotation);
       bound.layer_smoothness = scene_layers[layer_slot].smoothness;
+      // Publish the radius settled on just above, refinement and all, so
+      // the paths that work from a Geometry rather than from
+      // primitive_bounds_ do not silently fall back to the unrefined
+      // geometry_bounding_radius() and get the unbounded sentinel for a
+      // primitive this function just proved finite -- see
+      // refined_bounding_radius(). Recorded for EVERY primitive including
+      // the dynamic one, which is excluded from primitive_bounds_ below but
+      // is exactly what the resync needs a radius for.
+      refined_bound_radius_by_name_[geometry.name] = bound.radius;
       // The interactively-moved primitive is deliberately kept OUT of the
       // bounds list, which is what build_chunk_candidates() draws every
       // chunk's candidate list from. No candidate list names it, so no
@@ -3795,19 +3985,19 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     // volumetric isn't emissive.
     prim.expr_scale[0] = volumetric.density;
 
-    const glm::vec4 &colour = volumetric.material->diffuse_colour;
+    const glm::vec4 &colour = volumetric.material->def.base_colour;
     gpu_colours[index * 4 + 0] = colour.r;
     gpu_colours[index * 4 + 1] = colour.g;
     gpu_colours[index * 4 + 2] = colour.b;
-    gpu_colours[index * 4 + 3] = volumetric.material->texture_scale;
+    gpu_colours[index * 4 + 3] = volumetric.material->def.uv_scale;
 
     // No per-instance texture_offset_scale accumulator for volumetrics
-    // (mirrors how they already use material->texture_scale directly, with
+    // (mirrors how they already use material->def.uv_scale directly, with
     // no texture_scale_factor equivalent either).
-    gpu_tex_transform[index * 4 + 0] = volumetric.material->texture_offset.x;
-    gpu_tex_transform[index * 4 + 1] = volumetric.material->texture_offset.y;
-    gpu_tex_transform[index * 4 + 2] = volumetric.material->texture_offset.z;
-    gpu_tex_transform[index * 4 + 3] = volumetric.material->texture_rotation;
+    gpu_tex_transform[index * 4 + 0] = volumetric.material->def.uv_offset.x;
+    gpu_tex_transform[index * 4 + 1] = volumetric.material->def.uv_offset.y;
+    gpu_tex_transform[index * 4 + 2] = volumetric.material->def.uv_offset.z;
+    gpu_tex_transform[index * 4 + 3] = volumetric.material->def.uv_rotation;
 
     texture_infos[index].imageView =
         volumetric.material->diffuse_texture->view();
@@ -3822,6 +4012,180 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     ++index;
   }
   volumetric_count_ = static_cast<i32>(index) - volumetric_start_;
+
+  // Transmissive primitives -- glass, still liquid, clear plastic --
+  // appended immediately after the volumetric tail, in their own range
+  // that (like the volumetrics') no GpuLayer covers, so scene_map() and
+  // the voxelize pass never see them at all.
+  //
+  // Their start is DERIVED shader-side as volumetric_start + volumetric_
+  // count rather than sent as its own push constant: the shading pass's
+  // push block is at 124 of Vulkan's guaranteed 128 bytes, which leaves
+  // room for exactly one more int. Making the layout contiguous here is
+  // what buys that -- so this append must stay immediately after the
+  // volumetric loop above, and the invariant is restated in
+  // Builtin.DeferredShade.comp.glsl where it is relied on.
+  transmissive_start_ = static_cast<i32>(index);
+  for (const Geometry &geometry : all) {
+    if (geometry.material == nullptr ||
+        material_effective_ior(geometry.material->def) <= 0.0f) {
+      continue;
+    }
+    if (index >= kMaxScenePrimitives) {
+      KWARN("GeometrySystem has more transmissive primitives than this "
+           "shader supports (combined with opaque primitives and "
+           "volumetrics, cap is {}); '{}' will not be rendered.",
+           kMaxScenePrimitives, geometry.name);
+      continue;
+    }
+
+    GpuPrimitive &prim = gpu_primitives[index];
+    prim.position_type[0] = geometry.position.x;
+    prim.position_type[1] = geometry.position.y;
+    prim.position_type[2] = geometry.position.z;
+    prim.position_type[3] = static_cast<f32>(static_cast<u32>(geometry.type));
+    prim.params[0] = geometry.params.x;
+    prim.params[1] = geometry.params.y;
+    prim.params[2] = geometry.params.z;
+    prim.params[3] = geometry.extra_param;
+
+    glm::quat rotation(geometry.rotation);
+    prim.rotation[0] = rotation.x;
+    prim.rotation[1] = rotation.y;
+    prim.rotation[2] = rotation.z;
+    prim.rotation[3] = rotation.w;
+
+    prim.expr_scale[0] = geometry.param_expr_scale;
+    prim.expr_scale[1] = geometry.material->def.emissive_colour.r *
+                        geometry.material->def.emissive_intensity;
+    prim.expr_scale[2] = geometry.material->def.emissive_colour.g *
+                        geometry.material->def.emissive_intensity;
+    prim.expr_scale[3] = geometry.material->def.emissive_colour.b *
+                        geometry.material->def.emissive_intensity;
+
+    prim.deform[0] = geometry.twist;
+    prim.deform[1] = geometry.bend;
+    prim.deform[2] = geometry.displace_amplitude;
+    prim.deform[3] = geometry.displace_frequency;
+    prim.layer_repeat_count[3] =
+        static_cast<f32>(static_cast<u32>(geometry.bend_axis));
+
+    // The LAYER's repetition, same as the opaque loop above writes. Easy to
+    // omit here and invisible when you do: gpu_primitives is value-
+    // initialised, so a missing write leaves mode 0 (None) and the glass
+    // simply declines to repeat while every opaque primitive in the same
+    // layer repeats around it. The transmissive march reuses primitive_sdf()
+    // exactly like scene_map() does, so it honours this fold for free -- the
+    // only thing it ever needed was for the field to be filled in.
+    prim.layer_repeat_mode_cell[0] =
+        static_cast<f32>(static_cast<u32>(geometry.layer_repetition_mode));
+    prim.layer_repeat_mode_cell[1] = geometry.layer_repetition_cell.x;
+    prim.layer_repeat_mode_cell[2] = geometry.layer_repetition_cell.y;
+    prim.layer_repeat_mode_cell[3] = geometry.layer_repetition_cell.z;
+    prim.layer_repeat_count[0] = geometry.layer_repetition_count.x;
+    prim.layer_repeat_count[1] = geometry.layer_repetition_count.y;
+    prim.layer_repeat_count[2] = geometry.layer_repetition_count.z;
+
+    prim.repeat_mode_cell[0] =
+        static_cast<f32>(static_cast<u32>(geometry.repetition_mode));
+    prim.repeat_mode_cell[1] = geometry.repetition_cell.x;
+    prim.repeat_mode_cell[2] = geometry.repetition_cell.y;
+    prim.repeat_mode_cell[3] = geometry.repetition_cell.z;
+    prim.repeat_count[0] = geometry.repetition_count.x;
+    prim.repeat_count[1] = geometry.repetition_count.y;
+    prim.repeat_count[2] = geometry.repetition_count.z;
+    prim.repeat_count[3] = refined_bounding_radius(geometry);
+
+    const glm::vec4 &colour = geometry.material->def.base_colour;
+    gpu_colours[index * 4 + 0] = colour.r;
+    gpu_colours[index * 4 + 1] = colour.g;
+    gpu_colours[index * 4 + 2] = colour.b;
+    gpu_colours[index * 4 + 3] =
+        geometry.material->def.uv_scale * geometry.texture_scale_factor;
+
+    gpu_material_scalars[index * 4 + 0] =
+        geometry.material->def.pixelation_exempt ? 1.0f : 0.0f;
+    gpu_material_scalars[index * 4 + 1] = geometry.material->def.bump_strength;
+    gpu_material_scalars[index * 4 + 2] =
+        geometry.material->def.casts_shadow ? 1.0f : 0.0f;
+    gpu_material_scalars[index * 4 + 3] = geometry.material->def.roughness;
+
+    const glm::vec3 effective_offset =
+        geometry.material->def.uv_offset * geometry.texture_offset_scale;
+    gpu_tex_transform[index * 4 + 0] = effective_offset.x;
+    gpu_tex_transform[index * 4 + 1] = effective_offset.y;
+    gpu_tex_transform[index * 4 + 2] = effective_offset.z;
+    gpu_tex_transform[index * 4 + 3] = geometry.material->def.uv_rotation;
+
+    // Beer-Lambert absorption, solved here rather than authored: the
+    // material stores the colour a slab of `absorption_ref_thickness`
+    // world units transmits, because that is a thing an artist can judge,
+    // and the shader wants a per-channel coefficient. sigma = -ln(tint) /
+    // ref_thickness.
+    //
+    // A tint channel of exactly 0 would give an infinite coefficient, so
+    // it is floored -- the result still absorbs essentially everything,
+    // without putting an inf into an exp() that then multiplies a colour.
+    const glm::vec3 tint = geometry.material->def.absorption_tint;
+    const f32 ref_thickness =
+        std::max(geometry.material->def.absorption_ref_thickness, 1e-4f);
+    for (int c = 0; c < 3; ++c) {
+      const f32 channel = std::max(tint[c], 1e-4f);
+      gpu_transmission[index * 4 + c] = -std::log(channel) / ref_thickness;
+    }
+    // The thin-walled flag rides in the SIGN of the IOR: material_scalars'
+    // vec4 is full and the push block is at exactly Vulkan's guaranteed
+    // 128 bytes, so there is nowhere else to put one bit without a whole
+    // extra buffer. |w| is the IOR, w < 0 means thin-walled, w == 0 means
+    // opaque -- which is also what makes the tail range self-terminating
+    // shader-side. See ScenePrimitiveTransmission in
+    // Builtin.DeferredShade.comp.glsl.
+    // Clamped to the physically meaningful band. An IOR in (0, 1) means
+    // light leaving a denser medium, which at an air interface is a
+    // near-total reflector: F0 approaches 1 as the IOR approaches 0, and
+    // eta = 1/ior total-internal-reflects every ray, so the surface comes
+    // out a perfect mirror. That is never what an author asking for glass
+    // meant, and a scene file can carry any float, so it is refused here
+    // rather than rendered.
+    bool ior_clamped = false;
+    const f32 effective_ior =
+        material_effective_ior(geometry.material->def, ior_clamped);
+    if (ior_clamped) {
+      KWARN("Material '{}' has a transmissive IOR of {}, which is below 1 "
+           "and would render as a mirror; clamping to 1. Valid values are "
+           "1 (vacuum) to about 3 -- water 1.333, glass 1.52.",
+           geometry.material->def.display_name.empty()
+               ? geometry.material->name
+               : geometry.material->def.display_name,
+           geometry.material->def.ior);
+    }
+    gpu_transmission[index * 4 + 3] =
+        geometry.material->def.thin_walled ? -effective_ior : effective_ior;
+
+    texture_infos[index].imageView = geometry.material->diffuse_texture->view();
+    texture_infos[index].sampler = geometry.material->diffuse_texture->sampler();
+    bump_texture_infos[index].imageView =
+        geometry.material->bump_texture->view();
+    bump_texture_infos[index].sampler =
+        geometry.material->bump_texture->sampler();
+
+    primitive_index_by_name[geometry.name] = index;
+    ++index;
+  }
+  transmissive_count_ = static_cast<i32>(index) - transmissive_start_;
+  // The shading pass discovers the range's extent by scanning until it
+  // finds a zero IOR, and caps that scan (TRANSMISSIVE_MAX_COUNT in
+  // Builtin.DeferredShade.comp.glsl). Past the cap the extras are simply
+  // not evaluated -- glass that silently stops being glass, with nothing
+  // on screen to explain it -- so say so here rather than leaving it to be
+  // discovered.
+  if (transmissive_count_ > kMaxShadedTransmissivePrimitives) {
+    KWARN("Scene has {} transmissive primitives; the shading pass evaluates "
+         "at most {}. The remainder will render as invisible. Reduce the "
+         "count, or raise TRANSMISSIVE_MAX_COUNT in "
+         "Builtin.DeferredShade.comp.glsl and this constant together.",
+         transmissive_count_, kMaxShadedTransmissivePrimitives);
+  }
 
   // The render pass re-evaluates the analytic scene per hit pixel for
   // material provenance and needs the same layer count the voxelize pass
@@ -3863,9 +4227,11 @@ void VulkanRaymarchShader::rebuild_static_scene() {
                                0, gpu_primitives.data());
   primitive_colour_buffer_->load_data(0, gpu_colours.size() * sizeof(f32), 0,
                                       gpu_colours.data());
-  pixelation_exempt_buffer_->load_data(
-      0, gpu_pixelation_exempt.size() * sizeof(f32), 0,
-      gpu_pixelation_exempt.data());
+  transmission_buffer_->load_data(
+      0, gpu_transmission.size() * sizeof(f32), 0, gpu_transmission.data());
+  material_scalar_buffer_->load_data(
+      0, gpu_material_scalars.size() * sizeof(f32), 0,
+      gpu_material_scalars.data());
   tex_transform_buffer_->load_data(0, gpu_tex_transform.size() * sizeof(f32), 0,
                                    gpu_tex_transform.data());
   layer_buffer_->load_data(0, gpu_layers.size() * sizeof(GpuLayer), 0,
@@ -3923,7 +4289,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   // the emissive term in Builtin.RaymarchShader.comp.glsl for the visual
   // half of this.
   for (const Geometry &geometry : all) {
-    if (!geometry.material || geometry.material->emissive_intensity <= 0.0f) {
+    if (!geometry.material || geometry.material->def.emissive_intensity <= 0.0f) {
       continue;
     }
     if (static_cast<u32>(light_count_) >= kMaxLights) {
@@ -3947,10 +4313,10 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     dst.vector_type[1] = position.y;
     dst.vector_type[2] = position.z;
     dst.vector_type[3] = static_cast<f32>(static_cast<u32>(LightType::Point));
-    dst.colour_intensity[0] = geometry.material->emissive_colour.r;
-    dst.colour_intensity[1] = geometry.material->emissive_colour.g;
-    dst.colour_intensity[2] = geometry.material->emissive_colour.b;
-    dst.colour_intensity[3] = geometry.material->emissive_intensity;
+    dst.colour_intensity[0] = geometry.material->def.emissive_colour.r;
+    dst.colour_intensity[1] = geometry.material->def.emissive_colour.g;
+    dst.colour_intensity[2] = geometry.material->def.emissive_colour.b;
+    dst.colour_intensity[3] = geometry.material->def.emissive_intensity;
 
     // See GpuLight::source_primitive's comment -- shadow_march() needs
     // this to avoid an emissive primitive's own shell always self-
@@ -4045,6 +4411,16 @@ void VulkanRaymarchShader::write_skybox_binding(VulkanTexture &texture) {
 }
 
 void VulkanRaymarchShader::set_skybox(std::string_view texture_name) {
+  // Already showing exactly this image -- nothing to do, and it matters
+  // that this is free rather than merely idempotent. The wait below drains
+  // the whole device, and this is now called from load_scene()/
+  // reconcile_scene() with whatever SdfScene::skybox names: the editor
+  // reconciles on EVERY edit, so without this, nudging any spinbox would
+  // stall the device to re-acquire a texture it already has bound.
+  if (skybox_enabled_ && skybox_texture_name_ == texture_name) {
+    return;
+  }
+
   // Waits for the device to go idle first, like rebake()/remove_scene() --
   // about to rewrite render_set_'s skybox binding directly (and possibly
   // release() the previous texture's last reference, destroying its
@@ -4950,7 +5326,16 @@ u32 VulkanRaymarchShader::build_cell_alias_map(
     term.radius = bound.instance_radius;
     const glm::vec4 &offset = chunk_candidate_offsets[c];
     const u32 mode = bound.repeat_mode;
-    if (offset.w != 0.0f) {
+    if (bound.layer_repeated) {
+      // The cell-alias key describes a cell by its offset from each
+      // candidate, reduced modulo that candidate's repetition period. A
+      // layer fold is a SECOND periodicity on top of the primitive's own,
+      // with its own cell and in world space rather than the primitive's
+      // rotated local frame, and two periods do not compose into one
+      // offset -- so no cell reaching this primitive can be proven
+      // equivalent to another.
+      term.blocks = true;
+    } else if (offset.w != 0.0f) {
       // Instance-resolved: a single named copy, treated exactly like an
       // unrepeated primitive at a shifted position.
       term.local_offset = glm::vec3(offset);
@@ -5597,7 +5982,14 @@ u32 VulkanRaymarchShader::build_chunk_candidates(glm::vec3 chunk_min,
       static_cast<u32>(RepetitionMode::Limited);
     const bool rectangular = bound.repeat_mode ==
       static_cast<u32>(RepetitionMode::Rectangular);
-    if ((limited || rectangular) &&
+    // A layer fold makes instance resolution wrong, not just imprecise:
+    // the offsets enumerated here name copies of the primitive in its own
+    // local space, and primitive_sdf_at_instance() evaluates exactly one
+    // of them -- skipping the layer fold that primitive_sdf() would have
+    // applied first, so every copy the LAYER makes would vanish from the
+    // bake. Such a primitive falls through as an unresolved candidate and
+    // the shader folds both levels itself.
+    if ((limited || rectangular) && !bound.layer_repeated &&
       bound.instance_radius < kUnboundedBoundingRadius) {
     glm::vec3 local_centre;
     glm::vec3 local_half;
@@ -6416,25 +6808,57 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
     const std::string resync_name = std::move(dynamic_primitive_resync_name_);
     dynamic_primitive_resync_name_.clear();
     if (Geometry *geometry = geo.find(resync_name)) {
-      const f32 resync_radius = geometry_bounding_radius(*geometry);
-      for (u32 level = 0; level < kNumLevels; ++level) {
-        // Skip levels this primitive is too small to show up in at all --
-        // the same test the ordinary dirty sweep below applies, and
-        // omitting it here was making a grab or a release evict (and
-        // therefore re-bake) roughly five times as many chunks as it
-        // needed to, at ~10ms each. That burst is the stall felt on grab
-        // and release; the drag between them was already free.
-        if (!primitive_matters_at_level(resync_radius, level)) {
-          continue;
+      // refined_bounding_radius(), never geometry_bounding_radius(). The
+      // latter returns the unbounded sentinel for ANY primitive carrying a
+      // parametric attribute expression -- a taper like "0.15 - 0.1*p.y" --
+      // even though rebuild_static_scene() has usually just proved that
+      // same primitive finite and roughly a unit across. chunks_touched_by()
+      // answers "no chunks" for an unbounded radius, so reading the sentinel
+      // here evicted nothing and looked like a clean no-op. On the LEAVING
+      // transition that is fatal: nothing else asks for the primitive to be
+      // baked back in (the drag moved it without marking it dirty), so it
+      // never reappeared after a move. Reported exactly that way.
+      const f32 resync_radius = refined_bounding_radius(*geometry);
+      if (resync_radius >= kUnboundedBoundingRadius) {
+        // Genuinely unbounded -- a Plane, an infinite repetition, or an
+        // expression whose fixed point runs away. Evict everything
+        // resident, the same policy the ordinary dirty sweep below falls
+        // back to (surgical = false) and for the same reason: with no
+        // bound there is no smaller set that is provably sufficient.
+        // primitive_matters_at_level() is skipped too -- it is an argument
+        // about a primitive being too SMALL to resolve at a coarse level,
+        // which cannot apply to something with no known extent.
+        for (u32 level = 0; level < kNumLevels; ++level) {
+          for (const auto &[key, record] :
+               chunk_streaming_levels_[level].resident_chunks()) {
+            if ((record.state == ChunkState::Ready ||
+                 record.state == ChunkState::Baking) &&
+                pending_forced_eviction_keys_.emplace(level, key).second) {
+              pending_forced_evictions_.emplace_back(level, key);
+            }
+          }
         }
-        const f32 level_world_size = chunk_level_world_size(level);
-        ChunkStreamingManager &streaming = chunk_streaming_levels_[level];
-        for (ChunkKey key :
-             chunks_touched_by(*geometry, level_world_size, max_smoothness_)) {
-          ChunkState state = streaming.state_of(key);
-          if ((state == ChunkState::Ready || state == ChunkState::Baking) &&
-              pending_forced_eviction_keys_.emplace(level, key).second) {
-            pending_forced_evictions_.emplace_back(level, key);
+      } else {
+        for (u32 level = 0; level < kNumLevels; ++level) {
+          // Skip levels this primitive is too small to show up in at all --
+          // the same test the ordinary dirty sweep below applies, and
+          // omitting it here was making a grab or a release evict (and
+          // therefore re-bake) roughly five times as many chunks as it
+          // needed to, at ~10ms each. That burst is the stall felt on grab
+          // and release; the drag between them was already free.
+          if (!primitive_matters_at_level(resync_radius, level)) {
+            continue;
+          }
+          const f32 level_world_size = chunk_level_world_size(level);
+          ChunkStreamingManager &streaming = chunk_streaming_levels_[level];
+          for (ChunkKey key :
+               chunks_touched_by(geometry->position, resync_radius,
+                                 level_world_size, max_smoothness_)) {
+            ChunkState state = streaming.state_of(key);
+            if ((state == ChunkState::Ready || state == ChunkState::Baking) &&
+                pending_forced_eviction_keys_.emplace(level, key).second) {
+              pending_forced_evictions_.emplace_back(level, key);
+            }
           }
         }
       }
@@ -6447,6 +6871,13 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
     struct SurgicalEntry {
       Geometry *current;
       const Geometry *previous; // nullptr for a brand-new primitive
+      // Both radii REFINED (see refined_bounding_radius()) -- resolved once
+      // here rather than re-derived per level below, and never from
+      // geometry_bounding_radius(), which reports every parametric
+      // primitive as unbounded and would drop the whole scene onto the
+      // brute-force path over a taper the rebuild already proved finite.
+      f32 current_radius = 0.0f;
+      f32 previous_radius = 0.0f;
     };
     std::vector<SurgicalEntry> surgical_entries;
     if (surgical) {
@@ -6477,13 +6908,16 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
           }
           previous = &it->second;
         }
-        if (geometry_bounding_radius(*geometry) >= kUnboundedBoundingRadius ||
-            (previous &&
-             geometry_bounding_radius(*previous) >= kUnboundedBoundingRadius)) {
+        const f32 current_radius = refined_bounding_radius(*geometry);
+        const f32 previous_radius =
+            previous ? previous_refined_bounding_radius(*previous) : 0.0f;
+        if (current_radius >= kUnboundedBoundingRadius ||
+            previous_radius >= kUnboundedBoundingRadius) {
           surgical = false;
           break;
         }
-        surgical_entries.push_back({geometry, previous});
+        surgical_entries.push_back(
+            {geometry, previous, current_radius, previous_radius});
       }
     }
 
@@ -6528,10 +6962,10 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
           // duplicate still costs a real evict+voxelize dispatch when its
           // turn comes, for a chunk that's already going to be (or already
           // was) correctly rebaked by an earlier entry for the same key.
-          if (primitive_matters_at_level(geometry_bounding_radius(*entry.current),
-                                         level)) {
-            for (ChunkKey key : chunks_touched_by(*entry.current, level_world_size,
-                                                 max_smoothness_)) {
+          if (primitive_matters_at_level(entry.current_radius, level)) {
+            for (ChunkKey key :
+                 chunks_touched_by(entry.current->position, entry.current_radius,
+                                   level_world_size, max_smoothness_)) {
               ChunkState state = streaming.state_of(key);
               if ((state == ChunkState::Ready || state == ChunkState::Baking) &&
                   already_queued.insert(key).second &&
@@ -6541,11 +6975,11 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
             }
           }
           if (entry.previous &&
-              primitive_matters_at_level(geometry_bounding_radius(*entry.previous),
-                                         level)) {
+              primitive_matters_at_level(entry.previous_radius, level)) {
             for (ChunkKey key :
-                chunks_touched_by(*entry.previous, level_world_size,
-                                  max_smoothness_)) {
+                 chunks_touched_by(entry.previous->position,
+                                   entry.previous_radius, level_world_size,
+                                   max_smoothness_)) {
               ChunkState state = streaming.state_of(key);
               if ((state == ChunkState::Ready || state == ChunkState::Baking) &&
                   already_queued.insert(key).second &&
@@ -6595,6 +7029,7 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
   std::vector<i32> evict_batch_slots;
   std::vector<GpuChunkBatchEntry> voxelize_batch_entries;
 
+  streaming_backlog_ = 0; // rebuilt level by level below -- see its comment
   for (u32 level = 0; level < kNumLevels; ++level) {
     ChunkStreamingManager &streaming = chunk_streaming_levels_[level];
     f32 level_world_size = chunk_level_world_size(level);
@@ -6626,6 +7061,22 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
     }
     ChunkStreamingManager::Plan plan =
         streaming.update(camera_pos + lead, level_world_size);
+    // to_load leaves out chunks already Queued/Baking, so those are counted
+    // separately -- a chunk in flight is as unready as one not started.
+    streaming_backlog_ += static_cast<u32>(plan.to_load.size());
+    // A chunk queued for a forced rebake still shows what it held before
+    // the scene changed -- after a scene swap, the previous scene -- so it
+    // is as unready as one that hasn't loaded.
+    for (const auto &[pending_level, pending_key] : pending_forced_evictions_) {
+      if (pending_level == level) {
+        ++streaming_backlog_;
+      }
+    }
+    for (const auto &[key, record] : streaming.resident_chunks()) {
+      if (record.state == ChunkState::Baking) {
+        ++streaming_backlog_;
+      }
+    }
 
     // tick() still runs on a frame that can't queue -- the ring-delays it
     // ages are measured in frames, not in submissions -- but nothing below
@@ -6732,16 +7183,55 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
       ++forced_rebaked;
       glm::vec3 chunk_world_min = chunk_world_min_of(key);
       invalidate_slot_content(new_slot);
+      // --- The same cache check the to_load path below makes. A forced
+      // rebake is what a whole-scene swap turns into -- every resident
+      // chunk goes dirty at once -- and when the scene swapped in is one
+      // that has been baked before, each of those chunks is a file read
+      // and a scatter rather than a bake. Without this a cached room
+      // re-baked from scratch on every visit, which is the slow part of
+      // a room switch.
+      u64 cache_key = 0;
+      u32 cache_region = kInvalidChunkSlot;
+      if (chunk_cache_enabled_) {
+        cache_key = chunk_key_for(chunk_world_min, level_cell_size);
+        if (cache_key != 0 &&
+            chunk_cache_misses_.find(cache_key) == chunk_cache_misses_.end()) {
+          cache_region = acquire_cache_region();
+          if (cache_region != kInvalidChunkSlot) {
+            if (load_cached_chunk(cache_key, cache_region)) {
+              record_cache_restore(ensure_async_cmd(), new_slot, cache_region,
+                                   chunk_world_min, level_cell_size);
+              streaming.commit_load(key, new_slot);
+              queued_publishes.push_back(
+                  {level, key, new_slot, old_slot,
+                   streaming.resident_chunks().at(key).bake_generation,
+                   /*cache_key=*/0, cache_region});
+              continue; // restored -- no bake for this chunk at all
+            }
+            chunk_cache_region_busy_[cache_region] = false;
+            cache_region = kInvalidChunkSlot;
+          }
+        }
+        // A miss: bake it, and gather the result so the next visit hits --
+        // again exactly as the to_load path does.
+        if (cache_key != 0) {
+          cache_region = acquire_cache_region();
+        }
+      }
       voxelize_batch_entries.push_back(
           {static_cast<i32>(new_slot), chunk_world_min.x, chunk_world_min.y,
            chunk_world_min.z, level_cell_size});
+      if (cache_region != kInvalidChunkSlot) {
+        pending_cache_gathers_.push_back(
+            {new_slot, cache_region, chunk_world_min, level_cell_size});
+      }
       streaming.commit_load(key, new_slot); // record moves to the new slot;
                                             // the table still names the old
                                             // one until publication.
       queued_publishes.push_back(
           {level, key, new_slot, old_slot,
-           streaming.resident_chunks().at(key).bake_generation, 0,
-           kInvalidChunkSlot});
+           streaming.resident_chunks().at(key).bake_generation,
+           cache_region != kInvalidChunkSlot ? cache_key : 0, cache_region});
     }
 
     u32 loaded = 0;

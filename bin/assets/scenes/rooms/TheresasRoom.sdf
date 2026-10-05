@@ -1,6 +1,7 @@
 #sdf scene file
 version=0.2
-ambient=0.649999976
+ambient=0.150000006
+skybox=skybox_to_equirect_2
 
 material white (8c8ca8) {
     id=60187578b09770a8
@@ -797,64 +798,6 @@ layer layer7 {
 layer layer10 {
     operation=union
     smoothness=0
-
-    primitive primitive52 {
-        type=box
-        position=-0.600000024 -0.568785906 -0.680000007
-        rotation=0 0 0
-        half_extents=0.150000006 0.109999999 0.349999994
-        material=6f3233899a39ca81
-    }
-
-    primitive primitive66 {
-        type=box
-        position=-0.724715471 -0.769563317 -0.680000007
-        rotation=0 0 0
-        half_extents=0.0500000007 0.109999999 0.349999994
-        twist=0
-        bend=0.200000003
-        bend_axis=zx
-        displace_amplitude=0
-        displace_frequency=20
-        material=9a3c2c27ee330290
-    }
-
-    primitive primitive67 {
-        type=box_frame
-        position=-0.720000029 -0.799643815 -0.680000007
-        rotation=0 0 0
-        params=0.0599999987 0.100000001 0.360000014 0.00999999978
-        twist=0
-        bend=0.200000003
-        bend_axis=zx
-        displace_amplitude=0
-        displace_frequency=20
-        material=1e04b2c41fc3323b
-    }
-
-    primitive primitive69 {
-        type=box_frame
-        position=-0.600000024 -0.568785906 -0.680000007
-        rotation=0 0 0
-        params=0.159999996 0.119999997 0.360000014 0.00999999978
-        material=6dba2996b2a7b509
-    }
-
-    primitive primitive74 {
-        type=round_box
-        position=-0.600000024 -0.718785942 -0.861075938
-        rotation=0 0 0
-        params=0.150000006 0.0199999996 0.170000002 0.0199999996
-        material=9a3c2c27ee330290
-    }
-
-    primitive primitive75 {
-        type=round_box
-        position=-0.600000024 -0.718785942 -0.540000021
-        rotation=0 0 0
-        params=0.150000006 0.0199999996 0.170000002 0.0199999996
-        material=732cde16b51eaddf
-    }
 }
 
 layer layer11 {

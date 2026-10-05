@@ -4,6 +4,7 @@
 sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h \
   /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl \
+  /home/bumbandit/Projects/Engine/engine/src/resources/material_def.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.cpp \
   /home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.h \
@@ -327,6 +328,7 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
   /usr/include/glm/detail/func_vector_relational.inl \
   /usr/include/glm/detail/qualifier.hpp \
   /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_float.hpp \
   /usr/include/glm/detail/type_half.hpp \
   /usr/include/glm/detail/type_half.inl \
   /usr/include/glm/detail/type_mat2x2.hpp \
@@ -347,6 +349,8 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
   /usr/include/glm/detail/type_mat4x3.inl \
   /usr/include/glm/detail/type_mat4x4.hpp \
   /usr/include/glm/detail/type_mat4x4.inl \
+  /usr/include/glm/detail/type_quat.hpp \
+  /usr/include/glm/detail/type_quat.inl \
   /usr/include/glm/detail/type_vec1.hpp \
   /usr/include/glm/detail/type_vec1.inl \
   /usr/include/glm/detail/type_vec2.hpp \
@@ -356,6 +360,8 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
   /usr/include/glm/detail/type_vec4.hpp \
   /usr/include/glm/detail/type_vec4.inl \
   /usr/include/glm/exponential.hpp \
+  /usr/include/glm/ext/matrix_clip_space.hpp \
+  /usr/include/glm/ext/matrix_clip_space.inl \
   /usr/include/glm/ext/matrix_double2x2.hpp \
   /usr/include/glm/ext/matrix_double2x2_precision.hpp \
   /usr/include/glm/ext/matrix_double2x3.hpp \
@@ -392,6 +398,26 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
   /usr/include/glm/ext/matrix_float4x3_precision.hpp \
   /usr/include/glm/ext/matrix_float4x4.hpp \
   /usr/include/glm/ext/matrix_float4x4_precision.hpp \
+  /usr/include/glm/ext/matrix_projection.hpp \
+  /usr/include/glm/ext/matrix_projection.inl \
+  /usr/include/glm/ext/matrix_transform.hpp \
+  /usr/include/glm/ext/matrix_transform.inl \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_common.inl \
+  /usr/include/glm/ext/quaternion_double.hpp \
+  /usr/include/glm/ext/quaternion_double_precision.hpp \
+  /usr/include/glm/ext/quaternion_float.hpp \
+  /usr/include/glm/ext/quaternion_float_precision.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.inl \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_relational.inl \
+  /usr/include/glm/ext/quaternion_transform.hpp \
+  /usr/include/glm/ext/quaternion_transform.inl \
+  /usr/include/glm/ext/quaternion_trigonometric.hpp \
+  /usr/include/glm/ext/quaternion_trigonometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/scalar_constants.inl \
   /usr/include/glm/ext/scalar_int_sized.hpp \
   /usr/include/glm/ext/scalar_uint_sized.hpp \
   /usr/include/glm/ext/vector_bool2.hpp \
@@ -418,6 +444,8 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
   /usr/include/glm/ext/vector_int3_sized.hpp \
   /usr/include/glm/ext/vector_int4.hpp \
   /usr/include/glm/ext/vector_int4_sized.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/ext/vector_relational.inl \
   /usr/include/glm/ext/vector_uint2.hpp \
   /usr/include/glm/ext/vector_uint2_sized.hpp \
   /usr/include/glm/ext/vector_uint3.hpp \
@@ -427,6 +455,14 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
   /usr/include/glm/fwd.hpp \
   /usr/include/glm/geometric.hpp \
   /usr/include/glm/glm.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/constants.inl \
+  /usr/include/glm/gtc/epsilon.hpp \
+  /usr/include/glm/gtc/epsilon.inl \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/matrix_transform.inl \
+  /usr/include/glm/gtc/quaternion.hpp \
+  /usr/include/glm/gtc/quaternion.inl \
   /usr/include/glm/integer.hpp \
   /usr/include/glm/mat2x2.hpp \
   /usr/include/glm/mat2x3.hpp \
@@ -1034,83 +1070,23 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
   /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsTargets.cmake \
   /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsTargetsPrecheck.cmake \
   /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsVersionlessTargets.cmake \
-  /usr/share/cmake/Modules/CMakeCXXCompiler.cmake.in \
-  /usr/share/cmake/Modules/CMakeCXXCompilerABI.cpp \
   /usr/share/cmake/Modules/CMakeCXXInformation.cmake \
   /usr/share/cmake/Modules/CMakeCheckCompilerFlagCommonPatterns.cmake \
   /usr/share/cmake/Modules/CMakeCommonLanguageInclude.cmake \
-  /usr/share/cmake/Modules/CMakeCompilerIdDetection.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCompiler.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCompilerABI.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCompilerId.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineCompilerSupport.cmake \
-  /usr/share/cmake/Modules/CMakeDetermineSystem.cmake \
-  /usr/share/cmake/Modules/CMakeFindBinUtils.cmake \
   /usr/share/cmake/Modules/CMakeFindDependencyMacro.cmake \
   /usr/share/cmake/Modules/CMakeGenericSystem.cmake \
   /usr/share/cmake/Modules/CMakeInitializeConfigs.cmake \
   /usr/share/cmake/Modules/CMakeLanguageInformation.cmake \
-  /usr/share/cmake/Modules/CMakeParseImplicitIncludeInfo.cmake \
-  /usr/share/cmake/Modules/CMakeParseImplicitLinkInfo.cmake \
-  /usr/share/cmake/Modules/CMakeParseLibraryArchitecture.cmake \
-  /usr/share/cmake/Modules/CMakeSystem.cmake.in \
   /usr/share/cmake/Modules/CMakeSystemSpecificInformation.cmake \
   /usr/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake \
-  /usr/share/cmake/Modules/CMakeTestCXXCompiler.cmake \
-  /usr/share/cmake/Modules/CMakeTestCompilerCommon.cmake \
-  /usr/share/cmake/Modules/CMakeUnixFindMake.cmake \
   /usr/share/cmake/Modules/CheckCXXCompilerFlag.cmake \
   /usr/share/cmake/Modules/CheckCXXSourceCompiles.cmake \
   /usr/share/cmake/Modules/CheckIncludeFileCXX.cmake \
   /usr/share/cmake/Modules/CheckLibraryExists.cmake \
-  /usr/share/cmake/Modules/Compiler/ADSP-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/ARMCC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/ARMClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/AppleClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Borland-DetermineCompiler.cmake \
   /usr/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake \
   /usr/share/cmake/Modules/Compiler/Clang-CXX.cmake \
-  /usr/share/cmake/Modules/Compiler/Clang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Clang-DetermineCompilerInternal.cmake \
-  /usr/share/cmake/Modules/Compiler/Clang-FindBinUtils.cmake \
   /usr/share/cmake/Modules/Compiler/Clang.cmake \
-  /usr/share/cmake/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Cray-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/CrayClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Diab-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Embarcadero-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Fujitsu-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/GHS-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake \
   /usr/share/cmake/Modules/Compiler/GNU.cmake \
-  /usr/share/cmake/Modules/Compiler/HP-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/IAR-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake \
-  /usr/share/cmake/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Intel-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/MSVC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/NVHPC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/NVIDIA-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/OrangeC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/PGI-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/PathScale-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/PellesC-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Renesas-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/SCO-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/TI-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/TIClang-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Tasking-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/Watcom-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/XL-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake \
-  /usr/share/cmake/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake \
   /usr/share/cmake/Modules/FindOpenGL.cmake \
   /usr/share/cmake/Modules/FindPackageHandleStandardArgs.cmake \
   /usr/share/cmake/Modules/FindPackageMessage.cmake \
@@ -1119,12 +1095,9 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
   /usr/share/cmake/Modules/GNUInstallDirs.cmake \
   /usr/share/cmake/Modules/Internal/CMakeCXXLinkerInformation.cmake \
   /usr/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake \
-  /usr/share/cmake/Modules/Internal/CMakeDetermineLinkerId.cmake \
-  /usr/share/cmake/Modules/Internal/CMakeInspectCXXLinker.cmake \
   /usr/share/cmake/Modules/Internal/CheckCompilerFlag.cmake \
   /usr/share/cmake/Modules/Internal/CheckFlagCommonConfig.cmake \
   /usr/share/cmake/Modules/Internal/CheckSourceCompiles.cmake \
-  /usr/share/cmake/Modules/Internal/FeatureTesting.cmake \
   /usr/share/cmake/Modules/Linker/GNU-CXX.cmake \
   /usr/share/cmake/Modules/Linker/GNU.cmake \
   /usr/share/cmake/Modules/MacroAddFileDependencies.cmake \
@@ -1132,7 +1105,6 @@ sdf_editor_autogen/timestamp: /home/bumbandit/Projects/Engine/engine/src/defines
   /usr/share/cmake/Modules/Platform/Linker/Linux-GNU-CXX.cmake \
   /usr/share/cmake/Modules/Platform/Linker/Linux-GNU.cmake \
   /usr/share/cmake/Modules/Platform/Linux-Clang-CXX.cmake \
-  /usr/share/cmake/Modules/Platform/Linux-Determine-CXX.cmake \
   /usr/share/cmake/Modules/Platform/Linux-GNU-CXX.cmake \
   /usr/share/cmake/Modules/Platform/Linux-GNU.cmake \
   /usr/share/cmake/Modules/Platform/Linux-Initialize.cmake \
@@ -1144,6 +1116,7 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/core/logger.h \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
+  /home/bumbandit/Projects/Engine/engine/src/resources/material_def.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
   /usr/include/c++/16/array \
   /usr/include/c++/16/backward/binders.h \
@@ -1175,6 +1148,7 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/c++/16/bits/hash_bytes.h \
   /usr/include/c++/16/bits/hashtable.h \
   /usr/include/c++/16/bits/hashtable_policy.h \
+  /usr/include/c++/16/bits/intcmp.h \
   /usr/include/c++/16/bits/invoke.h \
   /usr/include/c++/16/bits/ios_base.h \
   /usr/include/c++/16/bits/istream.tcc \
@@ -1229,6 +1203,7 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/c++/16/bits/stl_iterator_base_funcs.h \
   /usr/include/c++/16/bits/stl_iterator_base_types.h \
   /usr/include/c++/16/bits/stl_pair.h \
+  /usr/include/c++/16/bits/stl_relops.h \
   /usr/include/c++/16/bits/stl_tempbuf.h \
   /usr/include/c++/16/bits/stl_uninitialized.h \
   /usr/include/c++/16/bits/stl_vector.h \
@@ -1309,6 +1284,7 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/c++/16/type_traits \
   /usr/include/c++/16/typeinfo \
   /usr/include/c++/16/unordered_map \
+  /usr/include/c++/16/utility \
   /usr/include/c++/16/vector \
   /usr/include/c++/16/x86_64-pc-linux-gnu/bits/atomic_word.h \
   /usr/include/c++/16/x86_64-pc-linux-gnu/bits/basic_file.h \
@@ -1371,9 +1347,7 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/bits/stdint-intn.h \
   /usr/include/bits/stdint-least.h \
   /usr/include/bits/stdint-uintn.h \
-  /usr/include/bits/stdio.h \
   /usr/include/bits/stdio_lim.h \
-  /usr/include/bits/stdlib-bsearch.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/bits/struct_mutex.h \
   /usr/include/bits/struct_rwlock.h \
@@ -1593,6 +1567,91 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/glm/fwd.hpp \
   /usr/include/glm/geometric.hpp \
   /usr/include/glm/glm.hpp \
+  /usr/include/glm/common.hpp \
+  /usr/include/glm/detail/qualifier.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_mat3x3.hpp \
+  /usr/include/glm/detail/type_mat4x4.hpp \
+  /usr/include/glm/detail/type_vec3.hpp \
+  /usr/include/glm/detail/type_vec4.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/common.hpp \
+  /usr/include/glm/detail/type_mat3x3.hpp \
+  /usr/include/glm/detail/type_mat4x4.hpp \
+  /usr/include/glm/detail/type_vec3.hpp \
+  /usr/include/glm/detail/type_vec4.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_relational.inl \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/detail/qualifier.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_float.hpp \
+  /usr/include/glm/detail/type_quat.hpp \
+  /usr/include/glm/detail/type_quat.inl \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_common.inl \
+  /usr/include/glm/ext/quaternion_double.hpp \
+  /usr/include/glm/ext/quaternion_double_precision.hpp \
+  /usr/include/glm/ext/quaternion_float.hpp \
+  /usr/include/glm/ext/quaternion_float_precision.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_transform.hpp \
+  /usr/include/glm/ext/quaternion_transform.inl \
+  /usr/include/glm/ext/quaternion_trigonometric.hpp \
+  /usr/include/glm/ext/quaternion_trigonometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/ext/vector_relational.inl \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/matrix.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/ext/matrix_clip_space.hpp \
+  /usr/include/glm/ext/matrix_clip_space.inl \
+  /usr/include/glm/ext/matrix_projection.hpp \
+  /usr/include/glm/ext/matrix_projection.inl \
+  /usr/include/glm/ext/matrix_transform.hpp \
+  /usr/include/glm/ext/matrix_transform.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/scalar_constants.inl \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/mat4x4.hpp \
+  /usr/include/glm/matrix.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vec2.hpp \
+  /usr/include/glm/vec3.hpp \
+  /usr/include/glm/vec4.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/constants.inl \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/matrix_transform.inl \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/gtc/epsilon.hpp \
+  /usr/include/glm/gtc/epsilon.inl \
+  /usr/include/glm/gtc/quaternion.hpp \
+  /usr/include/glm/gtc/quaternion.inl \
   /usr/include/glm/integer.hpp \
   /usr/include/glm/mat2x2.hpp \
   /usr/include/glm/mat2x3.hpp \
@@ -1659,6 +1718,7 @@ CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o: sdf_editor_
   /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h \
   /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
+  /home/bumbandit/Projects/Engine/engine/src/resources/material_def.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/contents_tree_widget.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/main_window.h \
@@ -1937,9 +1997,7 @@ CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o: sdf_editor_
   /usr/include/bits/stdint-intn.h \
   /usr/include/bits/stdint-least.h \
   /usr/include/bits/stdint-uintn.h \
-  /usr/include/bits/stdio.h \
   /usr/include/bits/stdio_lim.h \
-  /usr/include/bits/stdlib-bsearch.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/bits/struct_mutex.h \
   /usr/include/bits/struct_rwlock.h \
@@ -2159,6 +2217,91 @@ CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o: sdf_editor_
   /usr/include/glm/fwd.hpp \
   /usr/include/glm/geometric.hpp \
   /usr/include/glm/glm.hpp \
+  /usr/include/glm/common.hpp \
+  /usr/include/glm/detail/qualifier.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_mat3x3.hpp \
+  /usr/include/glm/detail/type_mat4x4.hpp \
+  /usr/include/glm/detail/type_vec3.hpp \
+  /usr/include/glm/detail/type_vec4.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/common.hpp \
+  /usr/include/glm/detail/type_mat3x3.hpp \
+  /usr/include/glm/detail/type_mat4x4.hpp \
+  /usr/include/glm/detail/type_vec3.hpp \
+  /usr/include/glm/detail/type_vec4.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_relational.inl \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/detail/qualifier.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_float.hpp \
+  /usr/include/glm/detail/type_quat.hpp \
+  /usr/include/glm/detail/type_quat.inl \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_common.inl \
+  /usr/include/glm/ext/quaternion_double.hpp \
+  /usr/include/glm/ext/quaternion_double_precision.hpp \
+  /usr/include/glm/ext/quaternion_float.hpp \
+  /usr/include/glm/ext/quaternion_float_precision.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_transform.hpp \
+  /usr/include/glm/ext/quaternion_transform.inl \
+  /usr/include/glm/ext/quaternion_trigonometric.hpp \
+  /usr/include/glm/ext/quaternion_trigonometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/ext/vector_relational.inl \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/matrix.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/ext/matrix_clip_space.hpp \
+  /usr/include/glm/ext/matrix_clip_space.inl \
+  /usr/include/glm/ext/matrix_projection.hpp \
+  /usr/include/glm/ext/matrix_projection.inl \
+  /usr/include/glm/ext/matrix_transform.hpp \
+  /usr/include/glm/ext/matrix_transform.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/scalar_constants.inl \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/mat4x4.hpp \
+  /usr/include/glm/matrix.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vec2.hpp \
+  /usr/include/glm/vec3.hpp \
+  /usr/include/glm/vec4.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/constants.inl \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/matrix_transform.inl \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/gtc/epsilon.hpp \
+  /usr/include/glm/gtc/epsilon.inl \
+  /usr/include/glm/gtc/quaternion.hpp \
+  /usr/include/glm/gtc/quaternion.inl \
   /usr/include/glm/integer.hpp \
   /usr/include/glm/mat2x2.hpp \
   /usr/include/glm/mat2x3.hpp \
@@ -2704,9 +2847,7 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o: /home/bumbandit/Projec
   /usr/include/bits/stdint-intn.h \
   /usr/include/bits/stdint-least.h \
   /usr/include/bits/stdint-uintn.h \
-  /usr/include/bits/stdio.h \
   /usr/include/bits/stdio_lim.h \
-  /usr/include/bits/stdlib-bsearch.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/bits/struct_mutex.h \
   /usr/include/bits/struct_rwlock.h \
@@ -3015,6 +3156,7 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: /home/bumbandit/Projects/Engine/tools/
   /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h \
   /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
+  /home/bumbandit/Projects/Engine/engine/src/resources/material_def.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/main_window.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/scene_viewport.h \
@@ -3289,9 +3431,7 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: /home/bumbandit/Projects/Engine/tools/
   /usr/include/bits/stdint-intn.h \
   /usr/include/bits/stdint-least.h \
   /usr/include/bits/stdint-uintn.h \
-  /usr/include/bits/stdio.h \
   /usr/include/bits/stdio_lim.h \
-  /usr/include/bits/stdlib-bsearch.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/bits/struct_mutex.h \
   /usr/include/bits/struct_rwlock.h \
@@ -3511,6 +3651,91 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o: /home/bumbandit/Projects/Engine/tools/
   /usr/include/glm/fwd.hpp \
   /usr/include/glm/geometric.hpp \
   /usr/include/glm/glm.hpp \
+  /usr/include/glm/common.hpp \
+  /usr/include/glm/detail/qualifier.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_mat3x3.hpp \
+  /usr/include/glm/detail/type_mat4x4.hpp \
+  /usr/include/glm/detail/type_vec3.hpp \
+  /usr/include/glm/detail/type_vec4.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/common.hpp \
+  /usr/include/glm/detail/type_mat3x3.hpp \
+  /usr/include/glm/detail/type_mat4x4.hpp \
+  /usr/include/glm/detail/type_vec3.hpp \
+  /usr/include/glm/detail/type_vec4.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_relational.inl \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/detail/qualifier.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_float.hpp \
+  /usr/include/glm/detail/type_quat.hpp \
+  /usr/include/glm/detail/type_quat.inl \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_common.inl \
+  /usr/include/glm/ext/quaternion_double.hpp \
+  /usr/include/glm/ext/quaternion_double_precision.hpp \
+  /usr/include/glm/ext/quaternion_float.hpp \
+  /usr/include/glm/ext/quaternion_float_precision.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_transform.hpp \
+  /usr/include/glm/ext/quaternion_transform.inl \
+  /usr/include/glm/ext/quaternion_trigonometric.hpp \
+  /usr/include/glm/ext/quaternion_trigonometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/ext/vector_relational.inl \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/matrix.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/ext/matrix_clip_space.hpp \
+  /usr/include/glm/ext/matrix_clip_space.inl \
+  /usr/include/glm/ext/matrix_projection.hpp \
+  /usr/include/glm/ext/matrix_projection.inl \
+  /usr/include/glm/ext/matrix_transform.hpp \
+  /usr/include/glm/ext/matrix_transform.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/scalar_constants.inl \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/mat4x4.hpp \
+  /usr/include/glm/matrix.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vec2.hpp \
+  /usr/include/glm/vec3.hpp \
+  /usr/include/glm/vec4.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/constants.inl \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/matrix_transform.inl \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/gtc/epsilon.hpp \
+  /usr/include/glm/gtc/epsilon.inl \
+  /usr/include/glm/gtc/quaternion.hpp \
+  /usr/include/glm/gtc/quaternion.inl \
   /usr/include/glm/integer.hpp \
   /usr/include/glm/mat2x2.hpp \
   /usr/include/glm/mat2x3.hpp \
@@ -3775,6 +4000,7 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projects/Engine
   /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_frontend.h \
   /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
+  /home/bumbandit/Projects/Engine/engine/src/resources/material_def.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/contents_tree_widget.h \
@@ -4063,9 +4289,7 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projects/Engine
   /usr/include/bits/stdint-intn.h \
   /usr/include/bits/stdint-least.h \
   /usr/include/bits/stdint-uintn.h \
-  /usr/include/bits/stdio.h \
   /usr/include/bits/stdio_lim.h \
-  /usr/include/bits/stdlib-bsearch.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/bits/struct_mutex.h \
   /usr/include/bits/struct_rwlock.h \
@@ -4285,6 +4509,91 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projects/Engine
   /usr/include/glm/fwd.hpp \
   /usr/include/glm/geometric.hpp \
   /usr/include/glm/glm.hpp \
+  /usr/include/glm/common.hpp \
+  /usr/include/glm/detail/qualifier.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_mat3x3.hpp \
+  /usr/include/glm/detail/type_mat4x4.hpp \
+  /usr/include/glm/detail/type_vec3.hpp \
+  /usr/include/glm/detail/type_vec4.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/common.hpp \
+  /usr/include/glm/detail/type_mat3x3.hpp \
+  /usr/include/glm/detail/type_mat4x4.hpp \
+  /usr/include/glm/detail/type_vec3.hpp \
+  /usr/include/glm/detail/type_vec4.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_relational.inl \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/detail/qualifier.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_float.hpp \
+  /usr/include/glm/detail/type_quat.hpp \
+  /usr/include/glm/detail/type_quat.inl \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/exponential.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_common.inl \
+  /usr/include/glm/ext/quaternion_double.hpp \
+  /usr/include/glm/ext/quaternion_double_precision.hpp \
+  /usr/include/glm/ext/quaternion_float.hpp \
+  /usr/include/glm/ext/quaternion_float_precision.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_transform.hpp \
+  /usr/include/glm/ext/quaternion_transform.inl \
+  /usr/include/glm/ext/quaternion_trigonometric.hpp \
+  /usr/include/glm/ext/quaternion_trigonometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/ext/vector_relational.inl \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/matrix.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/ext/matrix_clip_space.hpp \
+  /usr/include/glm/ext/matrix_clip_space.inl \
+  /usr/include/glm/ext/matrix_projection.hpp \
+  /usr/include/glm/ext/matrix_projection.inl \
+  /usr/include/glm/ext/matrix_transform.hpp \
+  /usr/include/glm/ext/matrix_transform.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/scalar_constants.inl \
+  /usr/include/glm/geometric.hpp \
+  /usr/include/glm/mat4x4.hpp \
+  /usr/include/glm/matrix.hpp \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vec2.hpp \
+  /usr/include/glm/vec3.hpp \
+  /usr/include/glm/vec4.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/constants.inl \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/matrix_transform.inl \
+  /usr/include/glm/trigonometric.hpp \
+  /usr/include/glm/vector_relational.hpp \
+  /usr/include/glm/gtc/epsilon.hpp \
+  /usr/include/glm/gtc/epsilon.inl \
+  /usr/include/glm/gtc/quaternion.hpp \
+  /usr/include/glm/gtc/quaternion.inl \
   /usr/include/glm/integer.hpp \
   /usr/include/glm/mat2x2.hpp \
   /usr/include/glm/mat2x3.hpp \
@@ -4524,13 +4833,16 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projects/Engine
   /usr/include/qt6/QtWidgets/QFormLayout \
   /usr/include/qt6/QtWidgets/QGroupBox \
   /usr/include/qt6/QtWidgets/QHBoxLayout \
+  /usr/include/qt6/QtWidgets/QInputDialog \
   /usr/include/qt6/QtWidgets/QLabel \
   /usr/include/qt6/QtWidgets/QLayout \
   /usr/include/qt6/QtWidgets/QLineEdit \
   /usr/include/qt6/QtWidgets/QListWidget \
+  /usr/include/qt6/QtWidgets/QListWidgetItem \
   /usr/include/qt6/QtWidgets/QMainWindow \
   /usr/include/qt6/QtWidgets/QMessageBox \
   /usr/include/qt6/QtWidgets/QPushButton \
+  /usr/include/qt6/QtWidgets/QStackedWidget \
   /usr/include/qt6/QtWidgets/QTabWidget \
   /usr/include/qt6/QtWidgets/QTreeWidget \
   /usr/include/qt6/QtWidgets/QTreeWidgetItem \
@@ -4554,6 +4866,7 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projects/Engine
   /usr/include/qt6/QtWidgets/qframe.h \
   /usr/include/qt6/QtWidgets/qgridlayout.h \
   /usr/include/qt6/QtWidgets/qgroupbox.h \
+  /usr/include/qt6/QtWidgets/qinputdialog.h \
   /usr/include/qt6/QtWidgets/qlabel.h \
   /usr/include/qt6/QtWidgets/qlayout.h \
   /usr/include/qt6/QtWidgets/qlayoutitem.h \
@@ -4567,6 +4880,7 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o: /home/bumbandit/Projects/Engine
   /usr/include/qt6/QtWidgets/qsizepolicy.h \
   /usr/include/qt6/QtWidgets/qslider.h \
   /usr/include/qt6/QtWidgets/qspinbox.h \
+  /usr/include/qt6/QtWidgets/qstackedwidget.h \
   /usr/include/qt6/QtWidgets/qstyle.h \
   /usr/include/qt6/QtWidgets/qstyleoption.h \
   /usr/include/qt6/QtWidgets/qtabbar.h \
@@ -4632,6 +4946,7 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: /home/bumbandit/Projects/Eng
   /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl \
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/expression.h \
+  /home/bumbandit/Projects/Engine/engine/src/resources/material_def.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/ray_intersect.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/scene_viewport.h \
@@ -4906,9 +5221,7 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: /home/bumbandit/Projects/Eng
   /usr/include/bits/stdint-intn.h \
   /usr/include/bits/stdint-least.h \
   /usr/include/bits/stdint-uintn.h \
-  /usr/include/bits/stdio.h \
   /usr/include/bits/stdio_lim.h \
-  /usr/include/bits/stdlib-bsearch.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/bits/struct_mutex.h \
   /usr/include/bits/struct_rwlock.h \
@@ -5621,6 +5934,8 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
 
 /usr/lib/libX11.so.6:
 
+/usr/lib/libQt6Gui.so.6.11.1:
+
 /usr/lib/libOpenGL.so:
 
 /usr/lib/libGLX.so:
@@ -5653,46 +5968,6 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
 
 /usr/include/qt6/QtCore/QLineF:
 
-/usr/include/glm/gtc/epsilon.inl:
-
-/usr/include/glm/gtc/epsilon.hpp:
-
-/usr/include/glm/gtc/constants.inl:
-
-/usr/include/glm/ext/matrix_transform.inl:
-
-/usr/include/glm/ext/matrix_transform.hpp:
-
-/usr/include/glm/ext/matrix_projection.inl:
-
-/usr/include/glm/ext/matrix_projection.hpp:
-
-/usr/include/glm/ext/vector_relational.inl:
-
-/usr/include/glm/ext/quaternion_trigonometric.hpp:
-
-/usr/include/glm/ext/quaternion_transform.inl:
-
-/usr/include/glm/ext/quaternion_float_precision.hpp:
-
-/usr/include/glm/ext/scalar_constants.hpp:
-
-/usr/include/glm/ext/quaternion_geometric.inl:
-
-/usr/include/glm/detail/type_quat.inl:
-
-/usr/include/glm/detail/type_quat.hpp:
-
-/usr/include/glm/gtc/matrix_transform.hpp:
-
-/usr/include/glm/ext/vector_relational.hpp:
-
-/usr/include/glm/ext/quaternion_relational.hpp:
-
-/usr/include/glm/ext/quaternion_geometric.hpp:
-
-/usr/include/glm/ext/quaternion_common.hpp:
-
 /home/bumbandit/Projects/Engine/engine/src/resources/expression.h:
 
 /home/bumbandit/Projects/Engine/engine/src/core/event.h:
@@ -5709,7 +5984,11 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
 
 /usr/include/qt6/QtWidgets/qlayoutitem.h:
 
+/usr/include/qt6/QtWidgets/qlayout.h:
+
 /usr/include/qt6/QtWidgets/qlabel.h:
+
+/usr/include/qt6/QtWidgets/qinputdialog.h:
 
 /usr/include/qt6/QtWidgets/qgroupbox.h:
 
@@ -5727,6 +6006,8 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
 
 /usr/include/qt6/QtWidgets/qcheckbox.h:
 
+/usr/include/qt6/QtWidgets/qbuttongroup.h:
+
 /usr/include/qt6/QtWidgets/qboxlayout.h:
 
 /usr/include/qt6/QtWidgets/qabstractbutton.h:
@@ -5739,6 +6020,8 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
 
 /usr/include/qt6/QtWidgets/QMessageBox:
 
+/usr/include/qt6/QtWidgets/QListWidgetItem:
+
 /usr/include/qt6/QtWidgets/QListWidget:
 
 /usr/include/qt6/QtWidgets/QLineEdit:
@@ -5746,6 +6029,8 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
 /usr/include/qt6/QtGui/QResizeEvent:
 
 /usr/include/qt6/QtWidgets/QLayout:
+
+/usr/include/qt6/QtWidgets/QInputDialog:
 
 /usr/include/qt6/QtWidgets/QGroupBox:
 
@@ -5871,10 +6156,6 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /usr/include/math.h:
 
-/usr/include/bits/stdlib-bsearch.h:
-
-/usr/include/bits/stdio.h:
-
 /usr/include/bits/mathcalls-narrow.h:
 
 /usr/include/bits/mathcalls-helper-functions.h:
@@ -5917,84 +6198,6 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /home/bumbandit/Projects/Engine/engine/src/core/logger.h:
 
-/usr/share/cmake/Modules/Platform/Linux.cmake:
-
-/usr/share/cmake/Modules/Platform/Linux-GNU.cmake:
-
-/usr/share/cmake/Modules/Platform/Linux-GNU-CXX.cmake:
-
-/usr/share/cmake/Modules/Platform/Linux-Determine-CXX.cmake:
-
-/usr/share/cmake/Modules/Platform/Linker/Linux-GNU.cmake:
-
-/usr/share/cmake/Modules/Platform/Linker/Linux-GNU-CXX.cmake:
-
-/usr/share/cmake/Modules/Platform/Linker/GNU.cmake:
-
-/usr/share/cmake/Modules/Linker/GNU-CXX.cmake:
-
-/usr/share/cmake/Modules/Internal/FeatureTesting.cmake:
-
-/usr/share/cmake/Modules/Internal/CheckFlagCommonConfig.cmake:
-
-/usr/share/cmake/Modules/Internal/CheckCompilerFlag.cmake:
-
-/usr/share/cmake/Modules/Internal/CMakeDetermineLinkerId.cmake:
-
-/usr/share/cmake/Modules/FindVulkan.cmake:
-
-/usr/share/cmake/Modules/FindThreads.cmake:
-
-/usr/share/cmake/Modules/FindPackageMessage.cmake:
-
-/usr/share/cmake/Modules/FindOpenGL.cmake:
-
-/usr/include/qt6/QtCore/qobject.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QGifPluginTargets-relwithdebinfo.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6QIbusPlatformInputContextPluginTargets.cmake:
-
-/usr/include/qt6/QtCore/qnativeinterface.h:
-
-/usr/include/c++/16/x86_64-pc-linux-gnu/bits/c++locale.h:
-
-/usr/include/glm/ext/vector_double2_precision.hpp:
-
-/usr/share/cmake/Modules/CMakeDetermineSystem.cmake:
-
-/usr/include/qt6/QtCore/qmetatype.h:
-
-/usr/include/glm/ext/matrix_double3x2.hpp:
-
-/usr/include/qt6/QtCore/qmap.h:
-
-/usr/include/qt6/QtCore/qmalloc.h:
-
-/usr/include/bits/stdint-uintn.h:
-
-/usr/include/qt6/QtCore/qline.h:
-
-/usr/include/qt6/QtCore/qiterator.h:
-
-/usr/include/qt6/QtCore/qiodevicebase.h:
-
-/usr/include/qt6/QtCore/qglobal.h:
-
-/usr/include/glm/geometric.hpp:
-
-/usr/include/qt6/QtCore/qfunctionaltools_impl.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QEglFSKmsEglDeviceIntegrationPluginConfig.cmake:
-
-/usr/include/qt6/QtCore/qexceptionhandling.h:
-
-/usr/include/qt6/QtCore/qelapsedtimer.h:
-
-/usr/include/c++/16/bits/uniform_int_dist.h:
-
-/usr/include/c++/16/bits/ostream.tcc:
-
 /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsVersionlessTargets.cmake:
 
 /usr/include/qt6/QtCore/qdatastream.h:
@@ -6013,10 +6216,6 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevKeyboardPluginAdditionalTargetInfo.cmake:
 
-/usr/share/cmake/Modules/MacroAddFileDependencies.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6QEglFSKmsGbmIntegrationPluginTargets-relwithdebinfo.cmake:
-
 /usr/include/qt6/QtCore/qatomic_cxx11.h:
 
 /usr/lib/libbrotlicommon.so.1:
@@ -6026,8 +6225,6 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 /usr/include/qt6/QtCore/qassert.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6DrmEglServerBufferPluginTargets-relwithdebinfo.cmake:
-
-/usr/include/qt6/QtCore/qflags.h:
 
 /usr/include/qt6/QtCore/qarraydataops.h:
 
@@ -6040,10 +6237,6 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandQtShellIntegrationPluginConfig.cmake:
 
 /usr/include/qt6/QtCore/q23type_traits.h:
-
-/usr/include/qt6/QtCore/qminmax.h:
-
-/usr/include/glm/ext/matrix_float3x3.hpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandEglClientBufferPluginTargets.cmake:
 
@@ -6071,12 +6264,6 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandEglClientBufferPluginTargets-relwithdebinfo.cmake:
 
-/usr/include/glm/vector_relational.hpp:
-
-/usr/lib32/libbrotlicommon.so.1:
-
-/usr/lib/cmake/Qt6DBus/Qt6DBusConfigVersionImpl.cmake:
-
 /usr/include/glm/vec2.hpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QTuioTouchPluginTargets-relwithdebinfo.cmake:
@@ -6084,6 +6271,14 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 /usr/include/glm/trigonometric.hpp:
 
 /usr/lib/clang/22/include/__stddef_header_macro.h:
+
+/usr/include/glm/packing.hpp:
+
+/usr/share/cmake/Modules/CheckCXXCompilerFlag.cmake:
+
+/usr/include/glm/integer.hpp:
+
+/usr/include/glm/ext/matrix_float4x4.hpp:
 
 /usr/include/glm/simd/platform.h:
 
@@ -6095,17 +6290,17 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /usr/lib/cmake/Qt6GuiTools/Qt6GuiToolsTargetsPrecheck.cmake:
 
-/usr/include/glm/packing.hpp:
+/usr/share/cmake/Modules/FindPackageMessage.cmake:
 
-/usr/share/cmake/Modules/CheckCXXCompilerFlag.cmake:
+/usr/include/glm/gtc/matrix_transform.hpp:
 
-/usr/include/glm/ext/matrix_clip_space.hpp:
+/usr/include/qt6/QtCore/qtclasshelpermacros.h:
 
-/usr/include/glm/exponential.hpp:
+/usr/include/glm/gtc/epsilon.inl:
 
-/usr/include/glm/integer.hpp:
+/usr/include/bits/types/error_t.h:
 
-/usr/include/glm/ext/matrix_float4x4.hpp:
+/usr/include/glm/gtc/constants.inl:
 
 /usr/include/glm/glm.hpp:
 
@@ -6114,6 +6309,10 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 /usr/include/qt6/QtWidgets/QFormLayout:
 
 /usr/include/c++/16/bits/localefwd.h:
+
+/usr/include/glm/geometric.hpp:
+
+/usr/include/qt6/QtCore/qglobal.h:
 
 /usr/include/glm/fwd.hpp:
 
@@ -6124,6 +6323,8 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 /usr/include/glm/ext/vector_uint2.hpp:
 
 /usr/lib/cmake/Qt6DBus/Qt6DBusConfigVersion.cmake:
+
+/usr/include/glm/detail/type_quat.inl:
 
 /usr/include/qt6/QtCore/qstringtokenizer.h:
 
@@ -6141,15 +6342,7 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /usr/include/glm/ext/vector_float3.hpp:
 
-/usr/include/c++/16/cstdlib:
-
-/usr/include/glm/mat3x3.hpp:
-
-/usr/include/glm/ext/vector_double3.hpp:
-
-/usr/include/qt6/QtCore/qfloat16.h:
-
-/usr/include/glm/detail/type_mat2x4.hpp:
+/usr/include/glm/ext/vector_relational.hpp:
 
 /usr/include/glm/ext/vector_float2_precision.hpp:
 
@@ -6158,10 +6351,6 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 /usr/include/c++/16/bits/node_handle.h:
 
 /usr/include/glm/ext/vector_double4_precision.hpp:
-
-/usr/include/glm/ext/vector_double3_precision.hpp:
-
-/usr/lib/cmake/Qt6Gui/Qt6QXcbEglIntegrationPluginTargets.cmake:
 
 /usr/include/qt6/QtGui/qwindowdefs.h:
 
@@ -6175,21 +6364,47 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QXcbGlxIntegrationPluginTargets.cmake:
 
-/usr/include/c++/16/exception:
-
 /usr/include/glm/ext/vector_bool2_precision.hpp:
 
 /usr/lib/cmake/Qt6Core/Qt6CoreConfig.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QVkKhrDisplayIntegrationPluginAdditionalTargetInfo.cmake:
 
+/usr/include/glm/ext/scalar_constants.hpp:
+
+/usr/include/glm/ext/quaternion_trigonometric.hpp:
+
+/usr/include/bits/types/struct_timespec.h:
+
+/usr/include/glm/ext/quaternion_transform.inl:
+
+/usr/include/bits/typesizes.h:
+
+/usr/include/glm/ext/matrix_float3x2_precision.hpp:
+
+/usr/include/c++/16/bits/atomic_base.h:
+
+/usr/include/glm/ext/quaternion_geometric.inl:
+
+/usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginTargetsPrecheck.cmake:
+
+/usr/include/glm/ext/quaternion_float.hpp:
+
+/usr/lib/cmake/Qt6Gui/Qt6QOffscreenIntegrationPluginTargetsPrecheck.cmake:
+
+/usr/include/c++/16/exception:
+
+/usr/include/glm/ext/vector_double3_precision.hpp:
+
+/usr/lib/cmake/Qt6Gui/Qt6QXcbEglIntegrationPluginTargets.cmake:
+
+/usr/include/glm/ext/quaternion_common.hpp:
+
+/usr/include/glm/ext/matrix_projection.hpp:
+
 /usr/include/glm/ext/matrix_float4x4_precision.hpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QSvgIconPluginTargetsPrecheck.cmake:
-
-/usr/include/qt6/QtCore/qobject_impl.h:
-
-/usr/include/endian.h:
 
 /usr/include/qt6/QtCore/qcontiguouscache.h:
 
@@ -6203,19 +6418,23 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /usr/include/sys/cdefs.h:
 
+/usr/include/glm/ext/quaternion_geometric.hpp:
+
 /usr/include/glm/ext/matrix_float3x4.hpp:
 
 /usr/lib/cmake/Qt6DBus/Qt6DBusTargets.cmake:
 
 /usr/include/bits/types/struct___jmp_buf_tag.h:
 
+/usr/share/cmake/Modules/FindOpenGL.cmake:
+
 /usr/include/glm/ext/matrix_float3x3_precision.hpp:
 
 /usr/include/c++/16/functional:
 
-/usr/include/glm/ext/matrix_float3x2_precision.hpp:
+/usr/include/glm/ext/matrix_transform.inl:
 
-/usr/include/c++/16/bits/atomic_base.h:
+/usr/include/qt6/QtCore/qobjectdefs_impl.h:
 
 /usr/lib/libpcre2-16.so.0:
 
@@ -6255,15 +6474,19 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QSvgIconPluginConfig.cmake:
 
-/usr/share/cmake/Modules/Compiler/Watcom-DetermineCompiler.cmake:
-
-/usr/include/glm/ext/vector_bool4.hpp:
-
-/usr/include/qt6/QtCore/qmath.h:
+/usr/include/glm/ext/quaternion_relational.hpp:
 
 /usr/include/glm/ext/matrix_double2x4_precision.hpp:
 
-/usr/share/cmake/Modules/Compiler/NVIDIA-DetermineCompiler.cmake:
+/usr/include/features-time64.h:
+
+/usr/include/qt6/QtCore/qiodevicebase.h:
+
+/usr/include/glm/ext/matrix_double2x2.hpp:
+
+/usr/include/glm/exponential.hpp:
+
+/usr/include/glm/ext/matrix_clip_space.hpp:
 
 /usr/include/locale.h:
 
@@ -6274,6 +6497,10 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsPlugins.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevTouchScreenPluginTargets.cmake:
+
+/usr/include/glm/detail/type_quat.hpp:
+
+/usr/include/c++/16/bits/exception_defines.h:
 
 /usr/include/glm/detail/type_mat4x4.hpp:
 
@@ -6299,6 +6526,22 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 
 /usr/include/glm/detail/type_mat3x3.inl:
 
+/usr/include/glm/detail/type_mat2x4.hpp:
+
+/usr/include/qt6/QtCore/qfloat16.h:
+
+/usr/include/glm/vector_relational.hpp:
+
+/usr/lib32/libbrotlicommon.so.1:
+
+/usr/lib/cmake/Qt6DBus/Qt6DBusConfigVersionImpl.cmake:
+
+/usr/lib/cmake/Qt6Gui/Qt6QXcbIntegrationPluginTargets-relwithdebinfo.cmake:
+
+/usr/include/qt6/QtCore/qtmochelpers.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandFullScreenShellV1IntegrationPluginTargetsPrecheck.cmake:
+
 /usr/include/glm/detail/setup.hpp:
 
 /usr/include/bits/types/struct_timeval.h:
@@ -6308,10 +6551,6 @@ sdf_editor_autogen/UVLADIE3JM/moc_contents_tree_widget.cpp:
 sdf_editor_autogen/mocs_compilation.cpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QVkKhrDisplayIntegrationPluginTargets-relwithdebinfo.cmake:
-
-/usr/include/glm/ext/matrix_double2x2.hpp:
-
-/usr/share/cmake/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake:
 
 /usr/include/qt6/QtCore/qconstructormacros.h:
 
@@ -6323,15 +6562,13 @@ sdf_editor_autogen/mocs_compilation.cpp:
 
 /usr/include/glm/detail/_vectorize.hpp:
 
-/usr/share/cmake/Modules/Internal/CMakeInspectCXXLinker.cmake:
-
 /usr/include/errno.h:
+
+/usr/include/glm/gtc/epsilon.hpp:
 
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/os_defines.h:
 
 /usr/lib/clang/22/include/__stdarg_va_arg.h:
-
-/usr/share/cmake/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake:
 
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/gthr.h:
 
@@ -6349,6 +6586,12 @@ sdf_editor_autogen/mocs_compilation.cpp:
 
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/ctype_inline.h:
 
+/usr/include/qt6/QtCore/qstdlibdetection.h:
+
+/usr/include/c++/16/x86_64-pc-linux-gnu/bits/c++locale.h:
+
+/usr/include/qt6/QtCore/qnativeinterface.h:
+
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSX11IntegrationPluginConfig.cmake:
 
 /usr/include/c++/16/variant:
@@ -6363,6 +6606,10 @@ sdf_editor_autogen/mocs_compilation.cpp:
 
 /usr/include/c++/16/unordered_set:
 
+/usr/include/c++/16/x86_64-pc-linux-gnu/bits/atomic_word.h:
+
+/usr/include/c++/16/typeinfo:
+
 /usr/include/glm/ext/matrix_float2x2.hpp:
 
 /usr/lib/cmake/Qt6Core/Qt6CoreTargetsPrecheck.cmake:
@@ -6372,10 +6619,6 @@ sdf_editor_autogen/mocs_compilation.cpp:
 /usr/include/c++/16/bits/shared_ptr.h:
 
 /usr/lib/cmake/Qt6/QtPublicSbomFileHelpers.cmake:
-
-/usr/include/qt6/QtCore/qdebug.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandIviShellIntegrationPluginTargets.cmake:
 
 /usr/include/c++/16/tr1/legendre_function.tcc:
 
@@ -6399,6 +6642,8 @@ sdf_editor_autogen/mocs_compilation.cpp:
 
 /usr/include/qt6/QtCore/qgenericatomic.h:
 
+/usr/include/assert.h:
+
 /usr/include/c++/16/streambuf:
 
 /usr/lib/cmake/Qt6/Qt6Config.cmake:
@@ -6419,8 +6664,6 @@ sdf_editor_autogen/mocs_compilation.cpp:
 
 /usr/include/glm/ext/vector_bool3.hpp:
 
-/usr/lib/cmake/Qt6/QtPublicSbomPurlHelpers.cmake:
-
 /usr/include/qt6/QtCore/qtformat_impl.h:
 
 /usr/include/glm/mat2x3.hpp:
@@ -6431,23 +6674,17 @@ sdf_editor_autogen/mocs_compilation.cpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QJpegPluginTargets-relwithdebinfo.cmake:
 
-/usr/include/c++/16/bits/erase_if.h:
-
-/usr/include/qt6/QtCore/q20iterator.h:
-
-/usr/include/features.h:
-
-CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
-
-/usr/include/c++/16/bits/utility.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QXcbGlxIntegrationPluginTargetsPrecheck.cmake:
-
 /usr/include/c++/16/bits/cxxabi_init_exception.h:
+
+/usr/share/cmake/Modules/Linker/GNU-CXX.cmake:
 
 /usr/include/qt6/QtWidgets/QVBoxLayout:
 
 /usr/include/bits/types/struct_sched_param.h:
+
+/home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.cpp:
+
+/usr/include/qt6/QtCore/q20type_traits.h:
 
 /usr/lib/libglib-2.0.so.0:
 
@@ -6459,21 +6696,15 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevTouchScreenPluginTargetsPrecheck.cmake:
 
-/home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.cpp:
-
-/usr/include/qt6/QtCore/q20type_traits.h:
-
 /usr/include/qt6/QtCore/QPoint:
 
 /usr/include/linux/posix_types.h:
 
 /usr/include/glm/detail/func_geometric.inl:
 
-/usr/include/qt6/QtCore/qtclasshelpermacros.h:
-
 /usr/lib/cmake/Qt6Gui/Qt6QXcbGlxIntegrationPluginTargets-relwithdebinfo.cmake:
 
-/usr/share/cmake/Modules/CMakeTestCompilerCommon.cmake:
+/usr/include/glm/ext/matrix_projection.inl:
 
 /usr/include/c++/16/bits/chrono.h:
 
@@ -6484,8 +6715,6 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 /usr/include/c++/16/bits/basic_string.h:
 
 /usr/include/glm/ext/matrix_float2x4.hpp:
-
-/usr/share/cmake/Modules/Compiler/HP-CXX-DetermineCompiler.cmake:
 
 /usr/include/c++/16/bits/list.tcc:
 
@@ -6503,6 +6732,8 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 
 /usr/include/c++/16/bits/atomic_lockfree_defines.h:
 
+/usr/include/glm/ext/vector_relational.inl:
+
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/c++allocator.h:
 
 /usr/include/bits/cpu-set.h:
@@ -6511,17 +6742,17 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 
 /usr/include/qt6/QtCore/qcontainertools_impl.h:
 
+/usr/include/c++/16/bits/allocator.h:
+
 /usr/include/bits/time64.h:
-
-/usr/share/cmake/Modules/Platform/Linux-Initialize.cmake:
-
-/usr/include/bits/stdlib-float.h:
 
 /usr/lib/cmake/Qt6Core/Qt6CoreTargets.cmake:
 
 /usr/include/c++/16/bits/alloc_traits.h:
 
 /usr/include/c++/16/backward/binders.h:
+
+/usr/include/qt6/QtCore/qmap.h:
 
 /usr/include/bits/types/wint_t.h:
 
@@ -6542,8 +6773,6 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 /usr/include/bits/timesize.h:
 
 /usr/include/bits/types/timer_t.h:
-
-/usr/share/cmake/Modules/CMakeTestCXXCompiler.cmake:
 
 /usr/include/qt6/QtCore/qcompilerdetection.h:
 
@@ -6577,8 +6806,6 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsConfigVersion.cmake:
 
-/usr/share/cmake/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake:
-
 /usr/include/bits/types/sigset_t.h:
 
 /usr/include/c++/16/bits/memory_resource.h:
@@ -6605,21 +6832,17 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 
 /usr/lib/cmake/Qt6Core/Qt6CoreTargets-relwithdebinfo.cmake:
 
-/usr/include/c++/16/bits/hash_bytes.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QEglFSKmsGbmIntegrationPluginTargetsPrecheck.cmake:
-
 /usr/include/bits/types/__fpos_t.h:
 
 /usr/include/c++/16/string_view:
-
-/usr/share/cmake/Modules/Compiler/ADSP-DetermineCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QIbusPlatformInputContextPluginConfig.cmake:
 
 /usr/include/bits/types/__fpos64_t.h:
 
 /usr/lib/cmake/Qt6GuiTools/Qt6GuiToolsAdditionalTargetInfo.cmake:
+
+/usr/share/cmake/Modules/Platform/Linux-GNU-CXX.cmake:
 
 /usr/include/c++/16/bits/binders.h:
 
@@ -6637,15 +6860,41 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 
 /usr/include/bits/timex.h:
 
+/usr/include/c++/16/cstdlib:
+
+/usr/include/glm/mat3x3.hpp:
+
+/usr/include/glm/ext/vector_double3.hpp:
+
 /usr/include/bits/errno.h:
 
 /usr/include/glm/ext/matrix_float4x2.hpp:
 
-/usr/include/glm/ext/quaternion_common.inl:
+/usr/include/bits/types/time_t.h:
 
-/usr/include/glm/mat2x2.hpp:
+/usr/lib/cmake/Qt6Gui/Qt6QEvdevKeyboardPluginTargets-relwithdebinfo.cmake:
 
-/usr/share/cmake/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake:
+/usr/include/glm/mat4x3.hpp:
+
+/usr/include/glm/mat4x2.hpp:
+
+/usr/lib/cmake/Qt6Gui/Qt6QEglFSIntegrationPluginAdditionalTargetInfo.cmake:
+
+/usr/include/glm/ext/vector_int4_sized.hpp:
+
+/usr/include/c++/16/unordered_map:
+
+/usr/lib/cmake/Qt6/QtPublicSbomPurlHelpers.cmake:
+
+/home/bumbandit/Projects/Engine/engine/src/resources/material_def.h:
+
+/usr/include/c++/16/bits/ostream.tcc:
+
+/usr/include/c++/16/bits/uniform_int_dist.h:
+
+/usr/include/qt6/QtCore/qelapsedtimer.h:
+
+/usr/include/c++/16/bits/shared_ptr_atomic.h:
 
 /usr/include/c++/16/pstl/glue_algorithm_defs.h:
 
@@ -6654,8 +6903,6 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 /usr/include/glm/ext/matrix_float4x3_precision.hpp:
 
 /usr/include/c++/16/version:
-
-/usr/include/bits/types/time_t.h:
 
 /usr/include/qt6/QtCore/qabstracteventdispatcher.h:
 
@@ -6668,8 +6915,6 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSKmsEglDeviceIntegrationPluginAdditionalTargetInfo.cmake:
 
 /usr/include/c++/16/clocale:
-
-/usr/share/cmake/Modules/CMakeCompilerIdDetection.cmake:
 
 /usr/include/asm-generic/errno-base.h:
 
@@ -6717,55 +6962,13 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 
 /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsConfig.cmake:
 
-/usr/lib64/crtn.o:
-
-/usr/include/qt6/QtCore/qeventloop.h:
+/usr/include/qt6/QtWidgets/qstackedwidget.h:
 
 /usr/include/c++/16/bits/requires_hosted.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QMinimalEglIntegrationPluginTargetsPrecheck.cmake:
 
-/usr/include/qt6/QtCore/qset.h:
-
-/usr/lib64/gcc/x86_64-pc-linux-gnu/16/libgcc.a:
-
-/usr/include/pthread.h:
-
-/usr/include/qt6/QtCore/QPointF:
-
-/usr/include/c++/16/cfloat:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandWlShellIntegrationPluginConfig.cmake:
-
-/usr/include/c++/16/bits/basic_ios.h:
-
-/usr/share/cmake/Modules/Compiler/Clang-DetermineCompilerInternal.cmake:
-
-/usr/share/cmake/Modules/Compiler/OrangeC-DetermineCompiler.cmake:
-
-/usr/include/c++/16/chrono:
-
-/usr/lib/cmake/Qt6/QtPublicFinalizerHelpers.cmake:
-
-/usr/include/glm/vec3.hpp:
-
-/usr/lib/cmake/Qt6Gui/Qt6QTsLibPluginTargetsPrecheck.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineCompilerId.cmake:
-
-/home/bumbandit/Projects/Engine/tools/sdf_editor/src/scene_viewport.cpp:
-
-/usr/include/glm/ext/vector_uint4.hpp:
-
-/usr/include/qt6/QtCore/qiterable.h:
-
-/usr/include/bits/types/struct_timespec.h:
-
 /usr/include/c++/16/bits/functexcept.h:
-
-/usr/share/cmake/Modules/FindPackageHandleStandardArgs.cmake:
-
-/usr/include/glm/ext/matrix_float2x3_precision.hpp:
 
 /usr/include/bits/posix2_lim.h:
 
@@ -6787,13 +6990,7 @@ CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 
 /usr/include/glm/ext/vector_bool4_precision.hpp:
 
-/usr/include/c++/16/initializer_list:
-
-/usr/lib/cmake/Qt6/Qt6Targets.cmake:
-
-/usr/include/qt6/QtCore/qmetacontainer.h:
-
-/usr/include/sched.h:
+/usr/include/c++/16/bits/hashtable.h:
 
 /usr/include/c++/16/bits/uses_allocator_args.h:
 
@@ -6815,13 +7012,13 @@ CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandIviShellIntegrationPluginAdditionalTargetInfo.cmake:
 
-/usr/include/qt6/QtCore/qhash.h:
-
-/usr/include/c++/16/backward/auto_ptr.h:
+/usr/share/cmake/Modules/Platform/Linker/Linux-GNU-CXX.cmake:
 
 /usr/include/bits/pthreadtypes-arch.h:
 
-/usr/include/qt6/QtCore/qitemselectionmodel.h:
+/usr/include/c++/16/bits/ranges_uninitialized.h:
+
+/usr/include/c++/16/bits/std_function.h:
 
 /usr/include/c++/16/bits/exception.h:
 
@@ -6831,53 +7028,35 @@ CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o:
 
 /usr/include/c++/16/bits/chrono_io.h:
 
-/usr/include/c++/16/bits/stl_map.h:
+/usr/include/c++/16/bits/basic_ios.h:
 
-/usr/include/c++/16/bits/istream.tcc:
+/usr/include/qt6/QtCore/qset.h:
 
-/usr/include/c++/16/bits/stl_tree.h:
+/usr/lib64/gcc/x86_64-pc-linux-gnu/16/libgcc.a:
 
-/home/bumbandit/Projects/Engine/tools/sdf_editor/src/contents_tree_widget.cpp:
+/usr/include/pthread.h:
 
-/usr/include/glm/ext/quaternion_trigonometric.inl:
+/usr/include/qt6/QtCore/QPointF:
 
-/usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginConfig.cmake:
+/usr/include/c++/16/cfloat:
 
-/usr/lib/cmake/Qt6/QtPublicTestHelpers.cmake:
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandWlShellIntegrationPluginConfig.cmake:
 
-/usr/include/bits/wordsize.h:
+/usr/include/c++/16/chrono:
 
-/usr/include/bits/posix1_lim.h:
+/usr/lib/cmake/Qt6/Qt6Targets.cmake:
 
-/usr/include/c++/16/cctype:
+/usr/include/c++/16/initializer_list:
 
-/usr/lib/cmake/Qt6Gui/Qt6QComposePlatformInputContextPluginAdditionalTargetInfo.cmake:
+/usr/lib/cmake/Qt6/QtPublicFinalizerHelpers.cmake:
 
-/usr/include/bits/types/__mbstate_t.h:
+/usr/include/glm/vec3.hpp:
 
-/usr/include/c++/16/bits/stream_iterator.h:
+/usr/lib/cmake/Qt6Gui/Qt6QTsLibPluginTargetsPrecheck.cmake:
 
-/usr/include/glm/ext/matrix_double2x2_precision.hpp:
+/home/bumbandit/Projects/Engine/tools/sdf_editor/src/scene_viewport.cpp:
 
-/usr/include/bits/stdio_lim.h:
-
-/usr/share/cmake/Modules/GNUInstallDirs.cmake:
-
-/usr/include/asm/posix_types_64.h:
-
-/usr/include/c++/16/bits/stl_set.h:
-
-/usr/include/qt6/QtWidgets/QTreeWidget:
-
-/usr/include/qt6/QtGui/qrgb.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginAdditionalTargetInfo.cmake:
-
-/usr/lib/cmake/Qt6DBus/Qt6DBusConfig.cmake:
-
-/usr/include/bits/time.h:
-
-/usr/include/qt6/QtCore/qtdeprecationdefinitions.h:
+/usr/include/c++/16/bits/cpp_type_traits.h:
 
 /usr/include/bits/wctype-wchar.h:
 
@@ -6915,19 +7094,47 @@ CMakeFiles/sdf_editor.dir/sdf_editor_autogen/mocs_compilation.cpp.o:
 
 /usr/include/qt6/QtWidgets/qtreeview.h:
 
+/usr/include/c++/16/bits/stl_map.h:
+
+/usr/include/c++/16/bits/istream.tcc:
+
+/usr/include/c++/16/bits/stl_tree.h:
+
+/home/bumbandit/Projects/Engine/tools/sdf_editor/src/contents_tree_widget.cpp:
+
+/usr/include/glm/ext/quaternion_trigonometric.inl:
+
+/usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginConfig.cmake:
+
+/usr/lib/cmake/Qt6Gui/Qt6QComposePlatformInputContextPluginAdditionalTargetInfo.cmake:
+
+/usr/include/bits/types/__mbstate_t.h:
+
+/usr/include/c++/16/bits/stream_iterator.h:
+
+/usr/include/glm/ext/matrix_double2x2_precision.hpp:
+
+/usr/include/bits/stdio_lim.h:
+
+/usr/include/qt6/QtGui/qbrush.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandAdwaitaDecorationPluginTargets-relwithdebinfo.cmake:
+
+/usr/include/bits/local_lim.h:
+
 /usr/include/qt6/QtWidgets/QTabWidget:
 
 /usr/include/c++/16/bits/iterator_concepts.h:
 
-/usr/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake:
+/usr/lib/cmake/Qt6/QtPublicTestHelpers.cmake:
 
-/usr/include/bits/uio_lim.h:
+/usr/include/bits/wordsize.h:
+
+/usr/include/bits/posix1_lim.h:
+
+/usr/include/c++/16/cctype:
 
 /usr/include/c++/16/ext/type_traits.h:
-
-/usr/share/cmake/Modules/Compiler/TIClang-DetermineCompiler.cmake:
-
-/usr/share/cmake/Modules/Compiler/ARMClang-DetermineCompiler.cmake:
 
 /usr/lib64/gcc/x86_64-pc-linux-gnu/16/crtbeginS.o:
 
@@ -6939,9 +7146,25 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSEmulatorIntegrationPluginTargets.cmake:
 
+/usr/include/glm/gtc/quaternion.inl:
+
 /usr/include/glm/detail/type_mat2x2.inl:
 
 /usr/include/bits/endianness.h:
+
+/usr/include/c++/16/bits/stl_set.h:
+
+/usr/include/qt6/QtWidgets/QTreeWidget:
+
+/usr/include/qt6/QtGui/qrgb.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginAdditionalTargetInfo.cmake:
+
+/usr/lib/cmake/Qt6DBus/Qt6DBusConfig.cmake:
+
+/usr/include/bits/time.h:
+
+/usr/include/qt6/QtCore/qtdeprecationdefinitions.h:
 
 /usr/include/c++/16/algorithm:
 
@@ -6967,23 +7190,13 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/bits/ranges_util.h:
 
-/usr/include/assert.h:
-
 /usr/include/c++/16/bits/stl_heap.h:
 
 /usr/include/bits/types/clockid_t.h:
 
 /usr/lib/cmake/Qt6/QtInstallPaths.cmake:
 
-/usr/include/qt6/QtCore/qlist.h:
-
-/usr/include/glm/gtc/quaternion.hpp:
-
-/usr/include/c++/16/stdfloat:
-
-/usr/lib/cmake/Qt6Gui/Qt6QComposePlatformInputContextPluginTargetsPrecheck.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandEglClientBufferPluginAdditionalTargetInfo.cmake:
+/usr/include/glm/ext/vector_double2_precision.hpp:
 
 /usr/include/glm/detail/type_mat4x2.hpp:
 
@@ -6991,13 +7204,15 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/bits/uintn-identity.h:
 
-/usr/include/bits/typesizes.h:
-
 /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h:
 
 /usr/include/c++/16/bits/allocated_ptr.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevMousePluginTargets-relwithdebinfo.cmake:
+
+/usr/include/bits/stdint-uintn.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QEvdevTabletPluginTargets.cmake:
 
 /usr/include/qt6/QtCore/qcheckedint_impl.h:
 
@@ -7047,15 +7262,17 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/ext/aligned_buffer.h:
 
+/usr/include/features.h:
+
+/usr/include/qt6/QtCore/q20iterator.h:
+
 /usr/include/qt6/QtCore/qlatin1stringview.h:
 
 /usr/include/bits/types/__FILE.h:
 
-/usr/include/qt6/QtCore/qforeach.h:
-
-/usr/include/glm/detail/_fixes.hpp:
-
 /usr/include/glm/detail/type_vec4.inl:
+
+/usr/include/glm/ext/quaternion_float_precision.hpp:
 
 /home/bumbandit/Projects/Engine/tools/sdf_editor/src/main_window.cpp:
 
@@ -7076,8 +7293,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/qt6/QtWidgets/qmessagebox.h:
 
 /usr/include/qt6/QtGui/qimage.h:
-
-/usr/include/bits/types/error_t.h:
 
 /usr/include/c++/16/bit:
 
@@ -7101,27 +7316,21 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/bits/locale_classes.tcc:
 
-/usr/lib/cmake/Qt6Gui/Qt6QEvdevKeyboardPluginTargets-relwithdebinfo.cmake:
+/usr/include/c++/16/bits/erase_if.h:
 
-/usr/include/glm/mat4x3.hpp:
+/usr/lib/cmake/Qt6Gui/Qt6DmaBufServerBufferPluginAdditionalTargetInfo.cmake:
 
-/usr/include/glm/mat4x2.hpp:
+/usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsConfigVersionImpl.cmake:
 
-/usr/lib/cmake/Qt6Gui/Qt6QEglFSIntegrationPluginAdditionalTargetInfo.cmake:
+/usr/lib/cmake/Qt6Gui/Qt6QEglFSKmsGbmIntegrationPluginTargetsPrecheck.cmake:
 
-/usr/include/glm/ext/vector_int4_sized.hpp:
+/usr/include/c++/16/bits/hash_bytes.h:
 
-/usr/include/c++/16/unordered_map:
+CMakeFiles/sdf_editor.dir/src/contents_tree_widget.cpp.o:
 
-/usr/include/qt6/QtGui/qbrush.h:
+/usr/include/c++/16/bits/utility.h:
 
-/usr/include/bits/local_lim.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandAdwaitaDecorationPluginTargets-relwithdebinfo.cmake:
-
-/usr/include/c++/16/bits/shared_ptr_atomic.h:
-
-/usr/include/c++/16/bits/exception_defines.h:
+/usr/lib/cmake/Qt6Gui/Qt6QXcbGlxIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/include/c++/16/bits/functional_hash.h:
 
@@ -7129,15 +7338,17 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/qt6/QtCore/qversiontagging.h:
 
-/usr/share/cmake/Modules/Linker/GNU.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6ShmServerBufferPluginTargetsPrecheck.cmake:
-
-/usr/lib/clang/22/include/stddef.h:
-
 /usr/include/stdio.h:
 
 /usr/include/glm/ext/matrix_float4x3.hpp:
+
+/usr/include/glm/detail/type_mat4x4.inl:
+
+/usr/lib/cmake/Qt6/QtPublicSbomCpeHelpers.cmake:
+
+/usr/include/glm/ext/scalar_constants.inl:
+
+/usr/include/glm/ext/vector_uint3_sized.hpp:
 
 /usr/include/c++/16/bits/ios_base.h:
 
@@ -7203,19 +7414,19 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandIviShellIntegrationPluginTargetsPrecheck.cmake:
 
+/usr/include/glm/mat2x2.hpp:
+
+/usr/include/glm/ext/quaternion_common.inl:
+
+/usr/lib/cmake/Qt6Gui/Qt6QEglFSIntegrationPluginTargets-relwithdebinfo.cmake:
+
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandBradientDecorationPluginTargets-relwithdebinfo.cmake:
+
 /usr/include/glm/ext/matrix_double4x4_precision.hpp:
-
-/usr/include/c++/16/bits/std_function.h:
-
-/usr/include/c++/16/bits/ranges_uninitialized.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QXcbIntegrationPluginTargets-relwithdebinfo.cmake:
 
 /usr/include/qt6/QtWidgets/qtabwidget.h:
 
 /usr/include/c++/16/bits/align.h:
-
-/usr/share/cmake/Modules/Compiler/SCO-DetermineCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QVirtualKeyboardPluginConfig.cmake:
 
@@ -7249,6 +7460,12 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QMinimalIntegrationPluginAdditionalTargetInfo.cmake:
 
+/usr/include/glm/ext/matrix_double3x2.hpp:
+
+/usr/include/sched.h:
+
+/usr/include/qt6/QtCore/qmetacontainer.h:
+
 /usr/include/c++/16/optional:
 
 /usr/include/qt6/QtWidgets/QDoubleSpinBox:
@@ -7261,8 +7478,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/cassert:
 
-/usr/share/cmake/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake:
-
 /usr/include/asm-generic/int-ll64.h:
 
 /usr/lib/clang/22/include/__float_header_macro.h:
@@ -7273,6 +7488,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/bits/stl_algobase.h:
 
+/usr/include/qt6/QtWidgets/QStackedWidget:
+
 /usr/include/qt6/QtCore/qvarlengtharray.h:
 
 /usr/include/c++/16/tr1/gamma.tcc:
@@ -7281,25 +7498,7 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/c++/16/bits/stl_function.h:
 
-/usr/include/qt6/QtCore/qlocale.h:
-
-/usr/lib32/libvulkan.so.1:
-
-/usr/include/qt6/QtCore/qcontainerfwd.h:
-
-/usr/include/time.h:
-
-/usr/share/cmake/Modules/Platform/Linux-Clang-CXX.cmake:
-
-/usr/include/c++/16/bits/stl_iterator_base_types.h:
-
 /usr/include/c++/16/bits/stl_relops.h:
-
-/usr/include/qt6/QtCore/qhashfunctions.h:
-
-/usr/lib/clang/22/include/__stddef_nullptr_t.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginTargets-relwithdebinfo.cmake:
 
 /usr/include/glm/ext/matrix_float2x4_precision.hpp:
 
@@ -7317,6 +7516,12 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Core/Qt6CoreDependencies.cmake:
 
+/usr/include/glm/detail/_fixes.hpp:
+
+/usr/include/qt6/QtCore/qforeach.h:
+
+/usr/share/cmake/Modules/FindThreads.cmake:
+
 /usr/include/bits/math-vector.h:
 
 /usr/include/c++/16/bits/stl_vector.h:
@@ -7329,9 +7534,13 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/qt6/QtCore/qtversion.h:
 
-/usr/include/c++/16/bits/streambuf.tcc:
+/usr/include/glm/ext/matrix_transform.hpp:
 
-/usr/include/glm/ext/vector_uint3_sized.hpp:
+/usr/include/qt6/QtCore/qstringconverter_base.h:
+
+/usr/include/qt6/QtGui/qpixmap.h:
+
+/usr/include/c++/16/bits/streambuf.tcc:
 
 /usr/include/c++/16/bits/unique_ptr.h:
 
@@ -7343,9 +7552,15 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/glm/ext/vector_uint2_sized.hpp:
 
+/usr/include/glm/ext/quaternion_relational.inl:
+
+/usr/lib/cmake/Qt6Gui/Qt6QJpegPluginTargets.cmake:
+
 /usr/include/c++/16/concepts:
 
 /usr/include/c++/16/cstdio:
+
+/usr/include/c++/16/list:
 
 /usr/include/c++/16/pstl/glue_numeric_defs.h:
 
@@ -7372,12 +7587,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/c++/16/ctime:
 
 /usr/include/linux/sched/types.h:
-
-/usr/include/glm/gtc/quaternion.inl:
-
-/usr/share/cmake/Modules/Compiler/NVHPC-DetermineCompiler.cmake:
-
-/usr/include/qt6/QtCore/qmargins.h:
 
 /usr/lib/clang/22/include/stdarg.h:
 
@@ -7417,7 +7626,91 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/bits/types/struct_tm.h:
 
-/usr/include/qt6/QtCore/qobjectdefs_impl.h:
+/usr/include/qt6/QtCore/qdebug.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandIviShellIntegrationPluginTargets.cmake:
+
+/usr/lib64/crtn.o:
+
+/usr/include/qt6/QtCore/qeventloop.h:
+
+/usr/include/qt6/QtCore/qexceptionhandling.h:
+
+/usr/include/qt6/QtCore/qflags.h:
+
+/usr/include/qt6/QtCore/qfunctionaltools_impl.h:
+
+/usr/include/qt6/QtGui/qpolygon.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QEglFSKmsEglDeviceIntegrationPluginConfig.cmake:
+
+/usr/include/c++/16/backward/auto_ptr.h:
+
+/usr/include/qt6/QtCore/qhash.h:
+
+/usr/include/qt6/QtCore/qhashfunctions.h:
+
+/usr/lib/clang/22/include/__stddef_nullptr_t.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QVncIntegrationPluginTargets-relwithdebinfo.cmake:
+
+/usr/include/qt6/QtCore/qitemselectionmodel.h:
+
+/usr/include/glm/ext/vector_uint4.hpp:
+
+/usr/include/qt6/QtCore/qiterable.h:
+
+/usr/include/qt6/QtCore/qiterator.h:
+
+/usr/include/glm/ext/matrix_float3x3.hpp:
+
+/usr/include/qt6/QtCore/qminmax.h:
+
+/usr/include/qt6/QtCore/qline.h:
+
+/usr/include/qt6/QtCore/qlist.h:
+
+/usr/include/c++/16/stdfloat:
+
+/usr/include/glm/gtc/quaternion.hpp:
+
+/usr/lib/cmake/Qt6Gui/Qt6QComposePlatformInputContextPluginTargetsPrecheck.cmake:
+
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandEglClientBufferPluginAdditionalTargetInfo.cmake:
+
+/usr/include/qt6/QtCore/qlocale.h:
+
+/usr/lib32/libvulkan.so.1:
+
+/usr/include/qt6/QtCore/qcontainerfwd.h:
+
+/usr/include/time.h:
+
+/usr/include/qt6/QtCore/qmalloc.h:
+
+/usr/include/qt6/QtCore/qmargins.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QEglFSKmsGbmIntegrationPluginTargets-relwithdebinfo.cmake:
+
+/usr/share/cmake/Modules/MacroAddFileDependencies.cmake:
+
+/usr/include/glm/ext/vector_bool4.hpp:
+
+/usr/include/qt6/QtCore/qmath.h:
+
+/usr/include/qt6/QtCore/qmetatype.h:
+
+/usr/include/qt6/QtCore/qnumeric.h:
+
+/usr/lib/cmake/Qt6Gui/Qt6QGifPluginTargets-relwithdebinfo.cmake:
+
+/usr/lib/cmake/Qt6Gui/Qt6QIbusPlatformInputContextPluginTargets.cmake:
+
+/usr/include/qt6/QtCore/qobject.h:
+
+/usr/include/endian.h:
+
+/usr/include/qt6/QtCore/qobject_impl.h:
 
 /usr/lib/cmake/Qt6/QtPublicSbomSystemDepHelpers.cmake:
 
@@ -7433,6 +7726,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QGtk3ThemePluginConfig.cmake:
 
+/usr/include/qt6/QtWidgets/qslider.h:
+
 /usr/include/stdlib.h:
 
 /usr/include/qt6/QtCore/qrefcount.h:
@@ -7440,8 +7735,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/glm/ext/vector_int3.hpp:
 
 /usr/lib/cmake/Qt6CoreTools/Qt6CoreToolsConfig.cmake:
-
-/usr/share/cmake/Modules/Compiler/XL-CXX-DetermineCompiler.cmake:
 
 /usr/include/qt6/QtCore/qregularexpression.h:
 
@@ -7471,10 +7764,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/qt6/QtCore/qstringbuilder.h:
 
-/usr/include/qt6/QtCore/qstringconverter_base.h:
-
-/usr/include/qt6/QtGui/qpixmap.h:
-
 /usr/include/qt6/QtCore/qstringlist.h:
 
 /usr/include/qt6/QtCore/qstringview.h:
@@ -7489,6 +7778,10 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/qt6/QtCore/qsysinfo.h:
 
+/usr/include/glm/mat3x4.hpp:
+
+/usr/include/qt6/QtCore/qtaggedpointer.h:
+
 /usr/include/qt6/QtCore/qtconfiginclude.h:
 
 /usr/include/qt6/QtCore/qtypes.h:
@@ -7499,23 +7792,19 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSEmulatorIntegrationPluginTargets-relwithdebinfo.cmake:
 
-/usr/include/features-time64.h:
-
-/usr/share/cmake/Modules/CMakeCXXCompiler.cmake.in:
-
-/usr/include/qt6/QtCore/qnumeric.h:
-
-/usr/share/cmake/Modules/Compiler/PathScale-DetermineCompiler.cmake:
-
 /usr/include/qt6/QtCore/qtenvironmentvariables.h:
 
 /usr/include/qt6/QtCore/qtextstream.h:
 
-/usr/lib/cmake/Qt6Gui/Qt6QEvdevTabletPluginTargets.cmake:
-
-/usr/share/cmake/Modules/Compiler/MSVC-DetermineCompiler.cmake:
-
 /usr/include/qt6/QtCore/qtmetamacros.h:
+
+/usr/share/cmake/Modules/Internal/CheckCompilerFlag.cmake:
+
+/usr/include/c++/16/ratio:
+
+/usr/include/c++/16/ios:
+
+/usr/include/qt6/QtCore/qtnoop.h:
 
 /usr/include/qt6/QtCore/qrect.h:
 
@@ -7534,6 +7823,10 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/qt6/QtGui/QColor:
 
 /usr/include/qt6/QtGui/QWindow:
+
+/usr/include/c++/16/bits/stl_iterator_base_types.h:
+
+/usr/share/cmake/Modules/Platform/Linux-Clang-CXX.cmake:
 
 /usr/include/qt6/QtGui/qaction.h:
 
@@ -7619,15 +7912,11 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEvdevTabletPluginTargetsPrecheck.cmake:
 
-/usr/include/qt6/QtCore/qstdlibdetection.h:
-
-/usr/share/cmake/Modules/Compiler/PGI-DetermineCompiler.cmake:
-
 /usr/include/qt6/QtGui/qwindow.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6QXcbEglIntegrationPluginConfig.cmake:
 
-/usr/share/cmake/Modules/Compiler/Fujitsu-DetermineCompiler.cmake:
+/usr/share/cmake/Modules/Platform/Linker/GNU.cmake:
 
 /usr/bin/cmake:
 
@@ -7707,8 +7996,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/include/sys/select.h:
 
-/usr/share/cmake/Modules/Compiler/ARMCC-DetermineCompiler.cmake:
-
 /usr/include/sys/types.h:
 
 /usr/include/wchar.h:
@@ -7720,10 +8007,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/glm/detail/qualifier.hpp:
 
 /usr/lib/cmake/Qt6Gui/Qt6QMinimalEglIntegrationPluginAdditionalTargetInfo.cmake:
-
-/usr/lib/libQt6Gui.so.6.11.1:
-
-/usr/share/cmake/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake:
 
 /usr/lib/clang/22/include/__float_infinity_nan.h:
 
@@ -7742,6 +8025,12 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/c++/16/limits:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandIviShellIntegrationPluginConfig.cmake:
+
+/usr/lib/cmake/Qt6Gui/Qt6ShmServerBufferPluginTargetsPrecheck.cmake:
+
+/usr/lib/clang/22/include/stddef.h:
+
+/usr/share/cmake/Modules/Linker/GNU.cmake:
 
 /usr/lib/clang/22/include/__stddef_size_t.h:
 
@@ -7779,10 +8068,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6/QtPublicCMakeHelpers.cmake:
 
-/usr/include/c++/16/bits/hashtable.h:
-
-/usr/share/cmake/Modules/Compiler/Clang-FindBinUtils.cmake:
-
 /usr/include/c++/16/iterator:
 
 /usr/include/qt6/QtCore/qbasicatomic.h:
@@ -7796,6 +8081,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/cmake/Qt6/QtPublicSbomDocumentNamespaceHelpers.cmake:
 
 /usr/lib/cmake/Qt6/QtPublicSbomAttributionHelpers.cmake:
+
+/usr/share/cmake/Modules/Platform/Linker/Linux-GNU.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QIbusPlatformInputContextPluginAdditionalTargetInfo.cmake:
 
@@ -7811,7 +8098,9 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6/QtPublicSbomExternalReferenceHelpers.cmake:
 
-/usr/share/cmake/Modules/CMakeFindBinUtils.cmake:
+/usr/include/qt6/QtCore/qurl.h:
+
+/usr/lib/cmake/Qt6/QtPublicSbomGenerationHelpers.cmake:
 
 /usr/lib/cmake/Qt6/QtPublicSbomOpsHelpers.cmake:
 
@@ -7819,9 +8108,9 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6/QtPublicSbomQtEntityHelpers.cmake:
 
-/usr/include/glm/detail/type_mat2x4.inl:
-
 /usr/include/qt6/QtCore/qstringmatcher.h:
+
+/usr/include/glm/detail/type_mat2x4.inl:
 
 /usr/lib/cmake/Qt6Gui/Qt6GuiVersionlessAliasTargets.cmake:
 
@@ -7838,6 +8127,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/cmake/Qt6/QtPublicSbomGenerationCycloneDXHelpers.cmake:
 
 /usr/lib/cmake/Qt6Core/Qt6CoreConfigExtras.cmake:
+
+/usr/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:
 
 /usr/include/qt6/QtGui/qscreen_platform.h:
 
@@ -7869,11 +8160,11 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6ShmServerBufferPluginConfig.cmake:
 
-/usr/share/cmake/Modules/Platform/UnixPaths.cmake:
-
 /home/bumbandit/Projects/Engine/tools/sdf_editor/src/contents_tree_widget.h:
 
 /usr/include/c++/16/bits/move.h:
+
+/usr/share/cmake/Modules/Platform/UnixPaths.cmake:
 
 /usr/lib/cmake/Qt6DBus/Qt6DBusTargetsPrecheck.cmake:
 
@@ -7903,10 +8194,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6DBusTools/Qt6DBusToolsTargets.cmake:
 
-/usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsConfigVersionImpl.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6DmaBufServerBufferPluginAdditionalTargetInfo.cmake:
-
 /usr/lib/cmake/Qt6Gui/Qt6DmaBufServerBufferPluginConfig.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6DmaBufServerBufferPluginTargets.cmake:
@@ -7919,6 +8206,10 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6DrmEglServerBufferPluginTargets.cmake:
 
+/usr/include/bits/stdlib-float.h:
+
+/usr/share/cmake/Modules/Platform/Linux-Initialize.cmake:
+
 /usr/lib/cmake/Qt6Gui/Qt6QSvgIconPluginTargets.cmake:
 
 /usr/include/c++/16/bits/locale_classes.h:
@@ -7930,6 +8221,8 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/include/c++/16/x86_64-pc-linux-gnu/bits/cpu_defines.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6GuiPlugins.cmake:
+
+/usr/lib/cmake/Qt6Gui/Qt6GuiTargets-relwithdebinfo.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6GuiTargets.cmake:
 
@@ -7944,10 +8237,6 @@ CMakeFiles/4.4.0/CMakeCXXCompiler.cmake:
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSEmulatorIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSIntegrationPluginConfig.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6QEglFSIntegrationPluginTargets-relwithdebinfo.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandBradientDecorationPluginTargets-relwithdebinfo.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QEglFSIntegrationPluginTargetsPrecheck.cmake:
 
@@ -8027,8 +8316,6 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o:
 
 /usr/lib/cmake/Qt6Gui/Qt6QJpegPluginAdditionalTargetInfo.cmake:
 
-/usr/lib/cmake/Qt6Gui/Qt6QJpegPluginTargets.cmake:
-
 /usr/lib/cmake/Qt6Gui/Qt6QJpegPluginTargetsPrecheck.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QOffscreenIntegrationPluginTargets-relwithdebinfo.cmake:
@@ -8048,8 +8335,6 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o:
 /usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginConfig.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginTargets-relwithdebinfo.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6QLinuxFbIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/include/glm/ext/matrix_float2x2_precision.hpp:
 
@@ -8072,14 +8357,6 @@ CMakeFiles/sdf_editor.dir/src/main.cpp.o:
 /usr/lib/cmake/Qt6Gui/Qt6QVirtualKeyboardPluginTargetsPrecheck.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QOffscreenIntegrationPluginConfig.cmake:
-
-/usr/include/glm/mat3x4.hpp:
-
-/usr/include/qt6/QtCore/qtaggedpointer.h:
-
-/usr/share/cmake/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6QOffscreenIntegrationPluginTargetsPrecheck.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QSvgIconPluginAdditionalTargetInfo.cmake:
 
@@ -8121,10 +8398,6 @@ CMakeFiles/4.4.0/CMakeSystem.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandAdwaitaDecorationPluginTargets.cmake:
 
-/usr/share/cmake/Modules/Internal/CMakeCXXLinkerInformation.cmake:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandIntegrationPluginAdditionalTargetInfo.cmake:
-
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandBradientDecorationPluginAdditionalTargetInfo.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandBradientDecorationPluginConfig.cmake:
@@ -8138,10 +8411,6 @@ CMakeFiles/4.4.0/CMakeSystem.cmake:
 /usr/lib/cmake/Qt6GuiTools/Qt6GuiToolsTargets.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandFullScreenShellV1IntegrationPluginTargets-relwithdebinfo.cmake:
-
-/usr/include/qt6/QtCore/qtmochelpers.h:
-
-/usr/lib/cmake/Qt6Gui/Qt6QWaylandFullScreenShellV1IntegrationPluginTargetsPrecheck.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QWaylandIntegrationPluginTargetsPrecheck.cmake:
 
@@ -8191,9 +8460,9 @@ CMakeFiles/4.4.0/CMakeSystem.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6ShmServerBufferPluginTargets-relwithdebinfo.cmake:
 
-/usr/include/qt6/QtCore/qnamespace.h:
-
 /usr/include/qt6/QtCore/qcoreevent.h:
+
+/usr/include/qt6/QtCore/qnamespace.h:
 
 /usr/lib/cmake/Qt6Gui/Qt6VulkanServerBufferPluginAdditionalTargetInfo.cmake:
 
@@ -8219,10 +8488,6 @@ CMakeFiles/4.4.0/CMakeSystem.cmake:
 
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsDependencies.cmake:
 
-/usr/include/qt6/QtGui/qpolygon.h:
-
-/usr/share/cmake/Modules/Compiler/Borland-DetermineCompiler.cmake:
-
 /usr/lib/cmake/Qt6Widgets/Qt6WidgetsMacros.cmake:
 
 /usr/include/qt6/QtCore/qcompare_impl.h:
@@ -8233,9 +8498,9 @@ CMakeFiles/4.4.0/CMakeSystem.cmake:
 
 CMakeFiles/sdf_editor.dir/src/main_window.cpp.o:
 
-/usr/include/glm/ext/quaternion_transform.hpp:
-
 /usr/include/qt6/QtCore/qcomparehelpers.h:
+
+/usr/include/glm/ext/quaternion_transform.hpp:
 
 /usr/share/cmake/Modules/CMakeCommonLanguageInclude.cmake:
 
@@ -8245,37 +8510,13 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o:
 
 /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsDependencies.cmake:
 
-/usr/share/cmake/Modules/Compiler/Cray-DetermineCompiler.cmake:
-
 /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsTargets.cmake:
 
 /usr/include/qt6/QtCore/QMargins:
 
 /usr/lib/cmake/Qt6WidgetsTools/Qt6WidgetsToolsTargetsPrecheck.cmake:
 
-/usr/include/c++/16/list:
-
-/usr/share/cmake/Modules/Compiler/GHS-DetermineCompiler.cmake:
-
-/usr/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:
-
-/usr/share/cmake/Modules/CMakeCXXCompilerABI.cpp:
-
 /usr/share/cmake/Modules/CMakeCheckCompilerFlagCommonPatterns.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineCompiler.cmake:
-
-/usr/include/glm/ext/scalar_constants.inl:
-
-/usr/include/glm/detail/type_mat4x4.inl:
-
-/usr/lib/cmake/Qt6/QtPublicSbomCpeHelpers.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineCompilerABI.cmake:
-
-/usr/share/cmake/Modules/CMakeDetermineCompilerSupport.cmake:
 
 /usr/lib/cmake/Qt6Gui/Qt6QJpegPluginConfig.cmake:
 
@@ -8286,32 +8527,6 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o:
 /usr/share/cmake/Modules/CMakeInitializeConfigs.cmake:
 
 /usr/share/cmake/Modules/CMakeLanguageInformation.cmake:
-
-/usr/share/cmake/Modules/CMakeParseImplicitIncludeInfo.cmake:
-
-/usr/include/qt6/QtWidgets/qbuttongroup.h:
-
-/usr/share/cmake/Modules/CMakeParseImplicitLinkInfo.cmake:
-
-/usr/include/qt6/QtCore/qurl.h:
-
-/usr/lib/cmake/Qt6/QtPublicSbomGenerationHelpers.cmake:
-
-/usr/share/cmake/Modules/CMakeParseLibraryArchitecture.cmake:
-
-/usr/share/cmake/Modules/CMakeSystem.cmake.in:
-
-/usr/include/c++/16/typeinfo:
-
-/usr/include/c++/16/x86_64-pc-linux-gnu/bits/atomic_word.h:
-
-/usr/share/cmake/Modules/Compiler/Intel-DetermineCompiler.cmake:
-
-/usr/share/cmake/Modules/CMakeUnixFindMake.cmake:
-
-/usr/share/cmake/Modules/Compiler/AppleClang-DetermineCompiler.cmake:
-
-/usr/share/cmake/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake:
 
 /usr/lib/libharfbuzz.so.0:
 
@@ -8325,52 +8540,30 @@ CMakeFiles/sdf_editor.dir/src/main_window.cpp.o:
 
 /usr/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake:
 
-/usr/include/glm/ext/quaternion_relational.inl:
-
-/usr/share/cmake/Modules/Compiler/Clang-DetermineCompiler.cmake:
-
 /usr/share/cmake/Modules/Compiler/Clang.cmake:
-
-/usr/include/c++/16/ratio:
-
-/usr/include/c++/16/ios:
-
-/usr/include/qt6/QtCore/qtnoop.h:
-
-/usr/share/cmake/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake:
-
-/usr/include/c++/16/bits/cpp_type_traits.h:
-
-/usr/share/cmake/Modules/Compiler/IAR-DetermineCompiler.cmake:
-
-/usr/share/cmake/Modules/Compiler/CrayClang-DetermineCompiler.cmake:
-
-/usr/include/qt6/QtWidgets/qslider.h:
-
-/usr/share/cmake/Modules/Compiler/Diab-DetermineCompiler.cmake:
-
-/usr/include/c++/16/bits/allocator.h:
-
-/usr/share/cmake/Modules/Compiler/Embarcadero-DetermineCompiler.cmake:
-
-/usr/include/qt6/QtWidgets/qlayout.h:
-
-/usr/share/cmake/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake:
 
 /usr/share/cmake/Modules/Compiler/GNU.cmake:
 
-/usr/share/cmake/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake:
+/usr/include/glm/ext/matrix_float2x3_precision.hpp:
 
-/usr/lib/cmake/Qt6Gui/Qt6GuiTargets-relwithdebinfo.cmake:
+/usr/share/cmake/Modules/FindPackageHandleStandardArgs.cmake:
 
-/usr/share/cmake/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake:
+/usr/share/cmake/Modules/FindVulkan.cmake:
 
-/usr/include/glm/ext/quaternion_float.hpp:
+/usr/include/asm/posix_types_64.h:
 
-/usr/share/cmake/Modules/Compiler/PellesC-DetermineCompiler.cmake:
+/usr/share/cmake/Modules/GNUInstallDirs.cmake:
 
-/usr/share/cmake/Modules/Compiler/Renesas-DetermineCompiler.cmake:
+/usr/lib/cmake/Qt6Gui/Qt6QWaylandIntegrationPluginAdditionalTargetInfo.cmake:
 
-/usr/share/cmake/Modules/Compiler/TI-DetermineCompiler.cmake:
+/usr/share/cmake/Modules/Internal/CMakeCXXLinkerInformation.cmake:
 
-/usr/share/cmake/Modules/Compiler/Tasking-DetermineCompiler.cmake:
+/usr/include/bits/uio_lim.h:
+
+/usr/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake:
+
+/usr/share/cmake/Modules/Internal/CheckFlagCommonConfig.cmake:
+
+/usr/share/cmake/Modules/Platform/Linux-GNU.cmake:
+
+/usr/share/cmake/Modules/Platform/Linux.cmake:

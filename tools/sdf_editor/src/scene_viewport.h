@@ -263,11 +263,19 @@ private:
   // behind the camera.
   std::optional<QPointF> project_to_screen(glm::vec3 world_point) const;
 
+  // Where the gizmo sits for one primitive, in WORLD space -- its authored
+  // position with its layer's own transform composed in (see
+  // SdfLayerDef::position), which is where the primitive actually renders.
+  //
   // A Plane's SdfPrimitiveDef::position is always (0,0,0) -- see
   // GeometryConfig::plane()/add_plane() -- only its height (params.x)
   // means anything, so the gizmo's world position for a Plane is
-  // synthesized as (0, height, 0) instead of using position directly.
-  static glm::vec3 gizmo_effective_position(const SdfPrimitiveDef &primitive);
+  // synthesized as (0, height, 0) instead of using position directly, and
+  // its layer's transform is not composed onto it at all (a plane has
+  // nothing for one to act on -- same rule sdf_layer_world_transform()
+  // follows).
+  static glm::vec3 gizmo_effective_position(const SdfLayerDef &layer,
+                                            const SdfPrimitiveDef &primitive);
   static glm::vec3 axis_world_direction(GizmoAxis axis);
 
   // Builds one rotate-gizmo ring (axis's rotation circle) as a closed
@@ -279,10 +287,21 @@ private:
   std::vector<QPointF> build_gizmo_ring(glm::vec3 origin_world,
                                         GizmoAxis axis, f32 radius) const;
 
+  // One resolved entry of selected_: the primitive itself and the layer it
+  // sits in. The layer travels WITH the primitive rather than being looked
+  // up again at each use, because a selection can span several layers and
+  // every world-space question about a primitive -- where its gizmo goes,
+  // where a drag puts it -- needs its own layer's transform to answer (see
+  // SdfLayerDef::position).
+  struct SelectedPrimitive {
+    SdfPrimitiveDef *primitive = nullptr;
+    const SdfLayerDef *layer = nullptr;
+  };
+
   // Resolves selected_ to actual primitive pointers (skipping any light
   // entries, and any entry that's gone stale -- index out of range, e.g. a
   // removal elsewhere shrank scene_ since the selection was made).
-  std::vector<SdfPrimitiveDef *> selected_primitives();
+  std::vector<SelectedPrimitive> selected_primitives();
   // Mirrors selected_primitives() for the light entries in selected_ (see
   // PrimitiveRef::is_light()) instead.
   std::vector<SdfLightDef *> selected_lights();
@@ -292,7 +311,7 @@ private:
   // the gizmo is drawn/dragged from. Equals a single item's own position
   // when exactly one is selected, so this is a strict generalization of the
   // old single-primitive behaviour, not a different one.
-  glm::vec3 selection_centroid(const std::vector<SdfPrimitiveDef *> &primitives,
+  glm::vec3 selection_centroid(const std::vector<SelectedPrimitive> &primitives,
                                const std::vector<SdfLightDef *> &lights) const;
 
   // Recomputes the gizmo's screen-space geometry (logical pixels, matching
@@ -409,6 +428,13 @@ private:
   // update_gizmo_drag() apply the same delta (Translate) or orbit every
   // primitive around drag_group_pivot_ (Rotate) without losing where each
   // one started.
+  //
+  // Both are WORLD space (drag_start_params_ is not a transform and is
+  // taken as authored). A drag is a world-space gesture -- the axis it
+  // moves along, the pivot it orbits, the delta rotation it composes are
+  // all world -- so it does its arithmetic there and converts back to
+  // layer-local exactly once, when writing the result onto the primitive
+  // (see sdf_layer_local_transform()).
   std::vector<glm::vec3> drag_start_positions_;
   std::vector<glm::vec3> drag_start_rotations_;
   std::vector<glm::vec3> drag_start_params_;

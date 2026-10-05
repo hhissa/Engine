@@ -154,6 +154,26 @@
 // `ending` marker on the same question is accepted but meaningless (no
 // consumer looks at it unless is_ending is also true).
 //
+// A question can also be marked *automatic* -- a bare `auto` line (no `=`,
+// no value, same shape as `ending`) -- meaning it is never offered as a
+// choice at all: a dialogue system asks it by itself the moment
+// navigation lands on it, as if the player had picked it. That is what
+// lets a mostly linear script (one beat after another, with a choice
+// only here and there) be authored in this same question/answer format:
+// every beat that isn't a real choice is an `auto` question, and each one
+// hands on to the next with `loop_to=` (see below):
+//
+//   question "Let's get started." {
+//       id=start
+//       auto
+//       answer=...
+//       loop_to=next_beat
+//   }
+//
+// The question text of an `auto` question is never shown to the player
+// (it is never listed), so it doubles as a label for whoever is reading
+// the file.
+//
 // A question further down the chain can also *loop back* to an
 // already-authored question instead of leading further down or dead-ending
 // -- e.g. a "Let's go back to that" option that returns the player to an
@@ -236,6 +256,9 @@ struct ConversationQuestion {
   // True if this question was written with a bare `ending` line -- see the
   // file format comment above.
   bool is_ending = false;
+  // True if this question was written with a bare `auto` line -- see the
+  // file format comment above. Asked automatically, never listed.
+  bool is_auto = false;
   // This ending's own outro text, one element per `ending_text=` line, in
   // file order -- see the file format comment above. Empty unless the
   // question has at least one `ending_text=` line, regardless of is_ending

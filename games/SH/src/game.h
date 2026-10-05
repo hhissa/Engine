@@ -10,6 +10,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Which top-level screen the game is currently showing -- SHGame::update()/
@@ -24,26 +25,38 @@ enum class AppScreen {
   ChapterSelect,
   Settings,
   Intertitle,
+  Preparing,
   Playing,
 };
 
-// Named, fully-specified combinations of loaded scenery/model -- see
-// SHGame::apply_scene_state(). Every ch*.conversation file (assets/
-// conversations/) tags its questions with the same small, chapter-local set
-// of names -- "Room_01" through "Room_05", marking roughly how deep into
-// that chapter's interview the player has gotten -- rather than a
-// per-story-beat name unique across the whole game, so each chapter gets
-// its own block of five enumerators here rather than five shared ones.
-// That's also why the tags themselves are allowed to repeat across
-// chapters at all: register_chapter_scene_states() (game_scene_state.cpp)
-// re-registers "Room_01".."Room_05" against a *different* chapter's block
-// below every time begin_chapter_playing() switches chapters, and
+// Named, fully-specified stagings -- which room .sdf is loaded, from which
+// camera stations, with which parts of its subject censored. See kStaging
+// in game_scene_state.cpp, which holds all forty, and apply_scene_state(),
+// which applies one.
+//
+// Every ch*.conversation file (assets/conversations/) tags its questions
+// with the same small, chapter-local set of names -- "Room_01" through
+// "Room_05", marking roughly how deep into that chapter's interview the
+// player has gotten -- rather than a per-story-beat name unique across the
+// whole game, so each chapter gets its own block of five enumerators here
+// rather than five shared ones. That's also why the tags themselves are
+// allowed to repeat across chapters at all:
+// register_chapter_scene_states() (game_scene_state.cpp) re-registers
+// "Room_01".."Room_05" against a *different* chapter's block below every
+// time begin_chapter_playing() switches chapters, and
 // QASystem::clear_scene_states() (called from unload_conversation(), which
 // begin_chapter_playing() always calls first) frees the previous chapter's
-// registration first -- see that function's own comment. Add a new
-// five-enumerator block here (and extend apply_scene_state()'s switch and
-// register_chapter_scene_states()'s table, both in game_scene_state.cpp)
-// for each further chapter.
+// registration first -- see that function's own comment.
+//
+// The blocks below are eight consecutive runs of five, in the same order
+// as kChapters (game_menus.cpp): game_scene_state.cpp indexes kStaging by
+// that numbering directly (and static_asserts it), so adding a chapter
+// means appending a five-enumerator block here AND a kStaging entry
+// there -- nothing else.
+//
+// Chapters 2, 3 and 8 all play in PhotoStudio.sdf: it's the one room more
+// than one person is interviewed in, so their three blocks differ by which
+// side of it their camera stations work from, not by geometry.
 enum class SceneState {
   TheoRoom1, TheoRoom2, TheoRoom3, TheoRoom4, TheoRoom5,               // Chapter 1
   ThiagoRoom1, ThiagoRoom2, ThiagoRoom3, ThiagoRoom4, ThiagoRoom5,     // Chapter 2
@@ -55,6 +68,24 @@ enum class SceneState {
   PhotographerRoom1, PhotographerRoom2, PhotographerRoom3,             // Chapter 8
   PhotographerRoom4, PhotographerRoom5,
 };
+
+// One spot on a subject that gets blacked out on screen, in the world
+// space of the room they're staged in -- see draw_censor_box()
+// (game_playing.cpp), which projects it through whichever camera is live
+// this frame so the box tracks across every station, pan, zoom and the
+// free-fly debug camera alike.
+struct CensorPoint {
+  glm::vec3 world_position;
+  f32 world_half_size; // half-width/height of the covered area, world units
+};
+
+// The censor points for state's own subject -- read straight out of the
+// room .sdf's coordinates for the five rooms that model their subject, and
+// off kStudioFigure's placement for the three PhotoStudio chapters, which
+// stand props/man.sdf on the stage instead. See kStaging
+// (game_scene_state.cpp). Empty only for a chapter with no subject staged
+// at all, which none currently is.
+std::vector<CensorPoint> censor_points_for(SceneState state);
 
 // Everything a save file records -- see SHGame::save_progress() (game_save.cpp)
 // for exactly when this gets written and load_save() for how it's read
@@ -102,14 +133,43 @@ private:
 
   // --- game_scene_state.cpp ---
 
-  // Tears down whichever scenery/model is currently loaded and rebuilds
-  // exactly the combination `state` specifies -- every case in its switch
-  // is a complete description of what should be loaded, not a diff from
-  // whatever was there before, so switching from any state to any other
-  // is always correct without needing to know what the previous one was.
-  // No-op if state is already current_state_ (e.g. re-selecting a dialogue
-  // option that maps to the state already active).
-  void apply_scene_state(SceneState state);
+  // Stages `state`: loads its room (unless the room currently loaded is
+  // already that one -- see the function's own comment) and replaces the
+  // camera stations with that state's. Every kStaging entry is a complete
+  // description of what should be on screen, not a diff from whatever was
+  // there before, so switching from any state to any other is always
+  // correct without needing to know what the previous one was. No-op if
+  // state is already current_state_ (e.g. re-selecting a dialogue option
+  // that maps to the state already active) from the same first_station.
+  //
+  // first_station picks which of state's camera stations the shot opens
+  // on; Tab still cycles through all of them from there.
+  void apply_scene_state(SceneState state, size_t first_station = 0);
+
+  // The QASystem::set_on_line_shown() hook for a speaker-staged chapter
+  // (see speaker_staged_) -- turns one answer line's script directives
+  // (script_line.h) into the shot behind it: the speaker's own room, a
+  // cutaway, or a still. A [title] or [overlay] line changes nothing here
+  // -- QASystem draws those over whatever shot is already up.
+  void on_script_line(const ScriptLine &line);
+
+  // Cuts to speaker's room for a fresh visit -- the next camera angle in
+  // that room's rotation (see visits_), so coming back to the same person
+  // never repeats the angle you left them on. No-op for a speaker with no
+  // room (the photographer, or a name nobody staged).
+  void cut_to_speaker(const std::string &speaker);
+
+  // Loads every speaker's room once, one per couple of frames, behind
+  // AppScreen::Preparing's black "Preparing scenes" card, then runs
+  // on_finish. Each load bakes whatever of that room isn't in the disk
+  // chunk cache yet (a cache pre-warm) and decodes its textures into
+  // TextureSystem's memory cache -- the two slow parts of a room cut --
+  // so that every cut afterwards is only a file read and an upload. Only
+  // does real work the first time on a machine for the chunks, and the
+  // first time per run for the textures.
+  void prepare_speaker_rooms(std::function<void()> on_finish);
+  void update_preparing();
+  void render_preparing() const;
 
   // Wires the conversation-agnostic fallbacks -- set_base_scene_state()/
   // set_on_returned_to_root()/set_on_ending_reached() -- called once from
@@ -120,8 +180,8 @@ private:
   void register_scene_states();
 
   // Wires "Room_01".."Room_05" (see apply_scene_state()'s own comment and
-  // SceneState's) to kChapters[chapter_index]'s own block of five
-  // SceneState values via qa_.register_scene_state() -- called from
+  // SceneState's) to chapter_index's own block of five SceneState values
+  // via qa_.register_scene_state() -- called from
   // begin_chapter_playing() (game_menus.cpp) right after that chapter's
   // load_conversation(), every time a chapter starts or resumes. Safe to
   // call repeatedly with a different chapter_index across chapter
@@ -138,6 +198,10 @@ private:
 
   void update_playing();
   void render_playing() const;
+
+  // Opens url in the system's browser -- for a [link] line (see
+  // script_line.h), on [L].
+  void open_link(const std::string &url) const;
 
   // --- game_menus.cpp ---
   // Everything for the Title/ChapterSelect/Settings/Intertitle screens --
@@ -191,7 +255,7 @@ private:
   // state, so those fallbacks show the *right* chapter's base state no
   // matter which one is actually playing -- without this, every chapter's
   // "returned to root" moment would incorrectly show Chapter 1's own
-  // room/man.sdf. Falls back to SceneState::TheoRoom1 itself if
+  // room. Falls back to SceneState::TheoRoom1 itself if
   // active_chapter_ is nullopt (shouldn't happen in practice -- see
   // save_progress()'s own guard -- but avoids an out-of-bounds kChapters
   // read if it somehow did).
@@ -284,13 +348,14 @@ private:
   u32 width_ = 0;
   u32 height_ = 0;
 
-  // Every scene handle apply_scene_state() has currently loaded (the man/
-  // room/lights for Normal, just the door for DoorScene1, etc.) -- nothing
+  // Every scene handle apply_scene_state() has currently loaded -- today
+  // that's one room .sdf (each carries its own lights), plus, before any
+  // chapter has started, setup_menus()' title-screen backdrop. Nothing
   // here ever needs to address one of them individually after loading, so
-  // apply_scene_state() just appends whatever each state's case loads and
-  // tears the whole batch down uniformly on the next call. If some future
-  // state needs to reach back into one specific piece (e.g. flicker just
-  // one light), give that one its own named SceneHandle member instead --
+  // apply_scene_state() just appends whatever a state stages and tears the
+  // whole batch down uniformly when the room changes. If some future state
+  // needs to reach back into one specific piece (e.g. flicker just one
+  // light), give that one its own named SceneHandle member instead --
   // don't try to make this vector do both jobs.
   std::vector<SceneHandle> loaded_scenes_;
 
@@ -299,6 +364,56 @@ private:
   // call always proceeds even though it happens to request
   // SceneState::TheoRoom1, the enum's own first (default-looking) value.
   std::optional<SceneState> current_state_;
+  // Which station of current_state_ the shot opened on -- see
+  // apply_scene_state()'s first_station.
+  size_t current_station_ = 0;
+
+  // Whether the playing chapter is staged line by line from its script's
+  // speakers (see on_script_line()) rather than by tag= names -- see
+  // ChapterDef::speaker_staged (game_menus.cpp). While set, the tag-based
+  // fallbacks register_scene_states() wires up stand down, since they'd
+  // otherwise yank the camera back to the chapter's base room after every
+  // answer.
+  bool speaker_staged_ = false;
+
+  // What's on screen behind the dialogue in a speaker-staged chapter.
+  // `owner` is whose shot it is: a line by anyone else cuts away from it,
+  // a line by the same person -- or by the photographer, who is never on
+  // screen -- leaves it up. A cutaway/photo shot belongs to whoever was
+  // speaking when it was called for.
+  struct Shot {
+    enum class Kind { None, Room, Cutaway, Photo };
+    Kind kind = Kind::None;
+    std::string owner;
+    std::string asset; // the cutaway's scene id / the photo's path
+  };
+  Shot shot_;
+
+  // How many times each speaker's room has been cut to this chapter --
+  // the index of the next camera angle in that room's rotation. See
+  // cut_to_speaker().
+  std::unordered_map<std::string, size_t> visits_;
+
+  // AppScreen::Preparing's state -- see prepare_speaker_rooms().
+  // prepare_frame_ counts frames since the screen started; each room gets
+  // kPrepareFramesPerRoom of them.
+  std::vector<size_t> prepare_chapters_;
+  size_t prepare_frame_ = 0;
+  std::function<void()> prepare_on_finish_;
+  // Set once this run has prepared the rooms -- see
+  // begin_chapter_playing(), which prepares before its first use.
+  bool rooms_prepared_ = false;
+
+  // A cut to a different room moves the camera somewhere whose streamed
+  // field may not be resident yet, and for a frame or two it would show
+  // as sky. While cut_cover_ is set, render_playing() covers the room with
+  // black (the dialogue still showing over it) until the renderer reports
+  // the field around the new camera complete -- see
+  // renderer_streaming_backlog() -- or kCutCoverMaxSeconds passes. Set by
+  // cut_to_speaker(); cleared in update_playing().
+  bool cut_cover_ = false;
+  u32 cut_cover_frames_ = 0;
+  f32 cut_cover_seconds_ = 0.0f;
 
   // The dialogue tree loaded via qa_.load_conversation() in initialize() --
   // kept around so it (or a future conversation swapped in for a different

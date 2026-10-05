@@ -53,8 +53,7 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: \
   /usr/include/bits/pthreadtypes-arch.h \
   /usr/include/bits/atomic_wide_counter.h \
   /usr/include/bits/struct_mutex.h /usr/include/bits/struct_rwlock.h \
-  /usr/include/alloca.h /usr/include/bits/stdlib-bsearch.h \
-  /usr/include/bits/stdlib-float.h \
+  /usr/include/alloca.h /usr/include/bits/stdlib-float.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/specfun.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stdexcept_throw.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/exception_defines.h \
@@ -341,9 +340,9 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/nested_exception.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/resources/../defines.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/string \
+  /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/resources/material_def.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/iosfwd \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stringfwd.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/char_traits.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/postypes.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/cwchar \
   /usr/include/wchar.h /usr/lib/clang/22/include/stdarg.h \
@@ -351,11 +350,12 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: \
   /usr/include/bits/types/wint_t.h /usr/include/bits/types/mbstate_t.h \
   /usr/include/bits/types/__mbstate_t.h /usr/include/bits/types/__FILE.h \
   /usr/include/bits/types/FILE.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/string \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/char_traits.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/localefwd.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/x86_64-pc-linux-gnu/bits/c++locale.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/clocale \
   /usr/include/locale.h /usr/include/bits/locale.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/iosfwd \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/cctype \
   /usr/include/ctype.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/ostream_insert.h \
@@ -370,7 +370,7 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: \
   /usr/include/bits/types/__fpos64_t.h \
   /usr/include/bits/types/struct_FILE.h \
   /usr/include/bits/types/cookie_io_functions_t.h \
-  /usr/include/bits/stdio_lim.h /usr/include/bits/stdio.h \
+  /usr/include/bits/stdio_lim.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/cerrno \
   /usr/include/errno.h /usr/include/bits/errno.h \
   /usr/include/linux/errno.h /usr/include/asm/errno.h \
@@ -378,12 +378,97 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: \
   /usr/include/bits/types/error_t.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/charconv.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/basic_string.tcc \
-  /usr/include/qt6/QtCore/QElapsedTimer \
-  /usr/include/qt6/QtCore/qelapsedtimer.h \
-  /usr/include/qt6/QtCore/qcompare.h /usr/include/qt6/QtCore/qglobal.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/utility \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_relops.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/intcmp.h \
+  /usr/include/glm/gtc/quaternion.hpp \
+  /usr/include/glm/gtc/../gtc/constants.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/scalar_constants.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../detail/setup.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/scalar_constants.inl \
+  /usr/include/glm/gtc/../gtc/constants.inl \
+  /usr/include/glm/gtc/../gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/../gtc/../mat4x4.hpp \
+  /usr/include/glm/gtc/../gtc/../vec2.hpp \
+  /usr/include/glm/gtc/../gtc/../vec3.hpp \
+  /usr/include/glm/gtc/../gtc/../vec4.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_projection.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../gtc/constants.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../geometric.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../trigonometric.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../matrix.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_projection.inl \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_clip_space.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../ext/scalar_constants.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_clip_space.inl \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_transform.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_transform.inl \
+  /usr/include/glm/gtc/../gtc/matrix_transform.inl \
+  /usr/include/glm/gtc/../gtc/../geometric.hpp \
+  /usr/include/glm/gtc/../gtc/../trigonometric.hpp \
+  /usr/include/glm/gtc/../gtc/../matrix.hpp \
+  /usr/include/glm/gtc/../ext/vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../detail/qualifier.hpp \
+  /usr/include/glm/gtc/../ext/vector_relational.inl \
+  /usr/include/glm/gtc/../ext/../vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../common.hpp \
+  /usr/include/glm/gtc/../ext/../detail/type_float.hpp \
+  /usr/include/glm/gtc/../ext/../detail/setup.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_common.hpp \
+  /usr/include/glm/gtc/../ext/../ext/scalar_constants.hpp \
+  /usr/include/glm/gtc/../ext/../ext/quaternion_geometric.hpp \
+  /usr/include/glm/gtc/../ext/../ext/../geometric.hpp \
+  /usr/include/glm/gtc/../ext/../ext/../exponential.hpp \
+  /usr/include/glm/gtc/../ext/../ext/../ext/vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../ext/quaternion_geometric.inl \
+  /usr/include/glm/gtc/../ext/../trigonometric.hpp \
+  /usr/include/glm/gtc/../ext/../exponential.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_common.inl \
+  /usr/include/glm/gtc/../ext/quaternion_float.hpp \
+  /usr/include/glm/gtc/../ext/../detail/type_quat.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../detail/type_mat3x3.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../detail/type_mat4x4.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../detail/type_vec3.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../detail/type_vec4.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_relational.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/../vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_relational.inl \
+  /usr/include/glm/gtc/../ext/../detail/../gtc/constants.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/../ext/../detail/type_quat.inl \
+  /usr/include/glm/gtc/../ext/../detail/../trigonometric.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../exponential.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_common.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_geometric.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_float_precision.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_double.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_double_precision.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_relational.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_geometric.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_trigonometric.hpp \
+  /usr/include/glm/gtc/../ext/scalar_constants.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_trigonometric.inl \
+  /usr/include/glm/gtc/../ext/quaternion_transform.hpp \
+  /usr/include/glm/gtc/../ext/../geometric.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_transform.inl \
+  /usr/include/glm/gtc/../detail/type_mat3x3.hpp \
+  /usr/include/glm/gtc/../detail/type_mat4x4.hpp \
+  /usr/include/glm/gtc/../detail/type_vec3.hpp \
+  /usr/include/glm/gtc/../detail/type_vec4.hpp \
+  /usr/include/glm/gtc/quaternion.inl \
+  /usr/include/glm/gtc/../trigonometric.hpp \
+  /usr/include/glm/gtc/../geometric.hpp \
+  /usr/include/glm/gtc/../exponential.hpp \
+  /usr/include/glm/gtc/epsilon.hpp \
+  /usr/include/glm/gtc/../detail/setup.hpp \
+  /usr/include/glm/gtc/../detail/qualifier.hpp \
+  /usr/include/glm/gtc/epsilon.inl \
+  /usr/include/glm/gtc/../vector_relational.hpp \
+  /usr/include/glm/gtc/../common.hpp \
+  /usr/include/qt6/QtCore/QElapsedTimer \
+  /usr/include/qt6/QtCore/qelapsedtimer.h \
+  /usr/include/qt6/QtCore/qcompare.h /usr/include/qt6/QtCore/qglobal.h \
   /usr/lib/clang/22/include/stdbool.h \
   /usr/include/qt6/QtCore/qtcoreglobal.h \
   /usr/include/qt6/QtCore/qtversionchecks.h \
@@ -626,91 +711,6 @@ CMakeFiles/sdf_editor.dir/src/scene_viewport.cpp.o: \
   /usr/include/qt6/QtGui/qcursor.h /usr/include/qt6/QtGui/qbitmap.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/ray_intersect.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/resources/expression.h \
-  /usr/include/glm/gtc/quaternion.hpp \
-  /usr/include/glm/gtc/../gtc/constants.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/scalar_constants.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/../detail/setup.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/scalar_constants.inl \
-  /usr/include/glm/gtc/../gtc/constants.inl \
-  /usr/include/glm/gtc/../gtc/matrix_transform.hpp \
-  /usr/include/glm/gtc/../gtc/../mat4x4.hpp \
-  /usr/include/glm/gtc/../gtc/../vec2.hpp \
-  /usr/include/glm/gtc/../gtc/../vec3.hpp \
-  /usr/include/glm/gtc/../gtc/../vec4.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/matrix_projection.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/../gtc/constants.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/../geometric.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/../trigonometric.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/../matrix.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/matrix_projection.inl \
-  /usr/include/glm/gtc/../gtc/../ext/matrix_clip_space.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/../ext/scalar_constants.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/matrix_clip_space.inl \
-  /usr/include/glm/gtc/../gtc/../ext/matrix_transform.hpp \
-  /usr/include/glm/gtc/../gtc/../ext/matrix_transform.inl \
-  /usr/include/glm/gtc/../gtc/matrix_transform.inl \
-  /usr/include/glm/gtc/../gtc/../geometric.hpp \
-  /usr/include/glm/gtc/../gtc/../trigonometric.hpp \
-  /usr/include/glm/gtc/../gtc/../matrix.hpp \
-  /usr/include/glm/gtc/../ext/vector_relational.hpp \
-  /usr/include/glm/gtc/../ext/../detail/qualifier.hpp \
-  /usr/include/glm/gtc/../ext/vector_relational.inl \
-  /usr/include/glm/gtc/../ext/../vector_relational.hpp \
-  /usr/include/glm/gtc/../ext/../common.hpp \
-  /usr/include/glm/gtc/../ext/../detail/type_float.hpp \
-  /usr/include/glm/gtc/../ext/../detail/setup.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_common.hpp \
-  /usr/include/glm/gtc/../ext/../ext/scalar_constants.hpp \
-  /usr/include/glm/gtc/../ext/../ext/quaternion_geometric.hpp \
-  /usr/include/glm/gtc/../ext/../ext/../geometric.hpp \
-  /usr/include/glm/gtc/../ext/../ext/../exponential.hpp \
-  /usr/include/glm/gtc/../ext/../ext/../ext/vector_relational.hpp \
-  /usr/include/glm/gtc/../ext/../ext/quaternion_geometric.inl \
-  /usr/include/glm/gtc/../ext/../trigonometric.hpp \
-  /usr/include/glm/gtc/../ext/../exponential.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_common.inl \
-  /usr/include/glm/gtc/../ext/quaternion_float.hpp \
-  /usr/include/glm/gtc/../ext/../detail/type_quat.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../detail/type_mat3x3.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../detail/type_mat4x4.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../detail/type_vec3.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../detail/type_vec4.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../ext/vector_relational.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_relational.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../ext/../vector_relational.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_relational.inl \
-  /usr/include/glm/gtc/../ext/../detail/../gtc/constants.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../gtc/matrix_transform.hpp \
-  /usr/include/glm/gtc/../ext/../detail/type_quat.inl \
-  /usr/include/glm/gtc/../ext/../detail/../trigonometric.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../exponential.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_common.hpp \
-  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_geometric.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_float_precision.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_double.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_double_precision.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_relational.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_geometric.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_trigonometric.hpp \
-  /usr/include/glm/gtc/../ext/scalar_constants.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_trigonometric.inl \
-  /usr/include/glm/gtc/../ext/quaternion_transform.hpp \
-  /usr/include/glm/gtc/../ext/../geometric.hpp \
-  /usr/include/glm/gtc/../ext/quaternion_transform.inl \
-  /usr/include/glm/gtc/../detail/type_mat3x3.hpp \
-  /usr/include/glm/gtc/../detail/type_mat4x4.hpp \
-  /usr/include/glm/gtc/../detail/type_vec3.hpp \
-  /usr/include/glm/gtc/../detail/type_vec4.hpp \
-  /usr/include/glm/gtc/quaternion.inl \
-  /usr/include/glm/gtc/../trigonometric.hpp \
-  /usr/include/glm/gtc/../geometric.hpp \
-  /usr/include/glm/gtc/../exponential.hpp \
-  /usr/include/glm/gtc/epsilon.hpp \
-  /usr/include/glm/gtc/../detail/setup.hpp \
-  /usr/include/glm/gtc/../detail/qualifier.hpp \
-  /usr/include/glm/gtc/epsilon.inl \
-  /usr/include/glm/gtc/../vector_relational.hpp \
-  /usr/include/glm/gtc/../common.hpp \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/core/application.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/core/../defines.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/core/../platform/platform.h \

@@ -81,6 +81,14 @@ layout(binding = 6) readonly buffer ChunkBrickPrimitiveBuffer {
     int chunk_brick_primitive[];
 };
 
+// Per-primitive material scalars (see VulkanRaymarchShader::
+// material_scalar_buffer_ engine-side) -- only .z, "does this primitive
+// cast shadows", is read here. Same buffer the render pass binds at its
+// own binding 11.
+layout(binding = 7) readonly buffer ScenePrimitiveMaterialScalars {
+    vec4 material_scalars[];
+};
+
 layout(push_constant) uniform PushConstants {
     int frame_index; // Seeds the stochastic thinning below.
     int pad0;
@@ -158,9 +166,20 @@ void main() {
     // shadow_march()'s ignore_primitive); this is the same exclusion for the
     // splatted path, at brick-provenance granularity because that is what a
     // cluster carries.
+    int cluster_primitive = chunk_brick_primitive[int(cluster.meta.z)];
     int source_primitive = int(light.source_primitive.x);
-    if (source_primitive >= 0 &&
-        chunk_brick_primitive[int(cluster.meta.z)] == source_primitive) {
+    if (source_primitive >= 0 && cluster_primitive == source_primitive) {
+        return;
+    }
+
+    // A material that opts out of casting (Material::casts_shadow) must be
+    // absent from this map exactly as it is absent from the marched shadow
+    // paths (SHADOW_CASTER_TEST in Builtin.BakedFieldCommon.inc.glsl) --
+    // otherwise the same surface would stop shadowing under the marched
+    // path and keep shadowing under the splatted one, which is a per-light
+    // choice the author never made. Brick-provenance granularity, same as
+    // the source-primitive exclusion just above.
+    if (cluster_primitive >= 0 && material_scalars[cluster_primitive].z <= 0.5) {
         return;
     }
 

@@ -96,6 +96,16 @@ void renderer_draw_solid_quad(glm::vec2 position, glm::vec2 size,
   }
 }
 
+void renderer_draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
+                                glm::vec4 colour) {
+  if (backend) {
+    backend->draw_backdrop_quad(position, size, colour);
+  } else {
+    KWARN("renderer backend does not exist to accept a backdrop quad draw "
+         "request.");
+  }
+}
+
 namespace {
 // Draws one viewfinder corner bracket (an "L" opening toward the rect's
 // center) at corner, with each arm reaching toward inward (a unit vector
@@ -207,6 +217,16 @@ SceneRef &SceneRef::scale(f32 factor) {
     backend->scale_scene(handle_, factor);
   }
   return *this;
+}
+
+void renderer_set_cache_prewarm_on_load(b8 enabled) {
+  if (backend) {
+    backend->set_cache_prewarm_on_load(enabled);
+  }
+}
+
+u32 renderer_streaming_backlog() {
+  return backend ? backend->streaming_backlog() : 0;
 }
 
 void renderer_remove_scene(SceneHandle handle) {

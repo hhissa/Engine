@@ -39,6 +39,9 @@ void write_question(std::ostream &out, const ConversationQuestion &question,
   for (const std::string &flag : question.sets_flags) {
     out << pad << "    sets=" << flag << "\n";
   }
+  if (question.is_auto) {
+    out << pad << "    auto\n";
+  }
   if (question.is_ending) {
     out << pad << "    ending\n";
   }

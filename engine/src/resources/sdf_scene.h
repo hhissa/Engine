@@ -1,8 +1,10 @@
 #pragma once
 #include "../defines.h"
+#include "material_def.h"
 
 #include <array>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -44,7 +46,8 @@
 // nested inside one) describe SdfLightDef entries -- type is "directional"
 // or "point", with direction=/position=/colour=/intensity= read into the
 // matching fields (position= is ignored for a directional light and vice
-// versa). A top-level "ambient=0.15" line sets SdfScene::ambient. A file
+// versa). A top-level "ambient=0.15" line sets SdfScene::ambient, and a
+// top-level "skybox=NAME" line sets SdfScene::skybox. A file
 // with no light blocks at all still renders lit -- see
 // VulkanRaymarchShader::rebuild_static_scene()'s fallback default light.
 //
@@ -74,6 +77,13 @@
 // rotational/rectangular; omitted means none), "repetition_cell=x y z", and
 // "repetition_count=x y z" -- see SdfRepetitionMode/SdfPrimitiveDef::
 // repetition_mode's comments for what each mode does with cell/count.
+//
+// A LAYER block accepts those same three keys (alongside operation=/
+// smoothness=), meaning "repeat this whole layer": the fold runs once in
+// world space and every primitive in the layer is evaluated at the folded
+// point, so the primitives keep their arrangement relative to each other
+// instead of each repeating around its own centre. See SdfLayerDef::
+// repetition_mode.
 //
 
 // Sphere/Box/Plane keep their own named keys (radius=/half_extents=/
@@ -146,6 +156,30 @@ enum class SdfRepetitionMode : u32 {
   Rectangular = 4,
 };
 
+// Which local axis a bend's rotation angle is driven by, and which axis it
+// rotates that one toward -- the "direction" of the bend. XToY is the
+// classic opCheapBend (Inigo Quilez, https://iquilezles.org/articles/
+// distfunctions/ "Deforming"): the angle grows with local X and swings the
+// shape toward +Y, i.e. a bar along X curves into an arc opening toward
+// -Y. The other five are that same warp on a different pair of axes, so a
+// bend can be aimed without having to rotate the primitive (and its
+// repetition, and its parametric-attribute formulas, which all live in the
+// same local space) just to reach the axis you wanted.
+//
+// The naming is <drive>To<target>: angle = bend * local.<drive>, rotating
+// local.<drive>/local.<target> so a positive bend pushes toward +<target>.
+// Value order is (drive, then the two remaining axes in cyclic order) --
+// see bend_axes() in Builtin.SdfSceneCommon.inc.glsl, which decodes it
+// arithmetically and so depends on exactly this ordering.
+enum class SdfBendAxis : u32 {
+  XToY = 0,
+  XToZ = 1,
+  YToZ = 2,
+  YToX = 3,
+  ZToX = 4,
+  ZToY = 5,
+};
+
 // A Directional light has no position -- it shines uniformly from
 // `direction` (doesn't need to be pre-normalized) with no falloff, like the
 // sun. A Point light shines from `position` in every direction with
@@ -213,8 +247,14 @@ struct SdfPrimitiveDef {
   // of these lines renders exactly as before.
   //   twist: radians of rotation per world-unit of local Y, around local Y
   //     (rotates local.xz by twist*local.y). 0 = no twist.
-  //   bend: radians of rotation per world-unit of local X, around local Z
-  //     (rotates local.xy by bend*local.x, applied after twist). 0 = no bend.
+  //   bend: radians of rotation per world-unit along the bend_axis' drive
+  //     axis, rotating that axis toward the target one (rotates local.xy by
+  //     bend*local.x for the XToY default -- see SdfBendAxis for the other
+  //     five directions -- applied after twist). 0 = no bend, whatever
+  //     bend_axis says.
+  //   bend_axis: which pair of local axes the bend above warps, and which
+  //     way round. Defaults to XToY, the behaviour bend had before this
+  //     existed, so no file changes meaning by gaining a default.
   //   displace_amplitude: added straight onto the shape's distance as
   //     displace_amplitude * sin(f*x)*sin(f*y)*sin(f*z) (f =
   //     displace_frequency below), evaluated at the *pre*-twist/bend local
@@ -229,6 +269,7 @@ struct SdfPrimitiveDef {
   //     effect while displace_amplitude is 0.
   f32 twist = 0.0f;
   f32 bend = 0.0f;
+  SdfBendAxis bend_axis = SdfBendAxis::XToY;
   f32 displace_amplitude = 0.0f;
   f32 displace_frequency = 20.0f;
   // Optional "parametric attribute" per params slot (index 0/1/2 ->
@@ -266,6 +307,30 @@ struct SdfPrimitiveDef {
   SdfRepetitionMode repetition_mode = SdfRepetitionMode::None;
   glm::vec3 repetition_cell{1.0f};
   glm::vec3 repetition_count{1.0f};
+  // --- Material binding ---------------------------------------------
+  //
+  // A primitive names its material by ID (see MaterialId, material_def.h),
+  // referring to one of SdfScene::materials. That indirection is what
+  // makes a material an editable, renameable thing rather than a value
+  // tuple encoded into a filename -- see material_def.h's header for the
+  // full reasoning.
+  //
+  // kInvalidMaterialId means this primitive uses a LEGACY material
+  // instead: material_name below names an assets/materials/<name>.kmt
+  // file directly, the way every scene written before the material
+  // library existed does. Both forms are read; only the id form is
+  // written, so a scene converts the first time it is saved and never
+  // half-converts. See sdf_scene_resolve_material().
+  MaterialId material_id = kInvalidMaterialId;
+  // Sparse per-primitive tweaks applied on top of the referenced
+  // material. The alternative to overrides is forking -- duplicating a
+  // material to change one value -- which is exactly how the old scheme
+  // accumulated 949 files for 93 distinct materials.
+  std::vector<MaterialOverride> material_overrides;
+  // Legacy .kmt name; empty once material_id is set. During parsing this
+  // also holds an as-yet-unresolved id string, because a "material=" line
+  // may appear before the material block it names (ids are resolved in one
+  // pass after the whole file is read -- see load_sdf_scene()).
   std::string material_name;
 };
 
@@ -273,6 +338,67 @@ struct SdfLayerDef {
   std::string name;
   SdfLayerOperation operation = SdfLayerOperation::Union;
   f32 smoothness = 0.0f;
+  // The layer's own rigid transform ("position="/"rotation=" inside a layer
+  // block), applied to every primitive in it as a group: each one's
+  // authored position/rotation is read as LAYER-LOCAL, and what actually
+  // renders is this transform composed onto it (rotate about the layer's
+  // origin, then translate). Moving a layer moves its whole arrangement
+  // without touching a single primitive; rotating one turns the
+  // arrangement about the layer's origin rather than spinning each shape
+  // in place, which is what a per-primitive rotation already does.
+  //
+  // rotation is Euler angles in radians (XYZ order), exactly like
+  // SdfPrimitiveDef::rotation. Both default to identity, so a layer that
+  // has never been moved behaves exactly as it did before this existed and
+  // its block is written byte-for-byte unchanged.
+  //
+  // Composed onto each primitive at the point the scene becomes runtime
+  // geometry (GeometrySystem::load_scene()/reconcile_scene(), and
+  // raycast_scene() for the editor's picker -- see
+  // sdf_layer_world_transform() below) rather than carried separately all
+  // the way to the shader. That is what keeps "Geometry::position/rotation
+  // are world space" true for every downstream consumer -- the voxel bake,
+  // the per-primitive bounding radius, chunk culling, the splat passes --
+  // none of which has a layer index to look a transform up with.
+  //
+  // Two consequences of composing rather than carrying, both deliberate:
+  //   - A Plane is left alone entirely. It has no meaningful position or
+  //     orientation of its own (see GeometryConfig::plane()) and never
+  //     rotates, so a layer transform has nothing to compose onto -- same
+  //     rule its own rotation already follows.
+  //   - repetition below still folds along WORLD axes, not the rotated
+  //     layer's. A repeated, rotated layer therefore steps its copies
+  //     along world axes; the copies themselves are correctly rotated.
+  glm::vec3 position{0.0f};
+  glm::vec3 rotation{0.0f};
+  // Domain repetition applied to the layer AS A WHOLE ("repetition="/
+  // "repetition_cell="/"repetition_count=" inside a layer block) -- the
+  // same five modes, cell and count a primitive's own repetition uses (see
+  // SdfRepetitionMode and SdfPrimitiveDef::repetition_mode for what each
+  // mode does with them), folded in WORLD space before each primitive's
+  // own rotation instead of in its rotated local space.
+  //
+  // That difference is the whole point of it existing alongside the
+  // per-primitive one. Repeating each primitive individually repeats each
+  // around its own centre and along its own rotated axes: a table built
+  // from a top and four legs, set to repeat rotationally, becomes five
+  // separately-spinning parts, not five tables. Repeating the layer folds
+  // the sample point once, before any of its primitives are evaluated, and
+  // every primitive in it steps by the same world vector -- so the
+  // arrangement between them survives and the layer is the unit that
+  // repeats. Layers are also where the boolean operation lives, so a
+  // subtraction layer repeats its cuts as a set, cutting the same pattern
+  // into every copy.
+  //
+  // Costs what it sounds like: every primitive in a repeated layer is
+  // evaluated once per candidate copy of the fold, and an Infinite layer
+  // makes all of them unbounded (never cullable, folded at every voxel of
+  // every bake -- see [[unbounded-primitives]] and
+  // geometry_bounding_radius()). None (the default) leaves the layer
+  // exactly as it was before this existed.
+  SdfRepetitionMode repetition_mode = SdfRepetitionMode::None;
+  glm::vec3 repetition_cell{1.0f};
+  glm::vec3 repetition_count{1.0f};
   std::vector<SdfPrimitiveDef> primitives;
 };
 
@@ -294,6 +420,10 @@ struct SdfVolumetricDef {
   // accumulate_volumetrics() in Builtin.RaymarchShader.comp.glsl. Higher
   // reads as a denser/brighter shaft; 0 would be fully invisible.
   f32 density = 1.0f;
+  // See SdfPrimitiveDef's material binding block above -- a volumetric
+  // refers to its material exactly the same way.
+  MaterialId material_id = kInvalidMaterialId;
+  std::vector<MaterialOverride> material_overrides;
   std::string material_name;
 };
 
@@ -305,11 +435,116 @@ struct SdfScene {
   std::vector<SdfVolumetricDef> volumetrics; // Order doesn't matter -- each
                                              // renders independently (see
                                              // SdfVolumetricDef above).
+  // The scene's material library: every material any primitive or
+  // volumetric in it refers to, by MaterialId. Order is authored order and
+  // is not otherwise significant -- lookup is always by id.
+  //
+  // Scene-embedded rather than a global folder of files, deliberately. A
+  // shared mutable global library is what made Material a
+  // reference-counted object that several scenes could alias, which in
+  // turn is why Geometry carries texture_scale_factor/texture_offset_scale
+  // (scale_scene() cannot mutate a shared material, so it has to modulate
+  // it per primitive instead). A self-contained scene also round-trips
+  // safely through the editor's live-preview file.
+  std::vector<MaterialDef> materials;
   // Scene-wide ambient factor (added once, not per-light) -- 0 means fully
   // unlit surfaces facing away from every light are pure black; matches the
   // old hardcoded default this replaces.
   f32 ambient = 0.15f;
+  // The equirectangular (lat/long, NOT 6-face cubemap) image drawn behind
+  // this scene's geometry and reflected off its glossy surfaces -- an
+  // assets/textures/<name>.png basename, exactly what
+  // renderer_enable_sky_box() takes (see renderer_frontend.h) and what a
+  // primitive's own texture names.
+  //
+  // EMPTY MEANS UNSPECIFIED, NOT "NO SKYBOX". Loading a scene with no
+  // skybox= line leaves whatever skybox is currently set alone rather than
+  // turning it off -- games set theirs from code (see
+  // games/SH/src/game_scene_state.cpp) and then load scene files that
+  // predate this field, and those must not switch the sky off from under
+  // them. A caller that genuinely wants no skybox says so directly, with
+  // renderer_disable_sky_box(); that is exactly what the editor does when
+  // its skybox is cleared, and why clearing writes no line rather than
+  // writing an empty one.
+  std::string skybox;
 };
+
+// A position and an orientation, in whichever space the function producing
+// it names. rotation is Euler angles in radians (XYZ order), matching
+// SdfPrimitiveDef::rotation -- so a result drops straight into one.
+struct SdfTransform {
+  glm::vec3 position{0.0f};
+  glm::vec3 rotation{0.0f};
+};
+
+// A layer's own rotation as a quaternion (see SdfLayerDef::rotation).
+// Identity for a layer that has never been rotated.
+glm::quat sdf_layer_rotation(const SdfLayerDef &layer);
+
+// Where one of a layer's primitives actually sits and points in WORLD
+// space: its authored, layer-local transform with the layer's own folded
+// in. This is THE definition of what a layer transform means -- every
+// consumer that turns an authored scene into something renderable or
+// pickable goes through it, so the bake and the editor's picker cannot
+// disagree about where a primitive is.
+//
+// A Plane is returned unchanged: it has no meaningful position or
+// orientation to compose onto (see SdfLayerDef::position).
+SdfTransform sdf_layer_world_transform(const SdfLayerDef &layer,
+                                       const SdfPrimitiveDef &primitive);
+
+// The exact inverse of the above: the authored, layer-local transform a
+// primitive of `type` would need in order to sit at world_position facing
+// world_rotation. The editor's gizmo drags in world space and writes
+// authored values back, so it needs this direction.
+SdfTransform sdf_layer_local_transform(const SdfLayerDef &layer,
+                                       SdfPrimitiveType type,
+                                       glm::vec3 world_position,
+                                       glm::vec3 world_rotation);
+
+// The material with this id, or nullptr if the scene has no such entry.
+const MaterialDef *sdf_scene_find_material(const SdfScene &scene,
+                                          MaterialId id);
+MaterialDef *sdf_scene_find_material(SdfScene &scene, MaterialId id);
+
+// Resolves what a primitive/volumetric actually renders as: its library
+// material with its own overrides folded in, or -- for a scene still using
+// the legacy form -- the .kmt file its material_name points at.
+//
+// This is the one function that knows both forms exist, so everything
+// downstream (GeometrySystem, the editor's property panel, the eventual
+// GPU packer) sees a single resolved MaterialDef and never branches on
+// whether the scene has been converted yet.
+//
+// `binding_id`/`binding_name`/`overrides` are the three fields the two
+// binding blocks declare; both SdfPrimitiveDef and SdfVolumetricDef are
+// passed through the templated overload below rather than duplicating this.
+MaterialDef sdf_scene_resolve_material(
+    const SdfScene &scene, MaterialId binding_id,
+    const std::string &binding_name,
+    const std::vector<MaterialOverride> &overrides);
+
+template <typename Bound>
+MaterialDef sdf_scene_resolve_material(const SdfScene &scene,
+                                      const Bound &bound) {
+  return sdf_scene_resolve_material(scene, bound.material_id,
+                                    bound.material_name,
+                                    bound.material_overrides);
+}
+
+// Converts every legacy .kmt reference in the scene into a library
+// material, deduplicating by content so the 35 distinct value tuples a
+// scene actually uses become 35 definitions rather than one per primitive.
+// Imported materials get a readable initial display name (see
+// material_def_suggest_name()) and a fresh id.
+//
+// Idempotent: a scene with no legacy references is left untouched, and
+// returns 0.
+//
+// Called automatically by load_sdf_scene(), so nothing downstream ever
+// sees a half-converted scene; exposed here because the editor also needs
+// to report how many materials an opened scene imported.
+u32 sdf_scene_import_legacy_materials(SdfScene &scene);
 
 // Parses path (see the format description above). Returns std::nullopt on
 // failure (missing file); malformed individual lines are skipped with a

@@ -104,6 +104,13 @@ public:
   bool is_ending() const { return is_ending_; }
   void set_is_ending(bool is_ending);
 
+  // Whether this question is asked automatically rather than offered as a
+  // choice (see the bare `auto` line/ConversationQuestion::is_auto). Not
+  // editable from the side panel yet -- stored so a file that uses it
+  // survives a load/save round trip unchanged.
+  bool is_auto() const { return is_auto_; }
+  void set_is_auto(bool is_auto) { is_auto_ = is_auto; }
+
   // This ending's own outro text (see resources/conversation.h's
   // `ending_text=` lines/ConversationQuestion::ending_lines) -- only
   // meaningful when is_ending() is true, same as ending_text= itself is
@@ -198,6 +205,7 @@ private:
   QStringList requires_not_flags_;
   QStringList sets_flags_;
   bool is_ending_ = false;
+  bool is_auto_ = false;
   QStringList ending_lines_;
 
   bool hovered_ = false;

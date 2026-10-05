@@ -34,10 +34,14 @@ VulkanComputePipeline::VulkanComputePipeline(
   pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
   pipeline_create_info.basePipelineIndex = -1;
 
-  VkResult result =
-      vkCreateComputePipelines(context_->device.logical_device, VK_NULL_HANDLE,
-                               1, &pipeline_create_info, context_->allocator,
-                               &handle_);
+  // context_->pipeline_cache, not VK_NULL_HANDLE: with a warm cache this
+  // returns an already-compiled binary in milliseconds instead of running
+  // the driver's back-end compiler over the whole module again (tens of
+  // seconds per pipeline for this engine's larger shaders). See
+  // vulkan_pipeline_cache.h.
+  VkResult result = vkCreateComputePipelines(
+      context_->device.logical_device, context_->pipeline_cache, 1,
+      &pipeline_create_info, context_->allocator, &handle_);
 
   if (vulkan_result_is_success(result)) {
     KDEBUG("Compute pipeline created!");

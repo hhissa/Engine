@@ -6,6 +6,7 @@
 
 #include <QButtonGroup>
 #include <QCheckBox>
+#include <QStackedWidget>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDir>
@@ -25,6 +26,8 @@
 #include <QTreeWidgetItem>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QInputDialog>
+#include <QListWidgetItem>
 #include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -63,6 +66,11 @@ constexpr int kSyncDebounceMs = 80;
 // survives a drag-and-drop reparent -- see
 // SdfEditorWindow::sync_layers_from_tree()).
 constexpr int kLayerIndexRole = Qt::UserRole;
+
+// properties_stack_'s two pages, in the order they're added (see the stack's
+// own comment where it's built).
+constexpr int kPrimitivePropertiesPage = 0;
+constexpr int kLayerPropertiesPage = 1;
 constexpr int kPrimitiveIndexRole = Qt::UserRole + 1;
 constexpr int kPrimitiveNameRole = Qt::UserRole + 2;
 
@@ -86,90 +94,6 @@ public:
 private:
   SceneViewport *viewport_;
 };
-
-// A material's colour/texture can't be recovered from its material_name
-// alone (it's an opaque deterministic hash-ish string, see ensure_material()
-// below) -- populate_fields_from_selection() reads the .kmt file itself
-// back to recover what colour_/texture_name_ should show for an existing
-// selection. Deliberately minimal (unlike MaterialSystem::acquire()'s
-// parser, engine-side): this tool only ever reads back files it wrote
-// itself via ensure_material(), which are always exactly "key=value" lines
-// with no surrounding whitespace.
-struct ParsedMaterial {
-  QColor colour = Qt::white;
-  std::string texture_name;
-  std::string bump_map_name; // engine-side Material::bump_map_name -- empty
-                            // means no bump map (see Material::bump_texture)
-  double texture_scale = 0.6; // engine-side Material::texture_scale default
-  // engine-side Material::texture_offset default (world units); rotation
-  // kept in RADIANS here too, matching the .kmt file directly -- callers
-  // convert to degrees for the UI at the point they call setValue(), the
-  // same way a primitive's own rotation already does.
-  glm::vec3 texture_offset{0.0f};
-  double texture_rotation = 0.0;
-  QColor emissive_colour = Qt::white;
-  double emissive_intensity = 0.0; // engine-side Material::emissive_intensity
-                                  // "off" default
-  bool pixelation_exempt = false; // engine-side Material::pixelation_exempt default
-};
-
-ParsedMaterial parse_material_file(const std::string &material_name) {
-  ParsedMaterial result;
-  std::ifstream file("assets/materials/" + material_name + ".kmt");
-  std::string line;
-  while (std::getline(file, line)) {
-    auto eq = line.find('=');
-    if (eq == std::string::npos) {
-      continue;
-    }
-    std::string key = line.substr(0, eq);
-    std::string value = line.substr(eq + 1);
-    if (key == "diffuse_map_name") {
-      result.texture_name = value;
-    } else if (key == "bump_map_name") {
-      result.bump_map_name = value;
-    } else if (key == "diffuse_colour") {
-      std::istringstream iss(value);
-      float r, g, b, a;
-      if (iss >> r >> g >> b >> a) {
-        result.colour = QColor::fromRgbF(r, g, b, a);
-      }
-    } else if (key == "texture_scale") {
-      std::istringstream iss(value);
-      double scale = 0.0;
-      if (iss >> scale && scale > 0.0) {
-        result.texture_scale = scale;
-      }
-    } else if (key == "texture_offset") {
-      std::istringstream iss(value);
-      glm::vec3 offset(0.0f);
-      if (iss >> offset.x >> offset.y >> offset.z) {
-        result.texture_offset = offset;
-      }
-    } else if (key == "texture_rotation") {
-      std::istringstream iss(value);
-      double rotation = 0.0;
-      if (iss >> rotation) {
-        result.texture_rotation = rotation;
-      }
-    } else if (key == "emissive_colour" || key == "emissive_color") {
-      std::istringstream iss(value);
-      float r, g, b;
-      if (iss >> r >> g >> b) {
-        result.emissive_colour = QColor::fromRgbF(r, g, b);
-      }
-    } else if (key == "emissive_intensity") {
-      std::istringstream iss(value);
-      double intensity = 0.0;
-      if (iss >> intensity && intensity >= 0.0) {
-        result.emissive_intensity = intensity;
-      }
-    } else if (key == "pixelation_exempt") {
-      result.pixelation_exempt = (value == "true" || value == "1");
-    }
-  }
-  return result;
-}
 
 // Turns an arbitrary source image filename into a safe assets/textures/
 // basename (no extension) -- anything that isn't alphanumeric or '_'
@@ -446,7 +370,27 @@ SdfEditorWindow::SdfEditorWindow() {
   auto *primitives_tab = new QWidget();
   auto *primitives_layout = new QVBoxLayout(primitives_tab);
 
-  QFormLayout *form = add_collapsible_section(primitives_layout, "Layer");
+  // The property sections above the Scene Contents tree swap wholesale with
+  // what that tree has selected: a primitive row shows the primitive's own
+  // shape/material fields, a LAYER row shows the layer's -- its operation,
+  // smoothness, and the repetition that repeats the whole layer, none of
+  // which belong to any one primitive. Two pages of a stack rather than a
+  // separate window: a layer's properties are edited in exactly the same
+  // place, and with the same live-edit behaviour, as everything else here.
+  // The tree itself and the buttons below it are outside the stack -- they
+  // stay put whatever is selected.
+  properties_stack_ = new QStackedWidget();
+  auto *primitive_page = new QWidget();
+  auto *primitive_page_layout = new QVBoxLayout(primitive_page);
+  primitive_page_layout->setContentsMargins(0, 0, 0, 0);
+  auto *layer_page = new QWidget();
+  auto *layer_page_layout = new QVBoxLayout(layer_page);
+  layer_page_layout->setContentsMargins(0, 0, 0, 0);
+  properties_stack_->addWidget(primitive_page); // kPrimitivePropertiesPage
+  properties_stack_->addWidget(layer_page);     // kLayerPropertiesPage
+  primitives_layout->addWidget(properties_stack_);
+
+  QFormLayout *form = add_collapsible_section(primitive_page_layout, "Layer");
 
   operation_combo_ = new QComboBox();
   operation_combo_->addItem("Union");
@@ -462,7 +406,7 @@ SdfEditorWindow::SdfEditorWindow() {
          this, &SdfEditorWindow::on_live_edit_changed);
   form->addRow("Smoothness:", smoothness_spin_);
 
-  form = add_collapsible_section(primitives_layout, "Transform");
+  form = add_collapsible_section(primitive_page_layout, "Transform");
 
   pos_x_ = new QDoubleSpinBox();
   pos_y_ = new QDoubleSpinBox();
@@ -470,6 +414,13 @@ SdfEditorWindow::SdfEditorWindow() {
   for (QDoubleSpinBox *spin : {pos_x_, pos_y_, pos_z_}) {
     spin->setRange(-100.0, 100.0);
     spin->setSingleStep(0.1);
+    spin->setToolTip(
+        "Where this primitive sits inside its LAYER. For a layer that has "
+        "not been moved (the usual case) that is world space; if the layer "
+        "carries its own Transform, this is relative to it -- select the "
+        "layer row to see or change that -- and moving the primitive to a "
+        "different layer re-reads these numbers against that layer "
+        "instead.");
     connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
            &SdfEditorWindow::on_live_edit_changed);
   }
@@ -486,6 +437,9 @@ SdfEditorWindow::SdfEditorWindow() {
     spin->setRange(-360.0, 360.0);
     spin->setSingleStep(1.0);
     spin->setSuffix(QStringLiteral("°"));
+    spin->setToolTip(
+        "Spins this primitive where it stands. Relative to its layer's own "
+        "Rotation, the same way Position above is -- see that field.");
     connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
            &SdfEditorWindow::on_live_edit_changed);
   }
@@ -495,7 +449,7 @@ SdfEditorWindow::SdfEditorWindow() {
   rot_row->addWidget(rot_z_);
   form->addRow("Rotation (x, y, z):", rot_row);
 
-  form = add_collapsible_section(primitives_layout, "Repetition", /*expanded=*/false);
+  form = add_collapsible_section(primitive_page_layout, "Repetition", /*expanded=*/false);
 
   // Domain repetition (see https://iquilezles.org/articles/sdfrepetition/
   // and SdfPrimitiveDef::repetition_mode's comment) -- added in exactly
@@ -559,7 +513,7 @@ SdfEditorWindow::SdfEditorWindow() {
   repeat_count_row->addWidget(repeat_count_z_);
   form->addRow("Repeat Count (x, y, z):", repeat_count_row);
 
-  form = add_collapsible_section(primitives_layout, "Deformation", /*expanded=*/false);
+  form = add_collapsible_section(primitive_page_layout, "Deformation", /*expanded=*/false);
 
   // Domain deformation (Inigo Quilez, https://iquilezles.org/articles/
   // distfunctions/ "Deforming" section) -- see SdfPrimitiveDef::twist/
@@ -582,11 +536,32 @@ SdfEditorWindow::SdfEditorWindow() {
   bend_spin_->setSingleStep(0.1);
   bend_spin_->setValue(0.0);
   bend_spin_->setToolTip(
-      "Radians of rotation per world-unit of local X, around local Z -- "
-      "bends the shape along X, applied after Twist. 0 = no bend.");
+      "Radians of rotation per world-unit along Bend Axis' first axis, "
+      "swinging the shape toward its second -- applied after Twist. "
+      "0 = no bend.");
   connect(bend_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
          &SdfEditorWindow::on_live_edit_changed);
   form->addRow("Bend:", bend_spin_);
+
+  // Which way the Bend above points. Rows are in SdfBendAxis' own enum
+  // order, so currentIndex() casts straight to it -- same convention
+  // repetition_combo_ follows for SdfRepetitionMode.
+  bend_axis_combo_ = new QComboBox();
+  bend_axis_combo_->addItem("X to Y");
+  bend_axis_combo_->addItem("X to Z");
+  bend_axis_combo_->addItem("Y to Z");
+  bend_axis_combo_->addItem("Y to X");
+  bend_axis_combo_->addItem("Z to X");
+  bend_axis_combo_->addItem("Z to Y");
+  bend_axis_combo_->setToolTip(
+      "Which pair of local axes Bend warps, and which way round: \"X to "
+      "Y\" (the default, and how Bend behaved before it had a direction) "
+      "scales the angle by local X and swings the shape toward +Y, so a "
+      "bar lying along X curves into an arc. Lets a bend be aimed without "
+      "rotating the whole primitive to reach the axis you wanted.");
+  connect(bend_axis_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+         this, &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Bend Axis:", bend_axis_combo_);
 
   displace_amplitude_spin_ = new QDoubleSpinBox();
   displace_amplitude_spin_->setRange(-10.0, 10.0);
@@ -612,7 +587,7 @@ SdfEditorWindow::SdfEditorWindow() {
          this, &SdfEditorWindow::on_live_edit_changed);
   form->addRow("Displace Frequency:", displace_frequency_spin_);
 
-  form = add_collapsible_section(primitives_layout, "Shape Parameters");
+  form = add_collapsible_section(primitive_page_layout, "Shape Parameters");
 
   // Generic per-type scalar parameters -- labeled/shown per the current
   // type's PrimitiveTypeSpec (see update_field_enablement()). Each also
@@ -640,7 +615,7 @@ SdfEditorWindow::SdfEditorWindow() {
     form->addRow(param_label_[i], param_row);
   }
 
-  form = add_collapsible_section(primitives_layout, "Material && Texture");
+  form = add_collapsible_section(primitive_page_layout, "Material && Texture");
 
   colour_button_ = new QPushButton("Choose...");
   colour_button_->setStyleSheet(
@@ -678,6 +653,21 @@ SdfEditorWindow::SdfEditorWindow() {
   bump_map_row->addWidget(bump_map_clear_button_);
   bump_map_row->addWidget(bump_map_label_, /*stretch=*/1);
   form->addRow("Bump Map:", bump_map_row);
+
+  bump_strength_spin_ = new QDoubleSpinBox();
+  bump_strength_spin_->setRange(0.0, 10.0);
+  bump_strength_spin_->setSingleStep(0.1);
+  bump_strength_spin_->setValue(1.0); // matches Material::bump_strength's
+                                     // engine-side default
+  bump_strength_spin_->setToolTip(
+      "How deep the bump map above reads. 1 is the fixed strength bump "
+      "mapping used to be locked at; 0 flattens it without clearing the "
+      "map, and larger values exaggerate the relief. No effect at all "
+      "with no bump map set.");
+  connect(bump_strength_spin_,
+         QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Bump Strength:", bump_strength_spin_);
 
   texture_scale_spin_ = new QDoubleSpinBox();
   texture_scale_spin_->setRange(0.05, 50.0);
@@ -718,7 +708,7 @@ SdfEditorWindow::SdfEditorWindow() {
          &SdfEditorWindow::on_live_edit_changed);
   form->addRow("Texture Rotation:", texture_rotation_spin_);
 
-  form = add_collapsible_section(primitives_layout, "Emissive && Rendering", /*expanded=*/false);
+  form = add_collapsible_section(primitive_page_layout, "Emissive && Rendering", /*expanded=*/false);
 
   emissive_colour_button_ = new QPushButton("Choose...");
   emissive_colour_button_->setStyleSheet(
@@ -752,6 +742,255 @@ SdfEditorWindow::SdfEditorWindow() {
   connect(pixelation_exempt_check_, &QCheckBox::toggled, this,
          &SdfEditorWindow::on_live_edit_changed);
   form->addRow("", pixelation_exempt_check_);
+
+  casts_shadow_check_ = new QCheckBox("Casts Shadow");
+  casts_shadow_check_->setChecked(true); // matches Material::casts_shadow's
+                                        // engine-side default
+  casts_shadow_check_->setToolTip(
+      "Unticked, this primitive is still drawn and lit normally but every "
+      "shadow ray passes straight through it -- it darkens nothing. For "
+      "geometry that should read as an object without swallowing the room: "
+      "glass, a light fixture's housing, an overhead grille. Bounced/GI "
+      "light still sees it as ordinary geometry.");
+  connect(casts_shadow_check_, &QCheckBox::toggled, this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("", casts_shadow_check_);
+
+  // --- Surface + transmission ------------------------------------------
+  roughness_spin_ = new QDoubleSpinBox();
+  roughness_spin_->setRange(0.0, 1.0);
+  roughness_spin_->setSingleStep(0.05);
+  roughness_spin_->setValue(0.5); // matches MaterialDef::roughness
+  roughness_spin_->setToolTip(
+      "How sharp this surface's highlights are. 0 is mirror-sharp, 1 is "
+      "fully matte. Polished plastic sits around 0.2, glass around 0.05, "
+      "still water near 0.");
+  connect(roughness_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+         this, &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Roughness:", roughness_spin_);
+
+  // Transmissive is an explicit TOGGLE rather than "IOR above zero",
+  // because the two are not the same range and conflating them is a trap.
+  // MaterialDef stores 0 to mean opaque, but the physically meaningful
+  // band for a transmissive IOR is [1, 3]: a value in (0, 1) describes
+  // light leaving a denser medium, which at an air interface means a
+  // near-total reflector (F0 approaches 1 as the IOR approaches 0, and
+  // eta = 1/ior total-internal-reflects every ray). A single spin box
+  // spanning 0 to 3 let one step off zero land squarely in that band, so
+  // the first thing anyone saw on enabling glass was a mirror.
+  transmissive_check_ = new QCheckBox("Transmissive");
+  transmissive_check_->setToolTip(
+      "Makes this primitive glass/liquid/clear plastic: rays pass through "
+      "it and it is excluded from the voxel bake entirely, so moving it "
+      "re-bakes nothing.");
+  connect(transmissive_check_, &QCheckBox::toggled, this,
+         &SdfEditorWindow::on_live_edit_changed);
+  connect(transmissive_check_, &QCheckBox::toggled, this,
+         &SdfEditorWindow::update_field_enablement);
+  form->addRow("", transmissive_check_);
+
+  ior_spin_ = new QDoubleSpinBox();
+  // Starts at 1 (vacuum), not 0. The opaque case is the checkbox above.
+  ior_spin_->setRange(1.0, 3.0);
+  ior_spin_->setSingleStep(0.01);
+  ior_spin_->setDecimals(3);
+  ior_spin_->setValue(1.5);
+  ior_spin_->setToolTip(
+      "Index of refraction, only meaningful while Transmissive is on.\n\n"
+      "Water 1.333, acrylic 1.49, glass 1.52, polycarbonate 1.585.");
+  connect(ior_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("IOR:", ior_spin_);
+
+  absorption_colour_button_ = new QPushButton("Absorption Tint");
+  absorption_colour_button_->setToolTip(
+      "The colour a slab of the reference thickness below lets through. "
+      "This is what makes thick glass green at its edges and deep water "
+      "blue -- authored as a colour you can judge rather than as an "
+      "absorption coefficient. White means perfectly clear.");
+  connect(absorption_colour_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_pick_absorption_colour_clicked);
+  form->addRow("Absorption:", absorption_colour_button_);
+
+  absorption_thickness_spin_ = new QDoubleSpinBox();
+  absorption_thickness_spin_->setRange(0.001, 100.0);
+  absorption_thickness_spin_->setSingleStep(0.01);
+  absorption_thickness_spin_->setDecimals(3);
+  absorption_thickness_spin_->setValue(0.1);
+  absorption_thickness_spin_->setToolTip(
+      "How deep a slab the absorption tint above describes, in world "
+      "units. The renderer solves the two into a per-channel coefficient "
+      "and applies it over the distance a ray actually travels inside the "
+      "shape -- which an SDF knows exactly.");
+  connect(absorption_thickness_spin_,
+         QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("Absorption Depth:", absorption_thickness_spin_);
+
+  thin_walled_check_ = new QCheckBox("Thin-Walled");
+  thin_walled_check_->setToolTip(
+      "For parallel-walled glass thin enough that refraction would shift "
+      "the image by less than a pixel -- a windowpane, a bottle wall. "
+      "Skips the interior march entirely, which is both cheaper AND more "
+      "accurate there than simulating a sub-pixel displacement. Leave it "
+      "off for anything solid: a block, a lens, a tumbler's base.");
+  connect(thin_walled_check_, &QCheckBox::toggled, this,
+         &SdfEditorWindow::on_live_edit_changed);
+  form->addRow("", thin_walled_check_);
+
+  // --- The layer page: what a LAYER row's selection shows instead of all
+  // of the above. Deliberately its own set of widgets rather than reusing
+  // operation_combo_/smoothness_spin_ from the primitive page: those edit
+  // the layer of whichever PRIMITIVE is selected, these edit the layer that
+  // is itself selected, and both pages have to be able to hold their own
+  // values at the same time.
+  QFormLayout *layer_form = add_collapsible_section(layer_page_layout, "Layer");
+
+  layer_operation_combo_ = new QComboBox();
+  layer_operation_combo_->addItem("Union");
+  layer_operation_combo_->addItem("Subtraction");
+  layer_operation_combo_->setToolTip(
+      "How every primitive in this layer folds into the scene built up so "
+      "far: Union adds it, Subtraction carves it out. Applies to each "
+      "primitive in the layer individually, not once to the layer as a "
+      "whole -- so a subtraction layer with three shapes cuts three "
+      "separate notches.");
+  connect(layer_operation_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+         this, &SdfEditorWindow::on_layer_field_changed);
+  layer_form->addRow("Join Operation:", layer_operation_combo_);
+
+  layer_smoothness_spin_ = new QDoubleSpinBox();
+  layer_smoothness_spin_->setRange(0.0, 10.0);
+  layer_smoothness_spin_->setSingleStep(0.05);
+  layer_smoothness_spin_->setToolTip(
+      "Blend radius for this layer's fold, in world units. 0 is a hard "
+      "edge; above 0 rounds the join between this layer's primitives and "
+      "whatever they meet.");
+  connect(layer_smoothness_spin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+         this, &SdfEditorWindow::on_layer_field_changed);
+  layer_form->addRow("Smoothness:", layer_smoothness_spin_);
+
+  layer_form = add_collapsible_section(layer_page_layout, "Layer Transform");
+
+  layer_pos_x_ = new QDoubleSpinBox();
+  layer_pos_y_ = new QDoubleSpinBox();
+  layer_pos_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin : {layer_pos_x_, layer_pos_y_, layer_pos_z_}) {
+    spin->setRange(-100.0, 100.0);
+    spin->setSingleStep(0.1);
+    spin->setToolTip(
+        "Moves this WHOLE LAYER -- every primitive in it at once, keeping "
+        "their arrangement -- without changing any of their own positions. "
+        "Each primitive's Position is read relative to this.");
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_layer_field_changed);
+  }
+  auto *layer_pos_row = new QHBoxLayout();
+  layer_pos_row->addWidget(layer_pos_x_);
+  layer_pos_row->addWidget(layer_pos_y_);
+  layer_pos_row->addWidget(layer_pos_z_);
+  layer_form->addRow("Position (x, y, z):", layer_pos_row);
+
+  layer_rot_x_ = new QDoubleSpinBox();
+  layer_rot_y_ = new QDoubleSpinBox();
+  layer_rot_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin : {layer_rot_x_, layer_rot_y_, layer_rot_z_}) {
+    spin->setRange(-360.0, 360.0);
+    spin->setSingleStep(1.0);
+    spin->setSuffix(QStringLiteral("°"));
+    spin->setToolTip(
+        "Turns this WHOLE LAYER about its Position above, carrying every "
+        "primitive in it around with their arrangement intact -- unlike a "
+        "primitive's own Rotation, which spins each shape where it "
+        "stands.\n"
+        "A Plane in the layer is left alone: it is always horizontal and "
+        "has no orientation to turn.\n"
+        "Layer Repetition below still steps its copies along WORLD axes, "
+        "not this rotated layer's -- the copies themselves are turned, the "
+        "grid they sit on is not.");
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_layer_field_changed);
+  }
+  auto *layer_rot_row = new QHBoxLayout();
+  layer_rot_row->addWidget(layer_rot_x_);
+  layer_rot_row->addWidget(layer_rot_y_);
+  layer_rot_row->addWidget(layer_rot_z_);
+  layer_form->addRow("Rotation (x, y, z):", layer_rot_row);
+
+  layer_form = add_collapsible_section(layer_page_layout, "Layer Repetition");
+
+  // Same five modes, same cell/count meaning as a primitive's own
+  // Repetition section -- added in SdfRepetitionMode's enum order, same
+  // "row index == enum value" convention (see populate_layer_fields()/
+  // apply_layer_fields()).
+  layer_repetition_combo_ = new QComboBox();
+  layer_repetition_combo_->addItem("None");
+  layer_repetition_combo_->addItem("Infinite");
+  layer_repetition_combo_->addItem("Limited");
+  layer_repetition_combo_->addItem("Rotational");
+  layer_repetition_combo_->addItem("Rectangular");
+  layer_repetition_combo_->setToolTip(
+      "Repeats this WHOLE LAYER -- every primitive in it at once, keeping "
+      "their arrangement -- instead of repeating each shape around its own "
+      "centre the way a primitive's own Repetition does. A table built "
+      "from a top and four legs repeats as five tables here, and as five "
+      "separately-spinning parts there.\n"
+      "The fold happens in world space, before the layer's primitives are "
+      "evaluated, so a subtraction layer repeats its cuts as a set too. "
+      "The copies are laid out around the layer's own contents wherever "
+      "they were authored -- it does not have to sit near the origin.\n"
+      "None: the layer is used once, as authored.\n"
+      "Infinite: forever, every Repeat Cell units along each axis whose "
+      "cell is > 0. Costly -- nothing in the layer can be culled from any "
+      "chunk of the bake again.\n"
+      "Limited: as Infinite, capped to Repeat Count copies per axis.\n"
+      "Rotational: Repeat Count X copies evenly spaced around the world Y "
+      "axis -- a ring of whatever the layer holds.\n"
+      "Rectangular: a grid on the world XZ plane (Cell/Count X and Z; Y is "
+      "left alone).");
+  connect(layer_repetition_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+         this, &SdfEditorWindow::on_layer_repetition_mode_changed);
+  layer_form->addRow("Repetition:", layer_repetition_combo_);
+
+  layer_repeat_cell_x_ = new QDoubleSpinBox();
+  layer_repeat_cell_y_ = new QDoubleSpinBox();
+  layer_repeat_cell_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin :
+       {layer_repeat_cell_x_, layer_repeat_cell_y_, layer_repeat_cell_z_}) {
+    spin->setRange(0.0, 100.0);
+    spin->setSingleStep(0.1);
+    spin->setValue(1.0);
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_layer_field_changed);
+  }
+  auto *layer_cell_row = new QHBoxLayout();
+  layer_cell_row->addWidget(layer_repeat_cell_x_);
+  layer_cell_row->addWidget(layer_repeat_cell_y_);
+  layer_cell_row->addWidget(layer_repeat_cell_z_);
+  layer_form->addRow("Repeat Cell (x, y, z):", layer_cell_row);
+
+  layer_repeat_count_x_ = new QDoubleSpinBox();
+  layer_repeat_count_y_ = new QDoubleSpinBox();
+  layer_repeat_count_z_ = new QDoubleSpinBox();
+  for (QDoubleSpinBox *spin :
+       {layer_repeat_count_x_, layer_repeat_count_y_, layer_repeat_count_z_}) {
+    spin->setDecimals(0);
+    spin->setRange(1.0, 64.0);
+    spin->setSingleStep(1.0);
+    spin->setValue(1.0);
+    connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+           &SdfEditorWindow::on_layer_field_changed);
+  }
+  auto *layer_count_row = new QHBoxLayout();
+  layer_count_row->addWidget(layer_repeat_count_x_);
+  layer_count_row->addWidget(layer_repeat_count_y_);
+  layer_count_row->addWidget(layer_repeat_count_z_);
+  layer_form->addRow("Repeat Count (x, y, z):", layer_count_row);
+
+  // Keeps both sections pinned to the top of the page: the layer page has
+  // far fewer rows than the primitive one, and without this the stack
+  // stretches them apart to fill the same height.
+  layer_page_layout->addStretch(/*stretch=*/1);
 
   auto *add_row = new QHBoxLayout();
   auto *add_button = new QPushButton("Add Primitive");
@@ -797,6 +1036,11 @@ SdfEditorWindow::SdfEditorWindow() {
          &SdfEditorWindow::on_contents_tree_selection_changed);
   connect(contents_tree_, &ContentsTreeWidget::primitives_reparented, this,
          &SdfEditorWindow::on_primitives_reparented);
+  // Same rebuild either way -- sync_layers_from_tree() re-derives
+  // scene_.layers from the tree's whole structure, top-level order
+  // included, so a layer reorder needs no separate path.
+  connect(contents_tree_, &ContentsTreeWidget::layers_reordered, this,
+         &SdfEditorWindow::sync_layers_from_tree);
   primitives_layout->addWidget(contents_tree_, /*stretch=*/1);
 
   auto *remove_button = new QPushButton("Remove Selected");
@@ -1053,8 +1297,74 @@ SdfEditorWindow::SdfEditorWindow() {
 
   volumetrics_root_layout->addLayout(volumetric_right_panel, /*stretch=*/2);
 
+  // --- Materials tab ---------------------------------------------------
+  //
+  // The scene's material library, as a thing you can look at. Before this
+  // existed there was nothing to look at: a material was a filename
+  // derived from the primitive panel's colour swatch, so the only way to
+  // see what materials a scene had was to list a folder, and the only way
+  // to change one everywhere was to select every primitive using it and
+  // retype the values.
+  auto *materials_tab = new QWidget();
+  auto *materials_layout = new QVBoxLayout(materials_tab);
+
+  materials_layout->addWidget(new QLabel("Scene Materials"));
+  materials_list_ = new QListWidget();
+  materials_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  materials_list_->setToolTip(
+      "Every material this scene defines, with how many primitives use "
+      "each. Editing a material changes every primitive that references "
+      "it.");
+  connect(materials_list_, &QListWidget::currentItemChanged, this,
+         &SdfEditorWindow::on_materials_list_selection_changed);
+  materials_layout->addWidget(materials_list_, /*stretch=*/1);
+
+  auto *material_buttons = new QHBoxLayout();
+  auto *rename_material_button = new QPushButton("Rename");
+  rename_material_button->setToolTip(
+      "Renaming is free: a material is referenced by a stable id, not by "
+      "its name.");
+  connect(rename_material_button, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_rename_material_clicked);
+  material_buttons->addWidget(rename_material_button);
+
+  auto *duplicate_material_button = new QPushButton("Duplicate");
+  duplicate_material_button->setToolTip(
+      "A copy with the same values and a new identity -- the explicit way "
+      "to branch a look, as opposed to editing a shared material and "
+      "hoping only one primitive changes.");
+  connect(duplicate_material_button, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_duplicate_material_clicked);
+  material_buttons->addWidget(duplicate_material_button);
+
+  auto *delete_material_button = new QPushButton("Delete");
+  delete_material_button->setToolTip(
+      "Only allowed once nothing references it -- a primitive can never be "
+      "left pointing at a material that is gone.");
+  connect(delete_material_button, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_delete_material_clicked);
+  material_buttons->addWidget(delete_material_button);
+  materials_layout->addLayout(material_buttons);
+
+  auto *assign_material_button =
+      new QPushButton("Assign to Selected Primitives");
+  assign_material_button->setToolTip(
+      "Points every primitive selected in the contents tree at this "
+      "material.");
+  connect(assign_material_button, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_assign_material_clicked);
+  materials_layout->addWidget(assign_material_button);
+
+  material_usage_label_ = new QLabel();
+  material_usage_label_->setWordWrap(true);
+  materials_layout->addWidget(material_usage_label_);
+
   auto *tabs = new QTabWidget();
+  tabs_ = tabs;
   tabs->addTab(primitives_tab, "Primitives");
+  // Remembered because it decides where a property edit LANDS -- see
+  // on_live_edit_changed().
+  materials_tab_index_ = tabs->addTab(materials_tab, "Materials");
   tabs->addTab(lights_tab, "Lights");
   tabs->addTab(volumetrics_tab, "Volumetrics");
   right_panel->addWidget(tabs, /*stretch=*/1);
@@ -1069,6 +1379,35 @@ SdfEditorWindow::SdfEditorWindow() {
          this, &SdfEditorWindow::on_ambient_changed);
   ambient_row->addWidget(ambient_spin_);
   right_panel->addLayout(ambient_row);
+
+  // Scene-wide, so it sits out here beside Ambient rather than on any of
+  // the tabs -- a skybox belongs to the scene, not to a primitive or a
+  // light. Same Choose.../Clear/label shape the per-primitive texture
+  // pickers use, and the same import behaviour (see
+  // on_pick_skybox_clicked()).
+  auto *skybox_row = new QHBoxLayout();
+  skybox_row->addWidget(new QLabel("Skybox:"));
+  skybox_button_ = new QPushButton("Choose...");
+  skybox_clear_button_ = new QPushButton("Clear");
+  skybox_label_ = new QLabel("(none)");
+  const QString skybox_tooltip =
+      "An equirectangular (lat/long) image drawn infinitely far behind the "
+      "scene, and reflected off glossy surfaces at grazing angles -- not a "
+      "six-face cubemap.\n"
+      "Any image works, but one that is not 2:1 (twice as wide as it is "
+      "tall) will look stretched: the width is wrapped once around the "
+      "horizon and the height spans pole to pole.\n"
+      "Cleared, the background falls back to the flat blue-black gradient.";
+  skybox_button_->setToolTip(skybox_tooltip);
+  skybox_clear_button_->setToolTip(skybox_tooltip);
+  connect(skybox_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_pick_skybox_clicked);
+  connect(skybox_clear_button_, &QPushButton::clicked, this,
+         &SdfEditorWindow::on_clear_skybox_clicked);
+  skybox_row->addWidget(skybox_button_);
+  skybox_row->addWidget(skybox_clear_button_);
+  skybox_row->addWidget(skybox_label_, /*stretch=*/1);
+  right_panel->addLayout(skybox_row);
 
   auto *file_row = new QHBoxLayout();
   auto *load_button = new QPushButton("Load Scene...");
@@ -1148,6 +1487,18 @@ void SdfEditorWindow::update_field_enablement() {
   bool is_rotational = repetition_mode == SdfRepetitionMode::Rotational;
   bool is_rectangular = repetition_mode == SdfRepetitionMode::Rectangular;
 
+  // Transmission fields stay VISIBLE but greyed when the material is
+  // opaque -- same convention pos_*_/rot_*_ use for a Plane, so the panel
+  // never changes shape as you toggle things.
+  const bool transmissive =
+      transmissive_check_ != nullptr && transmissive_check_->isChecked();
+  if (ior_spin_) {
+    ior_spin_->setEnabled(transmissive);
+    absorption_colour_button_->setEnabled(transmissive);
+    absorption_thickness_spin_->setEnabled(transmissive);
+    thin_walled_check_->setEnabled(transmissive);
+  }
+
   repeat_cell_x_->setEnabled(cell_relevant);
   repeat_cell_y_->setEnabled(cell_relevant && !is_rectangular); // Rectangular locks Y
   repeat_cell_z_->setEnabled(cell_relevant);
@@ -1156,115 +1507,399 @@ void SdfEditorWindow::update_field_enablement() {
   repeat_count_z_->setEnabled(count_relevant && !is_rotational);
 }
 
-std::string SdfEditorWindow::ensure_material() const {
-  // Scale folded into the name as centi-units (0.6 -> "ts060") -- it has
-  // to participate in the deterministic name for the same reason the
-  // colour does: GeometrySystem/MaterialSystem cache materials by name, so
-  // two primitives differing *only* in texture scale would otherwise
-  // collide on one cached entry and silently share whichever scale was
-  // written first.
-  int scale_centi =
-      static_cast<int>(std::lround(texture_scale_spin_->value() * 100.0));
-  double emissive_intensity = emissive_intensity_spin_->value();
-  // Same reasoning as scale_centi above, but only appended when actually
-  // emissive -- keeps every pre-existing (non-emissive) material's name
-  // unchanged, so this feature can't retroactively fragment materials
-  // authored before it existed.
-  char emissive_suffix[48] = "";
-  if (emissive_intensity > 0.0) {
-    int intensity_centi = static_cast<int>(std::lround(emissive_intensity * 100.0));
-    std::snprintf(emissive_suffix, sizeof(emissive_suffix), "_em%04d%02x%02x%02x",
-                 intensity_centi, emissive_colour_.red(),
-                 emissive_colour_.green(), emissive_colour_.blue());
-  }
-  bool pixelation_exempt = pixelation_exempt_check_->isChecked();
-  const char *pixelation_suffix = pixelation_exempt ? "_px" : "";
+MaterialDef SdfEditorWindow::material_def_from_fields() const {
+  MaterialDef def;
+  def.base_colour = glm::vec4(
+      static_cast<f32>(colour_.redF()), static_cast<f32>(colour_.greenF()),
+      static_cast<f32>(colour_.blueF()), static_cast<f32>(colour_.alphaF()));
+  def.base_map = texture_name_;
+  def.uv_scale = static_cast<f32>(texture_scale_spin_->value());
+  def.uv_offset = glm::vec3(static_cast<f32>(texture_offset_x_->value()),
+                           static_cast<f32>(texture_offset_y_->value()),
+                           static_cast<f32>(texture_offset_z_->value()));
+  // The spin box is in degrees because that is what an author wants to
+  // type; MaterialDef stores radians because that is what the shader
+  // wants. This is the only place that conversion happens in either
+  // direction (see populate_fields_from_material() for the inverse).
+  def.uv_rotation =
+      glm::radians(static_cast<f32>(texture_rotation_spin_->value()));
+  def.bump_map = bump_map_name_;
+  def.bump_strength = static_cast<f32>(bump_strength_spin_->value());
+  def.emissive_colour = glm::vec3(
+      static_cast<f32>(emissive_colour_.redF()),
+      static_cast<f32>(emissive_colour_.greenF()),
+      static_cast<f32>(emissive_colour_.blueF()));
+  def.emissive_intensity =
+      static_cast<f32>(emissive_intensity_spin_->value());
+  def.casts_shadow = casts_shadow_check_->isChecked();
+  def.pixelation_exempt = pixelation_exempt_check_->isChecked();
+  def.roughness = static_cast<f32>(roughness_spin_->value());
+  // 0 is the "opaque" sentinel; the spin box never produces it, so the
+  // checkbox is the only thing that can.
+  def.ior = transmissive_check_->isChecked()
+                ? static_cast<f32>(ior_spin_->value())
+                : 0.0f;
+  def.absorption_tint = glm::vec3(
+      static_cast<f32>(absorption_colour_.redF()),
+      static_cast<f32>(absorption_colour_.greenF()),
+      static_cast<f32>(absorption_colour_.blueF()));
+  def.absorption_ref_thickness =
+      static_cast<f32>(absorption_thickness_spin_->value());
+  def.thin_walled = thin_walled_check_->isChecked();
+  return def;
+}
 
-  // Same reasoning as emissive_suffix above -- only appended when actually
-  // non-default, so a primitive that never touches offset/rotation keeps
-  // exactly the material name it always would have.
-  glm::vec3 offset(texture_offset_x_->value(), texture_offset_y_->value(),
-                   texture_offset_z_->value());
-  double rotation_degrees = texture_rotation_spin_->value();
-  char tex_transform_suffix[64] = "";
-  if (offset != glm::vec3(0.0f) || rotation_degrees != 0.0) {
-    std::snprintf(tex_transform_suffix, sizeof(tex_transform_suffix),
-                 "_to%+04d%+04d%+04d_tr%+05d",
-                 static_cast<int>(std::lround(offset.x * 100.0)),
-                 static_cast<int>(std::lround(offset.y * 100.0)),
-                 static_cast<int>(std::lround(offset.z * 100.0)),
-                 static_cast<int>(std::lround(rotation_degrees * 100.0)));
+void SdfEditorWindow::populate_fields_from_material(const MaterialDef &def) {
+  colour_ = QColor::fromRgbF(def.base_colour.r, def.base_colour.g,
+                             def.base_colour.b, def.base_colour.a);
+  colour_button_->setStyleSheet(
+      QString("background-color: %1;").arg(colour_.name()));
+
+  texture_name_ = def.base_map;
+  texture_label_->setText(texture_name_.empty()
+                              ? QStringLiteral("(none)")
+                              : QString::fromStdString(texture_name_));
+  bump_map_name_ = def.bump_map;
+  bump_map_label_->setText(bump_map_name_.empty()
+                               ? QStringLiteral("(none)")
+                               : QString::fromStdString(bump_map_name_));
+
+  texture_scale_spin_->setValue(def.uv_scale);
+  texture_offset_x_->setValue(def.uv_offset.x);
+  texture_offset_y_->setValue(def.uv_offset.y);
+  texture_offset_z_->setValue(def.uv_offset.z);
+  texture_rotation_spin_->setValue(glm::degrees(def.uv_rotation));
+
+  emissive_colour_ = QColor::fromRgbF(def.emissive_colour.r,
+                                      def.emissive_colour.g,
+                                      def.emissive_colour.b);
+  emissive_colour_button_->setStyleSheet(
+      QString("background-color: %1;").arg(emissive_colour_.name()));
+  emissive_intensity_spin_->setValue(def.emissive_intensity);
+
+  bump_strength_spin_->setValue(def.bump_strength);
+  pixelation_exempt_check_->setChecked(def.pixelation_exempt);
+  casts_shadow_check_->setChecked(def.casts_shadow);
+
+  roughness_spin_->setValue(def.roughness);
+  transmissive_check_->setChecked(def.ior > 0.0f);
+  // A def carrying an out-of-band IOR (a hand-edited scene, or one written
+  // before the range was tightened) shows the nearest sane value rather
+  // than putting the spin box somewhere it cannot represent.
+  ior_spin_->setValue(def.ior >= 1.0f ? def.ior : 1.5f);
+  absorption_colour_ = QColor::fromRgbF(def.absorption_tint.r,
+                                        def.absorption_tint.g,
+                                        def.absorption_tint.b);
+  absorption_colour_button_->setStyleSheet(
+      QString("background-color: %1;").arg(absorption_colour_.name()));
+  absorption_thickness_spin_->setValue(def.absorption_ref_thickness);
+  thin_walled_check_->setChecked(def.thin_walled);
+}
+
+void SdfEditorWindow::on_pick_absorption_colour_clicked() {
+  ScopedRenderPause pause(viewport_);
+  QColor picked = QColorDialog::getColor(absorption_colour_, this,
+                                        "Absorption Tint");
+  if (!picked.isValid()) {
+    return;
+  }
+  absorption_colour_ = picked;
+  absorption_colour_button_->setStyleSheet(
+      QString("background-color: %1;").arg(absorption_colour_.name()));
+  on_live_edit_changed();
+}
+
+MaterialId SdfEditorWindow::ensure_material_binding(MaterialId existing_id) {
+  const MaterialDef fields = material_def_from_fields();
+
+  // Editing IN PLACE is the default, and it is the entire point of the
+  // library. If this primitive already references a material, and that
+  // material is not shared with anything else, the author's edit means
+  // "change this material" -- so change it, keeping the id, and every
+  // reference to it (there is one) follows automatically.
+  //
+  // If it IS shared, the same edit means "make this one different", and
+  // forking is the correct answer -- but only then, and only for this
+  // primitive. That is the distinction the old filename scheme could not
+  // draw, which is why it forked on every keystroke and accumulated 949
+  // files.
+  if (MaterialDef *existing = sdf_scene_find_material(scene_, existing_id)) {
+    if (material_use_count(existing_id) <= 1) {
+      const std::string previous_name = existing->display_name;
+      const MaterialId previous_id = existing->id;
+      MaterialDef updated = fields;
+      updated.id = previous_id;
+      updated.display_name = previous_name;
+      // Preserve anything this build cannot interpret, exactly as the
+      // reader/writer do.
+      updated.unknown_keys = existing->unknown_keys;
+      *existing = std::move(updated);
+      refresh_material_list();
+      return previous_id;
+    }
   }
 
-  // Same reasoning as tex_transform_suffix above -- only appended when a
-  // bump map is actually set, so a primitive that never touches it keeps
-  // exactly the material name it always would have.
-  char bump_suffix[160] = "";
-  if (!bump_map_name_.empty()) {
-    std::snprintf(bump_suffix, sizeof(bump_suffix), "_bump_%s",
-                 bump_map_name_.c_str());
+  return find_or_create_material(fields);
+}
+
+MaterialId SdfEditorWindow::find_or_create_material(const MaterialDef &values) {
+  // Reuse by CONTENT, so picking a colour a material already in the scene
+  // uses lands on that material rather than making a near-duplicate.
+  const std::string key = material_def_content_key(values);
+  for (const MaterialDef &existing : scene_.materials) {
+    if (material_def_content_key(existing) == key) {
+      return existing.id;
+    }
   }
 
-  char name_buf[384];
-  if (texture_name_.empty()) {
-    std::snprintf(name_buf, sizeof(name_buf),
-                 "qt_colour_%02x%02x%02x%02x_ts%03d%s%s%s%s", colour_.red(),
-                 colour_.green(), colour_.blue(), colour_.alpha(),
-                 scale_centi, emissive_suffix, pixelation_suffix,
-                 tex_transform_suffix, bump_suffix);
-  } else {
-    std::snprintf(name_buf, sizeof(name_buf),
-                 "qt_colour_%02x%02x%02x%02x_ts%03d%s%s%s%s_%s", colour_.red(),
-                 colour_.green(), colour_.blue(), colour_.alpha(),
-                 scale_centi, emissive_suffix, pixelation_suffix,
-                 tex_transform_suffix, bump_suffix, texture_name_.c_str());
-  }
-  std::string name = name_buf;
+  MaterialDef created = values;
+  created.id = material_id_generate();
+  created.display_name = unique_material_name(material_def_suggest_name(values));
+  const MaterialId id = created.id;
+  scene_.materials.push_back(std::move(created));
+  refresh_material_list();
+  return id;
+}
 
-  // Deterministic from the colour's RGBA, texture scale/offset/rotation,
-  // emissive colour/intensity, pixelation-exempt flag, texture name, and
-  // bump map name, so picking the same combination again later just reuses
-  // this file instead of accumulating duplicates.
-  std::ofstream file("assets/materials/" + name + ".kmt");
-  if (file.is_open()) {
-    file << "#material file\n\n";
-    file << "version=0.1\n";
-    file << "name=" << name << "\n";
-    file << "diffuse_colour=" << colour_.redF() << " " << colour_.greenF()
-        << " " << colour_.blueF() << " " << colour_.alphaF() << "\n";
-    file << "texture_scale=" << texture_scale_spin_->value() << "\n";
-    if (offset != glm::vec3(0.0f)) {
-      file << "texture_offset=" << offset.x << " " << offset.y << " "
-          << offset.z << "\n";
-    }
-    if (rotation_degrees != 0.0) {
-      file << "texture_rotation=" << glm::radians(rotation_degrees) << "\n";
-    }
-    if (emissive_intensity > 0.0) {
-      file << "emissive_colour=" << emissive_colour_.redF() << " "
-          << emissive_colour_.greenF() << " " << emissive_colour_.blueF()
-          << "\n";
-      file << "emissive_intensity=" << emissive_intensity << "\n";
-    }
-    // Otherwise no emissive_intensity line -- MaterialSystem's default (0)
-    // means "not emissive", same convention every other optional field
-    // here uses.
-    if (pixelation_exempt) {
-      file << "pixelation_exempt=true\n";
-    }
-    if (!texture_name_.empty()) {
-      file << "diffuse_map_name=" << texture_name_ << "\n";
-    }
-    // Otherwise no diffuse_map_name -- MaterialSystem falls back to the
-    // default (checkerboard) texture, tinted by diffuse_colour above, same
-    // convention assets/materials/default_text_material.kmt already uses.
-    if (!bump_map_name_.empty()) {
-      file << "bump_map_name=" << bump_map_name_ << "\n";
-    }
-    // Otherwise no bump_map_name -- MaterialSystem falls back to
-    // TextureSystem::flat_texture(), i.e. no bump mapping at all.
+u32 SdfEditorWindow::material_use_count(MaterialId id) const {
+  if (id == kInvalidMaterialId) {
+    return 0;
   }
-  return name;
+  u32 count = 0;
+  for (const SdfLayerDef &layer : scene_.layers) {
+    for (const SdfPrimitiveDef &primitive : layer.primitives) {
+      if (primitive.material_id == id) {
+        ++count;
+      }
+    }
+  }
+  for (const SdfVolumetricDef &volumetric : scene_.volumetrics) {
+    if (volumetric.material_id == id) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+std::string SdfEditorWindow::unique_material_name(std::string desired) const {
+  // Display names are labels, not keys -- nothing breaks if two materials
+  // share one. They are still disambiguated because a list with three
+  // entries called "white" is not a usable list.
+  auto taken = [this](const std::string &candidate) {
+    for (const MaterialDef &material : scene_.materials) {
+      if (material.display_name == candidate) {
+        return true;
+      }
+    }
+    return false;
+  };
+  if (!taken(desired)) {
+    return desired;
+  }
+  for (int suffix = 2;; ++suffix) {
+    std::string candidate = desired + " " + std::to_string(suffix);
+    if (!taken(candidate)) {
+      return candidate;
+    }
+  }
+}
+
+void SdfEditorWindow::refresh_material_list() {
+  if (!materials_list_) {
+    return;
+  }
+  const MaterialId previous = selected_material_id();
+
+  QSignalBlocker blocker(materials_list_);
+  materials_list_->clear();
+  int restore_row = -1;
+  for (const MaterialDef &material : scene_.materials) {
+    const u32 uses = material_use_count(material.id);
+    auto *item = new QListWidgetItem(
+        QString("%1  (%2)")
+            .arg(QString::fromStdString(material.display_name))
+            .arg(uses));
+    // A swatch, so the list reads as materials rather than as strings.
+    item->setData(Qt::DecorationRole,
+                  QColor::fromRgbF(material.base_colour.r,
+                                   material.base_colour.g,
+                                   material.base_colour.b));
+    // The id, not the row: rows shift as materials are added and removed,
+    // ids do not.
+    item->setData(Qt::UserRole,
+                  QString::fromStdString(material_id_to_string(material.id)));
+    if (material.id == previous) {
+      restore_row = materials_list_->count();
+    }
+    materials_list_->addItem(item);
+  }
+  if (restore_row >= 0) {
+    materials_list_->setCurrentRow(restore_row);
+  }
+  update_material_usage_label();
+}
+
+MaterialId SdfEditorWindow::selected_material_id() const {
+  if (!materials_list_) {
+    return kInvalidMaterialId;
+  }
+  QListWidgetItem *item = materials_list_->currentItem();
+  if (!item) {
+    return kInvalidMaterialId;
+  }
+  MaterialId id = kInvalidMaterialId;
+  material_id_from_string(item->data(Qt::UserRole).toString().toStdString(), id);
+  return id;
+}
+
+void SdfEditorWindow::update_material_usage_label() {
+  if (!material_usage_label_) {
+    return;
+  }
+  const MaterialId id = selected_material_id();
+  const MaterialDef *material = sdf_scene_find_material(scene_, id);
+  if (!material) {
+    material_usage_label_->setText(QString());
+    return;
+  }
+  const u32 uses = material_use_count(id);
+  material_usage_label_->setText(
+      QString("id %1 -- used by %2 primitive%3.")
+          .arg(QString::fromStdString(material_id_to_string(id)))
+          .arg(uses)
+          .arg(uses == 1 ? "" : "s"));
+}
+
+void SdfEditorWindow::on_materials_list_selection_changed() {
+  update_material_usage_label();
+  // Selecting a material loads it into the Primitives tab's property
+  // widgets, so the one property panel serves both "edit this primitive's
+  // material" and "edit this material". Nothing is written back until a
+  // widget actually changes.
+  const MaterialDef *material =
+      sdf_scene_find_material(scene_, selected_material_id());
+  if (!material) {
+    return;
+  }
+  populating_fields_ = true;
+  populate_fields_from_material(*material);
+  populating_fields_ = false;
+}
+
+void SdfEditorWindow::apply_fields_to_selected_material() {
+  MaterialDef *material = sdf_scene_find_material(scene_, selected_material_id());
+  if (!material) {
+    return;
+  }
+  // Values are replaced wholesale; identity is not. Keeping the id is the
+  // entire mechanism -- every primitive already references it, so they all
+  // pick the change up with no re-binding at all, and because the id did
+  // not change, reconcile_scene() sees an ordinary value edit rather than
+  // a destructive material swap.
+  MaterialDef updated = material_def_from_fields();
+  updated.id = material->id;
+  updated.display_name = material->display_name;
+  updated.unknown_keys = material->unknown_keys;
+  *material = std::move(updated);
+
+  refresh_material_list();
+  request_viewport_resync();
+}
+
+void SdfEditorWindow::on_rename_material_clicked() {
+  MaterialDef *material = sdf_scene_find_material(scene_, selected_material_id());
+  if (!material) {
+    return;
+  }
+  bool accepted = false;
+  const QString name = QInputDialog::getText(
+      this, "Rename Material", "Name:", QLineEdit::Normal,
+      QString::fromStdString(material->display_name), &accepted);
+  if (!accepted || name.trimmed().isEmpty()) {
+    return;
+  }
+  // A rename touches nothing but the label -- no primitive is re-bound, no
+  // material is re-resolved, and the renderer is not even told, because
+  // the resolved content of every binding is unchanged.
+  material->display_name = unique_material_name(name.trimmed().toStdString());
+  refresh_material_list();
+}
+
+void SdfEditorWindow::on_duplicate_material_clicked() {
+  const MaterialDef *source =
+      sdf_scene_find_material(scene_, selected_material_id());
+  if (!source) {
+    return;
+  }
+  MaterialDef copy = *source;
+  copy.id = material_id_generate();
+  copy.display_name = unique_material_name(source->display_name);
+  scene_.materials.push_back(std::move(copy));
+  refresh_material_list();
+}
+
+void SdfEditorWindow::on_delete_material_clicked() {
+  const MaterialId id = selected_material_id();
+  const MaterialDef *material = sdf_scene_find_material(scene_, id);
+  if (!material) {
+    return;
+  }
+  const u32 uses = material_use_count(id);
+  if (uses > 0) {
+    // Refused rather than cascaded: the old scheme could not produce a
+    // dangling reference (primitives pointed at files, which always
+    // existed), so this failure mode is new and worth being explicit
+    // about instead of silently reassigning someone's geometry.
+    QMessageBox::information(
+        this, "Material In Use",
+        QString("'%1' is used by %2 primitive%3. Assign them to another "
+                "material first.")
+            .arg(QString::fromStdString(material->display_name))
+            .arg(uses)
+            .arg(uses == 1 ? "" : "s"));
+    return;
+  }
+  scene_.materials.erase(scene_.materials.begin() +
+                         (material - scene_.materials.data()));
+  refresh_material_list();
+}
+
+void SdfEditorWindow::on_assign_material_clicked() {
+  const MaterialId id = selected_material_id();
+  if (sdf_scene_find_material(scene_, id) == nullptr) {
+    return;
+  }
+  const std::vector<PrimitiveRef> selection = tree_selected_primitives();
+  if (selection.empty()) {
+    return;
+  }
+  bool changed = false;
+  for (const PrimitiveRef &ref : selection) {
+    if (ref.layer_index < 0 ||
+        ref.layer_index >= static_cast<int>(scene_.layers.size())) {
+      continue;
+    }
+    SdfLayerDef &layer = scene_.layers[ref.layer_index];
+    if (ref.primitive_index < 0 ||
+        ref.primitive_index >= static_cast<int>(layer.primitives.size())) {
+      continue;
+    }
+    SdfPrimitiveDef &primitive = layer.primitives[ref.primitive_index];
+    if (primitive.material_id == id) {
+      continue;
+    }
+    primitive.material_id = id;
+    // Assigning a library material also drops any per-primitive overrides:
+    // they were tweaks relative to a DIFFERENT material and would mean
+    // something else here.
+    primitive.material_overrides.clear();
+    primitive.material_name.clear();
+    changed = true;
+  }
+  if (changed) {
+    refresh_material_list();
+    sync_viewport_scene();
+  }
 }
 
 void SdfEditorWindow::on_add_clicked() {
@@ -1275,7 +1910,10 @@ void SdfEditorWindow::on_add_clicked() {
   SdfPrimitiveType type = static_cast<SdfPrimitiveType>(row);
   PrimitiveTypeSpec spec = type_spec_for(type);
 
-  std::string material_name = ensure_material();
+  // A brand-new primitive never edits an existing material in place --
+  // there is nothing yet bound to edit -- so this always resolves to
+  // "reuse the library material with these values, or add one".
+  const MaterialId material_id = find_or_create_material(material_def_from_fields());
 
   // If a layer is currently active (see active_layer_index_ -- set by
   // selecting one of its primitives, the layer row itself, or clicking New
@@ -1326,17 +1964,21 @@ void SdfEditorWindow::on_add_clicked() {
   SdfPrimitiveDef *added;
   if (type == SdfPrimitiveType::Sphere) {
     added = &add_sphere(layer, primitive_name, position, rotation, params.x,
-                       material_name);
+                       std::string{});
   } else if (type == SdfPrimitiveType::Box) {
     added = &add_box(layer, primitive_name, position, rotation, params,
-                    material_name);
+                    std::string{});
   } else if (type == SdfPrimitiveType::Plane) {
     added = &add_plane(layer, primitive_name, params.x,
-                      material_name); // params.x = height
+                      std::string{}); // params.x = height
   } else {
     added = &add_primitive(layer, primitive_name, type, position, rotation,
-                          params, extra_param, material_name);
+                          params, extra_param, std::string{});
   }
+
+  // The material binding is by id, not by the legacy .kmt name the add_*
+  // helpers still accept for code-driven scenes.
+  added->material_id = material_id;
 
   // "Parametric attribute" formulas -- only for slots this type actually
   // uses (see spec.param_labels above); an empty string means "no formula,
@@ -1401,6 +2043,9 @@ void SdfEditorWindow::on_remove_clicked() {
 
   refresh_contents_list();
   sync_viewport_scene();
+  // Use counts changed, and a material may have become unreferenced (and
+  // therefore deletable).
+  refresh_material_list();
   // Layer/primitive indices may have shifted (or no longer exist at all) --
   // any previous selection is potentially stale/wrong now.
   viewport_->set_selection({});
@@ -1756,10 +2401,12 @@ void SdfEditorWindow::on_load_clicked() {
   refresh_contents_list();
   refresh_lights_list();
   refresh_volumetrics_list();
+  refresh_material_list();
   {
     const QSignalBlocker blocker(ambient_spin_);
     ambient_spin_->setValue(scene_.ambient);
   }
+  apply_scene_skybox();
   // A whole new scene's worth of geometry: re-arm chunk cache pre-warming
   // so it is baked into the cache up front, exactly as it would be for the
   // session's FIRST scene. Needed explicitly because sync_viewport_scene()
@@ -1858,10 +2505,33 @@ void SdfEditorWindow::on_gizmo_drag_moved(GizmoTransformResult transform) {
     return;
   }
   const std::string name = renderer_primitive_name(transform.ref);
-  if (!name.empty()) {
-    renderer_set_primitive_transform(name, transform.position,
-                                     transform.rotation);
+  if (name.empty()) {
+    return;
   }
+  // The viewport speaks in AUTHORED (layer-local) values -- they go
+  // straight back onto the primitive on release. The renderer holds WORLD
+  // ones (Geometry::position/rotation, with the layer's transform already
+  // composed in -- see SdfLayerDef::position), so the conversion happens
+  // here, at the one place a transform crosses from one to the other.
+  //
+  // Reading the layer out of THIS window's scene copy is safe even though
+  // the viewport's copy is the one being dragged: a primitive drag never
+  // touches its layer's transform, so the two copies cannot disagree
+  // about it for the duration of the drag.
+  SdfTransform world{transform.position, transform.rotation};
+  if (transform.ref.layer_index >= 0 &&
+      transform.ref.layer_index < static_cast<int>(scene_.layers.size()) &&
+      transform.ref.primitive_index >= 0) {
+    const SdfLayerDef &layer = scene_.layers[transform.ref.layer_index];
+    const auto &primitives = layer.primitives;
+    if (transform.ref.primitive_index < static_cast<int>(primitives.size())) {
+      SdfPrimitiveDef dragged = primitives[transform.ref.primitive_index];
+      dragged.position = transform.position;
+      dragged.rotation = transform.rotation;
+      world = sdf_layer_world_transform(layer, dragged);
+    }
+  }
+  renderer_set_primitive_transform(name, world.position, world.rotation);
 }
 
 void SdfEditorWindow::on_gizmo_drag_ended() {
@@ -2024,11 +2694,13 @@ void SdfEditorWindow::on_contents_tree_selection_changed() {
 
   if (selection.size() == 1) {
     active_layer_index_ = selection.front().layer_index;
+    properties_stack_->setCurrentIndex(kPrimitivePropertiesPage);
     populate_fields_from_selection(selection.front().layer_index,
                                    selection.front().primitive_index);
     return;
   }
   if (!selection.empty()) {
+    properties_stack_->setCurrentIndex(kPrimitivePropertiesPage);
     bool same_layer = std::all_of(
         selection.begin(), selection.end(), [&](const PrimitiveRef &ref) {
           return ref.layer_index == selection.front().layer_index;
@@ -2042,9 +2714,129 @@ void SdfEditorWindow::on_contents_tree_selection_changed() {
   QList<QTreeWidgetItem *> selected_items = contents_tree_->selectedItems();
   if (selected_items.size() == 1 && !selected_items.front()->parent()) {
     active_layer_index_ = selected_items.front()->data(0, kLayerIndexRole).toInt();
+    // Exactly one layer row and nothing else: show that layer's own
+    // properties instead of the primitive fields (see properties_stack_).
+    properties_stack_->setCurrentIndex(kLayerPropertiesPage);
+    populate_layer_fields(active_layer_index_);
   } else {
     active_layer_index_ = -1;
+    properties_stack_->setCurrentIndex(kPrimitivePropertiesPage);
   }
+}
+
+void SdfEditorWindow::populate_layer_fields(int layer_index) {
+  if (layer_index < 0 || layer_index >= static_cast<int>(scene_.layers.size())) {
+    return;
+  }
+  const SdfLayerDef &layer = scene_.layers[layer_index];
+
+  // Same guard as populating_fields_ on the primitive page -- setValue()
+  // here would otherwise "edit" the layer straight back (see its comment).
+  populating_layer_fields_ = true;
+  layer_operation_combo_->setCurrentIndex(
+      layer.operation == SdfLayerOperation::Subtraction ? 1 : 0);
+  layer_smoothness_spin_->setValue(layer.smoothness);
+  layer_pos_x_->setValue(layer.position.x);
+  layer_pos_y_->setValue(layer.position.y);
+  layer_pos_z_->setValue(layer.position.z);
+  // Stored in radians, shown in degrees -- see populate_fields_from_
+  // selection()'s identical conversion for a primitive's own rotation.
+  const glm::vec3 layer_rotation_degrees = glm::degrees(layer.rotation);
+  layer_rot_x_->setValue(layer_rotation_degrees.x);
+  layer_rot_y_->setValue(layer_rotation_degrees.y);
+  layer_rot_z_->setValue(layer_rotation_degrees.z);
+  layer_repetition_combo_->setCurrentIndex(
+      static_cast<int>(layer.repetition_mode));
+  layer_repeat_cell_x_->setValue(layer.repetition_cell.x);
+  layer_repeat_cell_y_->setValue(layer.repetition_cell.y);
+  layer_repeat_cell_z_->setValue(layer.repetition_cell.z);
+  layer_repeat_count_x_->setValue(layer.repetition_count.x);
+  layer_repeat_count_y_->setValue(layer.repetition_count.y);
+  layer_repeat_count_z_->setValue(layer.repetition_count.z);
+  populating_layer_fields_ = false;
+
+  update_layer_field_enablement();
+}
+
+void SdfEditorWindow::update_layer_field_enablement() {
+  // Which cell/count components a mode actually reads -- exactly the rules
+  // the primitive page's own repetition fields follow (see
+  // update_field_enablement()), applied to the layer's copies.
+  auto mode = static_cast<SdfRepetitionMode>(
+      layer_repetition_combo_->currentIndex());
+  bool linear = mode == SdfRepetitionMode::Infinite ||
+                mode == SdfRepetitionMode::Limited;
+  bool rectangular = mode == SdfRepetitionMode::Rectangular;
+  bool rotational = mode == SdfRepetitionMode::Rotational;
+
+  layer_repeat_cell_x_->setEnabled(linear || rectangular);
+  layer_repeat_cell_y_->setEnabled(linear);
+  layer_repeat_cell_z_->setEnabled(linear || rectangular);
+  // Infinite never stops, so it has no count at all; Rotational's count is
+  // a single copy count, in X.
+  layer_repeat_count_x_->setEnabled(mode == SdfRepetitionMode::Limited ||
+                                    rectangular || rotational);
+  layer_repeat_count_y_->setEnabled(mode == SdfRepetitionMode::Limited);
+  layer_repeat_count_z_->setEnabled(mode == SdfRepetitionMode::Limited ||
+                                    rectangular);
+}
+
+void SdfEditorWindow::on_layer_repetition_mode_changed() {
+  update_layer_field_enablement(); // re-grey the cell/count fields for the
+                                   // newly chosen mode
+  on_layer_field_changed();
+}
+
+void SdfEditorWindow::on_layer_field_changed() {
+  if (populating_layer_fields_ || !contents_tree_) {
+    return; // see on_live_edit_changed()'s identical guard
+  }
+  if (active_layer_index_ < 0 ||
+      active_layer_index_ >= static_cast<int>(scene_.layers.size())) {
+    return;
+  }
+  // Only when a LAYER row is what's selected -- active_layer_index_ is also
+  // set for a primitive selection (it's where Add Primitive would go), and
+  // these fields say nothing about the layer then.
+  if (properties_stack_->currentIndex() != kLayerPropertiesPage) {
+    return;
+  }
+
+  SdfLayerDef &layer = scene_.layers[active_layer_index_];
+  layer.operation = layer_operation_combo_->currentIndex() == 1
+                        ? SdfLayerOperation::Subtraction
+                        : SdfLayerOperation::Union;
+  layer.smoothness = static_cast<f32>(layer_smoothness_spin_->value());
+  layer.position = glm::vec3(static_cast<f32>(layer_pos_x_->value()),
+                             static_cast<f32>(layer_pos_y_->value()),
+                             static_cast<f32>(layer_pos_z_->value()));
+  layer.rotation = glm::radians(
+      glm::vec3(static_cast<f32>(layer_rot_x_->value()),
+                static_cast<f32>(layer_rot_y_->value()),
+                static_cast<f32>(layer_rot_z_->value())));
+  layer.repetition_mode =
+      static_cast<SdfRepetitionMode>(layer_repetition_combo_->currentIndex());
+  layer.repetition_cell =
+      glm::vec3(static_cast<f32>(layer_repeat_cell_x_->value()),
+                static_cast<f32>(layer_repeat_cell_y_->value()),
+                static_cast<f32>(layer_repeat_cell_z_->value()));
+  layer.repetition_count =
+      glm::vec3(static_cast<f32>(layer_repeat_count_x_->value()),
+                static_cast<f32>(layer_repeat_count_y_->value()),
+                static_cast<f32>(layer_repeat_count_z_->value()));
+
+  // Relabel the row in place rather than calling refresh_contents_list():
+  // rebuilding the tree clears its selection, which would drop this page
+  // (and the field being edited) out from under the user mid-edit.
+  for (int i = 0; i < contents_tree_->topLevelItemCount(); ++i) {
+    QTreeWidgetItem *item = contents_tree_->topLevelItem(i);
+    if (item->data(0, kLayerIndexRole).toInt() == active_layer_index_) {
+      item->setText(0, layer_item_text(layer));
+      break;
+    }
+  }
+
+  request_viewport_resync();
 }
 
 void SdfEditorWindow::on_primitives_reparented() { sync_layers_from_tree(); }
@@ -2071,12 +2863,18 @@ void SdfEditorWindow::sync_layers_from_tree() {
       continue; // shouldn't happen -- refresh_contents_list() always
                 // stamps a valid index
     }
-    // Layer identity (name/operation/smoothness) is untouched by a
-    // primitive drag -- only its primitives[] is being rebuilt here.
-    SdfLayerDef new_layer;
-    new_layer.name = scene_.layers[old_layer_index].name;
-    new_layer.operation = scene_.layers[old_layer_index].operation;
-    new_layer.smoothness = scene_.layers[old_layer_index].smoothness;
+    // A primitive drag changes NOTHING about a layer except which
+    // primitives it holds, so the layer is copied whole and only its
+    // primitives[] rebuilt. Deliberately a copy rather than a field-by-
+    // field rebuild: listing the fields to carry over means every property
+    // a layer gains afterwards is silently reset by any tree drag until
+    // someone remembers to add a line here -- which is exactly what
+    // happened to the layer's repetition (mode/cell/count), wiped
+    // scene-wide by a single drag-and-drop reparent.
+    SdfLayerDef new_layer = scene_.layers[old_layer_index];
+    // The primitives were moved out into primitives_by_name above, so what
+    // the copy carries are husks; the real ones are pushed back below.
+    new_layer.primitives.clear();
 
     for (int j = 0; j < layer_item->childCount(); ++j) {
       QTreeWidgetItem *primitive_item = layer_item->child(j);
@@ -2148,31 +2946,14 @@ void SdfEditorWindow::populate_fields_from_selection(int layer_index,
 
   twist_spin_->setValue(primitive.twist);
   bend_spin_->setValue(primitive.bend);
+  bend_axis_combo_->setCurrentIndex(static_cast<int>(primitive.bend_axis));
   displace_amplitude_spin_->setValue(primitive.displace_amplitude);
   displace_frequency_spin_->setValue(primitive.displace_frequency);
 
-  ParsedMaterial material = parse_material_file(primitive.material_name);
-  colour_ = material.colour;
-  texture_name_ = material.texture_name;
-  colour_button_->setStyleSheet(
-      QString("background-color: %1;").arg(colour_.name()));
-  texture_label_->setText(texture_name_.empty()
-                              ? QStringLiteral("(none)")
-                              : QString::fromStdString(texture_name_));
-  bump_map_name_ = material.bump_map_name;
-  bump_map_label_->setText(bump_map_name_.empty()
-                               ? QStringLiteral("(none)")
-                               : QString::fromStdString(bump_map_name_));
-  texture_scale_spin_->setValue(material.texture_scale);
-  texture_offset_x_->setValue(material.texture_offset.x);
-  texture_offset_y_->setValue(material.texture_offset.y);
-  texture_offset_z_->setValue(material.texture_offset.z);
-  texture_rotation_spin_->setValue(glm::degrees(material.texture_rotation));
-  emissive_colour_ = material.emissive_colour;
-  emissive_colour_button_->setStyleSheet(
-      QString("background-color: %1;").arg(emissive_colour_.name()));
-  emissive_intensity_spin_->setValue(material.emissive_intensity);
-  pixelation_exempt_check_->setChecked(material.pixelation_exempt);
+  // Resolved through the scene's material library, with this primitive's
+  // own overrides folded in -- the same function the renderer resolves
+  // through, so the panel cannot disagree with what is on screen.
+  populate_fields_from_material(sdf_scene_resolve_material(scene_, primitive));
 
   populating_fields_ = false;
 
@@ -2224,10 +3005,16 @@ void SdfEditorWindow::apply_fields_to_primitive(int layer_index, int primitive_i
 
   primitive.twist = static_cast<f32>(twist_spin_->value());
   primitive.bend = static_cast<f32>(bend_spin_->value());
+  primitive.bend_axis =
+      static_cast<SdfBendAxis>(bend_axis_combo_->currentIndex());
   primitive.displace_amplitude = static_cast<f32>(displace_amplitude_spin_->value());
   primitive.displace_frequency = static_cast<f32>(displace_frequency_spin_->value());
 
-  primitive.material_name = ensure_material();
+  // Edits the bound material in place when this primitive is its only
+  // user, and forks only when it is shared -- see
+  // ensure_material_binding().
+  primitive.material_id = ensure_material_binding(primitive.material_id);
+  primitive.material_name.clear();
 }
 
 void SdfEditorWindow::on_live_edit_changed() {
@@ -2235,6 +3022,16 @@ void SdfEditorWindow::on_live_edit_changed() {
     // !contents_tree_: a field's valueChanged can fire from the
     // constructor itself (setting an initial default after the signal is
     // already connected), before contents_tree_ exists yet.
+    return;
+  }
+  // The property widgets are shared between "edit this primitive's
+  // material" and "edit this material", and the open tab is what says
+  // which. With the Materials tab open the edit lands on the selected
+  // library material itself, so every primitive referencing it follows --
+  // the thing the old filename scheme made impossible at any price.
+  if (tabs_ && materials_tab_index_ >= 0 &&
+      tabs_->currentIndex() == materials_tab_index_) {
+    apply_fields_to_selected_material();
     return;
   }
   // Only meaningful for exactly one selected primitive -- these fields
@@ -2418,6 +3215,77 @@ void SdfEditorWindow::on_ambient_changed() {
   request_viewport_resync();
 }
 
+void SdfEditorWindow::on_pick_skybox_clicked() {
+  ScopedRenderPause pause(viewport_);
+  QString path = QFileDialog::getOpenFileName(
+      this, "Select Skybox Image", "assets/textures/",
+      "Images (*.png *.jpg *.jpeg *.bmp *.tga)");
+  if (path.isEmpty()) {
+    return;
+  }
+
+  QImage image(path);
+  if (image.isNull()) {
+    QMessageBox::warning(this, "Skybox Load Failed",
+                         "Could not read image: " + path);
+    return;
+  }
+
+  QDir().mkpath("assets/textures");
+  std::string base = sanitize_texture_name(
+      QFileInfo(path).completeBaseName().toStdString());
+  std::string dest = "assets/textures/" + base + ".png";
+  // Imported through QImage exactly the way a primitive's diffuse map is
+  // (see on_pick_texture_clicked()) -- TextureSystem only ever opens
+  // "assets/textures/<name>.png", so a source in any other format, or from
+  // anywhere else on disk, has to land there as an actual .png first.
+  //
+  // Re-picking an image already in assets/textures/ rewrites it with a
+  // pixel-identical copy of itself, which is harmless.
+  if (!image.save(QString::fromStdString(dest), "PNG")) {
+    QMessageBox::warning(this, "Skybox Copy Failed",
+                         "Could not write " + QString::fromStdString(dest));
+    return;
+  }
+
+  scene_.skybox = base;
+  skybox_label_->setText(QString::fromStdString(scene_.skybox));
+  // Written into the scene and pushed by the ordinary sync, which reaches
+  // the renderer through VulkanRendererBackend::reconcile_scene()'s own
+  // SdfScene::skybox handling -- no direct renderer call needed for this
+  // direction. Immediate rather than debounced: choosing a backdrop is a
+  // deliberate, one-off act, not a spinbox being dragged.
+  sync_viewport_scene();
+}
+
+void SdfEditorWindow::on_clear_skybox_clicked() {
+  if (scene_.skybox.empty()) {
+    return;
+  }
+  scene_.skybox.clear();
+  skybox_label_->setText("(none)");
+  // The one direction the scene file cannot express. An empty
+  // SdfScene::skybox means "unspecified" and is deliberately ignored on
+  // load (see its comment), so a sync alone would leave the old sky on
+  // screen until the next restart -- the renderer has to be told directly.
+  renderer_disable_sky_box();
+  sync_viewport_scene();
+}
+
+void SdfEditorWindow::apply_scene_skybox() {
+  skybox_label_->setText(scene_.skybox.empty()
+                             ? QString("(none)")
+                             : QString::fromStdString(scene_.skybox));
+  if (scene_.skybox.empty()) {
+    // Same asymmetry on_clear_skybox_clicked() explains: opening a scene
+    // that names no skybox must actually clear whatever the previously
+    // open scene left on screen, and only a direct call can say that.
+    renderer_disable_sky_box();
+  } else {
+    renderer_enable_sky_box(scene_.skybox);
+  }
+}
+
 void SdfEditorWindow::refresh_lights_list() {
   lights_list_->clear();
   for (int i = 0; i < static_cast<int>(scene_.lights.size()); ++i) {
@@ -2432,16 +3300,66 @@ void SdfEditorWindow::refresh_lights_list() {
   }
 }
 
+QString SdfEditorWindow::layer_item_text(const SdfLayerDef &layer) {
+  const char *op_label =
+      layer.operation == SdfLayerOperation::Subtraction ? "Subtract" : "Union";
+  QString text = QString("%1 [%2, smoothness %3]")
+                     .arg(QString::fromStdString(layer.name))
+                     .arg(op_label)
+                     .arg(layer.smoothness, 0, 'f', 2);
+  // A repeated layer looks identical to an unrepeated one in this tree
+  // otherwise -- it holds exactly the same primitives -- so the mode (and,
+  // where it has one, the copy count) is worth the few characters.
+  if (layer.repetition_mode != SdfRepetitionMode::None) {
+    switch (layer.repetition_mode) {
+    case SdfRepetitionMode::Infinite:
+      text += " (repeat: infinite)";
+      break;
+    case SdfRepetitionMode::Limited:
+      text += QString(" (repeat: %1x%2x%3)")
+                  .arg(layer.repetition_count.x, 0, 'f', 0)
+                  .arg(layer.repetition_count.y, 0, 'f', 0)
+                  .arg(layer.repetition_count.z, 0, 'f', 0);
+      break;
+    case SdfRepetitionMode::Rotational:
+      text += QString(" (repeat: %1 around Y)")
+                  .arg(layer.repetition_count.x, 0, 'f', 0);
+      break;
+    case SdfRepetitionMode::Rectangular:
+      text += QString(" (repeat: %1x%2 on XZ)")
+                  .arg(layer.repetition_count.x, 0, 'f', 0)
+                  .arg(layer.repetition_count.z, 0, 'f', 0);
+      break;
+    case SdfRepetitionMode::None:
+      break;
+    }
+  }
+  // Same reasoning as the repetition marker above, and a bit more urgent:
+  // a transformed layer is why its primitives' Position fields no longer
+  // read as world coordinates (see SdfLayerDef::position). Without a
+  // marker here that is invisible unless the layer row happens to be the
+  // one selected.
+  if (layer.position != glm::vec3(0.0f)) {
+    text += QString(" (moved %1, %2, %3)")
+                .arg(layer.position.x, 0, 'f', 2)
+                .arg(layer.position.y, 0, 'f', 2)
+                .arg(layer.position.z, 0, 'f', 2);
+  }
+  if (layer.rotation != glm::vec3(0.0f)) {
+    const glm::vec3 degrees = glm::degrees(layer.rotation);
+    text += QString(" (turned %1°, %2°, %3°)")
+                .arg(degrees.x, 0, 'f', 0)
+                .arg(degrees.y, 0, 'f', 0)
+                .arg(degrees.z, 0, 'f', 0);
+  }
+  return text;
+}
+
 void SdfEditorWindow::refresh_contents_list() {
   contents_tree_->clear();
   for (int i = 0; i < static_cast<int>(scene_.layers.size()); ++i) {
     const SdfLayerDef &layer = scene_.layers[i];
-    const char *op_label =
-        layer.operation == SdfLayerOperation::Subtraction ? "Subtract" : "Union";
-    QString layer_text = QString("%1 [%2, smoothness %3]")
-                             .arg(QString::fromStdString(layer.name))
-                             .arg(op_label)
-                             .arg(layer.smoothness, 0, 'f', 2);
+    QString layer_text = layer_item_text(layer);
     auto *layer_item = new QTreeWidgetItem(contents_tree_, {layer_text});
     layer_item->setData(0, kLayerIndexRole, i);
     layer_item->setExpanded(true);
@@ -2489,63 +3407,60 @@ void SdfEditorWindow::update_volumetric_field_enablement() {
   }
 }
 
-std::string SdfEditorWindow::ensure_volumetric_material() const {
-  // Mirrors ensure_material()'s deterministic-name idiom, but simpler: a
-  // volumetric material never has emissive/pixelation-exempt settings, so
-  // there's no equivalent suffix to fold in here.
-  int scale_centi = static_cast<int>(
-      std::lround(volumetric_texture_scale_spin_->value() * 100.0));
+MaterialDef SdfEditorWindow::volumetric_material_def_from_fields() const {
+  // A volumetric's material is an ordinary MaterialDef whose emissive,
+  // bump and flag properties simply sit at their defaults -- which is why
+  // this no longer needs the separate serialisation path the old
+  // filename encoder required.
+  MaterialDef def;
+  def.base_colour = glm::vec4(static_cast<f32>(volumetric_colour_.redF()),
+                             static_cast<f32>(volumetric_colour_.greenF()),
+                             static_cast<f32>(volumetric_colour_.blueF()),
+                             static_cast<f32>(volumetric_colour_.alphaF()));
+  def.base_map = volumetric_texture_name_;
+  def.uv_scale = static_cast<f32>(volumetric_texture_scale_spin_->value());
+  def.uv_offset =
+      glm::vec3(static_cast<f32>(volumetric_texture_offset_x_->value()),
+               static_cast<f32>(volumetric_texture_offset_y_->value()),
+               static_cast<f32>(volumetric_texture_offset_z_->value()));
+  def.uv_rotation = glm::radians(
+      static_cast<f32>(volumetric_texture_rotation_spin_->value()));
+  return def;
+}
 
-  glm::vec3 offset(volumetric_texture_offset_x_->value(),
-                   volumetric_texture_offset_y_->value(),
-                   volumetric_texture_offset_z_->value());
-  double rotation_degrees = volumetric_texture_rotation_spin_->value();
-  char tex_transform_suffix[64] = "";
-  if (offset != glm::vec3(0.0f) || rotation_degrees != 0.0) {
-    std::snprintf(tex_transform_suffix, sizeof(tex_transform_suffix),
-                 "_to%+04d%+04d%+04d_tr%+05d",
-                 static_cast<int>(std::lround(offset.x * 100.0)),
-                 static_cast<int>(std::lround(offset.y * 100.0)),
-                 static_cast<int>(std::lround(offset.z * 100.0)),
-                 static_cast<int>(std::lround(rotation_degrees * 100.0)));
-  }
+void SdfEditorWindow::populate_volumetric_fields_from_material(
+    const MaterialDef &def) {
+  volumetric_colour_ = QColor::fromRgbF(def.base_colour.r, def.base_colour.g,
+                                        def.base_colour.b, def.base_colour.a);
+  volumetric_colour_button_->setStyleSheet(
+      QString("background-color: %1;").arg(volumetric_colour_.name()));
+  volumetric_texture_name_ = def.base_map;
+  volumetric_texture_label_->setText(
+      volumetric_texture_name_.empty()
+          ? QStringLiteral("(none)")
+          : QString::fromStdString(volumetric_texture_name_));
+  volumetric_texture_scale_spin_->setValue(def.uv_scale);
+  volumetric_texture_offset_x_->setValue(def.uv_offset.x);
+  volumetric_texture_offset_y_->setValue(def.uv_offset.y);
+  volumetric_texture_offset_z_->setValue(def.uv_offset.z);
+  volumetric_texture_rotation_spin_->setValue(glm::degrees(def.uv_rotation));
+}
 
-  char name_buf[224];
-  if (volumetric_texture_name_.empty()) {
-    std::snprintf(name_buf, sizeof(name_buf), "qt_vol_colour_%02x%02x%02x%02x_ts%03d%s",
-                 volumetric_colour_.red(), volumetric_colour_.green(),
-                 volumetric_colour_.blue(), volumetric_colour_.alpha(), scale_centi,
-                 tex_transform_suffix);
-  } else {
-    std::snprintf(name_buf, sizeof(name_buf),
-                 "qt_vol_colour_%02x%02x%02x%02x_ts%03d%s_%s",
-                 volumetric_colour_.red(), volumetric_colour_.green(),
-                 volumetric_colour_.blue(), volumetric_colour_.alpha(), scale_centi,
-                 tex_transform_suffix, volumetric_texture_name_.c_str());
-  }
-  std::string name = name_buf;
-
-  std::ofstream file("assets/materials/" + name + ".kmt");
-  if (file.is_open()) {
-    file << "#material file\n\n";
-    file << "version=0.1\n";
-    file << "name=" << name << "\n";
-    file << "diffuse_colour=" << volumetric_colour_.redF() << " "
-        << volumetric_colour_.greenF() << " " << volumetric_colour_.blueF()
-        << " " << volumetric_colour_.alphaF() << "\n";
-    file << "texture_scale=" << volumetric_texture_scale_spin_->value() << "\n";
-    if (offset != glm::vec3(0.0f)) {
-      file << "texture_offset=" << offset.x << " " << offset.y << " "
-          << offset.z << "\n";
-    }
-    if (rotation_degrees != 0.0) {
-      file << "texture_rotation=" << glm::radians(rotation_degrees) << "\n";
-    }
-    if (!volumetric_texture_name_.empty()) {
-      file << "diffuse_map_name=" << volumetric_texture_name_ << "\n";
+MaterialId SdfEditorWindow::ensure_volumetric_material_binding(
+    MaterialId existing_id) {
+  const MaterialDef fields = volumetric_material_def_from_fields();
+  if (MaterialDef *existing = sdf_scene_find_material(scene_, existing_id)) {
+    if (material_use_count(existing_id) <= 1) {
+      MaterialDef updated = fields;
+      updated.id = existing->id;
+      updated.display_name = existing->display_name;
+      updated.unknown_keys = existing->unknown_keys;
+      *existing = std::move(updated);
+      refresh_material_list();
+      return updated.id;
     }
   }
-  return name;
+  return find_or_create_material(fields);
 }
 
 void SdfEditorWindow::on_add_volumetric_clicked() {
@@ -2556,7 +3471,8 @@ void SdfEditorWindow::on_add_volumetric_clicked() {
   SdfPrimitiveType type = static_cast<SdfPrimitiveType>(row);
   PrimitiveTypeSpec spec = type_spec_for(type);
 
-  std::string material_name = ensure_volumetric_material();
+  const MaterialId material_id =
+      find_or_create_material(volumetric_material_def_from_fields());
   std::string name = "volumetric" + std::to_string(next_volumetric_id_++);
 
   glm::vec3 position =
@@ -2581,7 +3497,8 @@ void SdfEditorWindow::on_add_volumetric_clicked() {
   f32 density = static_cast<f32>(volumetric_density_spin_->value());
 
   add_volumetric(scene_, name, type, position, rotation, params, extra_param,
-                 density, material_name);
+                 density, std::string{})
+      .material_id = material_id;
 
   refresh_volumetrics_list();
   sync_viewport_scene();
@@ -2598,6 +3515,7 @@ void SdfEditorWindow::on_remove_volumetric_clicked() {
     scene_.volumetrics.erase(scene_.volumetrics.begin() + volumetric_index);
   }
   refresh_volumetrics_list();
+  refresh_material_list();
   sync_viewport_scene();
 }
 
@@ -2689,20 +3607,8 @@ void SdfEditorWindow::populate_volumetric_fields_from_selection(int volumetric_i
     volumetric_param_spin_[i]->setValue(raw_params[i]);
   }
 
-  ParsedMaterial material = parse_material_file(volumetric.material_name);
-  volumetric_colour_ = material.colour;
-  volumetric_texture_name_ = material.texture_name;
-  volumetric_colour_button_->setStyleSheet(
-      QString("background-color: %1;").arg(volumetric_colour_.name()));
-  volumetric_texture_label_->setText(
-      volumetric_texture_name_.empty()
-          ? QStringLiteral("(none)")
-          : QString::fromStdString(volumetric_texture_name_));
-  volumetric_texture_scale_spin_->setValue(material.texture_scale);
-  volumetric_texture_offset_x_->setValue(material.texture_offset.x);
-  volumetric_texture_offset_y_->setValue(material.texture_offset.y);
-  volumetric_texture_offset_z_->setValue(material.texture_offset.z);
-  volumetric_texture_rotation_spin_->setValue(glm::degrees(material.texture_rotation));
+  populate_volumetric_fields_from_material(
+      sdf_scene_resolve_material(scene_, volumetric));
   volumetric_density_spin_->setValue(volumetric.density);
 
   populating_volumetric_fields_ = false;
@@ -2735,7 +3641,9 @@ void SdfEditorWindow::apply_fields_to_volumetric(int volumetric_index) {
   volumetric.extra_param = raw_params[3];
   volumetric.density = static_cast<f32>(volumetric_density_spin_->value());
 
-  volumetric.material_name = ensure_volumetric_material();
+  volumetric.material_id =
+      ensure_volumetric_material_binding(volumetric.material_id);
+  volumetric.material_name.clear();
 }
 
 void SdfEditorWindow::on_volumetric_field_changed() {

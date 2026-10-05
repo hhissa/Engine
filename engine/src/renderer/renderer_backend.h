@@ -60,6 +60,14 @@ public:
   virtual void draw_solid_quad(glm::vec2 position, glm::vec2 size,
                               glm::vec4 colour) = 0;
 
+  // The same solid-colour rectangle as draw_solid_quad(), but drawn FIRST
+  // in the UI pass rather than last -- over the raymarched scene, under
+  // every quad/text/line queued this frame. For a backdrop that text has
+  // to sit on (e.g. a black title card over a still-loaded scene), which
+  // draw_solid_quad() can't be, since it occludes text too.
+  virtual void draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
+                                 glm::vec4 colour) = 0;
+
   // Loads sdf_path (an .sdf scene file -- see sdf_scene.h for the format)
   // and registers every primitive it describes as a static SDF primitive,
   // then re-bakes the raymarch scene so the result becomes visible.
@@ -94,6 +102,11 @@ public:
   // multiplied. Uniform only -- non-uniform scaling would break the SDF
   // distance metric.
   virtual void scale_scene(SceneHandle handle, f32 factor) = 0;
+
+  // How many chunks around the camera are still loading or baking -- 0
+  // once the streamed field there is complete. See VulkanRaymarchShader::
+  // streaming_backlog().
+  virtual u32 streaming_backlog() const = 0;
 
   // Releases every primitive registered by the load_scene() call that
   // returned handle, then re-bakes. No-op (logs a warning) if handle isn't
@@ -162,6 +175,13 @@ public:
   // scene after the first that way, so without it pre-warming only ever
   // ran for the first scene of a session.
   virtual void request_cache_prewarm() = 0;
+
+  // Whether load_scene() re-arms cache pre-warming by itself (the default).
+  // Pre-warming blocks until the whole scene is in the disk cache, so a host
+  // that swaps scenes often -- a game cutting between rooms -- turns this
+  // off, warms each scene once up front with request_cache_prewarm(), and
+  // from then on only ever restores from the cache.
+  virtual void set_cache_prewarm_on_load(b8 enabled) = 0;
 
   // Moves one already-registered primitive in place, by name. Exists so an
   // interactive drag does not have to round-trip the WHOLE scene through a

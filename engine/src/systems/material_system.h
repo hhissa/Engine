@@ -1,4 +1,5 @@
 #pragma once
+#include "../resources/material_def.h"
 #include "../renderer/vulkan/vulkan_shader.h"
 #include "../renderer/vulkan/vulkan_texture.h"
 #include "texture_system.h"
@@ -30,66 +31,32 @@ class VulkanCommandBuffer;
 // the ones VulkanRaymarchShader reads purely as colour+texture data for its
 // compute dispatch) simply leave shader==nullptr and are unaffected.
 struct Material {
+  // The key MaterialSystem cached this under. For a material acquired
+  // from a MaterialDef that is the def's CONTENT key (see
+  // material_def_content_key()) -- deliberately, so two identically-valued
+  // materials resolve to one runtime entry and one set of texture
+  // references, however they were authored. For a legacy acquire(name) it
+  // is the .kmt filename.
+  //
+  // Not a display name and not an authoring identity: see MaterialDef::id
+  // and MaterialDef::display_name for those.
   std::string name;
-  glm::vec4 diffuse_colour{1.0f};
-  std::string diffuse_map_name; // empty => no diffuse map, use the default.
-  // World units per texture tile ("texture_scale=" in the .kmt) -- how far
-  // across a surface one full repeat of the diffuse texture spans. Only
-  // read by VulkanRaymarchShader's triplanar sampling; the default matches
-  // the TEXTURE_SCALE constant that used to be hardcoded in
-  // Builtin.RaymarchShader.comp.glsl, so materials that don't set it look
-  // exactly as they always did.
-  f32 texture_scale = 0.6f;
-  // World-space offset ("texture_offset=" in the .kmt, three floats)
-  // added to the sample point *before* the triplanar projection/
-  // texture_scale divide -- shifts the pattern by that many world units
-  // along each axis, i.e. a texture "translate". (0,0,0) (the default)
-  // leaves the tiling exactly where it always was. Only read by
-  // VulkanRaymarchShader's triplanar sampling, same as texture_scale.
-  glm::vec3 texture_offset{0.0f};
-  // 2D rotation ("texture_rotation=" in the .kmt, radians) applied to each
-  // triplanar projection's own UV plane before sampling -- a texture
-  // "rotate". Applied identically to all three axis-plane projections (it
-  // has no single "up" to be relative to on a primitive with no fixed
-  // orientation otherwise), same as texture_offset only read by
-  // VulkanRaymarchShader's triplanar sampling. 0.0f (the default) leaves
-  // the pattern unrotated.
-  f32 texture_rotation = 0.0f;
-  // Self-illumination -- "emissive_colour="/"emissive_intensity=" in the
-  // .kmt. Any primitive using a material with emissive_intensity > 0
-  // becomes a visible light source: it renders at a brightness
-  // independent of the scene's actual lighting (see the emissive term in
-  // Builtin.RaymarchShader.comp.glsl -- added straight into the shaded
-  // colour, unlike diffuse/ambient which depend on incoming light), and
-  // VulkanRaymarchShader::rebuild_static_scene() automatically registers
-  // one synthesized point light per emissive primitive (positioned at the
-  // primitive itself) so it also actually illuminates everything else --
-  // an authored "glowing bulb"/"light panel" primitive that is genuinely
-  // its own light source, not just a bright-looking prop. Default
-  // intensity 0 (off) -- existing materials that don't set this glow
-  // exactly as they always did.
-  glm::vec3 emissive_colour{1.0f};
-  f32 emissive_intensity = 0.0f;
-  // "pixelation_exempt=true" in the .kmt -- excludes any primitive using
-  // this material from the screen-space pixelation post-process (see
-  // Builtin.PostComposite.comp.glsl), so it stays crisp/full-resolution
-  // even while everything else on screen pixelates. Off by default (this
-  // primitive pixelates normally, like everything else).
-  bool pixelation_exempt = false;
-  // "bump_map_name=" in the .kmt -- a SEPARATE texture from diffuse_map_name
-  // above, sampled purely for its luminance to perturb the surface normal
-  // (see sample_scene_heights()/bump_from_heights() in Builtin.
-  // RaymarchShader.comp.glsl). Empty (the default) means no bump map:
-  // bump_texture below resolves to TextureSystem::flat_texture() instead,
-  // a genuinely spatially-uniform texture that makes the bump computation
-  // come out to zero -- so bump mapping is opt-in per material, not
-  // something derived from whatever diffuse texture (even the default
-  // checkerboard) happens to be assigned.
-  std::string bump_map_name;
+
+  // The authored values, in ONE place.
+  //
+  // These used to be a dozen flat fields on this struct, duplicated from
+  // the .kmt parser, duplicated again in the sdf_editor's filename
+  // encoder, and duplicated a third time in the editor's reader. Adding a
+  // property meant touching all of them and hoping they agreed about
+  // rounding. Holding the def itself means a new property is one line in
+  // for_each_material_property() and zero lines here.
+  MaterialDef def;
+
   VulkanTexture *diffuse_texture =
       nullptr; // Non-owning -- owned by TextureSystem.
   VulkanTexture *bump_texture =
-      nullptr; // Non-owning -- owned by TextureSystem. See bump_map_name above.
+      nullptr; // Non-owning -- owned by TextureSystem. See
+               // MaterialDef::bump_map.
 
   // GPU instance resources for the shader this material is bound to via
   // MaterialSystem::bind_to_shader(). Left at their defaults (shader ==
@@ -121,6 +88,22 @@ public:
   // bump_map_name through TextureSystem. Falls back to default_material()
   // if the file is missing, so callers can always dereference the result.
   Material &acquire(std::string_view name, bool auto_release);
+
+  // Acquires the runtime material for an already-resolved MaterialDef --
+  // the path everything scene-driven now takes, with acquire(name) above
+  // left for the legacy .kmt form.
+  //
+  // Keyed by material_def_content_key(def), NOT by the def's id or display
+  // name. That is the one place content addressing belongs: two primitives
+  // whose resolved materials would render identically share one entry and
+  // one pair of texture references, whether they reference the same
+  // library material, two identical ones, or the same one with identical
+  // overrides.
+  //
+  // The corollary matters for callers: the key to pass to release() is
+  // Material::name (which holds exactly that content key), not anything
+  // the author typed.
+  Material &acquire_def(const MaterialDef &def, bool auto_release);
 
   // Mirrors TextureSystem::release: every acquire() call must be paired
   // with exactly one release() call for the same name. Also releases the

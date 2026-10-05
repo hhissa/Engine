@@ -3,9 +3,10 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /home/bumbandit/Projects/Engine/testbed/src/sdf_authoring.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/resources/../defines.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/array \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/compare \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/version.h \
+  /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/resources/material_def.h \
+  /usr/include/glm/glm.hpp /usr/include/glm/detail/_fixes.hpp \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/cmath \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/requires_hosted.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/x86_64-pc-linux-gnu/bits/c++config.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/x86_64-pc-linux-gnu/bits/os_defines.h \
   /usr/include/features.h /usr/include/features-time64.h \
@@ -16,40 +17,10 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/x86_64-pc-linux-gnu/bits/cpu_defines.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/pstl/pstl_config.h \
   /usr/include/tbb/tbb.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/concepts \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/type_traits \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/initializer_list \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stdexcept_throw.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/exception_defines.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stdexcept_throwfwd.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_algobase.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/cpp_type_traits.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/version.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/type_traits \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/ext/type_traits.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/ext/numeric_traits.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_pair.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/move.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/utility.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_iterator_base_types.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/iterator_concepts.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/ptr_traits.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/ranges_cmp.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_iterator_base_funcs.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/concept_check.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/debug/assertions.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_iterator.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/new \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/exception.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/new_except.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_construct.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/debug/debug.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/predefined_ops.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_function.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/backward/binders.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bit \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/range_access.h \
-  /usr/include/glm/glm.hpp /usr/include/glm/detail/_fixes.hpp \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/cmath \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/requires_hosted.h \
   /usr/include/math.h /usr/include/bits/libc-header-start.h \
   /usr/include/bits/math-vector.h \
   /usr/include/bits/libm-simd-decl-stubs.h /usr/include/bits/floatn.h \
@@ -83,9 +54,35 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/bits/pthreadtypes-arch.h \
   /usr/include/bits/atomic_wide_counter.h \
   /usr/include/bits/struct_mutex.h /usr/include/bits/struct_rwlock.h \
-  /usr/include/alloca.h /usr/include/bits/stdlib-bsearch.h \
-  /usr/include/bits/stdlib-float.h \
+  /usr/include/alloca.h /usr/include/bits/stdlib-float.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/specfun.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stdexcept_throw.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/exception_defines.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stdexcept_throwfwd.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_algobase.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/ext/numeric_traits.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_pair.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/move.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/utility.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/compare \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/concepts \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_iterator_base_types.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/iterator_concepts.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/ptr_traits.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/ranges_cmp.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_iterator_base_funcs.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/concept_check.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/debug/assertions.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_iterator.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/new \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/exception.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/new_except.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_construct.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/debug/debug.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/predefined_ops.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_function.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/backward/binders.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bit \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/limits \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/tr1/gamma.tcc \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/tr1/special_function_util.h \
@@ -157,6 +154,7 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/invoke.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/ranges_util.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/ranges_base.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/initializer_list \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/max_size_type.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/numbers \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/functional_hash.h \
@@ -179,6 +177,7 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/new_throw.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/enable_special_members.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/node_handle.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/range_access.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/erase_if.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/memory_resource.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/uses_allocator_args.h \
@@ -187,6 +186,7 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_vector.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_bvector.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/vector.tcc \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/array \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/binders.h \
   /usr/include/glm/./ext/../detail/_vectorize.hpp \
   /usr/include/glm/./ext/vector_bool3_precision.hpp \
@@ -334,14 +334,8 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/glm/detail/type_half.inl /usr/include/glm/geometric.hpp \
   /usr/include/glm/matrix.hpp /usr/include/glm/vector_relational.hpp \
   /usr/include/glm/integer.hpp /usr/include/glm/detail/func_integer.inl \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/optional \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/exception \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/exception_ptr.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/cxxabi_init_exception.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/nested_exception.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/string \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/iosfwd \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stringfwd.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/char_traits.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/postypes.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/cwchar \
   /usr/include/wchar.h /usr/lib/clang/22/include/stdarg.h \
@@ -349,11 +343,12 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/bits/types/wint_t.h /usr/include/bits/types/mbstate_t.h \
   /usr/include/bits/types/__mbstate_t.h /usr/include/bits/types/__FILE.h \
   /usr/include/bits/types/FILE.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/string \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/char_traits.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/localefwd.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/x86_64-pc-linux-gnu/bits/c++locale.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/clocale \
   /usr/include/locale.h /usr/include/bits/locale.h \
-  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/iosfwd \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/cctype \
   /usr/include/ctype.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/ostream_insert.h \
@@ -368,7 +363,7 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/bits/types/__fpos64_t.h \
   /usr/include/bits/types/struct_FILE.h \
   /usr/include/bits/types/cookie_io_functions_t.h \
-  /usr/include/bits/stdio_lim.h /usr/include/bits/stdio.h \
+  /usr/include/bits/stdio_lim.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/cerrno \
   /usr/include/errno.h /usr/include/bits/errno.h \
   /usr/include/linux/errno.h /usr/include/asm/errno.h \
@@ -376,6 +371,99 @@ CMakeFiles/sdf_editor.dir/home/bumbandit/Projects/Engine/testbed/src/sdf_authori
   /usr/include/bits/types/error_t.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/charconv.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/basic_string.tcc \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/utility \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/stl_relops.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/intcmp.h \
+  /usr/include/glm/gtc/quaternion.hpp \
+  /usr/include/glm/gtc/../gtc/constants.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/scalar_constants.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../detail/setup.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/scalar_constants.inl \
+  /usr/include/glm/gtc/../gtc/constants.inl \
+  /usr/include/glm/gtc/../gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/../gtc/../mat4x4.hpp \
+  /usr/include/glm/gtc/../gtc/../vec2.hpp \
+  /usr/include/glm/gtc/../gtc/../vec3.hpp \
+  /usr/include/glm/gtc/../gtc/../vec4.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_projection.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../gtc/constants.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../geometric.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../trigonometric.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../matrix.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_projection.inl \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_clip_space.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/../ext/scalar_constants.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_clip_space.inl \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_transform.hpp \
+  /usr/include/glm/gtc/../gtc/../ext/matrix_transform.inl \
+  /usr/include/glm/gtc/../gtc/matrix_transform.inl \
+  /usr/include/glm/gtc/../gtc/../geometric.hpp \
+  /usr/include/glm/gtc/../gtc/../trigonometric.hpp \
+  /usr/include/glm/gtc/../gtc/../matrix.hpp \
+  /usr/include/glm/gtc/../ext/vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../detail/qualifier.hpp \
+  /usr/include/glm/gtc/../ext/vector_relational.inl \
+  /usr/include/glm/gtc/../ext/../vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../common.hpp \
+  /usr/include/glm/gtc/../ext/../detail/type_float.hpp \
+  /usr/include/glm/gtc/../ext/../detail/setup.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_common.hpp \
+  /usr/include/glm/gtc/../ext/../ext/scalar_constants.hpp \
+  /usr/include/glm/gtc/../ext/../ext/quaternion_geometric.hpp \
+  /usr/include/glm/gtc/../ext/../ext/../geometric.hpp \
+  /usr/include/glm/gtc/../ext/../ext/../exponential.hpp \
+  /usr/include/glm/gtc/../ext/../ext/../ext/vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../ext/quaternion_geometric.inl \
+  /usr/include/glm/gtc/../ext/../trigonometric.hpp \
+  /usr/include/glm/gtc/../ext/../exponential.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_common.inl \
+  /usr/include/glm/gtc/../ext/quaternion_float.hpp \
+  /usr/include/glm/gtc/../ext/../detail/type_quat.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../detail/type_mat3x3.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../detail/type_mat4x4.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../detail/type_vec3.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../detail/type_vec4.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_relational.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/../vector_relational.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_relational.inl \
+  /usr/include/glm/gtc/../ext/../detail/../gtc/constants.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/../ext/../detail/type_quat.inl \
+  /usr/include/glm/gtc/../ext/../detail/../trigonometric.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../exponential.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_common.hpp \
+  /usr/include/glm/gtc/../ext/../detail/../ext/quaternion_geometric.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_float_precision.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_double.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_double_precision.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_relational.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_geometric.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_trigonometric.hpp \
+  /usr/include/glm/gtc/../ext/scalar_constants.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_trigonometric.inl \
+  /usr/include/glm/gtc/../ext/quaternion_transform.hpp \
+  /usr/include/glm/gtc/../ext/../geometric.hpp \
+  /usr/include/glm/gtc/../ext/quaternion_transform.inl \
+  /usr/include/glm/gtc/../detail/type_mat3x3.hpp \
+  /usr/include/glm/gtc/../detail/type_mat4x4.hpp \
+  /usr/include/glm/gtc/../detail/type_vec3.hpp \
+  /usr/include/glm/gtc/../detail/type_vec4.hpp \
+  /usr/include/glm/gtc/quaternion.inl \
+  /usr/include/glm/gtc/../trigonometric.hpp \
+  /usr/include/glm/gtc/../geometric.hpp \
+  /usr/include/glm/gtc/../exponential.hpp \
+  /usr/include/glm/gtc/epsilon.hpp \
+  /usr/include/glm/gtc/../detail/setup.hpp \
+  /usr/include/glm/gtc/../detail/qualifier.hpp \
+  /usr/include/glm/gtc/epsilon.inl \
+  /usr/include/glm/gtc/../vector_relational.hpp \
+  /usr/include/glm/gtc/../common.hpp \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/optional \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/exception \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/exception_ptr.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/cxxabi_init_exception.h \
+  /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/bits/nested_exception.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/core/logger.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/../../engine/src/core/../defines.h \
   /usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/16/../../../../include/c++/16/format \

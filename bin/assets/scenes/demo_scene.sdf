@@ -1,0 +1,44 @@
+#sdf scene file
+version=0.1
+
+layer ground {
+    operation=union
+    smoothness=0.0
+
+    primitive floor {
+        type=plane
+        height=-1.4
+        material=test_material
+    }
+}
+
+layer block {
+    operation=union
+    smoothness=0.3
+
+    primitive box1 {
+        type=box
+        position=1.2 -1.0 0.3
+        half_extents=0.4 0.4 0.4
+        material=test_material_tinted
+    }
+}
+
+layer notch {
+    operation=subtraction
+    smoothness=0.15
+
+    primitive cutter {
+        type=sphere
+        position=1.2 -0.75 0.3
+        radius=0.35
+        material=test_material
+    }
+
+    primitive cutter2 {
+        type=sphere
+        position=0.85 -1.15 0.55
+        radius=0.22
+        material=test_material
+    }
+}

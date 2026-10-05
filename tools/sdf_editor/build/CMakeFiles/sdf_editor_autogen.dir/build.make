@@ -71,7 +71,7 @@ CMakeFiles/sdf_editor_autogen: sdf_editor_autogen/timestamp
 sdf_editor_autogen/timestamp: /usr/lib/qt6/moc
 sdf_editor_autogen/timestamp: CMakeFiles/sdf_editor_autogen.dir/compiler_depend.ts
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/bumbandit/Projects/Engine/tools/sdf_editor/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Automatic MOC for target sdf_editor"
-	/usr/bin/cmake -E cmake_autogen /home/bumbandit/Projects/Engine/tools/sdf_editor/build/CMakeFiles/sdf_editor_autogen.dir/AutogenInfo.json Release
+	/usr/bin/cmake -E cmake_autogen /home/bumbandit/Projects/Engine/tools/sdf_editor/build/CMakeFiles/sdf_editor_autogen.dir/AutogenInfo.json Debug
 	/usr/bin/cmake -E touch /home/bumbandit/Projects/Engine/tools/sdf_editor/build/sdf_editor_autogen/timestamp
 
 CMakeFiles/sdf_editor_autogen.dir/codegen:

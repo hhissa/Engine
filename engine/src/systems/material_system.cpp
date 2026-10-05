@@ -25,11 +25,30 @@ MaterialSystem::MaterialSystem(TextureSystem &texture_system)
     : texture_system_(&texture_system) {
   Material default_mat;
   default_mat.name = "default";
-  default_mat.diffuse_colour = glm::vec4(1.0f);
+  default_mat.def.display_name = "default";
   default_mat.diffuse_texture = &texture_system_->default_texture();
   default_mat.bump_texture = &texture_system_->flat_texture();
   default_material_.emplace(std::move(default_mat));
 }
+
+namespace {
+// Everything a Material needs beyond its values: the two texture
+// references resolved through TextureSystem. Shared by both acquire
+// paths so they cannot drift apart on what an empty map name means.
+void resolve_textures(Material &material, TextureSystem &textures) {
+  material.diffuse_texture =
+      material.def.base_map.empty()
+          ? &textures.default_texture()
+          : &textures.acquire(material.def.base_map, true);
+  // A material with no bump map reads a genuinely uniform texture, so the
+  // height-difference computation comes out to exactly zero -- bump
+  // mapping is opt-in per material rather than derived from whatever
+  // diffuse texture happens to be assigned.
+  material.bump_texture = material.def.bump_map.empty()
+                              ? &textures.flat_texture()
+                              : &textures.acquire(material.def.bump_map, true);
+}
+} // namespace
 
 Material &MaterialSystem::acquire(std::string_view name, bool auto_release) {
   std::string key(name);
@@ -41,120 +60,20 @@ Material &MaterialSystem::acquire(std::string_view name, bool auto_release) {
   ++entry.reference_count;
 
   if (!entry.material) {
-    std::ifstream file(material_path(name));
-    if (!file.is_open()) {
+    // material_def_load_kmt() is the ONLY .kmt parser in the codebase --
+    // this function used to carry a second copy of it, and the sdf_editor
+    // a third, which is how the editor's quantisation and the engine's
+    // parse were able to disagree about a value with nothing noticing.
+    MaterialDef def;
+    if (!material_def_load_kmt(name, def)) {
       KWARN("Material file not found for '{}'; using the default material "
            "in its place.",
            name);
     } else {
       Material material;
       material.name = key;
-
-      std::string line;
-      while (std::getline(file, line)) {
-        std::string trimmed = trim(line);
-        if (trimmed.empty() || trimmed[0] == '#') {
-          continue;
-        }
-
-        auto eq = trimmed.find('=');
-        if (eq == std::string::npos) {
-          KWARN("Potential formatting issue in material file '{}': '=' "
-               "token not found. Skipping line: '{}'",
-               name, trimmed);
-          continue;
-        }
-
-        std::string var_name = trim(trimmed.substr(0, eq));
-        std::string value = trim(trimmed.substr(eq + 1));
-
-        if (var_name == "name") {
-          material.name = value;
-        } else if (var_name == "diffuse_map_name") {
-          material.diffuse_map_name = value;
-        } else if (var_name == "bump_map_name") {
-          material.bump_map_name = value;
-        } else if (var_name == "diffuse_colour") {
-          std::istringstream iss(value);
-          glm::vec4 colour(1.0f);
-          iss >> colour.x >> colour.y >> colour.z >> colour.w;
-          if (iss.fail()) {
-            KWARN("Error parsing diffuse_colour in file '{}'. Using "
-                 "default of white instead.",
-                 name);
-            colour = glm::vec4(1.0f);
-          }
-          material.diffuse_colour = colour;
-        } else if (var_name == "texture_scale") {
-          std::istringstream iss(value);
-          f32 scale = 0.0f;
-          iss >> scale;
-          if (iss.fail() || scale <= 0.0f) {
-            KWARN("Error parsing texture_scale in file '{}'. Using the "
-                 "default of {} instead.",
-                 name, material.texture_scale);
-          } else {
-            material.texture_scale = scale;
-          }
-        } else if (var_name == "texture_offset") {
-          std::istringstream iss(value);
-          glm::vec3 offset(0.0f);
-          iss >> offset.x >> offset.y >> offset.z;
-          if (iss.fail()) {
-            KWARN("Error parsing texture_offset in file '{}'. Using the "
-                 "default of (0, 0, 0) instead.",
-                 name);
-          } else {
-            material.texture_offset = offset;
-          }
-        } else if (var_name == "texture_rotation") {
-          std::istringstream iss(value);
-          f32 rotation = 0.0f;
-          iss >> rotation;
-          if (iss.fail()) {
-            KWARN("Error parsing texture_rotation in file '{}'. Using the "
-                 "default of {} instead.",
-                 name, material.texture_rotation);
-          } else {
-            material.texture_rotation = rotation;
-          }
-        } else if (var_name == "emissive_colour" || var_name == "emissive_color") {
-          std::istringstream iss(value);
-          glm::vec3 colour(1.0f);
-          iss >> colour.x >> colour.y >> colour.z;
-          if (iss.fail()) {
-            KWARN("Error parsing emissive_colour in file '{}'. Using "
-                 "default of white instead.",
-                 name);
-            colour = glm::vec3(1.0f);
-          }
-          material.emissive_colour = colour;
-        } else if (var_name == "emissive_intensity") {
-          std::istringstream iss(value);
-          f32 intensity = 0.0f;
-          iss >> intensity;
-          if (iss.fail() || intensity < 0.0f) {
-            KWARN("Error parsing emissive_intensity in file '{}'. Using the "
-                 "default of {} instead.",
-                 name, material.emissive_intensity);
-          } else {
-            material.emissive_intensity = intensity;
-          }
-        } else if (var_name == "pixelation_exempt") {
-          material.pixelation_exempt = (value == "true" || value == "1");
-        }
-        // "version" is intentionally ignored -- nothing yet depends on it.
-      }
-
-      material.diffuse_texture =
-          material.diffuse_map_name.empty()
-              ? &texture_system_->default_texture()
-              : &texture_system_->acquire(material.diffuse_map_name, true);
-      material.bump_texture =
-          material.bump_map_name.empty()
-              ? &texture_system_->flat_texture()
-              : &texture_system_->acquire(material.bump_map_name, true);
-
+      material.def = std::move(def);
+      resolve_textures(material, *texture_system_);
       entry.material = std::move(material);
       KTRACE("Material '{}' loaded, reference count now {}.", name,
             entry.reference_count);
@@ -162,6 +81,32 @@ Material &MaterialSystem::acquire(std::string_view name, bool auto_release) {
   }
 
   return entry.material ? *entry.material : *default_material_;
+}
+
+Material &MaterialSystem::acquire_def(const MaterialDef &def,
+                                     bool auto_release) {
+  const std::string key = material_def_content_key(def);
+  Entry &entry = materials_.try_emplace(key).first->second;
+
+  if (entry.reference_count == 0) {
+    entry.auto_release = auto_release;
+  }
+  ++entry.reference_count;
+
+  if (!entry.material) {
+    Material material;
+    material.name = key;
+    material.def = def;
+    resolve_textures(material, *texture_system_);
+    entry.material = std::move(material);
+    KTRACE("Material '{}' resolved from a definition, reference count now "
+          "{}.",
+          def.display_name.empty() ? material_id_to_string(def.id)
+                                   : def.display_name,
+          entry.reference_count);
+  }
+
+  return *entry.material;
 }
 
 void MaterialSystem::release(std::string_view name) {
@@ -178,11 +123,11 @@ void MaterialSystem::release(std::string_view name) {
   --entry.reference_count;
   if (entry.reference_count == 0 && entry.auto_release) {
     if (entry.material) {
-      if (!entry.material->diffuse_map_name.empty()) {
-        texture_system_->release(entry.material->diffuse_map_name);
+      if (!entry.material->def.base_map.empty()) {
+        texture_system_->release(entry.material->def.base_map);
       }
-      if (!entry.material->bump_map_name.empty()) {
-        texture_system_->release(entry.material->bump_map_name);
+      if (!entry.material->def.bump_map.empty()) {
+        texture_system_->release(entry.material->def.bump_map);
       }
       if (entry.material->shader && entry.material->shader_instance_id !=
                                         VulkanShader::kInvalidInstanceId) {
@@ -210,7 +155,7 @@ void MaterialSystem::bind_to_shader(Material &material, VulkanShader &shader) {
   shader.bind_instance(material.shader_instance_id);
   if (material.diffuse_colour_uniform != VulkanShader::kInvalidUniformIndex) {
     shader.set_instance_uniform(material.diffuse_colour_uniform,
-                               &material.diffuse_colour);
+                               &material.def.base_colour);
   }
   if (material.diffuse_texture_uniform != VulkanShader::kInvalidUniformIndex &&
       material.diffuse_texture) {
@@ -238,7 +183,7 @@ void MaterialSystem::apply_instance(Material &material,
   material.shader->bind_instance(material.shader_instance_id);
   if (material.diffuse_colour_uniform != VulkanShader::kInvalidUniformIndex) {
     material.shader->set_instance_uniform(material.diffuse_colour_uniform,
-                                         &material.diffuse_colour);
+                                         &material.def.base_colour);
   }
   material.shader->apply_instance(command_buffer);
 }

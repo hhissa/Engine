@@ -25,6 +25,12 @@ std::optional<SdfScene> read_scene(std::string_view path);
 
 // Writes scene to path in exactly the format read_scene()/load_sdf_scene()
 // parse. Returns false if path couldn't be opened for writing.
+//
+// Always writes the CONVERTED (version 0.2, material-library) form: any
+// binding still naming a legacy .kmt file is imported into the library
+// first, on an internal copy. The caller's scene is not modified, so a
+// code-driven scene built with add_box(..., "test_material") is unaffected
+// -- but the file on disk is never left half-converted.
 bool save_scene(std::string_view path, const SdfScene &scene);
 
 // Appends a new, empty layer to scene and returns a reference to it --

@@ -1,0 +1,540 @@
+#conversation file
+version=0.1
+
+# Chapter 1: Introductions -- from "Beatsheets and scripts/Chapter 1 script
+# and beatsheet.docx".
+#
+# Every beat is an `auto` question (asked by itself, never offered as a
+# choice) chained to the next with loop_to=; the player only chooses at the
+# script's {options}, which are the follow-up questions of the beat they
+# interrupt, each looping on to that beat's "_rest".
+#
+# Answer lines are script -- see games/SH/src/script_line.h:
+#   [Name]            who speaks (sticky); cuts to their room, from a new
+#                     camera angle each time we come back to them
+#   [P]               the photographer -- never on screen, keeps the shot
+#   [title]           bold line: black screen (the ding needs audio)
+#   [overlay]         blue line: laid over the scene, not bottom-left
+#   [cutaway <id>]    red tag: placeholder scene, marked with its id
+#   [photo <path>]    cloud photos, shown instead of the room
+#   [link <url>]      song recommendation; [L] opens it
+
+question "Introductions" {
+    id=intro
+    auto
+    loop_to=meal
+    answer=[title] Let's get started
+    answer=[title] Why don't you start with your name, your age, and your occupation?
+    answer=[Mel] Hi, I'm Mel, I'm 23...
+    answer=[P] That's awfully young.
+    answer=[Mel] That's a matter of perspective.
+    answer=[P] And what is it that you do?
+    answer=[Mel] I'm an unemployed hikikomori
+    answer=[P] A hakuku what?
+    answer=[Mel] I don't leave my apartment
+    answer=[Diego] Hey, I'm Diego, I'm 32, and I'm a software developer
+    answer=[Theo] Yo, it's Theo, I'm 19 and I'm a college student and a dishwasher on the weekends
+    answer=[P] We necessarily have younger people because the population of this series is young
+    answer=But you were the only one I had objections with
+    answer=You know, including you in the series
+    answer=[Theo] No, I'm glad you did
+    answer=I think it's important
+    answer=[Pat] I'm Pat, I'm 22, and I don't really do anything since I've moved into the hospital
+    answer=[Alex] Hey, I'm Alex, and I'm 27
+    answer=[Theresa] Hello, I'm Theresa. I'm 76 years old, and I'm a retired secretary.
+    answer=[P] So I usually find that people don't like talking about what we're gonna be talking about
+    answer=Especially with strangers
+    answer=So I wanna start with some icebreakers
+    answer=You know, just some questions before we get into the real...
+    answer=Meat and potatoes
+    answer=[Theo] Bit odd to call it meat and potatoes
+    answer=But go on
+}
+
+question "What is your go-to meal?" {
+    id=meal
+    auto
+    loop_to=clouds
+    answer=[title] What is your go-to meal?
+    answer=[Mel] Chicken strips, rice, and Tabasco.
+    answer=Pretty plain but it's what I like.
+    answer=[Diego] There's a place around the corner,
+    answer=Pho Pasteur, it's called
+    answer=Great pho
+    answer=[Theo][cutaway cutaways/ramen] Oh, let me put you on
+    answer=You take an Indomie packet
+    answer=Indomie is this Indonesian brand of instant noodles
+    answer=Anyway, you take the Indomie and you crush it up
+    answer=Add just enough water to cover the top
+    answer=Leave uncovered and then add a little lime
+    answer=And you've got the best noodles on the planet
+    answer=[Pat] I'm not too picky
+    answer=Anything but this fucking hospital food
+    answer=[Alex] I'm gonna be a bit extra here
+    answer=Ice cream
+    answer=[Theresa] Hmm
+    answer=HMMM
+    answer=AH
+    answer=Hot tomato soup and a nice slice of toasted sourdough bread
+}
+
+# Cloud photos show up instead of the usual scenes (photos/clouds/<name>.jpg).
+question "What is your favourite type of cloud?" {
+    id=clouds
+    auto
+    loop_to=hotdog
+    answer=[title] What is your favourite type of cloud?
+    answer=[Mel][photo photos/clouds/mel.jpg] You know those wispy ones really high up?
+    answer=[P] Those are called cirrus clouds
+    answer=They're the highest clouds and are made up of ice crystals mainly
+    answer=[Mel] That's cool, I guess?
+    answer=[Diego][photo photos/clouds/diego.jpg] I don't know
+    answer=The fluffy ones I guess
+    answer=Sorry, that's just something I don't really care about.
+    answer=[Theo][photo photos/clouds/theo.jpg] Oooh, good question,
+    answer=I love a big plume-y rain cloud
+    answer=I love the rain in general
+    answer=[Pat][photo photos/clouds/pat.jpg] I love the streaky clouds
+    answer=That cover the whole sky
+    answer=[Alex][photo photos/clouds/alex.jpg] I love one big grey sky
+    answer=A little drizzle is perfect too
+    answer=[Theresa][photo photos/clouds/theresa.jpg] I love a clear day
+    answer=A perfectly blue sky
+    answer=Nothing better
+}
+
+question "Would you put lettuce on a hot dog?" {
+    id=hotdog
+    auto
+    answer=[title] Would you put lettuce on a hot dog?
+    answer=[Mel] That sounds so gross.
+
+    question "Why's that?" {
+        loop_to=hotdog_rest
+        answer=[Mel] I'm a pretty picky eater, so I don't really do green.
+    }
+
+    question "What do you eat then, other than chicken strips and rice?" {
+        loop_to=hotdog_rest
+        answer=[Mel] I literally don't eat anything else
+        answer=I have it for breakfast, lunch, and dinner
+        answer=Well, I only eat once per day but you get my point.
+    }
+}
+
+question "Would you put lettuce on a hot dog? (everyone else)" {
+    id=hotdog_rest
+    auto
+    loop_to=dancing
+    answer=[Diego] Sure, if you're into that sort of thing
+    answer=I don't judge
+    answer=[Theo] Nah, no way
+    answer=Doesn't go with ketchup
+    answer=Ketchup's an essential condiment for a hot dog
+    answer=[Pat] Eh, I don't really see anything wrong with it
+    answer=Wouldn't put it on my hot dog
+    answer=[Alex] Oh yeah, always
+    answer=People think I'm strange for it
+    answer=Then again, my favourite food is ice cream
+    answer=[P] You're the first person I've met who puts lettuce on a hot dog
+    answer=That's pretty special
+    answer=[Theresa] I don't put anything on hot dogs
+    answer=But that's because I don't eat hot dogs
+}
+
+question "Do you take dancing seriously?" {
+    id=dancing
+    auto
+    loop_to=graffiti
+    answer=[title] Do you take dancing seriously?
+    answer=[Mel] I don't think so. I try to have fun and that requires me not to take it so seriously
+    answer=But I guess I'm serious about my unseriousness...
+    answer=So do with that what you will
+    answer=[Diego] I don't really dance
+    answer=It's not because I can't or I'm against it or something
+    answer=I just spend most of my weekends at the office
+    answer=[Theo] I'm too cool for dancing
+    answer=Maybe too hot too
+    answer=[Pat] I don't dance
+    answer=[Alex] I used to dance
+    answer=I don't any more
+    answer=After, you know...
+    answer=[P] We'll get into that soon enough
+    answer=[Theresa] Oh, dead serious
+    answer=I love dancing
+    answer=I used to do flamenco when these hips were still real
+}
+
+question "How do you feel about graffiti?" {
+    id=graffiti
+    auto
+    answer=[title] How do you feel about graffiti?
+    answer=[Mel] Well, it's art of course
+    answer=I'd love to do something like that
+    answer=I guess I could graffiti the walls but that's no fun
+    answer=[Diego] Oh, not a fan
+    answer=I find that most of the time it's just some garbage tag
+    answer=Just look around the neighbourhood
+    answer=[Theo] Hell yeah, man,
+    answer=I used to do that all the time back in high school
+    answer=Don't really anymore
+
+    question "Why is that?" {
+        loop_to=graffiti_rest
+        answer=[Theo] Because I get charged as an adult now, silly
+    }
+
+    question "What kinda stuff did you throw up?" {
+        loop_to=graffiti_rest
+        answer=[Theo] Tags mostly
+    }
+}
+
+question "How do you feel about graffiti? (everyone else)" {
+    id=graffiti_rest
+    auto
+    loop_to=seasons
+    answer=[Pat] Oh, I hate tags
+    answer=But if it's a cool artwork, I approve
+    answer=[Alex] Yeah, I used to graffiti all the time
+    answer=[Theresa] Not a fan
+    answer=[overlay] I guess if I was younger, I wouldn't mind so much
+}
+
+question "How many seasons is your favourite show?" {
+    id=seasons
+    auto
+    loop_to=music
+    answer=[title] How many seasons is your favourite show?
+    answer=[Mel] 6 seasons... didn't really like the last two
+    answer=Community is what it was called
+    answer=[Diego] Friends, 10 seasons
+    answer=It's pretty mindless, but it keeps me going
+    answer=[Theo] Shameless...
+    answer=11 seasons
+    answer=[Pat] Doctor Who, 26 seasons
+    answer=It's all I watch in here basically
+    answer=[Alex] 2 seasons, Andor
+    answer=[P] Short and sweet
+    answer=That makes sense
+    answer=[Theresa] Oh, sadly too short
+    answer=6 seasons, it's called Downton Abbey
+}
+
+question "Have you ever had a musical phase?" {
+    id=music
+    auto
+    loop_to=social
+    answer=[title] Have you ever had a musical phase?
+    answer=[Mel] I used to play the piano as a kid
+    answer=My mom would take me to these lessons
+    answer=I never really enjoyed it
+    answer=I couldn't figure out how to move my hands independently, so I never got to play the stuff I wanted to
+    answer=[Diego] Yeah, actually...
+    answer=I was a theatre kid growing up
+    answer=[P] What kind of plays did you do?
+    answer=[Diego] Just silly middle school stuff
+    answer=I did The Addams Family once
+    answer=I played Gomez
+    answer=Singing and dancing and all that
+    answer=[Theo] I play the guitar
+    answer=Try to anyway
+    answer=Sold it though
+    answer=[Pat] Nah, I've always been more interested in the visual arts
+    answer=Used to paint before I came here
+    answer=[Alex] Yeah, I used to be in a band in middle school
+    answer=The Gob Knoblins
+    answer=Such a stupid fucking name
+    answer=It was my friend *****'s idea
+    answer=[Theresa] I still play the piano whenever I get the chance
+    answer=Although I'm not as good as I once was
+}
+
+question "Do you post on social media, or just lurk?" {
+    id=social
+    auto
+    loop_to=sleep
+    answer=[title] Do you post on social media, or just lurk?
+    answer=[Mel] Post! Oh god no, I just scroll reels all day.
+    answer=[Diego] The occasional story post, yeah
+    answer=[Theo] All the time
+    answer=I'm killing it on there
+    answer=[Pat] I don't even have a phone
+    answer=[Alex] Yeah, I used to post stories all the time
+    answer=I'd curate little posts too every now and then
+    answer=[Theresa] I don't know what lurk means
+    answer=[P] You know, like just look at people's posts
+    answer=[Theresa] Oh no, I post pictures of my grandkids and family gatherings and such
+}
+
+question "How many hours of sleep do you get?" {
+    id=sleep
+    auto
+    answer=[title] How many hours of sleep do you get?
+    answer=[Mel] 14
+    answer=Sometimes 16
+    answer=I like sleeping through most of the day and waking up at around 2:30
+
+    question "Why's that?" {
+        loop_to=sleep_rest
+        answer=[Mel] At around 4:30
+        answer=[cutaway cutaways/bluehour][overlay] Still a ways from sunset
+        answer=[overlay] There's an hour
+        answer=[overlay] That's blue
+        answer=[overlay] No one is awake at this time, not the degenerates or the early risers
+        answer=[overlay] It's just me
+    }
+
+    # Still in Mel's place.
+    question "Seems a bit excessive, no?" {
+        loop_to=sleep_rest
+        answer=[Mel] Again, that's a matter of opinion
+    }
+}
+
+question "How many hours of sleep do you get? (everyone else)" {
+    id=sleep_rest
+    auto
+    loop_to=dreams
+    answer=[Diego] Ha, I get 6 at best
+    answer=Sometimes 4 if it's crunch season
+    answer=[Theo] A decent 9 or 10
+    answer=All my classes are later on in the day
+    answer=[Pat] I sleep a good twelve hours
+    answer=They give you some pretty heavy stuff to help you sleep
+    answer=And it's all there is to do around here
+    answer=Unless you wanna do the same 3 puzzles over and over
+    answer=[Alex] I sleep weird
+    answer=I get like 8, 9 hours
+    answer=But in spurts of 4 or 5 hours
+    answer=[Theresa] Not irregular for a woman my age
+    answer=5 or 6
+}
+
+question "Do you dream? Do you have nightmares?" {
+    id=dreams
+    auto
+    answer=[title] Do you dream? Do you have nightmares?
+    answer=[Mel] No, not really. I sleep a lot, so maybe that's why
+    answer=[Diego] Pure black, that's all I see
+    answer=[Theo] No way, Jose
+    answer=Smoke too much for that
+    answer=[P] Smoke what?
+    answer=[Theo] The carts, bro
+    answer=Like disposable weed pens
+    answer=[Pat][cutaway cutaways/moon] I have pretty vivid dreams
+    answer=I've been having this recurring one
+    answer=I'm on the moon
+    answer=And there's this well
+    answer=[overlay] I jump in the well
+    answer=And I wake up every time
+    answer=Just before I hit the bottom
+    answer=[Alex] Nightmares every time I sleep
+    answer=It's why I sleep so short
+    answer=I usually jolt awake when it gets too intense
+    answer=As you can tell...
+    answer=This causes me a lot of anxiety
+    answer=It's crazy
+
+    question "What kinda nightmares?" {
+        loop_to=dreams_rest
+        answer=[Alex] Oh, you know, the usual stuff
+        answer=A lot about *****
+        answer=A lot about what's to come
+        answer=[P] You're afraid of what's to come?
+        answer=[Alex] Shouldn't I be?
+    }
+
+    question "I'm sorry, that sounds horrible" {
+        loop_to=dreams_rest
+        answer=[Alex] It's okay; it's not all bad
+        answer=I'm unfazed by the most absurd things
+        answer=That's a perk
+    }
+}
+
+question "Do you dream? Do you have nightmares? (Theresa)" {
+    id=dreams_rest
+    auto
+    loop_to=happiest
+    answer=[Theresa] I dream of my family sometimes
+    answer=I don't see them much, so they show up in my dreams
+    answer=Grandmotherhood is weird like that
+}
+
+question "What age do you think was or will be the happiest?" {
+    id=happiest
+    auto
+    loop_to=songs
+    answer=[title] What age do you think was or will be the happiest?
+    answer=[Mel] 12 I think
+    answer=I had a lot of friends back then
+    answer=[P] You don't anymore?
+    answer=[Mel] Just the one
+    answer=His name is Andy
+    answer=Lives in a different country though so we just talk on the phone
+    answer=That's what I do with most of my day.
+    answer=[Diego] The way I see it, if I could just make it to 45
+    answer=Then I would have enough saved
+    answer=To go back home
+    answer=And enjoy the low cost of living, haha
+    answer=[Theo] Oh, gotta be like 65, 70
+    answer=That's the age where all you get to do
+    answer=Is take downers and read
+    answer=[Pat] Hmm
+    answer=45 I reckon
+    answer=Old enough to have your shit together
+    answer=Young enough to enjoy your body still
+    answer=Yeah, 45
+    answer=[Alex] Oh, I had a lot of fun in my early twenties
+    answer=It's gotta be that
+    answer=[Theresa] You know, I'm enjoying my 70s
+    answer=It's peaceful
+    answer=It feels like a conclusion
+}
+
+# Song links are YouTube searches for the title as written in the script.
+question "What is your saddest song recommendation?" {
+    id=songs
+    auto
+    loop_to=runaway
+    answer=[title] What is your saddest song recommendation?
+    answer=[Mel][link https://www.youtube.com/results?search_query=The+Microphones+The+Moon] Oh, easy, The Moon by The Microphones
+    answer=[link https://www.youtube.com/results?search_query=The+Microphones+I+Felt+Your+Shape] Actually, maybe it's I Felt Your Shape by The Microphones
+    answer=[Diego] That's a bit on the nose, isn't it
+    answer=Hmm, let's see
+    answer=[link https://www.youtube.com/results?search_query=London+Grammar+Wasting+My+Young+Years] I'd say Wasting My Young Years by London Grammar
+    answer=[Theo] I was just listening to it this morning
+    answer=[link https://www.youtube.com/results?search_query=Car+Seat+Headrest+I+know+that+Im+asleep+I+hope+that+youre+awake] It's Car Seat Headrest, I know that I'm asleep I hope that you're awake
+    answer=[Pat][link https://www.youtube.com/results?search_query=Alice+in+Chains+Nutshell] Alice in Chains, Nutshell
+    answer=[Alex] Oh, I could cry at the thought of this song
+    answer=[link https://www.youtube.com/results?search_query=Nick+Cave+and+the+Bad+Seeds+Into+My+Arms] Into My Arms, Nick Cave
+    answer=[Theresa] The most beautiful voice you'll ever hear is in this song
+    answer=[link https://www.youtube.com/results?search_query=Chet+Baker+I+Fall+in+Love+Too+Easily] It's Chet Baker, I Fall in Love Too Easily
+}
+
+question "Do you ever fantasise about running away somewhere far and leaving everything behind?" {
+    id=runaway
+    auto
+    answer=[title] Do you ever fantasise about running away somewhere far and leaving everything behind?
+    answer=[Mel] What would be the point
+    answer=I'd be an unemployed hikikomori anywhere in the world
+    answer=[Diego] Yeah, of course, sometimes I think about moving back home
+
+    question "Where's home?" {
+        loop_to=runaway_rest
+        answer=[Diego] Somewhere far away
+        answer=There's a lot of nice beaches
+        answer=Things are relatively cheap
+        answer=It's always sunny
+    }
+
+    # The script gives the photographer no line for this option -- he
+    # says nothing and Diego fills the silence.
+    question "..." {
+        loop_to=runaway_rest
+        answer=[Diego] Well, there's a reason I live here and not there
+        answer=Let's just say that
+    }
+}
+
+question "Do you ever fantasise about running away? (everyone else)" {
+    id=runaway_rest
+    auto
+    loop_to=images
+    answer=[Theo] Oh, I would love to disappear one day
+    answer=Just vanish without telling anyone
+    answer=Move into a cabin by the lake in the woods
+    answer=That's the life
+    answer=[Pat] Yeah, I think that's my only option
+    answer=Start somewhere new after the hospital
+    answer=Do it right this time
+    answer=[Alex] I used to
+    answer=I wanted to run away somewhere when I was younger
+    answer=Even had it all planned out
+    answer=I was gonna hit all the national parks on the way
+    answer=[P] What happened to the plan?
+    answer=[Alex] The person I was gonna do it with killed themselves
+    answer=[title] Oh
+    answer=[P] I'm sorry
+    answer=Let's move on
+    answer=[Theresa] Oh, I'm too old for that
+    answer=And my family
+    answer=No, I couldn't do that
+    answer=[P] Strange
+    answer=[Theresa] What?
+    answer=[P] Nothing.
+}
+
+question "Do you see images or things in your head?" {
+    id=images
+    auto
+    loop_to=reality
+    answer=[title] Do you see images or things in your head?
+    answer=[Mel] Sometimes I see my memories really vividly in my head
+    answer=Does that count?
+    answer=[Diego] I daydream a lot and those can get pretty dissociative
+    answer=Almost like I'm in there, you know
+    answer=[Theo] Nah, can't even put an apple in my mind's eye
+    answer=[P] Sorry
+    answer=[Pat] I'm a schizophrenic
+    answer=So I see a lot
+    answer=All the time
+    answer=[Alex] Yeah, sometimes I see *****
+    answer=It's weird
+    answer=It's good but it's weird
+    answer=[P] It's good?
+    answer=[Alex] Yeah, it's good
+    answer=[Theresa] I have a very active imagination
+    answer=[overlay] Most of the day is spent in a daydream
+}
+
+question "Do you believe in an objective reality?" {
+    id=reality
+    auto
+    loop_to=questions
+    answer=[title] Do you believe in an objective reality?
+    answer=[Mel] No, of course not,
+    answer=Reality isn't some absolute thing
+    answer=There are a million versions of reality
+    answer=It all depends on our perception
+    answer=Who's to say which one is the correct one
+    answer=If there is a correct one at all
+    answer=[Diego] Yeah, I guess
+    answer=Like, something happened, you know
+    answer=I don't really get the question
+    answer=[Theo] Nah, the way I see it
+    answer=Everyone's living in their own versions of reality
+    answer=What's real for one person might be fake to another
+    answer=[Pat] When you're a schizophrenic
+    answer=It's hard to believe in anything objective
+    answer=Everything comes through warped
+    answer=[Alex] I think every decision spawns its own little pocket universe
+    answer=Isn't that cool?!
+    answer=[Theresa] Oooh, questions like that go a bit over my head
+    answer=Sorry, dear
+}
+
+# The script has no answer from Alex here (the beatsheet: she used to ask
+# questions all the time) -- add her lines between Pat and Theresa once
+# they're written.
+question "How often do you ask questions?" {
+    id=questions
+    auto
+    ending
+    ending_text=End of Chapter 1
+    answer=[title] How often do you ask questions?
+    answer=[Mel] Can't say all that often
+    answer=I don't really speak much to anyone
+    answer=Hard to ask questions
+    answer=[Diego] All the time for work
+    answer=Not much outside of that
+    answer=[Theo] Better to stay quiet
+    answer=You don't wanna look foolish now
+    answer=[Pat] It's all I do in here other than sleep
+    answer=Ask people about their experiences
+    answer=We're a lot like that in that way
+    answer=[Theresa] Probably not as much as you, with your job
+    answer=But yes, I ask plenty of questions
+    answer=Mainly to my grandkids
+}

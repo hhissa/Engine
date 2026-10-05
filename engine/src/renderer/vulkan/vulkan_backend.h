@@ -30,10 +30,13 @@ public:
   void draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour) override;
   void draw_solid_quad(glm::vec2 position, glm::vec2 size,
                       glm::vec4 colour) override;
+  void draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
+                         glm::vec4 colour) override;
   SceneHandle load_scene(std::string_view sdf_path) override;
   void translate_scene(SceneHandle handle, glm::vec3 delta) override;
   void rotate_scene(SceneHandle handle, glm::vec3 euler_radians) override;
   void scale_scene(SceneHandle handle, f32 factor) override;
+  u32 streaming_backlog() const override;
   void remove_scene(SceneHandle handle) override;
   void clear_scenes() override;
   bool reconcile_scene(SceneHandle handle, std::string_view sdf_path) override;
@@ -43,6 +46,7 @@ public:
   void set_chunked_field_enabled(b8 enabled) override;
   void set_dynamic_primitive(std::string_view name) override;
   void request_cache_prewarm() override;
+  void set_cache_prewarm_on_load(b8 enabled) override;
   void set_primitive_transform(std::string_view name, glm::vec3 position,
                                glm::vec3 rotation_euler) override;
   void set_splat_mode(RendererSplatMode mode) override;
@@ -102,6 +106,11 @@ private:
   std::vector<UiQuadDrawRequest> queued_ui_quad_draws_;
   std::vector<LineDrawRequest> queued_line_draws_;
   std::vector<SolidQuadDrawRequest> queued_solid_quad_draws_;
+  std::vector<SolidQuadDrawRequest> queued_backdrop_quad_draws_;
+
+  // See set_cache_prewarm_on_load(). On by default -- every load_scene()
+  // re-arms pre-warming, which is what an editor wants.
+  b8 prewarm_on_load_ = true;
 
   // Tracks every currently loaded scene (see load_scene()): each handle
   // maps to the names of exactly the primitives/lights that load_scene()

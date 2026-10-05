@@ -26,6 +26,12 @@ namespace {
 // and the Chapter Select menu (see SHGame::setup_menus()) are both already
 // driven off this list rather than hardcoded per-chapter.
 struct ChapterDef {
+  // The name Chapter Select lists this chapter under -- the interviewee's
+  // own name rather than an ordinal, since who you are about to sit with
+  // is what the player is really choosing between. The last chapter has no
+  // name of its own to use: he's the one holding the camera in every other
+  // chapter, and no .conversation file ever names him, so he's listed by
+  // what he is instead.
   std::string display_name;
   std::string conversation_path;
   SceneState initial_state;
@@ -39,55 +45,35 @@ struct ChapterDef {
   // begin_chapter_playing(). Never shown on Continue (see start_chapter()'s
   // own comment).
   std::vector<std::string> intro_lines;
+  // True for a chapter whose .conversation file is a script -- every
+  // answer line naming its speaker, [Mel], [Theo], ... (see script_line.h)
+  // -- so the shot follows whoever is talking, cutting to their own room
+  // from a new angle each time (see SHGame::on_script_line()), instead of
+  // being driven by "Room_01".."Room_05" tag= names. initial_state is
+  // then just the room on screen before anyone has said anything.
+  bool speaker_staged = false;
 };
 
-// Rebuilt for the ch1_theo..ch8_photographer.conversation rework -- each
-// file tags its own questions with the same chapter-local "Room_01".."
-// Room_05" names (see game.h's SceneState comment and
-// register_chapter_scene_states() in game_scene_state.cpp for how those
-// get wired to a *different* block of scenes per chapter without needing
-// to be unique game-wide) rather than a story-beat name unique across the
-// whole game. Chapter 8 crosses back to Chapter 1's Theo directly (a
-// loop_to= inside ch8_photographer.conversation reaches a "Theo?" question)
-// but isn't a subject at all otherwise: it's the photographer turning the
-// camera on himself, which is also why its intro below doesn't fit the
-// "Another chair" formula every other chapter uses.
+// One entry per chapter of the script (assets/conversations/Beatsheets and
+// scripts/). Each chapter interviews everyone at once, cutting between
+// their rooms line by line, so these are speaker-staged (see
+// ChapterDef::speaker_staged) rather than one person per chapter like the
+// old ch1_theo..ch8_photographer files were. Chapters 2-4 ("Your story",
+// "The cutting", "Why we're really here") get an entry here as their
+// scripts are written.
 const std::vector<ChapterDef> kChapters = {
-    {"Chapter 1", "assets/conversations/ch1_theo.conversation",
-     SceneState::TheoRoom1,
-     // Placeholder -- replace with Chapter 1's actual introduction text;
-     // this exists to demonstrate/exercise the intertitle mechanism itself,
-     // not to author real story content.
-     {"What follows is a series of interviews conducted with victims of SH.",
-      "None of the victims survived their battles with self harm.","You need to change that.","Names have been changed for privacy. "}},
-    // Chapters 2-7 are reached both from Chapter Select directly and from
-    // each chapter's own ending (see finish_chapter() in this file), so
-    // each intro below just picks up "Another chair." rather than
-    // re-explaining the premise every time. Each opens on its own
-    // chapter's Room1 state (see kChapterRooms in game_scene_state.cpp)
-    // rather than sharing Chapter 1's, so a dedicated model can eventually
-    // replace man.sdf for one character without touching any other's --
-    // every room state currently renders as the same placeholder (see
-    // apply_scene_state()'s switch, game_scene_state.cpp), awaiting real
-    // content.
-    {"Chapter 2", "assets/conversations/ch2_thiago.conversation", SceneState::ThiagoRoom1,
-     {"Another chair.", "His name is Thiago."}},
-    {"Chapter 3", "assets/conversations/ch3_alex.conversation", SceneState::AlexRoom1,
-     {"Another chair.", "His name is Alex."}},
-    {"Chapter 4", "assets/conversations/ch4_diego.conversation", SceneState::DiegoRoom1,
-     {"Another chair.", "His name is Diego."}},
-    {"Chapter 5", "assets/conversations/ch5_mel.conversation", SceneState::MelRoom1,
-     {"Another chair.", "Her name is Mel."}},
-    {"Chapter 6", "assets/conversations/ch6_pat.conversation", SceneState::PatRoom1,
-     {"Another chair.", "His name is Pat."}},
-    {"Chapter 7", "assets/conversations/ch7_theresa.conversation", SceneState::TheresaRoom1,
-     {"Another chair.", "Her name is Theresa."}},
-    // Deliberately not "Another chair." -- there is no subject in the
-    // chair this time; he has turned the camera around and sat down in it
-    // himself.
-    {"Chapter 8", "assets/conversations/ch8_photographer.conversation",
-     SceneState::PhotographerRoom1,
-     {"No more chairs.", "He turns the camera around."}},
+    {"Introductions", "assets/conversations/ch1_introductions.conversation",
+     SceneState::MelRoom1,
+     // The script's "Starting Text", each line on its own card, then the
+     // chapter's title.
+     {"This is a series of interviews I conducted in fall 2026",
+      "I have catalogued these interviews in the form of a game",
+      "Your role in this game is to be an interviewer",
+      "The role of an interviewer is to lead the conversation and listen.",
+      "Remember that you are only an interviewer",
+      "Nothing you do will change this story",
+      "Chapter 1: Introductions"},
+     /*speaker_staged=*/true},
 };
 
 // Mirrors kMinRenderScale/kMaxRenderScale in game_save.cpp (load_settings()'s
@@ -204,21 +190,27 @@ void SHGame::setup_menus() {
                             }}});
 
   // Title screen background -- real 3D geometry rather than just the flat
-  // skybox set in initialize(): the same room every chapter's Room1 state
-  // opens on, minus the man, lit the same way, so it reads as "the room,
-  // before the story starts" rather than an arbitrary placeholder. Loaded
-  // directly
-  // here (bypassing apply_scene_state(), which is for SceneState-tagged
-  // gameplay scenes only) so it isn't tied to any particular SceneState --
-  // begin_chapter_playing()'s first apply_scene_state() call tears
-  // loaded_scenes_ down like any other transition once a chapter actually
-  // starts, same as show_intertitle() already does for its own black
-  // screen. Swap the scene/pose below for whatever you'd rather show here
-  // -- this is an eyeballed placeholder, same as this file's other camera
-  // poses (see update_title_screen()/update_chapter_select()/
-  // update_settings_screen() for what keeps this pose actually applied and
-  // mouse-pannable across all three menu screens).
-  loaded_scenes_.push_back(renderer_load_scene("assets/scenes/man.sdf")
+  // skybox set in initialize(): man.sdf alone at 3x, framed from
+  // torso height so the figure fills the screen behind the menu. Loaded
+  // directly here (bypassing apply_scene_state(), which is for
+  // SceneState-tagged gameplay scenes only) so it isn't tied to any
+  // particular SceneState -- begin_chapter_playing()'s first
+  // apply_scene_state() call tears loaded_scenes_ down like any other
+  // transition once a chapter actually starts, same as show_intertitle()
+  // already does for its own black screen.
+  //
+  // Note man.sdf lives under assets/scenes/props/ -- it's a reusable
+  // figure, not one of the per-character rooms apply_scene_state() stages
+  // out of assets/scenes/rooms/ (see kStaging, game_scene_state.cpp).
+  // Its own origin sits at the head and the body runs towards +y (scenes
+  // are authored -Y up), which is what puts the pose below at a positive
+  // y while the rooms' cameras all sit at negative ones.
+  //
+  // The pose is a locked frame (max_pan and both zoom distances 0) since
+  // nothing on the menu screens should move -- see update_title_screen()/
+  // update_chapter_select()/update_settings_screen() for what keeps it
+  // applied across all three.
+  loaded_scenes_.push_back(renderer_load_scene("assets/scenes/props/man.sdf")
                                .scale(3.0)
                                .translate(glm::vec3(0.0, 0.0, 0.0)));
 
@@ -236,8 +228,14 @@ void SHGame::build_title_menu() {
   if (has_save()) {
     items.push_back({"Continue", [this] {
                        std::optional<SavedProgress> saved = load_save();
-                       start_chapter(saved ? saved->chapter_index : 0,
-                                     /*fresh=*/false);
+                       // A save from a chapter that's since been removed
+                       // (e.g. the old one-person-per-chapter layout) has
+                       // nothing to resume -- start over instead.
+                       if (!saved || saved->chapter_index >= kChapters.size()) {
+                         start_chapter(0, /*fresh=*/true);
+                         return;
+                       }
+                       start_chapter(saved->chapter_index, /*fresh=*/false);
                      }});
   }
   items.push_back(
@@ -308,6 +306,13 @@ void SHGame::finish_chapter(std::vector<std::string> ending_lines) {
 }
 
 void SHGame::begin_chapter_playing(size_t index, bool fresh) {
+  if (kChapters[index].speaker_staged && !rooms_prepared_) {
+    // Once per run, before the first chapter that cuts between rooms --
+    // see prepare_speaker_rooms().
+    prepare_speaker_rooms(
+        [this, index, fresh] { begin_chapter_playing(index, fresh); });
+    return;
+  }
   if (dialogue_ != kInvalidConversationHandle) {
     qa_.unload_conversation(dialogue_);
   }
@@ -319,6 +324,9 @@ void SHGame::begin_chapter_playing(size_t index, bool fresh) {
   // via QASystem::clear_scene_states() -- see register_chapter_scene_
   // states()'s own comment (game.h).
   register_chapter_scene_states(index);
+  speaker_staged_ = chapter.speaker_staged;
+  shot_ = Shot{};
+  visits_.clear();
 
   SceneState state_to_apply = chapter.initial_state;
   if (!fresh) {
@@ -334,6 +342,9 @@ void SHGame::begin_chapter_playing(size_t index, bool fresh) {
       qa_.apply_flags(saved->flags);
       state_to_apply = saved->scene_state;
     }
+    // A speaker-staged chapter is one long chain of `auto` questions, so
+    // the first one still unasked is exactly where the player left off.
+    qa_.resume_at_first_unasked();
   }
   apply_scene_state(state_to_apply);
 

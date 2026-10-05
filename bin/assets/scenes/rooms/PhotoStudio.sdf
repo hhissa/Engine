@@ -1,6 +1,7 @@
 #sdf scene file
 version=0.1
 ambient=0.69
+skybox=skybox_to_equirect_2
 
 light light3 {
     type=point

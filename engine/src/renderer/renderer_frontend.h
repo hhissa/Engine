@@ -47,6 +47,13 @@ void renderer_draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour);
 void renderer_draw_solid_quad(glm::vec2 position, glm::vec2 size,
                              glm::vec4 colour);
 
+// renderer_draw_solid_quad()'s opposite end of the draw order: drawn over
+// the scene but UNDER every text/quad/line queued this frame -- see
+// RendererBackend::draw_backdrop_quad(). E.g. a black card for title text
+// to sit on without unloading the scene behind it.
+void renderer_draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
+                                glm::vec4 colour);
+
 // Queues a "looking through a camera" viewfinder-style HUD overlay within
 // the given screen rect (position/size in screen pixels, matching
 // renderer_draw_ui_quad()'s convention): rule-of-thirds grid lines, corner
@@ -186,6 +193,16 @@ void renderer_set_dynamic_primitive(std::string_view name);
 // needed by a caller that swaps scenes through renderer_reconcile_scene()
 // rather than renderer_load_scene(), which re-arms by itself.
 void renderer_request_cache_prewarm();
+
+// Whether renderer_load_scene() re-arms cache pre-warming by itself (on by
+// default) -- see RendererBackend::set_cache_prewarm_on_load().
+void renderer_set_cache_prewarm_on_load(b8 enabled);
+
+// How many chunks of the streamed field around the camera are still
+// loading or baking -- 0 once it is complete. A camera cut to somewhere
+// new pushes it up for a few frames; a game can hold a cover over the
+// frame until it drains rather than show the field filling in.
+u32 renderer_streaming_backlog();
 
 // Moves one registered primitive in place -- for interactive dragging, so a
 // mouse-move costs three floats rather than re-saving and re-parsing the

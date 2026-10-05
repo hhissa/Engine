@@ -3,6 +3,7 @@
   /home/bumbandit/Projects/Engine/engine/src/defines.h \
   /home/bumbandit/Projects/Engine/engine/src/renderer/camera.h \
   /home/bumbandit/Projects/Engine/engine/src/renderer/renderer_types.inl \
+  /home/bumbandit/Projects/Engine/engine/src/resources/material_def.h \
   /home/bumbandit/Projects/Engine/engine/src/resources/sdf_scene.h \
   /home/bumbandit/Projects/Engine/tools/sdf_editor/src/scene_viewport.h \
   /usr/include/alloca.h \
@@ -312,6 +313,7 @@
   /usr/include/glm/detail/func_vector_relational.inl \
   /usr/include/glm/detail/qualifier.hpp \
   /usr/include/glm/detail/setup.hpp \
+  /usr/include/glm/detail/type_float.hpp \
   /usr/include/glm/detail/type_half.hpp \
   /usr/include/glm/detail/type_half.inl \
   /usr/include/glm/detail/type_mat2x2.hpp \
@@ -332,6 +334,8 @@
   /usr/include/glm/detail/type_mat4x3.inl \
   /usr/include/glm/detail/type_mat4x4.hpp \
   /usr/include/glm/detail/type_mat4x4.inl \
+  /usr/include/glm/detail/type_quat.hpp \
+  /usr/include/glm/detail/type_quat.inl \
   /usr/include/glm/detail/type_vec1.hpp \
   /usr/include/glm/detail/type_vec1.inl \
   /usr/include/glm/detail/type_vec2.hpp \
@@ -341,6 +345,8 @@
   /usr/include/glm/detail/type_vec4.hpp \
   /usr/include/glm/detail/type_vec4.inl \
   /usr/include/glm/exponential.hpp \
+  /usr/include/glm/ext/matrix_clip_space.hpp \
+  /usr/include/glm/ext/matrix_clip_space.inl \
   /usr/include/glm/ext/matrix_double2x2.hpp \
   /usr/include/glm/ext/matrix_double2x2_precision.hpp \
   /usr/include/glm/ext/matrix_double2x3.hpp \
@@ -377,6 +383,26 @@
   /usr/include/glm/ext/matrix_float4x3_precision.hpp \
   /usr/include/glm/ext/matrix_float4x4.hpp \
   /usr/include/glm/ext/matrix_float4x4_precision.hpp \
+  /usr/include/glm/ext/matrix_projection.hpp \
+  /usr/include/glm/ext/matrix_projection.inl \
+  /usr/include/glm/ext/matrix_transform.hpp \
+  /usr/include/glm/ext/matrix_transform.inl \
+  /usr/include/glm/ext/quaternion_common.hpp \
+  /usr/include/glm/ext/quaternion_common.inl \
+  /usr/include/glm/ext/quaternion_double.hpp \
+  /usr/include/glm/ext/quaternion_double_precision.hpp \
+  /usr/include/glm/ext/quaternion_float.hpp \
+  /usr/include/glm/ext/quaternion_float_precision.hpp \
+  /usr/include/glm/ext/quaternion_geometric.hpp \
+  /usr/include/glm/ext/quaternion_geometric.inl \
+  /usr/include/glm/ext/quaternion_relational.hpp \
+  /usr/include/glm/ext/quaternion_relational.inl \
+  /usr/include/glm/ext/quaternion_transform.hpp \
+  /usr/include/glm/ext/quaternion_transform.inl \
+  /usr/include/glm/ext/quaternion_trigonometric.hpp \
+  /usr/include/glm/ext/quaternion_trigonometric.inl \
+  /usr/include/glm/ext/scalar_constants.hpp \
+  /usr/include/glm/ext/scalar_constants.inl \
   /usr/include/glm/ext/scalar_int_sized.hpp \
   /usr/include/glm/ext/scalar_uint_sized.hpp \
   /usr/include/glm/ext/vector_bool2.hpp \
@@ -403,6 +429,8 @@
   /usr/include/glm/ext/vector_int3_sized.hpp \
   /usr/include/glm/ext/vector_int4.hpp \
   /usr/include/glm/ext/vector_int4_sized.hpp \
+  /usr/include/glm/ext/vector_relational.hpp \
+  /usr/include/glm/ext/vector_relational.inl \
   /usr/include/glm/ext/vector_uint2.hpp \
   /usr/include/glm/ext/vector_uint2_sized.hpp \
   /usr/include/glm/ext/vector_uint3.hpp \
@@ -412,6 +440,14 @@
   /usr/include/glm/fwd.hpp \
   /usr/include/glm/geometric.hpp \
   /usr/include/glm/glm.hpp \
+  /usr/include/glm/gtc/constants.hpp \
+  /usr/include/glm/gtc/constants.inl \
+  /usr/include/glm/gtc/epsilon.hpp \
+  /usr/include/glm/gtc/epsilon.inl \
+  /usr/include/glm/gtc/matrix_transform.hpp \
+  /usr/include/glm/gtc/matrix_transform.inl \
+  /usr/include/glm/gtc/quaternion.hpp \
+  /usr/include/glm/gtc/quaternion.inl \
   /usr/include/glm/integer.hpp \
   /usr/include/glm/mat2x2.hpp \
   /usr/include/glm/mat2x3.hpp \

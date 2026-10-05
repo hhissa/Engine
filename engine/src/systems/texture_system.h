@@ -1,7 +1,9 @@
 #pragma once
 #include "../renderer/vulkan/vulkan_texture.h"
 #include "../renderer/vulkan/vulkan_types.inl"
+#include "../resources/image_loader.h"
 
+#include <deque>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -60,6 +62,22 @@ private:
     u32 reference_count = 0;
     bool auto_release = false;
   };
+
+  // The decoded pixels of a texture, kept after its GPU texture is freed.
+  // Decoding is by far the slowest part of loading a texture -- hundreds
+  // of milliseconds for a large PNG, against a few for the upload -- and a
+  // host that swaps scenes back and forth (a game cutting between rooms)
+  // re-acquires the same textures over and over. With the pixels kept, a
+  // re-acquire is only the upload. Bounded by kDecodedCacheBudgetBytes;
+  // the oldest entries go first.
+  static constexpr u64 kDecodedCacheBudgetBytes = 768ull * 1024 * 1024;
+  std::unordered_map<std::string, LoadedImage> decoded_;
+  std::deque<std::string> decoded_order_; // oldest first
+  u64 decoded_bytes_ = 0;
+
+  // The decoded pixels for name: from decoded_ if they're there, otherwise
+  // decoded from disk and kept. nullptr if the file can't be loaded.
+  const LoadedImage *decoded_image(const std::string &name);
 
   VulkanContext *context_;
   std::unordered_map<std::string, Entry> textures_;

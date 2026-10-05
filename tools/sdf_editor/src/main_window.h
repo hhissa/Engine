@@ -8,6 +8,7 @@
 #include <QMainWindow>
 
 class QListWidget;
+class QTabWidget;
 class QTreeWidgetItem;
 class QComboBox;
 class QDoubleSpinBox;
@@ -15,6 +16,7 @@ class QLineEdit;
 class QPushButton;
 class QLabel;
 class QCheckBox;
+class QStackedWidget;
 class QTimer;
 class ContentsTreeWidget;
 
@@ -79,6 +81,9 @@ private slots:
   // on_pick_colour_clicked() for the emissive colour swatch (see
   // emissive_colour_/ensure_material()).
   void on_pick_emissive_colour_clicked();
+  // Mirrors it for the Beer-Lambert absorption tint -- see
+  // MaterialDef::absorption_tint.
+  void on_pick_absorption_colour_clicked();
   void on_pick_texture_clicked();
   void on_clear_texture_clicked();
   // Mirrors on_pick_texture_clicked()/on_clear_texture_clicked() for
@@ -177,6 +182,18 @@ private slots:
   // every other field here it's applied immediately with no selection
   // check.
   void on_ambient_changed();
+  // Imports an image into assets/textures/ (exactly as
+  // on_pick_texture_clicked() does for a primitive's diffuse map) and makes
+  // it this scene's skybox. The picked name is stored on scene_ and pushed
+  // to the renderer by the ordinary sync, which applies SdfScene::skybox --
+  // see on_clear_skybox_clicked() for why only the clear direction needs a
+  // direct renderer call of its own.
+  void on_pick_skybox_clicked();
+  void on_clear_skybox_clicked();
+  // Reflects scene_.skybox into skybox_label_ and applies it to the
+  // renderer -- called after loading a scene, which can bring a skybox with
+  // it or (just as meaningfully) not.
+  void apply_scene_skybox();
 
   // Mirrors on_type_selection_changed()/on_add_clicked()/on_remove_clicked()/
   // on_contents_tree_selection_changed()/on_live_edit_changed() above, for
@@ -191,6 +208,12 @@ private slots:
   void on_add_volumetric_clicked();
   void on_remove_volumetric_clicked();
   void on_pick_volumetric_colour_clicked();
+  // --- Materials tab slots ---
+  void on_materials_list_selection_changed();
+  void on_rename_material_clicked();
+  void on_duplicate_material_clicked();
+  void on_delete_material_clicked();
+  void on_assign_material_clicked();
   void on_pick_volumetric_texture_clicked();
   void on_clear_volumetric_texture_clicked();
   void on_volumetrics_list_selection_changed();
@@ -213,15 +236,35 @@ private:
   // on_contents_tree_selection_changed() to drive viewport_'s selection.
   std::vector<PrimitiveRef> tree_selected_primitives() const;
   // Re-derives scene_.layers from contents_tree_'s current structure after
-  // a drag-and-drop reparent: each layer keeps its own name/operation/
-  // smoothness (read back from scene_.layers at its stored kLayerIndexRole
-  // before rebuilding), but its primitives[] is rebuilt from whichever
-  // primitive child items now sit under it in the tree, resolved back to
-  // actual SdfPrimitiveDef values by the stable name every primitive item
-  // carries (see refresh_contents_list()'s comment) -- position-based
-  // (layer_index, primitive_index) pairs can't survive a reparent, since
-  // that's exactly what just changed.
+  // a drag-and-drop reparent or layer reorder: each layer keeps its own
+  // name/operation/smoothness (read back from scene_.layers at its stored
+  // kLayerIndexRole before rebuilding), but its primitives[] is rebuilt
+  // from whichever primitive child items now sit under it in the tree,
+  // resolved back to actual SdfPrimitiveDef values by the stable name
+  // every primitive item carries (see refresh_contents_list()'s comment)
+  // -- position-based (layer_index, primitive_index) pairs can't survive a
+  // reparent, since that's exactly what just changed. scene_.layers comes
+  // out in the tree's top-level order, so dragging a layer up or down the
+  // list is what reorders the scene's layers (order the renderer folds
+  // them in, hence meaningful -- see ContentsTreeWidget).
   void sync_layers_from_tree();
+  // The layer page of properties_stack_ (see its own comment): fills its
+  // fields from scene_.layers[layer_index], greys the repetition cell/count
+  // components that layer's mode doesn't read, and writes edits back.
+  // on_layer_field_changed() is deliberately separate from
+  // on_live_edit_changed(): that one edits the selected PRIMITIVE (and, via
+  // the primitive page's own Layer section, the layer it happens to sit
+  // in), this one edits the layer that is itself selected.
+  void populate_layer_fields(int layer_index);
+  void update_layer_field_enablement();
+  void on_layer_repetition_mode_changed();
+  void on_layer_field_changed();
+  // One layer's row label in contents_tree_ -- name, operation, smoothness,
+  // and its repetition when it has one. Shared by refresh_contents_list()
+  // (building the tree) and on_layer_field_changed() (relabelling one row
+  // in place, which is what keeps a live layer edit from rebuilding the
+  // tree and dropping the selection mid-edit).
+  static QString layer_item_text(const SdfLayerDef &layer);
   // Updates the position/rotation/param_spin_ fields' enabled/visible state
   // for the currently selected primitive type: position/rotation are
   // disabled (but stay visible) for Plane, which uses neither -- see
@@ -243,16 +286,71 @@ private:
   void populate_fields_from_selection(int layer_index, int primitive_index);
   // The inverse of populate_fields_from_selection(): writes the panel's
   // current field values into scene_.layers[layer_index]'s operation/
-  // smoothness and primitives[primitive_index], deriving a fresh material
-  // from colour_/texture_name_ via ensure_material(). Does not call
+  // smoothness and primitives[primitive_index], resolving its material
+  // binding via ensure_material_binding(). Does not call
   // sync_viewport_scene() itself -- callers do that once, after.
   void apply_fields_to_primitive(int layer_index, int primitive_index);
-  // Writes (or reuses, if already present) assets/materials/<name>.kmt for
-  // colour_ (+ texture_name_, if not empty) and returns its name -- the
-  // material_name every added/edited primitive references. Deterministic
-  // from the colour's RGBA and texture name, so repeated colour/texture
-  // choices reuse the same file instead of accumulating duplicates.
-  std::string ensure_material() const;
+  // --- Materials ------------------------------------------------------
+  //
+  // These replace what used to be a filename encoder: every material
+  // property was formatted into a deterministic .kmt filename, the file
+  // was written on the spot, and the primitive referenced it by that name.
+  // A material therefore could not be edited or renamed (both change the
+  // name, which makes it a DIFFERENT material), every spinbox tick wrote a
+  // file and presented the renderer with a destructive material swap, and
+  // the library grew without bound -- 949 files for the 93 materials any
+  // scene actually referenced. See material_def.h for the full account.
+  //
+  // Materials now live in scene_.materials, identified by a stable
+  // MaterialId that survives both editing and renaming.
+
+  // The panel's current material field values as a MaterialDef. Identity
+  // (id/display_name) is left blank -- that is the caller's business.
+  MaterialDef material_def_from_fields() const;
+  // The inverse: pushes a resolved material into the panel's widgets.
+  void populate_fields_from_material(const MaterialDef &def);
+
+  // The binding an edited primitive should end up with, given the material
+  // it currently references.
+  //
+  // Edits IN PLACE when that material has no other user -- the author
+  // changed a colour, so the material's colour changes and its id, name
+  // and every reference to it survive. Forks (via find_or_create_material)
+  // only when the material IS shared, where the same edit means "make this
+  // one different". Drawing that distinction is exactly what the filename
+  // scheme could not do, and why it forked on every keystroke.
+  MaterialId ensure_material_binding(MaterialId existing_id);
+  // Mirrors it for the Volumetrics tab, which has its own independent
+  // colour/texture widgets so the Primitives tab's selections cannot leak
+  // into whatever volumetric is being edited alongside it.
+  MaterialDef volumetric_material_def_from_fields() const;
+  void populate_volumetric_fields_from_material(const MaterialDef &def);
+  MaterialId ensure_volumetric_material_binding(MaterialId existing_id);
+
+  // The library material holding exactly these values, adding one if the
+  // scene has none -- reuse is by CONTENT, so picking a colour some
+  // existing material already uses lands on that material rather than
+  // making a near-duplicate.
+  MaterialId find_or_create_material(const MaterialDef &values);
+  // How many primitives and volumetrics reference this material. Drives
+  // the edit-in-place vs fork decision above, and the deletion guard.
+  u32 material_use_count(MaterialId id) const;
+  // `desired`, suffixed if the scene already has a material with that
+  // display name. Names are labels and nothing breaks if two collide --
+  // but a list with three entries called "white" is not a usable list.
+  std::string unique_material_name(std::string desired) const;
+
+  // Rebuilds materials_list_ from scene_.materials, preserving the
+  // selection by id where it still exists.
+  void refresh_material_list();
+  // The material currently selected in the Materials tab, or
+  // kInvalidMaterialId.
+  MaterialId selected_material_id() const;
+  void update_material_usage_label();
+  // Writes the property widgets back into the material selected in the
+  // Materials tab -- values only, never identity, so every primitive
+  // referencing it follows without re-binding.
+  void apply_fields_to_selected_material();
   // Writes scene_ to a fixed on-disk path and re-syncs it into the
   // renderer, so viewport_'s next tick shows the current in-memory scene_
   // -- called after every add/remove/load/live-edit. The very first call
@@ -316,14 +414,6 @@ private:
   // a volumetric instead of an opaque primitive.
   void populate_volumetric_fields_from_selection(int volumetric_index);
   void apply_fields_to_volumetric(int volumetric_index);
-  // Mirrors ensure_material() -- writes/reuses assets/materials/<name>.kmt
-  // for volumetric_colour_(+volumetric_texture_name_) and returns its name.
-  // A separate helper (rather than reusing ensure_material()) since a
-  // volumetric's material never has emissive/pixelation-exempt settings,
-  // and uses its own independent colour_/texture_name_-equivalent state --
-  // the Primitives tab's current selections shouldn't leak into whatever
-  // volumetric is being added/edited alongside it.
-  std::string ensure_volumetric_material() const;
 
   SdfScene scene_;
   // The renderer's handle for scene_'s live-preview registration -- see
@@ -399,7 +489,44 @@ private:
   // on_light_field_changed().
   bool populating_light_fields_ = false;
 
+  // Mirrors populating_fields_, for populate_layer_fields()/
+  // on_layer_field_changed().
+  bool populating_layer_fields_ = false;
+
   QListWidget *type_list_ = nullptr;
+  // Swaps the right-hand property sections between the primitive fields and
+  // the selected layer's own (operation/smoothness/layer repetition) --
+  // driven by on_contents_tree_selection_changed(). Page order is
+  // kPrimitivePropertiesPage/kLayerPropertiesPage (see the .cpp).
+  QStackedWidget *properties_stack_ = nullptr;
+  // The layer page's fields. Separate widgets from operation_combo_/
+  // smoothness_spin_ (which live on the primitive page and edit the
+  // selected primitive's layer) -- see populate_layer_fields().
+  QComboBox *layer_operation_combo_ = nullptr;
+  QDoubleSpinBox *layer_smoothness_spin_ = nullptr;
+  // The layer's own transform (see SdfLayerDef::position) -- moves and
+  // turns every primitive in the layer as one arrangement, without
+  // touching any of their authored positions. Rotation is shown in
+  // degrees here and stored in radians, exactly the conversion
+  // rot_x_/rot_y_/rot_z_ do for a primitive's own rotation.
+  QDoubleSpinBox *layer_pos_x_ = nullptr;
+  QDoubleSpinBox *layer_pos_y_ = nullptr;
+  QDoubleSpinBox *layer_pos_z_ = nullptr;
+  QDoubleSpinBox *layer_rot_x_ = nullptr;
+  QDoubleSpinBox *layer_rot_y_ = nullptr;
+  QDoubleSpinBox *layer_rot_z_ = nullptr;
+  // Repetition applied to the whole layer -- combo order matches
+  // SdfRepetitionMode's enum order exactly, same convention the primitive
+  // page's repetition_combo_ uses. See SdfLayerDef::repetition_mode for
+  // what repeating a layer means and how it differs from repeating each
+  // primitive in it.
+  QComboBox *layer_repetition_combo_ = nullptr;
+  QDoubleSpinBox *layer_repeat_cell_x_ = nullptr;
+  QDoubleSpinBox *layer_repeat_cell_y_ = nullptr;
+  QDoubleSpinBox *layer_repeat_cell_z_ = nullptr;
+  QDoubleSpinBox *layer_repeat_count_x_ = nullptr;
+  QDoubleSpinBox *layer_repeat_count_y_ = nullptr;
+  QDoubleSpinBox *layer_repeat_count_z_ = nullptr;
   ContentsTreeWidget *contents_tree_ = nullptr;
   QPushButton *new_layer_button_ = nullptr;
   QPushButton *copy_primitives_button_ = nullptr;
@@ -453,12 +580,16 @@ private:
   QDoubleSpinBox *repeat_count_x_ = nullptr;
   QDoubleSpinBox *repeat_count_y_ = nullptr;
   QDoubleSpinBox *repeat_count_z_ = nullptr;
-  // Domain deformation (see SdfPrimitiveDef::twist/bend/displace_amplitude/
-  // displace_frequency) -- all default to their identity/no-op value
-  // (0, matching the struct default, except displace_frequency_spin_
-  // which defaults to 20 the same way the struct does).
+  // Domain deformation (see SdfPrimitiveDef::twist/bend/bend_axis/
+  // displace_amplitude/displace_frequency) -- all default to their
+  // identity/no-op value (0, matching the struct default, except
+  // displace_frequency_spin_ which defaults to 20 the same way the struct
+  // does, and bend_axis_combo_ whose row 0 is SdfBendAxis::XToY).
   QDoubleSpinBox *twist_spin_ = nullptr;
   QDoubleSpinBox *bend_spin_ = nullptr;
+  // Row index matches SdfBendAxis' own enum order exactly, same convention
+  // repetition_combo_ uses for SdfRepetitionMode.
+  QComboBox *bend_axis_combo_ = nullptr;
   QDoubleSpinBox *displace_amplitude_spin_ = nullptr;
   QDoubleSpinBox *displace_frequency_spin_ = nullptr;
   QPushButton *colour_button_ = nullptr;
@@ -488,7 +619,30 @@ private:
   QDoubleSpinBox *texture_rotation_spin_ = nullptr;
   QPushButton *emissive_colour_button_ = nullptr;
   QDoubleSpinBox *emissive_intensity_spin_ = nullptr; // 0 = not emissive
+  // How deep the bump map above reads ("bump_strength=" in the written
+  // .kmt -- see Material::bump_strength engine-side). 1.0 is the fixed
+  // magnitude bump mapping was hardcoded at before this existed, so a
+  // material left alone here keeps exactly the name and the look it had.
+  QDoubleSpinBox *bump_strength_spin_ = nullptr;
   QCheckBox *pixelation_exempt_check_ = nullptr; // see Material::pixelation_exempt
+  // Unticked writes "casts_shadow=false" into the .kmt -- the primitive
+  // still renders and lights normally, but casts no shadow (see
+  // Material::casts_shadow engine-side).
+  QCheckBox *casts_shadow_check_ = nullptr;
+  // Surface + transmission (see MaterialDef). An IOR above 0 is what makes
+  // a primitive transmissive at all -- which also excludes it from the
+  // voxel bake, so rays pass through it and moving it re-bakes nothing.
+  QDoubleSpinBox *roughness_spin_ = nullptr;
+  // Whether this material is transmissive at all. Separate from ior_spin_
+  // because MaterialDef's "0 means opaque" sentinel and the meaningful
+  // IOR band [1, 3] are not one continuous range -- see where these are
+  // built for what conflating them cost.
+  QCheckBox *transmissive_check_ = nullptr;
+  QDoubleSpinBox *ior_spin_ = nullptr;
+  QPushButton *absorption_colour_button_ = nullptr;
+  QColor absorption_colour_ = Qt::white;
+  QDoubleSpinBox *absorption_thickness_spin_ = nullptr;
+  QCheckBox *thin_walled_check_ = nullptr;
   QPushButton *move_mode_button_ = nullptr;
   QPushButton *rotate_mode_button_ = nullptr;
   QPushButton *grid_button_ = nullptr; // see on_show_grid_toggled()
@@ -506,6 +660,13 @@ private:
   QPushButton *light_colour_button_ = nullptr;
   QDoubleSpinBox *light_intensity_spin_ = nullptr;
   QDoubleSpinBox *ambient_spin_ = nullptr;
+  // The scene's skybox picker (see SdfScene::skybox) -- scene-wide, like
+  // ambient_spin_ beside it, rather than a property of any one primitive.
+  // skybox_label_ shows the chosen assets/textures/<name>.png basename, or
+  // "(none)".
+  QPushButton *skybox_button_ = nullptr;
+  QPushButton *skybox_clear_button_ = nullptr;
+  QLabel *skybox_label_ = nullptr;
 
   // Volumetrics tab -- see the Volumetrics slot group above. Mirrors the
   // Primitives tab's own fields (type_list_/pos_*/rot_*/param_spin_/
@@ -515,6 +676,16 @@ private:
   // time.
   QListWidget *volumetric_type_list_ = nullptr;
   QListWidget *volumetrics_list_ = nullptr;
+  // The scene's material library (see the Materials helpers above). Each
+  // row carries its material's id in Qt::UserRole rather than relying on
+  // the row index, which shifts as materials are added and removed.
+  QListWidget *materials_list_ = nullptr;
+  QLabel *material_usage_label_ = nullptr;
+  // Which tab is open decides whether a property edit lands on the
+  // selected primitive's binding or on the selected library material --
+  // see on_live_edit_changed().
+  QTabWidget *tabs_ = nullptr;
+  int materials_tab_index_ = -1;
   QDoubleSpinBox *volumetric_pos_x_ = nullptr;
   QDoubleSpinBox *volumetric_pos_y_ = nullptr;
   QDoubleSpinBox *volumetric_pos_z_ = nullptr;

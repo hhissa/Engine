@@ -64,12 +64,26 @@ VulkanTexture::VulkanTexture(VulkanContext &context, u32 width, u32 height,
   }
   staging.load_data(0, image_size, 0, upload_data);
 
-  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, width, height, format,
-                      VK_IMAGE_TILING_OPTIMAL,
-                      VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                          VK_IMAGE_USAGE_SAMPLED_BIT,
-                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
-                      VK_IMAGE_ASPECT_COLOR_BIT, &image_);
+  // try_ rather than the asserting vulkan_image_create(): a scene texture is
+  // the one image the renderer CAN carry on without. Device-local memory is
+  // the scarce resource here -- the field's brick pools take well over a
+  // gigabyte before a single scene texture is loaded -- and running out of
+  // it while opening a scene used to abort the process inside
+  // vulkan_image_create()'s VK_CHECK. Reported as the sdf_editor dying on
+  // "illegal hardware instruction" when a second .sdf was opened over a
+  // first. Left invalid here instead, which is exactly what is_valid() and
+  // TextureSystem::acquire()'s default-texture fallback already exist for.
+  if (!vulkan_image_try_create(context_, VK_IMAGE_TYPE_2D, width, height,
+                               format, VK_IMAGE_TILING_OPTIMAL,
+                               VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                   VK_IMAGE_USAGE_SAMPLED_BIT,
+                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
+                               VK_IMAGE_ASPECT_COLOR_BIT, &image_)) {
+    KERROR("Failed to create the {}x{} image for a texture upload; the "
+           "texture will read as invalid.",
+           width, height);
+    return;
+  }
 
   auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
       *context_, context_->device.graphics_command_pool);

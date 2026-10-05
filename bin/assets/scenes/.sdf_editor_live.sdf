@@ -1,215 +1,213 @@
 #sdf scene file
 version=0.2
-ambient=0.25
+ambient=0.150000006
 skybox=skybox_to_equirect_2
 
-material white {
-    id=6ecea859f2c667ef
-    base_map=hospitalfloor
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    casts_shadow=false
+material popcornceiling (faffc9) {
+    id=e98c019c3bbbdf6b
+    base_colour=0.980391979 1 0.788235009 1
+    base_map=popcornceiling
+    bump_map=popcornceiling
+    bump_strength=10
 }
 
-material white 2 {
-    id=a59d3178641d10ca
-    base_colour=0.607843161 0.78039217 0.745098054 1
-    base_map=white
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    casts_shadow=false
+material dirtywall {
+    id=035670c98f2a6fe2
+    base_map=dirtywall
+    uv_scale=2
+    uv_offset=0 0.600000024 0
 }
 
-material white 3 {
-    id=bd0787bd1429f2b1
-    base_map=white
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    casts_shadow=false
-}
-
-material white (a1beb9) {
-    id=842718966ca71210
-    base_colour=0.65882355 0.65882355 0.65882355 1
-    base_map=white
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    casts_shadow=false
-}
-
-material white (a1beb9) 2 {
-    id=dde93d6355743229
-    base_colour=0.631372571 0.745098054 0.725490212 1
-    base_map=white
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    ior=1.5
-    absorption_tint=1 1 0.498039216
-    absorption_ref_thickness=0.689999998
-    thin_walled=true
-    casts_shadow=false
-}
-
-material white (a1beb9) 3 {
-    id=6e1f703748a0c1c8
-    base_colour=0.631372571 0.745098054 0.725490212 1
-    base_map=white
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    ior=1.5
-    casts_shadow=false
-}
-
-material outsidefloor {
-    id=a69e40c9a291a8f4
-    base_map=outsidefloor
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    casts_shadow=false
-}
-
-material white (7e7e7e) {
-    id=39f33a6285235682
-    base_colour=0.494117647 0.494117647 0.494117647 1
-    base_map=rusted_metal
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    casts_shadow=false
-}
-
-material white (ececec) {
-    id=ed1d55aaeb2496e6
-    base_colour=0.925490201 0.925490201 0.925490201 1
-    base_map=white
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    casts_shadow=false
-}
-
-material white (555500) {
-    id=8a581b8c7a273d47
-    base_map=white
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    casts_shadow=false
-}
-
-material woodtexture2 {
-    id=5a4796a07aa6209a
-    base_map=lightwoodveneer
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    casts_shadow=false
+material dirtywall (cfcfcf) {
+    id=866bf31fed1f7a1d
+    base_colour=0.811765015 0.811765015 0.811765015 1
+    base_map=dirtywall
+    uv_scale=2
+    uv_offset=0 0.600000024 0
 }
 
 material woodfloor {
-    id=33d53b726d5c8626
-    base_map=bluefabric
+    id=b932ae989978bc33
+    base_map=woodfloor
 }
 
-material bluefabric {
-    id=40e783e6ceb01005
-    base_map=bluefabric
+material white {
+    id=fa7aabe747754d49
 }
 
-material lightwoodveneer (000000) {
-    id=9809f661277d3f56
-    base_colour=0.23137255 0.23137255 0.23137255 1
-    base_map=lightwoodveneer
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    casts_shadow=false
+material white (152900) {
+    id=4c65b39e38fc6ea1
+    base_colour=0.082352899 0.160784006 0 1
+    base_map=white
+    uv_scale=2
+    uv_offset=0 0.600000024 0
+}
+
+material stainedtexture_png {
+    id=2c5eddf819ba23e8
+    base_map=stainedtexture_png
+    uv_scale=2
+    uv_offset=0 0.600000024 0
+}
+
+material scribbles {
+    id=122410e9b8ebe1ef
+    base_map=scribbles
+    uv_scale=0.699999988
+    uv_offset=0 0.600000024 0
+}
+
+material white (946300) {
+    id=461a06eed1c47636
+    base_colour=0.580392003 0.388235003 0 1
+    base_map=white
+    uv_scale=0.200000003
+    uv_offset=0 0.600000024 0
+    bump_map=popcornceiling
+}
+
+material white (604e25) {
+    id=bb94e85f736a60b7
+    base_colour=0.376471013 0.305882007 0.145098001 1
+    base_map=white
+    uv_offset=0.300000012 -0.400000006 0
+    uv_rotation=1.55333996
+    bump_map=popcornceiling
+}
+
+material white (71420d) {
+    id=119b16908da8b2f9
+    base_colour=0.44313699 0.258823991 0.0509804003 1
+    base_map=white
+    uv_scale=0.200000003
+    uv_offset=0 0.600000024 0
+    bump_map=popcornceiling
+}
+
+material brownwoodtexture (a4a4a4) {
+    id=b210f891228214f8
+    base_colour=0.643136978 0.643136978 0.643136978 1
+    base_map=brownwoodtexture
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+}
+
+material brownwoodtexture (696969) {
+    id=d56abf28300febea
+    base_colour=0.411765009 0.411765009 0.411765009 1
+    base_map=brownwoodtexture
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
 }
 
 material white (202020) {
-    id=a7b0129a1e098e3c
-    base_colour=0.125490203 0.125490203 0.125490203 1
+    id=00039f5f7a676735
+    base_colour=0.125489995 0.125489995 0.125489995 1
     base_map=white
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
-    casts_shadow=false
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
 }
 
 material white (000000) {
-    id=bef4688d59b7c342
+    id=3132bc69241021a2
     base_colour=0 0 0 1
     base_map=white
-    uv_scale=1.54999995
-    uv_offset=0 0 -0.5
-    uv_rotation=1.57079637
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+}
+
+material colour ffff7f {
+    id=40ac6a386bdfa47d
+    base_colour=1 1 0.498039007 1
+    uv_scale=0.200000003
+    uv_rotation=0.261799008
+}
+
+material white (202020) 2 {
+    id=c5877c8750000d54
+    base_colour=0.125490203 0.125490203 0.125490203 1
+    base_map=white
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+    ior=1
+    absorption_tint=1 0.909803927 0.235294119
+}
+
+material white (202020) 3 {
+    id=8d70458aa61cf548
+    base_colour=0.400000006 0.301960796 0.00392156886 1
+    base_map=white
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+}
+
+material white (000085) {
+    id=f1ddb69c457cec3e
+    base_colour=0.549019635 0.549019635 0.65882355 1
+    base_map=white
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+    roughness=1
+}
+
+material white (202020) 4 {
+    id=32862965bab03fdd
+    base_colour=0.125490203 0.125490203 0.125490203 1
+    base_map=white
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+    absorption_tint=1 0.909803927 0.235294119
+}
+
+material white (202020) 5 {
+    id=b3480fd0b1d61c62
+    base_colour=0.125490203 0.125490203 0.125490203 1
+    base_map=white
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+    ior=1
+    absorption_tint=1 0.909803927 0.235294119
+    thin_walled=true
+}
+
+material white 2 {
+    id=8cc29333139bec18
+    base_map=white
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+    roughness=1
+}
+
+material white 3 {
+    id=4890e2c38d759914
+    base_map=white
+    uv_scale=0.5
+    uv_offset=0 0.600000024 0
+    roughness=1
+    emissive_colour=1 1 0.498039216
+    emissive_intensity=1
     casts_shadow=false
 }
 
-material white 4 {
-    id=a5106af30661ace3
-    base_colour=1 1 0.498039216 1
-    base_map=Stripes
+light light0 {
+    type=directional
+    direction=0 -1 0
+    colour=1 0.917647064 0.592156887
+    intensity=0.200000003
 }
 
-material white 5 {
-    id=df2128c0a7bbc09e
-    base_colour=0.725490212 0.725490212 0.725490212 1
-    base_map=white
+light light1 {
+    type=directional
+    direction=0 0 -1
+    colour=1 0.917647064 0.592156887
+    intensity=0.400000006
 }
 
 light light2 {
     type=point
-    position=-0.610000014 -0.850000024 0.0199999996
-    colour=1 1 0.498039216
-    intensity=0.150000006
-}
-
-light light3 {
-    type=point
-    position=0.952574611 -0.845233083 0.0199999996
-    colour=1 1 0.498039216
-    intensity=0.25
-}
-
-light light4 {
-    type=point
-    position=-0.930000007 -0.680000007 -0.870000005
-    colour=1 1 0.498039216
-    intensity=0.150000006
-}
-
-light light5 {
-    type=point
-    position=-0.128688544 -0.680000007 -0.870000005
-    colour=1 1 0.498039216
-    intensity=0.150000006
-}
-
-light light6 {
-    type=point
-    position=1.0115639 -0.496854305 -0.870000005
-    colour=1 1 0.498039216
-    intensity=0.150000006
-}
-
-light light7 {
-    type=directional
-    direction=-0.5 -0.409999996 0.0199999996
-    colour=1 1 0.498039216
-    intensity=0.150000006
-}
-
-light light8 {
-    type=point
-    position=-0.0516837835 -0.850000024 0.0199999996
-    colour=1 1 0.498039216
-    intensity=0.25
+    position=0.140000001 -1.00051677 0.349999994
+    colour=1 1 1
+    intensity=0.550000012
 }
 
 layer layer0 {
@@ -218,90 +216,63 @@ layer layer0 {
 
     primitive primitive0 {
         type=box
-        position=0 0 1.77999997
+        position=0 -2.03999996 0
         rotation=0 0 0
-        half_extents=1.60000002 0.100000001 0.899999976
-        material=a69e40c9a291a8f4
+        half_extents=1 0.100000001 1.5
+        material=e98c019c3bbbdf6b
     }
 
     primitive primitive1 {
         type=box
-        position=-1.65394175 -0.579999983 0.000387191772
+        position=1.0540055 -0.970000029 0
         rotation=0 0 0
-        half_extents=0.100000001 1 0.899999976
-        material=a59d3178641d10ca
+        half_extents=0.100000001 1 1.5
+        material=035670c98f2a6fe2
     }
 
     primitive primitive2 {
         type=box
-        position=1.6428566 -0.579999983 0
+        position=-0.0199999996 -0.970000029 1.54999995
         rotation=0 0 0
-        half_extents=0.100000001 1 0.899999976
-        material=a59d3178641d10ca
+        half_extents=1 1 0.100000001
+        material=035670c98f2a6fe2
     }
 
-    primitive primitive3 {
-        type=box_frame
-        position=-0.00999999978 -0.579999983 0.860000014
-        rotation=0 1.57079637 0
-        params=0.00999999978 1 1.54999995 0.00999999978
-        material=bd0787bd1429f2b1
-    }
-
-    primitive primitive12 {
+    primitive primitive4 {
         type=box
-        position=0 0 0
+        position=-1.10000002 -0.970000029 0
         rotation=0 0 0
-        half_extents=1.60000002 0.100000001 0.899999976
-        material=6ecea859f2c667ef
+        half_extents=0.100000001 1 1.5
+        material=866bf31fed1f7a1d
     }
 
-    primitive primitive29 {
+    primitive primitive5 {
         type=box
-        position=0 -1.68750715 0
+        position=0 -0.0700000003 0
         rotation=0 0 0
-        half_extents=1.60000002 0.100000001 0.899999976
-        material=6ecea859f2c667ef
+        half_extents=1 0.100000001 1.5
+        material=b932ae989978bc33
     }
 }
 
 layer layer1 {
-    operation=union
+    operation=subtraction
     smoothness=0
-    repetition=limited
-    repetition_cell=0.800000012 1 1
-    repetition_count=5 1 1
-
-    primitive primitive4 {
-        type=box_frame
-        position=-1.13999999 -0.579999983 0.860000014
-        rotation=0 1.57079637 0
-        params=0.00999999978 1 0.400000006 0.00999999978
-        material=ed1d55aaeb2496e6
-    }
-
-    primitive primitive5 {
-        type=box_frame
-        position=-1.13999999 0.458450377 0.860000014
-        rotation=0 1.57079637 0
-        params=0.00999999978 1 0.400000006 0.00999999978
-        material=bd0787bd1429f2b1
-    }
 
     primitive primitive6 {
         type=box
-        position=-1.13999999 0.460000008 0.860000014
-        rotation=0 1.57079637 0
-        half_extents=0.00999999978 1 0.400000006
-        material=842718966ca71210
+        position=-0.469999999 -1.13999999 1.54999995
+        rotation=0 0 0
+        half_extents=0.300000012 0.400000006 0.300000012
+        material=035670c98f2a6fe2
     }
 
-    primitive primitive8 {
-        type=box
-        position=-1.13999999 -1.04999995 0.860000014
-        rotation=0 1.57079637 0
-        half_extents=0.00999999978 0.5 0.379999995
-        material=6e1f703748a0c1c8
+    primitive primitive11 {
+        type=sphere
+        position=-0.460000008 -1.54999995 1.64999998
+        rotation=0 0 0
+        radius=0.349999994
+        material=fa7aabe747754d49
     }
 }
 
@@ -309,28 +280,52 @@ layer layer2 {
     operation=union
     smoothness=0
 
+    primitive primitive7 {
+        type=box_frame
+        position=-0.607584596 -1.22000003 1.54999995
+        rotation=0 0 0
+        params=0.150000006 0.300000012 0.00999999978 0.00999999978
+        material=4c65b39e38fc6ea1
+    }
+
+    primitive primitive8 {
+        type=box_frame
+        position=-0.310000002 -1.22000003 1.54999995
+        rotation=0 0 0
+        params=0.150000006 0.300000012 0.00999999978 0.00999999978
+        material=4c65b39e38fc6ea1
+    }
+
     primitive primitive9 {
         type=box_frame
-        position=1.24000001 -0.230000004 0.860000014
-        rotation=0 1.57079637 0
-        params=0.00999999978 1 0.400000006 0.0199999996
-        material=8a581b8c7a273d47
+        position=-0.310000002 -0.833911359 1.54999995
+        rotation=0 0 0
+        params=0.150000006 0.100000001 0.00999999978 0.00999999978
+        material=4c65b39e38fc6ea1
     }
 
     primitive primitive10 {
         type=box_frame
-        position=1.20000005 -0.930000007 0.860000014
-        rotation=0 1.57079637 0
-        params=0.00999999978 0.200000003 0.300000012 0.0199999996
-        material=bd0787bd1429f2b1
+        position=-0.610492945 -0.829999983 1.54999995
+        rotation=0 0 0
+        params=0.150000006 0.100000001 0.00999999978 0.00999999978
+        material=4c65b39e38fc6ea1
     }
 
-    primitive primitive11 {
+    primitive primitive12 {
         type=box_frame
-        position=1.20000005 -0.479999989 0.860000014
-        rotation=0 1.57079637 0
-        params=0.00999999978 0.200000003 0.300000012 0.0199999996
-        material=bd0787bd1429f2b1
+        position=-0.610000014 -1.79274786 1.54999995
+        rotation=0 0 0
+        params=0.150000006 0.300000012 0.00999999978 0.00999999978
+        material=4c65b39e38fc6ea1
+    }
+
+    primitive primitive13 {
+        type=box_frame
+        position=-0.310150862 -1.78999996 1.54999995
+        rotation=0 0 0
+        params=0.150000006 0.300000012 0.00999999978 0.00999999978
+        material=4c65b39e38fc6ea1
     }
 }
 
@@ -338,154 +333,83 @@ layer layer3 {
     operation=union
     smoothness=0
 
-    primitive primitive13 {
-        type=capped_cylinder
-        position=-1.57000005 -0.720000029 2.6400001
-        rotation=0 0 0
-        params=0.0199999996 0.800000012 0 0
-        material=39f33a6285235682
-    }
-
-    primitive primitive15 {
-        type=capped_cylinder
-        position=1.57000005 -0.720000029 2.6400001
-        rotation=0 0 0
-        params=0.0199999996 0.800000012 0 0
-        material=39f33a6285235682
-    }
-
     primitive primitive16 {
-        type=capped_cylinder
-        position=-1.57000005 -0.610000014 1.77999997
-        rotation=1.04719758 0 0
-        params=0.00999999978 1 0 0
-        repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
-    }
-
-    primitive primitive17 {
-        type=capped_cylinder
-        position=-1.57000005 -0.610000014 2.07003832
-        rotation=-1.04719758 0 0
-        params=0.00999999978 1 0 0
-        repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
-    }
-
-    primitive primitive18 {
-        type=capped_cylinder
-        position=-0.884746611 -0.610000014 2.58959532
-        rotation=1.04719758 1.57079637 0
-        params=0.00999999978 1 0 0
-        repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
-    }
-
-    primitive primitive19 {
-        type=capped_cylinder
-        position=-0.884746611 -0.610000014 2.62954521
-        rotation=-1.04719758 1.57079637 0
-        params=0.00999999978 1 0 0
-        repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
-    }
-
-    primitive primitive20 {
-        type=capped_cylinder
-        position=-0.095577538 -0.720000029 2.6012311
+        type=round_box
+        position=-0.314829141 -0.209999993 0.460000008
         rotation=0 0 0
-        params=0.0199999996 0.800000012 0 0
-        material=39f33a6285235682
-    }
-
-    primitive primitive21 {
-        type=capped_cylinder
-        position=0.710453153 -0.610000014 2.64495134
-        rotation=1.04719758 1.57079637 0
-        params=0.00999999978 1 0 0
-        repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
-    }
-
-    primitive primitive22 {
-        type=capped_cylinder
-        position=0.710453153 -0.610000014 2.62954521
-        rotation=-1.04719758 1.57079637 0
-        params=0.00999999978 1 0 0
-        repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
-    }
-
-    primitive primitive23 {
-        type=capped_cylinder
-        position=1.65019131 -0.610000014 1.77999997
-        rotation=1.04719758 0 0
-        params=0.00999999978 1 0 0
-        repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
-    }
-
-    primitive primitive24 {
-        type=capped_cylinder
-        position=1.65019131 -0.610000014 2.07003832
-        rotation=-1.04719758 0 0
-        params=0.00999999978 1 0 0
-        repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
+        params=0.699999988 0.0399999991 0.5 0.0500000007
+        material=2c5eddf819ba23e8
     }
 }
 
 layer layer4 {
-    operation=subtraction
+    operation=union
     smoothness=0
 
-    primitive primitive25 {
+    primitive primitive15 {
         type=box
-        position=-1.57000005 -2.48000002 1.77999997
-        rotation=0 0 0
-        half_extents=0.00999999978 1 0.200000003
-        repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
+        position=-0.639999986 -0.25 -0.436506331
+        rotation=0 -0.349666089 0
+        half_extents=0.100000001 0.00999999978 0.100000001
+        repetition=rotational
+        repetition_cell=0.100000001 0.100000001 1
+        repetition_count=3 2 1
+        material=122410e9b8ebe1ef
     }
 
-    primitive primitive26 {
+    primitive primitive17 {
         type=box
-        position=1.67999995 -2.48000002 1.77999997
-        rotation=0 0 0
-        half_extents=0.109999999 1 0.400000006
+        position=-0.129999995 -0.25 1.34000003
+        rotation=0 -0.0516617447 0
+        half_extents=0.100000001 0.00999999978 0.100000001
         repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
+        repetition_cell=0.230000004 0.100000001 0.200000003
+        repetition_count=7 7 1
+        material=461a06eed1c47636
     }
 
-    primitive primitive27 {
+    primitive primitive18 {
         type=box
-        position=0.0100243092 -2.48000002 2.61565495
-        rotation=0 1.57079637 0
-        half_extents=0.109999999 1 0.400000006
+        position=-0.140000001 -0.280000001 1.34000003
+        rotation=0 -0.139626339 0
+        half_extents=0.100000001 0.0299999993 0.100000001
         repetition=limited
-        repetition_cell=1 0.100000001 0.100000001
-        repetition_count=1 1 25
-        material=39f33a6285235682
+        repetition_cell=0.230000004 0.100000001 1
+        repetition_count=7 7 1
+        material=bb94e85f736a60b7
+    }
+
+    primitive primitive19 {
+        type=box
+        position=-0.129999995 -0.219999999 1.33000004
+        rotation=0 -0.156381503 0
+        half_extents=0.100000001 0.00999999978 0.100000001
+        repetition=limited
+        repetition_cell=0.230000004 0.100000001 0.200000003
+        repetition_count=7 7 1
+        material=119b16908da8b2f9
+    }
+
+    primitive primitive52 {
+        type=box
+        position=-0.470096529 -0.237850457 -0.439999998
+        rotation=0 -0.349589437 0.275447667
+        half_extents=0.100000001 0.00999999978 0.100000001
+        repetition=rotational
+        repetition_cell=0.100000001 0.100000001 1
+        repetition_count=3 2 1
+        material=122410e9b8ebe1ef
+    }
+
+    primitive primitive53 {
+        type=box
+        position=-0.579999983 -0.25 -0.610000014
+        rotation=0 -0.716108561 0
+        half_extents=0.100000001 0.00999999978 0.100000001
+        repetition=rotational
+        repetition_cell=0.100000001 0.100000001 1
+        repetition_count=3 2 1
+        material=122410e9b8ebe1ef
     }
 }
 
@@ -493,480 +417,517 @@ layer layer5 {
     operation=union
     smoothness=0
 
-    primitive primitive30 {
+    primitive primitive20 {
         type=box
-        position=-1.29999995 -0.140000001 0
+        position=0.839999974 -0.340000004 0.460000008
         rotation=0 0 0
-        half_extents=0.300000012 0.200000003 0.5
-        material=33d53b726d5c8626
+        half_extents=0.200000003 0.140000001 0.400000006
+        material=b210f891228214f8
     }
 
-    primitive primitive31 {
-        type=box
-        position=-1.71260166 -0.425929427 0
+    primitive primitive21 {
+        type=box_frame
+        position=0.839999974 -0.340000004 0.460000008
         rotation=0 0 0
-        half_extents=0.300000012 0.200000003 0.5
-        material=33d53b726d5c8626
+        params=0.230000004 0.170000002 0.430000007 0.0199999996
+        material=b210f891228214f8
     }
 
-    primitive primitive32 {
-        type=box
-        position=-1.27342284 -0.233877331 -0.5
+    primitive primitive22 {
+        type=box_frame
+        position=0.839999974 -0.211973518 0.460000008
         rotation=0 0 0
-        half_extents=0.300000012 0.150000006 0.100000001
-        material=33d53b726d5c8626
+        params=0.230000004 0.170000002 0.430000007 0.00999999978
+        material=d56abf28300febea
     }
 
-    primitive primitive33 {
+    primitive primitive23 {
+        type=box_frame
+        position=0.839999974 -0.209999993 0.71610415
+        rotation=0 0 0
+        params=0.230000004 0.170000002 0.129999995 0.00999999978
+        material=d56abf28300febea
+    }
+
+    primitive primitive24 {
+        type=box_frame
+        position=0.839999974 -0.209999993 0.191318333
+        rotation=0 0 0
+        params=0.230000004 0.170000002 0.129999995 0.00999999978
+        material=d56abf28300febea
+    }
+
+    primitive primitive25 {
+        type=box
+        position=0.839999974 -0.50999999 0.460000008
+        rotation=0 0 0
+        half_extents=0.100000001 0.00999999978 0.200000003
+        material=00039f5f7a676735
+    }
+
+    primitive primitive26 {
+        type=box
+        position=0.839999974 -0.689999998 0.460000008
+        rotation=0 0 0
+        half_extents=0.0199999996 0.109999999 0.200000003
+        material=3132bc69241021a2
+    }
+
+    primitive primitive27 {
+        type=box_frame
+        position=0.832410276 -0.689999998 0.460000008
+        rotation=0 0 0
+        params=0.0199999996 0.129999995 0.219999999 0.00999999978
+        material=00039f5f7a676735
+    }
+
+    primitive primitive28 {
         type=capped_cylinder
-        position=-1.29999995 -0.400000006 -0.526696742
-        rotation=0 0 1.57079637
-        params=0.119999997 0.349999994 0 0
-        material=33d53b726d5c8626
-    }
-
-    primitive primitive35 {
-        type=capped_cylinder
-        position=-1.29999995 -0.400000006 0.469999999
-        rotation=0 0 1.57079637
-        params=0.119999997 0.349999994 0 0
-        material=33d53b726d5c8626
-    }
-
-    primitive primitive39 {
-        type=box
-        position=-1.26999998 -0.230000004 0.478749573
+        position=0.839999974 -0.529999971 0.475887418
         rotation=0 0 0
-        half_extents=0.300000012 0.150000006 0.100000001
-        material=33d53b726d5c8626
+        params=0.0199999996 0.109999999 0 0
+        material=00039f5f7a676735
     }
 }
 
 layer layer6 {
     operation=union
     smoothness=0
+    repetition=limited
+    repetition_cell=0.100000001 1 0.100000001
+    repetition_count=5 1 5
+
+    primitive primitive29 {
+        type=capped_cylinder
+        position=0.579999983 -0.25 -0.579999983
+        rotation=0 0 0
+        params=0.0500000007 0.0700000003 0 0
+        material=b3480fd0b1d61c62
+    }
+
+    primitive primitive30 {
+        type=capped_cylinder
+        position=0.582070112 -0.25 -0.579999983
+        rotation=0 0 0
+        params=0.0399999991 0.0700000003 0 0
+        material=8d70458aa61cf548
+    }
+
+    primitive primitive33 {
+        type=capped_cone
+        position=0.582070112 -0.370000005 -0.579999983
+        rotation=0 0 0
+        params=0.0500000007 0.0199999996 0.0500000007 0
+        material=c5877c8750000d54
+    }
 
     primitive primitive34 {
         type=capped_cylinder
-        position=0.469999999 -0.540000021 0.209999993
+        position=0.582070112 -0.430000007 -0.579999983
         rotation=0 0 0
-        params=0.319999993 0.0199999996 0 0
-        material=5a4796a07aa6209a
-    }
-
-    primitive primitive36 {
-        type=capped_cylinder
-        position=0.469999999 -0.270000011 0.209999993
-        rotation=0 0 0
-        params=0.0199999996 0.219999999 0 0
-        material=9809f661277d3f56
+        params=0.0199999996 0.00999999978 0 0
+        material=f1ddb69c457cec3e
     }
 }
 
 layer layer7 {
     operation=union
-    smoothness=0.0500000007
-    position=0 0 0
-    rotation=0 -1.74532926 0
+    smoothness=0
+
+    primitive primitive35 {
+        type=capped_cylinder
+        position=0.289999992 -0.25 -0.730000019
+        rotation=0 0 0
+        params=0.0500000007 0.0700000003 0 0
+        material=b3480fd0b1d61c62
+    }
+
+    primitive primitive36 {
+        type=capped_cylinder
+        position=0.289796084 -0.25 -0.726928353
+        rotation=0 0 0
+        params=0.0399999991 0.0700000003 0 0
+        material=8d70458aa61cf548
+    }
+
+    primitive primitive37 {
+        type=capped_cone
+        position=0.289796084 -0.370000005 -0.726928353
+        rotation=0 0 0
+        params=0.0500000007 0.0199999996 0.0500000007 0
+        material=c5877c8750000d54
+    }
+
+    primitive primitive38 {
+        type=capped_cylinder
+        position=0.289796084 -0.430000007 -0.726928353
+        rotation=0 0 0
+        params=0.0199999996 0.00999999978 0 0
+        material=f1ddb69c457cec3e
+    }
 
     primitive primitive40 {
-        type=box
-        position=-0.119999997 -0.150000006 -0.0399999991
-        rotation=-0.0263544712 1.27758098 0
-        half_extents=0.300000012 0.200000003 0.200000003
-        material=33d53b726d5c8626
+        type=capped_cylinder
+        position=0.219999999 -0.25 -0.600000024
+        rotation=0 0 0
+        params=0.0500000007 0.0700000003 0 0
+        material=b3480fd0b1d61c62
     }
 
     primitive primitive41 {
-        type=box
-        position=-0.230000004 -0.419999987 0.200000003
-        rotation=-0.0263544712 1.27758098 0
-        half_extents=0.100000001 0.200000003 0.200000003
-        material=33d53b726d5c8626
+        type=capped_cylinder
+        position=0.220047176 -0.25 -0.603108883
+        rotation=0 0 0
+        params=0.0399999991 0.0700000003 0 0
+        material=8d70458aa61cf548
     }
 
     primitive primitive42 {
-        type=box
-        position=-0.340000004 -0.200000003 -0.129999995
-        rotation=-0.0263544712 1.27758098 0
-        half_extents=0.300000012 0.150000006 0.100000001
-        material=33d53b726d5c8626
+        type=capped_cone
+        position=0.220047176 -0.370000005 -0.603108883
+        rotation=0 0 0
+        params=0.0500000007 0.0199999996 0.0500000007 0
+        material=c5877c8750000d54
     }
 
     primitive primitive43 {
         type=capped_cylinder
-        position=-0.343779594 -0.388760597 -0.112148002
-        rotation=1.27761209 0.00759671489 1.52195001
-        params=0.100000001 0.25 0 0
-        material=33d53b726d5c8626
+        position=0.220047176 -0.430000007 -0.603108883
+        rotation=0 0 0
+        params=0.0199999996 0.00999999978 0 0
+        material=f1ddb69c457cec3e
     }
 
     primitive primitive44 {
         type=capped_cylinder
-        position=0.0865526199 -0.408808261 0.0178992599
-        rotation=1.27761209 0.00759671489 1.52195001
-        params=0.109999999 0.25 0 0
-        material=33d53b726d5c8626
+        position=0.289796084 -0.25 -0.462660849
+        rotation=0 0 0
+        params=0.0500000007 0.0700000003 0 0
+        material=c5877c8750000d54
     }
 
     primitive primitive45 {
-        type=box
-        position=0.0700000003 -0.270000011 -0.00999999978
-        rotation=-0.0263544712 1.27758098 0
-        half_extents=0.200000003 0.150000006 0.100000001
-        material=33d53b726d5c8626
+        type=capped_cylinder
+        position=0.289796084 -0.25 -0.462660849
+        rotation=0 0 0
+        params=0.0399999991 0.0700000003 0 0
+        material=8d70458aa61cf548
+    }
+
+    primitive primitive46 {
+        type=capped_cone
+        position=0.289796084 -0.370000005 -0.462660849
+        rotation=0 0 0
+        params=0.0500000007 0.0199999996 0.0500000007 0
+        material=c5877c8750000d54
+    }
+
+    primitive primitive47 {
+        type=capped_cylinder
+        position=0.289796084 -0.430000007 -0.462660849
+        rotation=0 0 0
+        params=0.0199999996 0.00999999978 0 0
+        material=f1ddb69c457cec3e
+    }
+
+    primitive primitive48 {
+        type=capped_cylinder
+        position=0.479999989 -0.25 -0.879999995
+        rotation=0 0 0
+        params=0.0500000007 0.0700000003 0 0
+        material=b3480fd0b1d61c62
+    }
+
+    primitive primitive49 {
+        type=capped_cylinder
+        position=0.482389003 -0.25 -0.884403408
+        rotation=0 0 0
+        params=0.0399999991 0.0700000003 0 0
+        material=8d70458aa61cf548
+    }
+
+    primitive primitive50 {
+        type=capped_cone
+        position=0.482389003 -0.370000005 -0.884403408
+        rotation=0 0 0
+        params=0.0500000007 0.0199999996 0.0500000007 0
+        material=c5877c8750000d54
+    }
+
+    primitive primitive51 {
+        type=capped_cylinder
+        position=0.482389003 -0.430000007 -0.884403408
+        rotation=0 0 0
+        params=0.0199999996 0.00999999978 0 0
+        material=f1ddb69c457cec3e
     }
 }
 
 layer layer8 {
     operation=union
     smoothness=0
-    position=0 0 0
-    rotation=0 2.09439516 0
-
-    primitive primitive46 {
-        type=box
-        position=-0.364420474 -0.150000006 0.813905418
-        rotation=-0.0263544712 1.27758098 0
-        half_extents=0.300000012 0.200000003 0.200000003
-        material=33d53b726d5c8626
-    }
-
-    primitive primitive47 {
-        type=box
-        position=-0.474420786 -0.419999987 1.05390596
-        rotation=-0.0263544712 1.27758098 0
-        half_extents=0.100000001 0.200000003 0.200000003
-        material=33d53b726d5c8626
-    }
-
-    primitive primitive48 {
-        type=box
-        position=-0.58442086 -0.200000003 0.723905802
-        rotation=-0.0263544712 1.27758098 0
-        half_extents=0.300000012 0.150000006 0.100000001
-        material=33d53b726d5c8626
-    }
-
-    primitive primitive49 {
-        type=capped_cylinder
-        position=-0.588200331 -0.388760597 0.741757512
-        rotation=1.27761209 0.00759671489 1.52195001
-        params=0.100000001 0.25 0 0
-        material=33d53b726d5c8626
-    }
-
-    primitive primitive50 {
-        type=capped_cylinder
-        position=-0.157868326 -0.408808261 0.871804953
-        rotation=1.27761209 0.00759671489 1.52195001
-        params=0.109999999 0.25 0 0
-        material=33d53b726d5c8626
-    }
-
-    primitive primitive51 {
-        type=box
-        position=-0.174420416 -0.270000011 0.843905687
-        rotation=-0.0263544712 1.27758098 0
-        half_extents=0.200000003 0.150000006 0.100000001
-        material=33d53b726d5c8626
-    }
-}
-
-layer layer9 {
-    operation=union
-    smoothness=0
-
-    primitive primitive52 {
-        type=box
-        position=1.58000004 -1.04999995 0
-        rotation=0 0 0
-        half_extents=0.0799999982 0.280000001 0.479999989
-        material=a7b0129a1e098e3c
-    }
-
-    primitive primitive53 {
-        type=box_frame
-        position=1.58000004 -1.04999995 0
-        rotation=0 0 0
-        params=0.100000001 0.300000012 0.5 0.0199999996
-        material=bef4688d59b7c342
-    }
-}
-
-layer layer10 {
-    operation=union
-    smoothness=0
-
-    primitive primitive54 {
-        type=box
-        position=-1.21794868 -0.400000006 -0
-        rotation=0 0 0
-        half_extents=0.0500000007 0.0500000007 0.100000001
-        param_expr=0 0.05
-        param_expr=2 0.1 + 0.5*p.y
-        material=df2128c0a7bbc09e
-    }
 
     primitive primitive55 {
-        type=sphere
-        position=-1.21794868 -0.400000006 -0.162002176
+        type=box
+        position=0.0299999993 -0.300000012 0.00999999978
         rotation=0 0 0
-        radius=0.0500000007
-        param_expr=0 0.05
-        material=df2128c0a7bbc09e
+        half_extents=0.119999997 0.0500000007 0.0500000007
+        param_expr=0 0.08 - 0.2*p.y
+        param_expr=2 0.05 - 0.2*p.y
+        material=8cc29333139bec18
     }
 
     primitive primitive56 {
         type=sphere
-        position=-0.877948701 -0.400000006 0.159999996
+        position=-0.0900000036 -0.300000012 0.00999999978
         rotation=0 0 0
-        radius=0.0500000007
-        param_expr=0 0.03
-        material=df2128c0a7bbc09e
+        radius=0.0399999991
+        material=8cc29333139bec18
     }
 
     primitive primitive57 {
-        type=capped_cylinder
-        position=-1.03593278 -0.400000006 0.159999996
-        rotation=0 0 1.57079637
-        params=0.0500000007 0.100000001 0 0
-        param_expr=0 0.05 + 0.1*p.y
-        material=df2128c0a7bbc09e
+        type=sphere
+        position=0.159999996 -0.300000012 0.00999999978
+        rotation=0 0 0
+        radius=0.0399999991
+        material=8cc29333139bec18
     }
 
     primitive primitive58 {
-        type=sphere
-        position=-1.21794868 -0.400000006 0.160680234
-        rotation=0 0 0
-        radius=0.0500000007
-        param_expr=0 0.05
-        material=df2128c0a7bbc09e
+        type=capped_cylinder
+        position=-0.0900000036 -0.400000006 -0.0700000003
+        rotation=-2.44346094 0 0
+        params=0.0399999991 0.0700000003 0 0
+        param_expr=0 0.04 - 0.1*p.y
+        material=8cc29333139bec18
     }
 
     primitive primitive59 {
-        type=capped_cylinder
-        position=-0.879999995 -0.25 0.159999996
+        type=sphere
+        position=-0.0900000036 -0.576080382 -0.142156646
         rotation=0 0 0
-        params=0.0500000007 0.100000001 0 0
-        param_expr=0 0.03 - 0.1*p.y
-        material=df2128c0a7bbc09e
+        radius=0.0299999993
+        material=8cc29333139bec18
     }
 
     primitive primitive60 {
-        type=box
-        position=-0.879999995 -0.0900000036 0.159999996
-        rotation=0 0 0
-        half_extents=0.0500000007 0.0500000007 0.0199999996
-        material=df2128c0a7bbc09e
+        type=capped_cylinder
+        position=-0.0900000036 -0.366824269 -0.266127557
+        rotation=2.44346094 0 0
+        params=0.0399999991 0.119999997 0 0
+        param_expr=0 0.03 + 0.1*p.y
+        material=8cc29333139bec18
     }
 
     primitive primitive61 {
-        type=sphere
-        position=-1.00451112 -0.631299615 -0.179144025
-        rotation=0 0 -0.00170730078
-        radius=0.0500000007
-        param_expr=0 0.03
-        material=df2128c0a7bbc09e
-    }
-
-    primitive primitive62 {
-        type=capped_cylinder
-        position=-1.08852017 -0.548643708 -0.179144025
-        rotation=0 -0 0.629842162
-        params=0.0500000007 0.100000001 0 0
-        param_expr=0 0.05 + 0.1*p.y
-        material=df2128c0a7bbc09e
-    }
-
-    primitive primitive63 {
-        type=capped_cylinder
-        position=-1.00630629 -0.48129642 -0.179144025
-        rotation=0 0 -0.00170730078
-        params=0.0500000007 0.100000001 0 0
-        param_expr=0 0.03 - 0.1*p.y
-        material=df2128c0a7bbc09e
-    }
-
-    primitive primitive64 {
         type=box
-        position=-0.980000019 -0.355452091 -0.180000007
-        rotation=0 0 -0.00174532924
-        half_extents=0.0500000007 0.0199999996 0.0199999996
-        material=df2128c0a7bbc09e
+        position=-0.0900000036 -0.25 -0.370000005
+        rotation=2.44346094 0 0
+        half_extents=0.0199999996 0.00999999978 0.0299999993
+        material=8cc29333139bec18
     }
 
-    primitive primitive65 {
+    primitive primitive67 {
+        type=capped_cylinder
+        position=0.146138296 -0.400000006 -0.0700000003
+        rotation=-2.44346094 0 0
+        params=0.0399999991 0.0700000003 0 0
+        param_expr=0 0.04 - 0.1*p.y
+        material=8cc29333139bec18
+    }
+
+    primitive primitive68 {
         type=sphere
-        position=-1.22000003 -0.532155156 0.00130149722
+        position=0.146138296 -0.49000001 -0.142156646
         rotation=0 0 0
-        radius=0.0500000007
-        param_expr=0 0.05
-        material=df2128c0a7bbc09e
+        radius=0.0299999993
+        material=8cc29333139bec18
     }
 
-    primitive primitive66 {
-        type=ellipsoid
-        position=-1.22000003 -0.75 0
-        rotation=0 0 0
-        params=0.100000001 0.150000006 0.119999997 0
-        material=df2128c0a7bbc09e
+    primitive primitive69 {
+        type=capped_cylinder
+        position=0.146138296 -0.366824269 -0.266127557
+        rotation=2.44346094 0 0
+        params=0.0399999991 0.119999997 0 0
+        param_expr=0 0.03 + 0.1*p.y
+        material=8cc29333139bec18
     }
 
     primitive primitive70 {
-        type=sphere
-        position=-1.1849817 -0.879999995 -0.156594276
-        rotation=0.00129963655 -0.640101671 -0.00217608293
-        radius=0.0399999991
-        material=df2128c0a7bbc09e
+        type=box
+        position=0.146138296 -0.25 -0.370000005
+        rotation=2.44346094 0 0
+        half_extents=0.0199999996 0.00999999978 0.0299999993
+        material=8cc29333139bec18
     }
 
-    primitive primitive73 {
-        type=sphere
-        position=-1.05449462 -0.776165962 -0.313665003
-        rotation=0.00122173049 -0.640186787 -0.00209439499
-        radius=0.0299999993
-        material=df2128c0a7bbc09e
+    primitive primitive71 {
+        type=ellipsoid
+        position=0.0399999991 -0.620000005 0.0199999996
+        rotation=0 0 0
+        params=0.0399999991 0.119999997 0.0700000003 0
+        param_expr=0 0.09 - 0.1*p.y
+        material=8cc29333139bec18
     }
 
     primitive primitive72 {
-        type=capped_cylinder
-        position=-1.12224102 -0.819999993 -0.243116513
-        rotation=-1.14109623 -0.658512712 0
-        params=0.0500000007 0.0700000003 0 0
-        param_expr=0 0.04 - 0.1*p.y
-        material=df2128c0a7bbc09e
-    }
-
-    primitive primitive74 {
         type=sphere
-        position=-1.1849817 -0.915044725 0.126829699
-        rotation=1.42604029 -0.105306104 -0.632586718
+        position=0.0399999991 -0.430000007 0.0199999996
+        rotation=0 0 0
         radius=0.0399999991
-        material=df2128c0a7bbc09e
+        material=4890e2c38d759914
     }
 
-    primitive primitive75 {
+    primitive primitive77 {
         type=sphere
-        position=-1.05449462 -0.741935134 0.200895727
-        rotation=1.42601943 -0.105383307 -0.632661819
+        position=-0.0997311547 -0.730000019 0
+        rotation=0 0 -1.14022362
         radius=0.0299999993
-        material=df2128c0a7bbc09e
-    }
-
-    primitive primitive76 {
-        type=capped_cylinder
-        position=-1.12224102 -0.819186091 0.170386836
-        rotation=0.286899716 -0.109671339 -0.650661111
-        params=0.0500000007 0.0700000003 0 0
-        param_expr=0 0.04 - 0.1*p.y
-        material=df2128c0a7bbc09e
+        material=8cc29333139bec18
     }
 
     primitive primitive78 {
-        type=capped_cylinder
-        position=-0.995764613 -0.744614065 -0.25999999
-        rotation=2.00049639 -0.731642008 3.14159274
-        params=0.0500000007 0.0700000003 0 0
-        param_expr=0 0.03 - 0.1*p.y
-        material=df2128c0a7bbc09e
+        type=sphere
+        position=0.167462885 -0.730000019 0
+        rotation=0 0 -1.14022362
+        radius=0.0299999993
+        material=8cc29333139bec18
     }
 
     primitive primitive79 {
+        type=capped_cylinder
+        position=-0.0900000036 -0.648142397 -0.0581108555
+        rotation=2.44346094 0 0
+        params=0.0399999991 0.0700000003 0 0
+        param_expr=0 0.03 + 0.1*p.y
+        material=8cc29333139bec18
+    }
+
+    primitive primitive80 {
+        type=sphere
+        position=-0.0900000036 -0.49000001 -0.140000001
+        rotation=0 0 0
+        radius=0.0299999993
+        material=8cc29333139bec18
+    }
+
+    primitive primitive81 {
+        type=sphere
+        position=0.127297312 -0.578256607 -0.142156646
+        rotation=0 -0 0.349330753
+        radius=0.0299999993
+        material=8cc29333139bec18
+    }
+
+    primitive primitive82 {
+        type=capped_cylinder
+        position=0.151961923 -0.645966172 -0.0581108555
+        rotation=2.44346094 -7.4505806e-09 0.349330753
+        params=0.0399999991 0.0700000003 0 0
+        param_expr=0 0.03 + 0.1*p.y
+        material=8cc29333139bec18
+    }
+
+    primitive primitive83 {
+        type=capped_cylinder
+        position=0.011464132 -0.52665478 -0.243704528
+        rotation=2.44346094 0 1.19572508
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.02 + 0.1*p.y
+        material=8cc29333139bec18
+    }
+
+    primitive primitive84 {
         type=box
-        position=-0.933874249 -0.696640193 -0.18535167
-        rotation=2.00049639 -0.731642008 3.14159274
-        half_extents=0.0199999996 0.0199999996 0.0199999996
-        material=df2128c0a7bbc09e
+        position=-0.0900000036 -0.5 -0.319999993
+        rotation=2.44346094 -0 1.29928589
+        half_extents=0.0199999996 0.0299999993 0.0199999996
+        material=8cc29333139bec18
+    }
+
+    primitive primitive85 {
+        type=capped_cylinder
+        position=0.00999999978 -0.560457647 -0.239999995
+        rotation=2.44346094 -0.34906584 -1.19572508
+        params=0.0399999991 0.0900000036 0 0
+        param_expr=0 0.02 + 0.1*p.y
+        material=8cc29333139bec18
+    }
+
+    primitive primitive86 {
+        type=box
+        position=0.109999999 -0.550000012 -0.319999993
+        rotation=2.44346094 0 -1.29922318
+        half_extents=0.0199999996 0.0299999993 0.0199999996
+        material=8cc29333139bec18
+    }
+
+    primitive primitive87 {
+        type=capsule
+        position=0.0399999991 -0.771515906 0
+        rotation=0 0 0
+        params=0.0199999996 0.0299999993 0 0
+        material=8cc29333139bec18
+    }
+
+    primitive primitive88 {
+        type=sphere
+        position=0.0399999991 -0.910000026 0
+        rotation=0 0 0
+        radius=0.0599999987
+        material=8cc29333139bec18
+    }
+}
+
+layer layer10 {
+    operation=subtraction
+    smoothness=0
+
+    primitive primitive74 {
+        type=ellipsoid
+        position=0.0399999991 -0.569999993 0.00275676977
+        rotation=0 0 0
+        params=0.0399999991 0.0700000003 0.0500000007 0
+        param_expr=0 0.06 - 0.1*p.y
+        material=8cc29333139bec18
     }
 }
 
 layer layer11 {
-    operation=subtraction
-    smoothness=0
-
-    primitive primitive67 {
-        type=ellipsoid
-        position=-1.14927363 -0.660319209 0
-        rotation=0 0 0
-        params=0.100000001 0.0799999982 0.119999997 0
-        material=df2128c0a7bbc09e
-    }
-}
-
-layer layer13 {
     operation=union
     smoothness=0.0500000007
 
-    primitive primitive68 {
+    primitive primitive75 {
         type=capsule
-        position=-1.22000003 -0.890451074 0.0442544445
-        rotation=1.14109623 0 0
-        params=0.0199999996 0.0399999991 0 0
-        material=df2128c0a7bbc09e
+        position=0.0700000003 -0.730000019 0
+        rotation=0 0 -1.14022362
+        params=0.00999999978 0.0299999993 0 0
+        material=8cc29333139bec18
     }
 
-    primitive primitive69 {
+    primitive primitive76 {
         type=capsule
-        position=-1.22000003 -0.88966161 -0.0602251813
-        rotation=-1.14109623 0 0
-        params=0.0199999996 0.0399999991 0 0
-        material=df2128c0a7bbc09e
+        position=0.00999999978 -0.730000019 0
+        rotation=0 0 1.14022362
+        params=0.00999999978 0.0299999993 0 0
+        material=8cc29333139bec18
     }
 
-    primitive primitive82 {
-        type=capsule
-        position=-1.21000004 -0.959999979 -0.00999999978
-        rotation=0 0 0
-        params=0.0299999993 0.0199999996 0 0
-        material=df2128c0a7bbc09e
-    }
-
-    primitive primitive83 {
-        type=sphere
-        position=-1.19201028 -1.05554104 -0.00999999978
-        rotation=0 0 0
-        radius=0.0700000003
-        material=df2128c0a7bbc09e
-    }
-
-    primitive primitive84 {
+    primitive primitive89 {
         type=ellipsoid
-        position=-1.16590822 -0.998422265 -0.00999999978
+        position=0.0399999991 -0.864088774 0
         rotation=0 0 0
-        params=0.0500000007 0.0199999996 0.0299999993 0
+        params=0.0599999987 0.0500000007 0.0399999991 0
         param_expr=0 0.05 - 0.2*p.y
-        material=df2128c0a7bbc09e
-    }
-}
-
-layer layer14 {
-    operation=union
-    smoothness=0
-
-    primitive primitive80 {
-        type=capped_cylinder
-        position=-1.07725477 -0.621886313 0.213890195
-        rotation=0 0 0
-        params=0.0500000007 0.0700000003 0 0
-        param_expr=0 0.03 - 0.1*p.y
-        material=df2128c0a7bbc09e
-    }
-
-    primitive primitive81 {
-        type=box
-        position=-1.07134485 -0.491572022 0.205026671
-        rotation=0 0 0
-        half_extents=0.0199999996 0.0199999996 0.0199999996
-        material=df2128c0a7bbc09e
+        material=8cc29333139bec18
     }
 }
 
 volumetric volumetric0 {
     type=box
-    position=0 -0.800000012 0.5
-    rotation=-0.52359879 0 0
-    params=1.70000005 1 0.200000003 0
+    position=-0.200000003 -0.800000012 1.10000002
+    rotation=0.785398185 -0.436332315 0
+    params=0.300000012 0.400000006 2 0
     density=1
-    material=a5106af30661ace3
+    material=40ac6a386bdfa47d
 }
