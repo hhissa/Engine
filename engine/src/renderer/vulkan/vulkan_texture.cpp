@@ -36,7 +36,7 @@ void transition_layout(VulkanContext &context, VulkanCommandBuffer &cmd,
 
 VulkanTexture::VulkanTexture(VulkanContext &context, u32 width, u32 height,
                             u32 channel_count, const std::vector<u8> &pixels)
-    : context_(&context) {
+    : context_(&context), width_(width), height_(height) {
   // Expand to RGBA if the source data isn't already 4 channels -- the image
   // itself is always created as R8G8B8A8_UNORM.
   std::vector<u8> rgba;

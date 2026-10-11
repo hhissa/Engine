@@ -5,6 +5,7 @@
 
 #include <deque>
 #include <optional>
+#include <utility>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -55,6 +56,12 @@ public:
   // computation naturally comes out to zero perturbation, making "no bump
   // map" mean "no visible bump effect" with no separate enable flag needed.
   VulkanTexture &flat_texture() noexcept { return *flat_texture_; }
+
+  // Decodes name's image into the decoded-pixel cache (see decoded_) without
+  // creating a GPU texture, and returns its size in pixels -- nullopt if
+  // it can't be loaded. Lets a caller pay for the decode ahead of time
+  // while spending no video memory until the image is actually acquired.
+  std::optional<std::pair<u32, u32>> predecode(std::string_view name);
 
 private:
   struct Entry {

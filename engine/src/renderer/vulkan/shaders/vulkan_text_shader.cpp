@@ -137,7 +137,8 @@ void VulkanTextShader::set_font(std::string_view name, f32 pixel_height) {
 
 void VulkanTextShader::render_to(VulkanCommandBuffer &command_buffer,
                                  u32 width, u32 height, std::string_view text,
-                                 glm::vec2 origin, glm::vec4 colour) {
+                                 glm::vec2 origin, glm::vec4 colour,
+                                 f32 scale) {
   if (!valid_) {
     KWARN("VulkanTextShader::render_to called on an invalid shader.");
     return;
@@ -171,7 +172,13 @@ void VulkanTextShader::render_to(VulkanCommandBuffer &command_buffer,
   std::vector<TextVertex> vertices(glyphs.size() * 4);
   std::vector<u32> indices(glyphs.size() * 6);
   for (size_t i = 0; i < glyphs.size(); ++i) {
-    const BitmapFont::GlyphQuad &g = glyphs[i];
+    BitmapFont::GlyphQuad g = glyphs[i];
+    if (scale != 1.0f) {
+      g.x0 = origin.x + (g.x0 - origin.x) * scale;
+      g.x1 = origin.x + (g.x1 - origin.x) * scale;
+      g.y0 = origin.y + (g.y0 - origin.y) * scale;
+      g.y1 = origin.y + (g.y1 - origin.y) * scale;
+    }
     TextVertex *v = &vertices[i * 4];
     v[0] = {{g.x0, g.y0}, {g.s0, g.t0}}; // top-left
     v[1] = {{g.x1, g.y0}, {g.s1, g.t0}}; // top-right

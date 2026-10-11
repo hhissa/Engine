@@ -7,11 +7,13 @@
 #include "text_wrap.h"
 
 #include <core/input.h>
+#include <core/logger.h>
 #include <renderer/renderer_frontend.h>
 
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <format>
 #include <optional>
 #include <string>
@@ -58,9 +60,9 @@ struct ChapterDef {
 // scripts/). Each chapter interviews everyone at once, cutting between
 // their rooms line by line, so these are speaker-staged (see
 // ChapterDef::speaker_staged) rather than one person per chapter like the
-// old ch1_theo..ch8_photographer files were. Chapters 2-4 ("Your story",
-// "The cutting", "Why we're really here") get an entry here as their
-// scripts are written.
+// old ch1_theo..ch8_photographer files were. Chapters 3 and 4 ("The
+// cutting", "Why we're really here") get an entry here as their scripts
+// are written.
 const std::vector<ChapterDef> kChapters = {
     {"Introductions", "assets/conversations/ch1_introductions.conversation",
      SceneState::MelRoom1,
@@ -73,6 +75,9 @@ const std::vector<ChapterDef> kChapters = {
       "Remember that you are only an interviewer",
       "Nothing you do will change this story",
       "Chapter 1: Introductions"},
+     /*speaker_staged=*/true},
+    {"Your Story", "assets/conversations/ch2_your_story.conversation",
+     SceneState::MelRoom1, {"Chapter 2: Your Story"},
      /*speaker_staged=*/true},
 };
 
@@ -219,6 +224,16 @@ void SHGame::setup_menus() {
          0.0f, 0.0, 0.0},
   });
 
+  // Authoring aid: SH_PREVIEW_CUTAWAY=cutaways/moon (any kCutaways id)
+  // shows that cutaway behind the title menu instead, to check its set and
+  // camera without playing up to the line that calls for it. Shows its
+  // first station; '0' free-flies as usual.
+  if (const char *preview = std::getenv("SH_PREVIEW_CUTAWAY")) {
+    if (!stage_cutaway(preview)) {
+      KWARN("SH_PREVIEW_CUTAWAY: no cutaway '{}'.", preview);
+    }
+  }
+
   build_title_menu();
 }
 
@@ -310,7 +325,7 @@ void SHGame::begin_chapter_playing(size_t index, bool fresh) {
     // Once per run, before the first chapter that cuts between rooms --
     // see prepare_speaker_rooms().
     prepare_speaker_rooms(
-        [this, index, fresh] { begin_chapter_playing(index, fresh); });
+        kChapters[index].conversation_path, [this, index, fresh] { begin_chapter_playing(index, fresh); });
     return;
   }
   if (dialogue_ != kInvalidConversationHandle) {

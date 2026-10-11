@@ -25,13 +25,16 @@ public:
   b8 begin_frame(f32 delta_time) override;
   void set_camera(const Camera &camera) override;
   void draw_text(std::string_view text, glm::vec2 position,
-                glm::vec4 colour) override;
+                glm::vec4 colour, f32 scale) override;
   void draw_ui_quad(glm::vec2 position, glm::vec2 size) override;
   void draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour) override;
   void draw_solid_quad(glm::vec2 position, glm::vec2 size,
                       glm::vec4 colour) override;
   void draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
                          glm::vec4 colour) override;
+  void draw_image(std::string_view path, glm::vec2 position,
+                  glm::vec2 size) override;
+  glm::vec2 preload_image(std::string_view path) override;
   SceneHandle load_scene(std::string_view sdf_path) override;
   void translate_scene(SceneHandle handle, glm::vec3 delta) override;
   void rotate_scene(SceneHandle handle, glm::vec3 euler_radians) override;
@@ -75,10 +78,19 @@ private:
     std::string text;
     glm::vec2 position;
     glm::vec4 colour;
+    f32 scale;
   };
   struct UiQuadDrawRequest {
     glm::vec2 position;
     glm::vec2 size;
+  };
+  // A draw_image() request. Images share the backdrop queue's place in
+  // the UI pass and its ordering, so this rides in BackdropDrawRequest.
+  struct BackdropDrawRequest {
+    std::string image_path; // empty: a solid quad in colour
+    glm::vec2 position;
+    glm::vec2 size;
+    glm::vec4 colour;
   };
   struct LineDrawRequest {
     glm::vec2 start;
@@ -106,7 +118,7 @@ private:
   std::vector<UiQuadDrawRequest> queued_ui_quad_draws_;
   std::vector<LineDrawRequest> queued_line_draws_;
   std::vector<SolidQuadDrawRequest> queued_solid_quad_draws_;
-  std::vector<SolidQuadDrawRequest> queued_backdrop_quad_draws_;
+  std::vector<BackdropDrawRequest> queued_backdrop_quad_draws_;
 
   // See set_cache_prewarm_on_load(). On by default -- every load_scene()
   // re-arms pre-warming, which is what an editor wants.

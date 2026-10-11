@@ -1,9 +1,11 @@
 #include "vulkan_ui_shader.h"
 #include "../../../core/logger.h"
+#include "../../../resources/material_def.h"
 #include "../../../systems/material_system.h"
 #include "../../../systems/shader_system.h"
 #include "../vulkan_commandbuffer.h"
 #include "../vulkan_renderpass.h"
+#include "../vulkan_texture.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -87,6 +89,10 @@ VulkanUIShader::VulkanUIShader(VulkanContext &context,
 }
 
 VulkanUIShader::~VulkanUIShader() {
+  for (auto &[path, image] : image_materials_) {
+    context_->material_system->release(image.material->name);
+  }
+  image_materials_.clear();
   if (material_) {
     context_->material_system->release(kMaterialName);
     material_ = nullptr;
@@ -105,7 +111,57 @@ void VulkanUIShader::render_to(VulkanCommandBuffer &command_buffer, u32 width,
     KWARN("VulkanUIShader::render_to called on an invalid shader.");
     return;
   }
+  draw_quad(command_buffer, width, height, *material_, position, size);
+}
 
+Material &VulkanUIShader::image_material(std::string_view path) {
+  std::string key(path);
+  auto it = image_materials_.find(key);
+  if (it == image_materials_.end()) {
+    MaterialDef def;
+    def.display_name = key;
+    def.base_map = key;
+    Material &material = context_->material_system->acquire_def(def, true);
+    context_->material_system->bind_to_shader(material, *shader_);
+    it = image_materials_.emplace(key, ImageMaterial{&material, frame_}).first;
+  }
+  it->second.last_drawn = frame_;
+  return *it->second.material;
+}
+
+void VulkanUIShader::release_idle_images() {
+  ++frame_;
+  for (auto it = image_materials_.begin(); it != image_materials_.end();) {
+    if (frame_ - it->second.last_drawn > kImageIdleFrames) {
+      context_->material_system->release(it->second.material->name);
+      it = image_materials_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+void VulkanUIShader::render_image_to(VulkanCommandBuffer &command_buffer,
+                                     u32 width, u32 height,
+                                     std::string_view path, glm::vec2 position,
+                                     glm::vec2 size) {
+  if (!valid_) {
+    KWARN("VulkanUIShader::render_image_to called on an invalid shader.");
+    return;
+  }
+  // Mirrored vertically: image_loader.cpp flips every image on load (the
+  // bottom-row-first order the 3D passes' UVs expect), and this quad's
+  // texcoords run top-down like the screen -- so drawn as-is a photo comes
+  // out upside down. The pipeline culls nothing, so the reversed winding
+  // a negative scale gives is harmless.
+  draw_quad(command_buffer, width, height, image_material(path),
+            glm::vec2(position.x, position.y + size.y),
+            glm::vec2(size.x, -size.y));
+}
+
+void VulkanUIShader::draw_quad(VulkanCommandBuffer &command_buffer, u32 width,
+                               u32 height, Material &material,
+                               glm::vec2 position, glm::vec2 size) {
   shader_->use(command_buffer);
 
   // Screen-pixel orthographic projection: (0,0) at the top-left, matching
@@ -121,7 +177,7 @@ void VulkanUIShader::render_to(VulkanCommandBuffer &command_buffer, u32 width,
   shader_->bind_globals();
   shader_->apply_globals(command_buffer);
 
-  context_->material_system->apply_instance(*material_, command_buffer);
+  context_->material_system->apply_instance(material, command_buffer);
 
   glm::mat4 model =
       glm::translate(glm::mat4(1.0f), glm::vec3(position, 0.0f)) *

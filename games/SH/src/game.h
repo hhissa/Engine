@@ -159,7 +159,15 @@ private:
   // room (the photographer, or a name nobody staged).
   void cut_to_speaker(const std::string &speaker);
 
-  // Loads every speaker's room once, one per couple of frames, behind
+  // Swaps whatever is loaded for cutaway id's own set (assets/scenes/
+  // <id>.sdf), sky box and camera stations -- see kCutaways
+  // (game_scene_state.cpp). False, changing nothing, for an id with no
+  // set authored yet; the caller shows a placeholder card instead. The
+  // speaker's room is reloaded by the next cut_to_speaker().
+  bool stage_cutaway(std::string_view id);
+
+  // Loads every speaker's room, then every cutaway set (see kCutaways),
+  // once each, one per couple of frames, behind
   // AppScreen::Preparing's black "Preparing scenes" card, then runs
   // on_finish. Each load bakes whatever of that room isn't in the disk
   // chunk cache yet (a cache pre-warm) and decodes its textures into
@@ -167,7 +175,10 @@ private:
   // so that every cut afterwards is only a file read and an upload. Only
   // does real work the first time on a machine for the chunks, and the
   // first time per run for the textures.
-  void prepare_speaker_rooms(std::function<void()> on_finish);
+  // Also loads every photo conversation_path's script shows (see
+  // ScriptLine::photo).
+  void prepare_speaker_rooms(std::string_view conversation_path,
+                             std::function<void()> on_finish);
   void update_preparing();
   void render_preparing() const;
 
@@ -386,6 +397,9 @@ private:
     Kind kind = Kind::None;
     std::string owner;
     std::string asset; // the cutaway's scene id / the photo's path
+    // A cutaway whose set is loaded (see stage_cutaway()) rather than
+    // stood in for by a placeholder card.
+    bool staged = false;
   };
   Shot shot_;
 
@@ -398,6 +412,7 @@ private:
   // prepare_frame_ counts frames since the screen started; each room gets
   // kPrepareFramesPerRoom of them.
   std::vector<size_t> prepare_chapters_;
+  std::vector<std::string> prepare_photos_;
   size_t prepare_frame_ = 0;
   std::function<void()> prepare_on_finish_;
   // Set once this run has prepared the rooms -- see

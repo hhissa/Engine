@@ -13,6 +13,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -134,26 +135,39 @@ void SHGame::render_playing() const {
         glm::vec2(static_cast<f32>(width_), static_cast<f32>(height_)),
         elapsed, "");
   }
-  // A cutaway or photo the script calls for (see on_script_line()):
-  // neither exists yet, so the shot is a placeholder card naming it,
-  // sitting under the dialogue like the scene it stands in for would.
-  const bool placeholder_up = shot_.kind == Shot::Kind::Cutaway ||
-                              shot_.kind == Shot::Kind::Photo;
+  // A photo or cutaway the script calls for (see on_script_line()), drawn
+  // in place of the room, under the dialogue.
+  const bool placeholder_up =
+      (shot_.kind == Shot::Kind::Cutaway && !shot_.staged) ||
+      shot_.kind == Shot::Kind::Photo;
   if (cut_cover_ && !placeholder_up) {
     renderer_draw_backdrop_quad(
         glm::vec2(0.0f),
         glm::vec2(static_cast<f32>(width_), static_cast<f32>(height_)),
         glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
   }
-  if (placeholder_up) {
+  if (shot_.kind == Shot::Kind::Photo) {
+    // The photo fills the frame without being stretched: scaled until it
+    // covers the whole screen, centred, with whichever dimension overshoots
+    // running off the edges.
+    const glm::vec2 screen(static_cast<f32>(width_), static_cast<f32>(height_));
+    const glm::vec2 image = renderer_preload_image(shot_.asset);
+    if (image.x > 0.0f && image.y > 0.0f) {
+      const f32 scale = std::max(screen.x / image.x, screen.y / image.y);
+      const glm::vec2 size = image * scale;
+      renderer_draw_image(shot_.asset, (screen - size) * 0.5f, size);
+    } else {
+      renderer_draw_backdrop_quad(glm::vec2(0.0f), screen,
+                                  glm::vec4(0.08f, 0.08f, 0.1f, 1.0f));
+    }
+  } else if (placeholder_up) {
+    // A cutaway with no set authored yet (see stage_cutaway()): a card
+    // naming the scene the script calls for.
     const f32 width = static_cast<f32>(width_);
     const f32 height = static_cast<f32>(height_);
     renderer_draw_backdrop_quad(glm::vec2(0.0f), glm::vec2(width, height),
                                 glm::vec4(0.08f, 0.08f, 0.1f, 1.0f));
-    const std::string label =
-        std::string(shot_.kind == Shot::Kind::Cutaway ? "PLACEHOLDER SCENE: "
-                                                      : "PLACEHOLDER PHOTO: ") +
-        shot_.asset;
+    const std::string label = "PLACEHOLDER SCENE: " + shot_.asset;
     renderer_draw_text(
         label,
         glm::vec2((width - static_cast<f32>(label.size()) * kAverageCharWidth) /

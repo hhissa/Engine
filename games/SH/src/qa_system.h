@@ -569,7 +569,7 @@ private:
 
   // Reads answer line answer_line_ of the open question into current_line_
   // (carrying the speaker over from the previous line when it names none,
-  // and extending/resetting overlay_run_) and fires on_line_shown_. No-op
+  // and extending/resetting text_run_) and fires on_line_shown_. No-op
   // past the last line.
   void show_current_line();
 
@@ -580,11 +580,13 @@ private:
   // current_line(). Only meaningful while state_ is State::Answer.
   ScriptLine current_line_;
 
-  // Every [overlay] line of the open answer that runs, unbroken, up to and
-  // including the current one -- render() keeps them all on screen at
-  // once, so a run of overlay lines builds up across the frame instead of
-  // each replacing the last. Cleared by the first non-overlay line.
-  std::vector<std::string> overlay_run_;
+  // Every [overlay] line -- or every [title][stack] card -- of the open
+  // answer that runs, unbroken, up to and including the current one --
+  // render() keeps them all on screen at once, so a run builds up across
+  // the frame instead of each line replacing the last. Cleared by the
+  // first line that doesn't continue it. Whole lines rather than just
+  // their text, since each keeps its own [size]/[flash]/[stack].
+  std::vector<ScriptLine> text_run_;
 
   State state_ = State::QuestionList;
   size_t cursor_ = 0;      // which question the selection cursor is on, within *current_list_

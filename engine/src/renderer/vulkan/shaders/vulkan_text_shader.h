@@ -66,13 +66,15 @@ public:
   // the exact baseline convention) in colour. command_buffer must
   // currently be inside the UI renderpass. Text past the shared
   // kMaxCharacters-per-frame budget (across all render_to() calls since
-  // begin_batch()) is truncated with a warning.
+  // begin_batch()) is truncated with a warning. scale enlarges every
+  // glyph quad about origin.
   void render_to(VulkanCommandBuffer &command_buffer, u32 width, u32 height,
-                std::string_view text, glm::vec2 origin, glm::vec4 colour);
+                std::string_view text, glm::vec2 origin, glm::vec4 colour,
+                f32 scale = 1.0f);
 
 private:
   // Per frame, shared across every render_to() call -- see begin_batch().
-  static constexpr u32 kMaxCharacters = 256;
+  static constexpr u32 kMaxCharacters = 1024;
 
   VulkanContext *context_;
 

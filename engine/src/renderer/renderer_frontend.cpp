@@ -61,9 +61,9 @@ void renderer_set_camera(const Camera &camera) {
 }
 
 void renderer_draw_text(std::string_view text, glm::vec2 position,
-                       glm::vec4 colour) {
+                       glm::vec4 colour, f32 scale) {
   if (backend) {
-    backend->draw_text(text, position, colour);
+    backend->draw_text(text, position, colour, scale);
   } else {
     KWARN("renderer backend does not exist to accept a text draw request.");
   }
@@ -223,6 +223,17 @@ void renderer_set_cache_prewarm_on_load(b8 enabled) {
   if (backend) {
     backend->set_cache_prewarm_on_load(enabled);
   }
+}
+
+void renderer_draw_image(std::string_view path, glm::vec2 position,
+                         glm::vec2 size) {
+  if (backend) {
+    backend->draw_image(path, position, size);
+  }
+}
+
+glm::vec2 renderer_preload_image(std::string_view path) {
+  return backend ? backend->preload_image(path) : glm::vec2(0.0f);
 }
 
 u32 renderer_streaming_backlog() {

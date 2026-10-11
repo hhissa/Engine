@@ -78,14 +78,15 @@ struct ShaderConfig {
 // is fully serialized; see VulkanUIShader's header comment for the same
 // reasoning applied to its previous hand-rolled single descriptor set).
 // Instance slots are a fixed-size array (kMaxShaderInstances) with a
-// free-index stack, not a general allocator -- generous headroom over the 1
-// instance each builtin shader actually needs today.
+// free-index stack, not a general allocator. Most builtin shaders need one
+// instance; the UI shader takes one more per distinct image drawn through
+// renderer_draw_image(), which is what the headroom is for.
 class VulkanShader {
 public:
   using UniformIndex = u16;
   static constexpr UniformIndex kInvalidUniformIndex = 0xFFFF;
   static constexpr u32 kInvalidInstanceId = 0xFFFFFFFF;
-  static constexpr u32 kMaxShaderInstances = 8;
+  static constexpr u32 kMaxShaderInstances = 32;
   static constexpr u32 kMaxInstanceSamplers = 4;
 
   VulkanShader(VulkanContext &context, ShaderConfig config);

@@ -1,8 +1,9 @@
 #conversation file
 version=0.1
 
-# Chapter 1: Introductions -- from "Beatsheets and scripts/Chapter 1 script
-# and beatsheet.docx".
+# Chapter 1: Introductions -- from "Beatsheets and scripts/script and
+# beatsheet.docx" (which supersedes "Chapter 1 script and beatsheet.docx").
+# Chapter 2 continues in ch2_your_story.conversation.
 #
 # Every beat is an `auto` question (asked by itself, never offered as a
 # choice) chained to the next with loop_to=; the player only chooses at the
@@ -15,9 +16,13 @@ version=0.1
 #   [P]               the photographer -- never on screen, keeps the shot
 #   [title]           bold line: black screen (the ding needs audio)
 #   [overlay]         blue line: laid over the scene, not bottom-left
-#   [cutaway <id>]    red tag: placeholder scene, marked with its id
-#   [photo <path>]    cloud photos, shown instead of the room
+#   [cutaway <id>]    red tag: cut to the set assets/scenes/<id>.sdf (see
+#                     kCutaways); a placeholder card naming it if none
+#   [photo <path>]    a photo (path under assets/), shown instead of the room
 #   [link <url>]      song recommendation; [L] opens it
+#   [room]            back from a cutaway to the speaker's own room
+#   [size <n>] [flash] [stack]   large / blinking / stacked text -- see
+#                     script_line.h (used from chapter 2 on)
 
 question "Introductions" {
     id=intro
@@ -32,7 +37,8 @@ question "Introductions" {
     answer=[Mel] I'm an unemployed hikikomori
     answer=[P] A hakuku what?
     answer=[Mel] I don't leave my apartment
-    answer=[Diego] Hey, I'm Diego, I'm 32, and I'm a software developer
+    answer=[Diego] Hey, I'm Diego, I'm 32, and I'm a product manager
+    answer=Basically just a salary man
     answer=[Theo] Yo, it's Theo, I'm 19 and I'm a college student and a dishwasher on the weekends
     answer=[P] We necessarily have younger people because the population of this series is young
     answer=But you were the only one I had objections with
@@ -41,7 +47,7 @@ question "Introductions" {
     answer=I think it's important
     answer=[Pat] I'm Pat, I'm 22, and I don't really do anything since I've moved into the hospital
     answer=[Alex] Hey, I'm Alex, and I'm 27
-    answer=[Theresa] Hello, I'm Theresa. I'm 76 years old, and I'm a retired secretary.
+    answer=[Theresa] Hello, I'm Theresa. I'm 56 years old, and I'm a retired secretary.
     answer=[P] So I usually find that people don't like talking about what we're gonna be talking about
     answer=Especially with strangers
     answer=So I wanna start with some icebreakers
@@ -78,27 +84,28 @@ question "What is your go-to meal?" {
     answer=Hot tomato soup and a nice slice of toasted sourdough bread
 }
 
-# Cloud photos show up instead of the usual scenes (photos/clouds/<name>.jpg).
+# Cloud photos show up instead of the usual scenes (assets/photos/cloud_<name>.jpg;
+# credits in assets/photos/CREDITS.md).
 question "What is your favourite type of cloud?" {
     id=clouds
     auto
     loop_to=hotdog
     answer=[title] What is your favourite type of cloud?
-    answer=[Mel][photo photos/clouds/mel.jpg] You know those wispy ones really high up?
+    answer=[Mel][photo photos/cloud_mel.jpg] You know those wispy ones really high up?
     answer=[P] Those are called cirrus clouds
     answer=They're the highest clouds and are made up of ice crystals mainly
     answer=[Mel] That's cool, I guess?
-    answer=[Diego][photo photos/clouds/diego.jpg] I don't know
+    answer=[Diego][photo photos/cloud_diego.jpg] I don't know
     answer=The fluffy ones I guess
     answer=Sorry, that's just something I don't really care about.
-    answer=[Theo][photo photos/clouds/theo.jpg] Oooh, good question,
+    answer=[Theo][photo photos/cloud_theo.jpg] Oooh, good question,
     answer=I love a big plume-y rain cloud
     answer=I love the rain in general
-    answer=[Pat][photo photos/clouds/pat.jpg] I love the streaky clouds
+    answer=[Pat][photo photos/cloud_pat.jpg] I love the streaky clouds
     answer=That cover the whole sky
-    answer=[Alex][photo photos/clouds/alex.jpg] I love one big grey sky
+    answer=[Alex][photo photos/cloud_alex.jpg] I love one big grey sky
     answer=A little drizzle is perfect too
-    answer=[Theresa][photo photos/clouds/theresa.jpg] I love a clear day
+    answer=[Theresa][photo photos/cloud_theresa.jpg] I love a clear day
     answer=A perfectly blue sky
     answer=Nothing better
 }
@@ -264,7 +271,7 @@ question "Do you post on social media, or just lurk?" {
     answer=I'd curate little posts too every now and then
     answer=[Theresa] I don't know what lurk means
     answer=[P] You know, like just look at people's posts
-    answer=[Theresa] Oh no, I post pictures of my grandkids and family gatherings and such
+    answer=[Theresa] Oh no, I post pictures of family gatherings and such
 }
 
 question "How many hours of sleep do you get?" {
@@ -322,12 +329,12 @@ question "Do you dream? Do you have nightmares?" {
     answer=[P] Smoke what?
     answer=[Theo] The carts, bro
     answer=Like disposable weed pens
-    answer=[Pat][cutaway cutaways/moon] I have pretty vivid dreams
-    answer=I've been having this recurring one
-    answer=I'm on the moon
-    answer=And there's this well
+    answer=[Pat][cutaway cutaways/moon][overlay] I have pretty vivid dreams
+    answer=[overlay] I've been having this recurring one
+    answer=[overlay] I'm on the moon
+    answer=[overlay] And there's this well
     answer=[overlay] I jump in the well
-    answer=And I wake up every time
+    answer=[room] And I wake up every time
     answer=Just before I hit the bottom
     answer=[Alex] Nightmares every time I sleep
     answer=It's why I sleep so short
@@ -388,7 +395,7 @@ question "What age do you think was or will be the happiest?" {
     answer=Yeah, 45
     answer=[Alex] Oh, I had a lot of fun in my early twenties
     answer=It's gotta be that
-    answer=[Theresa] You know, I'm enjoying my 70s
+    answer=[Theresa] You know, I'm enjoying my 50s
     answer=It's peaceful
     answer=It feels like a conclusion
 }
@@ -536,5 +543,5 @@ question "How often do you ask questions?" {
     answer=We're a lot like that in that way
     answer=[Theresa] Probably not as much as you, with your job
     answer=But yes, I ask plenty of questions
-    answer=Mainly to my grandkids
+    answer=Mainly to *******
 }

@@ -20,6 +20,8 @@
 //   answer=[Mel][photo photos/clouds/mel.jpg] You know those wispy ones?
 //   answer=[overlay] Theres an hour
 //   answer=[link https://...] The Moon by The Microphones
+//   answer=[overlay][size 3][flash] Again
+//   answer=[title][stack][size 2] Deeper
 //
 //   [<Name>]        who is speaking. Sticky: a line with no name is said by
 //                   whoever spoke last in the same answer. [P] is the
@@ -35,6 +37,19 @@
 //                   speaking.
 //   [photo <path>]  same, but to a still image instead of a scene.
 //   [link <url>]    the text names something the player can open (a song).
+//   [size <scale>]  a [title] or [overlay] line drawn <scale> times the
+//                   normal text size -- the script's "very large text", and
+//                   its "text gets bigger every word" as a run of cards
+//                   each a size up from the last.
+//   [flash]         a [title] or [overlay] line that blinks.
+//   [stack]         the script's "each word stacked one above the other":
+//                   an [overlay] line stacks straight under the run's
+//                   previous line rather than stepping across, and a run of
+//                   [title][stack] cards keeps every earlier card's text up,
+//                   each new one under the last.
+//   [room]          cut back from a cutaway/photo to the speaker's own room
+//                   -- for when the speaker carries on past the moment the
+//                   cutaway illustrated. See SHGame::on_script_line().
 //
 // A bracketed word that isn't one of the directives above is a speaker
 // name, so a name never has to be registered anywhere before a file can
@@ -46,6 +61,10 @@ struct ScriptLine {
   std::optional<std::string> cutaway;
   std::optional<std::string> photo;
   std::optional<std::string> link;
+  f32 size = 1.0f;
+  bool flash = false;
+  bool stack = false;
+  bool room = false;
   std::string text; // what's left once every leading directive is removed
 };
 

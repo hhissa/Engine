@@ -2,6 +2,9 @@
 
 #include <core/logger.h>
 
+#include <cstdlib>
+#include <string>
+
 namespace {
 
 std::string_view trim(std::string_view text) {
@@ -43,6 +46,22 @@ ScriptLine parse_script_line(std::string_view raw) {
       line.photo = std::string(argument);
     } else if (word == "link") {
       line.link = std::string(argument);
+    } else if (word == "size") {
+      const std::string number(argument);
+      char *end = nullptr;
+      const f32 size = std::strtof(number.c_str(), &end);
+      if (end == number.c_str() || size <= 0.0f) {
+        KWARN("Script line '{}': '[{}]' needs a positive number -- ignored.",
+              raw, directive);
+      } else {
+        line.size = size;
+      }
+    } else if (word == "flash" && argument.empty()) {
+      line.flash = true;
+    } else if (word == "stack" && argument.empty()) {
+      line.stack = true;
+    } else if (word == "room" && argument.empty()) {
+      line.room = true;
     } else if (argument.empty()) {
       line.speaker = std::string(word);
     } else {

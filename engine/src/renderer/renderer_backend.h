@@ -31,8 +31,9 @@ public:
   // the engine) decide what UI/text actually appears, using the UI
   // renderpass/shaders as a service rather than the engine hardcoding
   // fixed content into it.
+  // scale enlarges the glyphs about position -- see renderer_draw_text().
   virtual void draw_text(std::string_view text, glm::vec2 position,
-                        glm::vec4 colour) = 0;
+                        glm::vec4 colour, f32 scale) = 0;
   // position/size are screen pixels, (0,0) at the top-left -- draws the
   // engine's single built-in demo UI texture at that rectangle.
   virtual void draw_ui_quad(glm::vec2 position, glm::vec2 size) = 0;
@@ -67,6 +68,19 @@ public:
   // draw_solid_quad() can't be, since it occludes text too.
   virtual void draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
                                  glm::vec4 colour) = 0;
+
+  // Queues the image at path (a texture name -- "photos/cloud_mel.jpg" is
+  // assets/photos/cloud_mel.jpg, see TextureSystem) stretched over
+  // position/size this frame. Drawn with the backdrop quads: over the
+  // scene, under every text/quad/line, in queue order with them.
+  virtual void draw_image(std::string_view path, glm::vec2 position,
+                          glm::vec2 size) = 0;
+
+  // Loads path's image now rather than on its first draw_image(), and
+  // returns its size in pixels -- (0, 0) if it can't be loaded. For a
+  // caller that needs the aspect ratio to lay it out, or wants the decode
+  // done ahead of time.
+  virtual glm::vec2 preload_image(std::string_view path) = 0;
 
   // Loads sdf_path (an .sdf scene file -- see sdf_scene.h for the format)
   // and registers every primitive it describes as a static SDF primitive,

@@ -35,9 +35,14 @@ public:
 
   VkImageView view() const noexcept { return image_.view; }
   VkSampler sampler() const noexcept { return sampler_; }
+  // The size the texture was created at, in pixels.
+  u32 width() const noexcept { return width_; }
+  u32 height() const noexcept { return height_; }
 
 private:
   VulkanContext *context_;
+  u32 width_ = 0;
+  u32 height_ = 0;
   VulkanImage image_{};
   VkSampler sampler_ = VK_NULL_HANDLE;
 };

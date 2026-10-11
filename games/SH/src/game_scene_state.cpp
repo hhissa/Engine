@@ -10,6 +10,7 @@
 #include "text_wrap.h"
 
 #include <audio/audio.h>
+#include <resources/conversation.h>
 #include <renderer/renderer_frontend.h>
 
 #include <glm/glm.hpp>
@@ -554,6 +555,105 @@ std::vector<Angle> angle_rotation(const ChapterStaging &staging) {
 
 } // namespace
 
+namespace {
+
+// One [cutaway <id>] scene (see script_line.h): the script's red-tagged
+// shots, each its own small set under assets/scenes/<id>.sdf. Unlike the
+// rooms these are mostly open sets against a sky, so each names its own
+// sky box (a plain white/black one where the script asks for "a white
+// skybox" or "a black skybox"). world_scale and stations work exactly as
+// they do for a room -- see ChapterStaging.
+struct CutawayStaging {
+  std::string_view id;
+  std::string_view sky_box;
+  f32 world_scale = 1.0f;
+  std::vector<Station> stations;
+};
+
+const std::array<CutawayStaging, 6> kCutaways = {{
+    // Theo's Indomie: the bowl from above, then from the table's edge.
+    {"cutaways/ramen",
+     "white",
+     2.0f,
+     {{{0.0f, -2.3f, -2.7f}, {0.0f, -0.05f, 0.1f}, 0.06f, 0.5f, 0.6f},
+      {{1.5f, -0.75f, -1.3f}, {0.0f, -0.1f, 0.0f}, 0.06f, 0.5f, 0.6f}}},
+    // Mel's blue hour: the row of houses, looking slightly up into the sky.
+    {"cutaways/bluehour",
+     "sky_bluehour",
+     1.0f,
+     {{{0.0f, -1.5f, -12.0f}, {0.0f, -2.6f, 9.0f}, 0.05f, 1.0f, 3.0f}}},
+    // Pat's dream: across the regolith to the well.
+    {"cutaways/moon",
+     "sky_stars",
+     1.0f,
+     {{{0.0f, -1.5f, -3.2f}, {0.0f, -0.8f, 1.5f}, 0.06f, 0.8f, 1.2f},
+      {{0.0f, -2.6f, 0.9f}, {0.0f, 0.4f, 1.5f}, 0.04f, 0.4f, 0.8f}}},
+    // Mel curled on the black plane, under the light.
+    {"cutaways/glowingfetalposition",
+     "black",
+     2.5f,
+     {{{0.1f, -1.1f, -1.2f}, {0.12f, -0.12f, -0.1f}, 0.05f, 0.4f, 0.4f},
+      {{1.2f, -1.0f, -0.9f}, {0.1f, -0.15f, -0.1f}, 0.05f, 0.4f, 0.4f}}},
+    // The shadow men, ahead and at the edges of the frame.
+    {"cutaways/shadowmen",
+     "white",
+     1.0f,
+     {{{0.0f, -1.6f, -1.0f}, {0.0f, -1.3f, 9.0f}, 0.05f, 1.0f, 1.5f}}},
+    // The snake on Alex's knife, face on.
+    {"cutaways/oraborus",
+     "black",
+     1.5f,
+     {{{0.0f, -0.05f, -3.3f}, {0.0f, -0.05f, 0.0f}, 0.04f, 0.4f, 0.5f}}},
+}};
+
+const CutawayStaging *find_cutaway(std::string_view id) {
+  for (const CutawayStaging &cutaway : kCutaways) {
+    if (cutaway.id == id) {
+      return &cutaway;
+    }
+  }
+  return nullptr;
+}
+
+std::string cutaway_scene_path(const CutawayStaging &cutaway) {
+  return "assets/scenes/" + std::string(cutaway.id) + ".sdf";
+}
+
+} // namespace
+
+bool SHGame::stage_cutaway(std::string_view id) {
+  const CutawayStaging *cutaway = find_cutaway(id);
+  if (!cutaway) {
+    return false;
+  }
+  for (SceneHandle handle : loaded_scenes_) {
+    renderer_remove_scene(handle);
+  }
+  loaded_scenes_.clear();
+  renderer_enable_sky_box(cutaway->sky_box);
+  const SceneHandle scene =
+      renderer_load_scene(cutaway_scene_path(*cutaway))
+          .scale(cutaway->world_scale);
+  if (scene == kInvalidSceneHandle) {
+    return false;
+  }
+  loaded_scenes_.push_back(scene);
+
+  std::vector<CameraPose> poses;
+  for (const Station &station : cutaway->stations) {
+    poses.push_back(pose_from(station, cutaway->world_scale));
+  }
+  cameras_.set_poses(std::move(poses));
+
+  // No room is loaded any more, so the next cut to one has to load it
+  // again -- see apply_scene_state()'s same_scenery.
+  current_state_.reset();
+  cut_cover_ = true;
+  cut_cover_frames_ = 0;
+  cut_cover_seconds_ = 0.0f;
+  return true;
+}
+
 void SHGame::cut_to_speaker(const std::string &speaker) {
   auto it = std::find_if(
       kSpeakerRooms.begin(), kSpeakerRooms.end(),
@@ -582,7 +682,30 @@ namespace {
 constexpr size_t kPrepareFramesPerRoom = 2;
 } // namespace
 
-void SHGame::prepare_speaker_rooms(std::function<void()> on_finish) {
+void SHGame::prepare_speaker_rooms(std::string_view conversation_path,
+                                   std::function<void()> on_finish) {
+  // Every photo the chapter's script shows, so none of them is decoded the
+  // moment it first comes up -- see renderer_preload_image().
+  prepare_photos_.clear();
+  if (std::optional<Conversation> conversation =
+          load_conversation_file(conversation_path)) {
+    std::vector<const ConversationQuestion *> pending;
+    for (const ConversationQuestion &question : conversation->questions) {
+      pending.push_back(&question);
+    }
+    while (!pending.empty()) {
+      const ConversationQuestion *question = pending.back();
+      pending.pop_back();
+      for (const std::string &raw : question->answer_lines) {
+        if (std::optional<std::string> photo = parse_script_line(raw).photo) {
+          prepare_photos_.push_back(*photo);
+        }
+      }
+      for (const ConversationQuestion &child : question->follow_ups) {
+        pending.push_back(&child);
+      }
+    }
+  }
   prepare_chapters_.clear();
   for (const SpeakerRoom &entry : kSpeakerRooms) {
     prepare_chapters_.push_back(chapter_of(entry.room));
@@ -593,9 +716,14 @@ void SHGame::prepare_speaker_rooms(std::function<void()> on_finish) {
 }
 
 void SHGame::update_preparing() {
+  if (prepare_frame_ == 0) {
+    for (const std::string &photo : prepare_photos_) {
+      renderer_preload_image(photo);
+    }
+  }
   const size_t room = prepare_frame_ / kPrepareFramesPerRoom;
-  if (room >= prepare_chapters_.size()) {
-    // Every room has been through once. Clear the last one out -- the
+  if (room >= prepare_chapters_.size() + kCutaways.size()) {
+    // Every room and cutaway set has been through once. Clear the last one out -- the
     // chapter stages its own opening room next -- and hand over.
     for (SceneHandle handle : loaded_scenes_) {
       renderer_remove_scene(handle);
@@ -615,7 +743,16 @@ void SHGame::update_preparing() {
       renderer_remove_scene(handle);
     }
     loaded_scenes_.clear();
-    load_staging(prepare_chapters_[room], loaded_scenes_);
+    if (room < prepare_chapters_.size()) {
+      load_staging(prepare_chapters_[room], loaded_scenes_);
+    } else {
+      // The cutaway sets after the rooms -- loaded just as stage_cutaway()
+      // loads them, minus the sky box, which nothing sees here.
+      const CutawayStaging &cutaway =
+          kCutaways[room - prepare_chapters_.size()];
+      loaded_scenes_.push_back(renderer_load_scene(cutaway_scene_path(cutaway))
+                                   .scale(cutaway.world_scale));
+    }
     renderer_request_cache_prewarm();
   }
   ++prepare_frame_;
@@ -628,10 +765,11 @@ void SHGame::render_preparing() const {
   const f32 height = static_cast<f32>(height_);
   renderer_draw_backdrop_quad(glm::vec2(0.0f), glm::vec2(width, height),
                               glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-  const size_t room = std::min(prepare_frame_ / kPrepareFramesPerRoom + 1,
-                               prepare_chapters_.size());
+  const size_t total = prepare_chapters_.size() + kCutaways.size();
+  const size_t room =
+      std::min(prepare_frame_ / kPrepareFramesPerRoom + 1, total);
   const std::string text = "Preparing scenes " + std::to_string(room) + "/" +
-                           std::to_string(prepare_chapters_.size());
+                           std::to_string(total);
   renderer_draw_text(
       text,
       glm::vec2((width - static_cast<f32>(text.size()) * kAverageCharWidth) /
@@ -652,12 +790,24 @@ void SHGame::on_script_line(const ScriptLine &line) {
   }
   const std::string speaker = line.speaker.value_or(std::string());
 
-  if (line.cutaway || line.photo) {
-    // No cutaway scene or photo exists yet, and there's no way to draw an
-    // image -- so both are a placeholder card naming the asset, drawn by
-    // render_playing() over the speaker's room. See Shot.
-    shot_ = Shot{line.cutaway ? Shot::Kind::Cutaway : Shot::Kind::Photo,
-                 speaker, line.cutaway ? *line.cutaway : *line.photo};
+  if (line.cutaway) {
+    // The cutaway's own set (see kCutaways) -- or, for an id with no set
+    // yet, a placeholder card naming it, drawn by render_playing() over
+    // the speaker's room. See Shot.
+    const bool staged = stage_cutaway(*line.cutaway);
+    shot_ = Shot{Shot::Kind::Cutaway, speaker, *line.cutaway, staged};
+    return;
+  }
+  if (line.photo) {
+    // Drawn by render_playing() over the speaker's room. See Shot.
+    shot_ = Shot{Shot::Kind::Photo, speaker, *line.photo};
+    return;
+  }
+
+  // [room]: the speaker has carried on past what their cutaway/photo was
+  // illustrating -- back to their own room, from a new angle.
+  if (line.room && !speaker.empty() && speaker != kPhotographerSpeaker) {
+    cut_to_speaker(speaker);
     return;
   }
 

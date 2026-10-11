@@ -504,8 +504,9 @@ void VulkanRendererBackend::set_camera(const Camera &camera) {
 }
 
 void VulkanRendererBackend::draw_text(std::string_view text,
-                                      glm::vec2 position, glm::vec4 colour) {
-  queued_text_draws_.push_back({std::string(text), position, colour});
+                                      glm::vec2 position, glm::vec4 colour,
+                                      f32 scale) {
+  queued_text_draws_.push_back({std::string(text), position, colour, scale});
 }
 
 void VulkanRendererBackend::draw_ui_quad(glm::vec2 position, glm::vec2 size) {
@@ -525,7 +526,25 @@ void VulkanRendererBackend::draw_solid_quad(glm::vec2 position, glm::vec2 size,
 void VulkanRendererBackend::draw_backdrop_quad(glm::vec2 position,
                                               glm::vec2 size,
                                               glm::vec4 colour) {
-  queued_backdrop_quad_draws_.push_back({position, size, colour});
+  queued_backdrop_quad_draws_.push_back({{}, position, size, colour});
+}
+
+void VulkanRendererBackend::draw_image(std::string_view path,
+                                       glm::vec2 position, glm::vec2 size) {
+  queued_backdrop_quad_draws_.push_back(
+      {std::string(path), position, size, glm::vec4(1.0f)});
+}
+
+glm::vec2 VulkanRendererBackend::preload_image(std::string_view path) {
+  // Decode only -- see TextureSystem::predecode(). The GPU texture is made
+  // on the image's first draw and given up again soon after it stops being
+  // drawn (see VulkanUIShader::release_idle_images()), so preloading a
+  // chapter's worth of photos costs RAM, not video memory.
+  if (auto size = context_.texture_system->predecode(path)) {
+    return glm::vec2(static_cast<f32>(size->first),
+                     static_cast<f32>(size->second));
+  }
+  return glm::vec2(0.0f);
 }
 
 SceneHandle VulkanRendererBackend::load_scene(std::string_view sdf_path) {
@@ -1178,9 +1197,20 @@ b8 VulkanRendererBackend::end_frame(f32 delta_time) {
   // its own.
   context_.ui_renderpass->begin(
       *command_buffer, ui_framebuffers_[context_.image_index].handle());
+  // Images nothing has drawn for a while give their video memory back --
+  // see release_idle_images(). Before this frame's draws, so one queued
+  // again this frame is simply re-made.
+  context_.ui_shader->release_idle_images();
   // Drawn first of all: a backdrop is what everything else in this pass is
   // meant to sit on -- see draw_backdrop_quad().
-  for (const SolidQuadDrawRequest &request : queued_backdrop_quad_draws_) {
+  for (const BackdropDrawRequest &request : queued_backdrop_quad_draws_) {
+    if (!request.image_path.empty()) {
+      context_.ui_shader->render_image_to(
+          *command_buffer, context_.framebuffer_width,
+          context_.framebuffer_height, request.image_path, request.position,
+          request.size);
+      continue;
+    }
     context_.solid_quad_shader->render_to(
         *command_buffer, context_.framebuffer_width,
         context_.framebuffer_height, request.position, request.size,
@@ -1196,7 +1226,7 @@ b8 VulkanRendererBackend::end_frame(f32 delta_time) {
     context_.text_shader->render_to(
         *command_buffer, context_.framebuffer_width,
         context_.framebuffer_height, request.text, request.position,
-        request.colour);
+        request.colour, request.scale);
   }
   // Drawn on top of quads/text -- matches its intended use as an
   // always-visible overlay (e.g. tools/sdf_editor's move-gizmo).

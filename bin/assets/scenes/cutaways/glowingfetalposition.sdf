@@ -1,0 +1,186 @@
+#sdf scene file
+version=0.1
+# Mel's depressive episodes -- a glowing figure curled on a black plane,
+# god rays falling on it.
+ambient=0.03
+
+material floor {
+    id=60269540acf3704f
+    base_colour=0.02 0.02 0.02 1
+    roughness=0.4
+    base_map=white
+}
+
+material figure {
+    id=22539661e536d323
+    base_colour=1 0.96 0.85 1
+    roughness=1
+    emissive_colour=1 0.93 0.75
+    emissive_intensity=0.3
+    base_map=white
+}
+
+material ray {
+    id=0083fe9e4ec6f574
+    base_colour=1 0.95 0.8 1
+    base_map=white
+}
+
+light light0 {
+    type=directional
+    direction=0.25 -1 0
+    colour=1 0.95 0.8
+    intensity=0.5
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.05 0
+        rotation=0 0 0
+        params=12 0.05 12 0
+        material=60269540acf3704f
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0.035
+
+    primitive p1 {
+        type=sphere
+        position=0.4 -0.13 -0.11
+        rotation=0 0 0
+        params=0.12 0 0 0
+        material=22539661e536d323
+    }
+
+    primitive p2 {
+        type=capsule
+        position=0.31 -0.155 -0.015
+        rotation=0.8678 -0.5875 1.157
+        params=0.06 0.03937 0 0
+        material=22539661e536d323
+    }
+
+    primitive p3 {
+        type=ellipsoid
+        position=0.1 -0.16 0.06
+        rotation=3.142 0.245 0
+        params=0.25 0.14 0.11 0
+        material=22539661e536d323
+    }
+
+    primitive p4 {
+        type=ellipsoid
+        position=-0.17 -0.14 0.04
+        rotation=0 0 0
+        params=0.13 0.14 0.14 0
+        material=22539661e536d323
+    }
+
+    primitive p5 {
+        type=capsule
+        position=-0.02 -0.2 -0.165
+        rotation=-1.069 -0.5159 -0.8387
+        params=0.065 0.2164 0 0
+        material=22539661e536d323
+    }
+
+    primitive p6 {
+        type=capsule
+        position=-0.05 -0.1975 -0.3
+        rotation=0.1772 -0.1695 1.526
+        params=0.04875 0.1726 0 0
+        material=22539661e536d323
+    }
+
+    primitive p7 {
+        type=capsule
+        position=-0.02 -0.08 -0.165
+        rotation=-1.069 -0.5159 -0.8387
+        params=0.065 0.2164 0 0
+        material=22539661e536d323
+    }
+
+    primitive p8 {
+        type=capsule
+        position=-0.05 -0.0775 -0.3
+        rotation=0.1772 -0.1695 1.526
+        params=0.04875 0.1726 0 0
+        material=22539661e536d323
+    }
+
+    primitive p9 {
+        type=capsule
+        position=0.235 -0.245 -0.1
+        rotation=-1.604 0.3056 0.2958
+        params=0.042 0.1259 0 0
+        material=22539661e536d323
+    }
+
+    primitive p10 {
+        type=capsule
+        position=0.09 -0.25 -0.32
+        rotation=-0.8599 0.4829 0.9856
+        params=0.035 0.149 0 0
+        material=22539661e536d323
+    }
+
+    primitive p11 {
+        type=capsule
+        position=0.235 -0.115 -0.1
+        rotation=-1.604 0.3056 0.2958
+        params=0.042 0.1259 0 0
+        material=22539661e536d323
+    }
+
+    primitive p12 {
+        type=capsule
+        position=0.09 -0.12 -0.32
+        rotation=-0.8599 0.4829 0.9856
+        params=0.035 0.149 0 0
+        material=22539661e536d323
+    }
+
+}
+
+volumetric volumetric0 {
+    type=box
+    position=-0.8729 -4 0
+    rotation=0 0 -0.22
+    params=0.45 4.2 0.36 0
+    density=0.18
+    material=0083fe9e4ec6f574
+}
+
+volumetric volumetric1 {
+    type=box
+    position=-0.6821 -4 0.4
+    rotation=0 0 -0.3
+    params=0.2 4.2 0.16 0
+    density=0.18
+    material=0083fe9e4ec6f574
+}
+
+volumetric volumetric2 {
+    type=box
+    position=-1.316 -4 -0.3
+    rotation=0 0 -0.18
+    params=0.25 4.2 0.2 0
+    density=0.18
+    material=0083fe9e4ec6f574
+}
+
+volumetric volumetric3 {
+    type=box
+    position=-0.02832 -4 -0.6
+    rotation=0 0 -0.26
+    params=0.15 4.2 0.12 0
+    density=0.18
+    material=0083fe9e4ec6f574
+}

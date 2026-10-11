@@ -13,7 +13,18 @@ constexpr u32 kDefaultTextureTile = 32;
 // creation outright. It creates single-mip images now, so any size works.
 constexpr u32 kFlatTextureSize = 16;
 
+// A bare name -- the form every material and .sdf file uses -- is
+// assets/textures/<name>.png. A name that carries its own file extension is
+// instead a path under assets/ as written (e.g. "photos/cloud_mel.jpg"), for
+// images that aren't textures in that sense and don't live with them, such
+// as the photos renderer_draw_image() shows.
 std::string texture_path(std::string_view name) {
+  const size_t slash = name.find_last_of('/');
+  const size_t dot = name.find_last_of('.');
+  if (dot != std::string_view::npos &&
+      (slash == std::string_view::npos || dot > slash)) {
+    return "assets/" + std::string(name);
+  }
   return "assets/textures/" + std::string(name) + ".png";
 }
 } // namespace
@@ -84,6 +95,14 @@ const LoadedImage *TextureSystem::decoded_image(const std::string &name) {
   decoded_bytes_ += bytes;
   decoded_order_.push_back(name);
   return &decoded_.emplace(name, std::move(*loaded)).first->second;
+}
+
+std::optional<std::pair<u32, u32>> TextureSystem::predecode(std::string_view name) {
+  const LoadedImage *image = decoded_image(std::string(name));
+  if (!image) {
+    return std::nullopt;
+  }
+  return std::make_pair(image->width, image->height);
 }
 
 void TextureSystem::release(std::string_view name) {

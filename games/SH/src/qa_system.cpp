@@ -7,6 +7,8 @@
 #include <resources/conversation.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <optional>
 
 namespace {
@@ -70,14 +72,43 @@ constexpr f32 kOverlayIndentFraction = 0.11f;
 constexpr f32 kTitleLineSpacing = 36.0f;
 constexpr f32 kTitleHintGap = 40.0f;
 constexpr f32 kTitleMaxWidthFraction = 0.7f;
+// Where a run of [title][stack] cards starts down the screen -- high, so
+// the stack has room to sink.
+constexpr f32 kTitleStackTopFraction = 0.2f;
+// A [flash] line (script_line.h) is up for kFlashOnSeconds of every
+// kFlashPeriodSeconds, and nearly gone for the rest.
+constexpr f32 kFlashPeriodSeconds = 0.8f;
+constexpr f32 kFlashOnSeconds = 0.5f;
+constexpr f32 kFlashOffAlpha = 0.1f;
+// A line's descenders reach about this far below its baseline -- with
+// kTextAscent, what an [overlay] line of any [size] needs clear around it.
+constexpr f32 kTextDescent = 7.0f;
+// Gap kept between the bottom of one overlay line and the top of the next.
+constexpr f32 kOverlayLineGap = 16.0f;
 
 bool key_pressed(input::Key key) {
   return input::is_key_down(key) && !input::was_key_down(key);
 }
 
-f32 centered_x(f32 screen_width, size_t char_count) {
-  return (screen_width - static_cast<f32>(char_count) * kAverageCharWidth) /
+f32 centered_x(f32 screen_width, size_t char_count, f32 size = 1.0f) {
+  return (screen_width -
+          static_cast<f32>(char_count) * kAverageCharWidth * size) /
          2.0f;
+}
+
+// colour, dimmed in the off half of the blink if line is [flash].
+glm::vec4 flashed(const ScriptLine &line, glm::vec4 colour) {
+  if (!line.flash) {
+    return colour;
+  }
+  using Clock = std::chrono::steady_clock;
+  static const Clock::time_point start = Clock::now();
+  const f32 seconds =
+      std::chrono::duration<f32>(Clock::now() - start).count();
+  if (std::fmod(seconds, kFlashPeriodSeconds) >= kFlashOnSeconds) {
+    colour.a *= kFlashOffAlpha;
+  }
+  return colour;
 }
 
 } // namespace
@@ -355,7 +386,7 @@ void QASystem::ask_current() {
   // speakers carry over between lines of one answer, never between
   // answers.
   current_line_ = ScriptLine{};
-  overlay_run_.clear();
+  text_run_.clear();
   show_current_line();
 }
 
@@ -369,10 +400,15 @@ void QASystem::show_current_line() {
   if (!current_line_.speaker) {
     current_line_.speaker = std::move(previous_speaker);
   }
-  if (current_line_.overlay) {
-    overlay_run_.push_back(current_line_.text);
-  } else {
-    overlay_run_.clear();
+  // A run is overlay lines, or stacked title cards -- never a mix.
+  const bool runs =
+      current_line_.overlay || (current_line_.title && current_line_.stack);
+  if (!runs ||
+      (!text_run_.empty() && text_run_.back().title != current_line_.title)) {
+    text_run_.clear();
+  }
+  if (runs) {
+    text_run_.push_back(current_line_);
   }
   if (on_line_shown_) {
     on_line_shown_(current_line_);
@@ -659,42 +695,86 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
       // room the card interrupts doesn't have to be re-baked afterwards.
       renderer_draw_backdrop_quad(glm::vec2(0.0f), glm::vec2(width, height),
                                   glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+      constexpr std::string_view kTitleHint = "[Enter] continue";
+      if (line.stack) {
+        // A [stack] run (see text_run_): every card's text so far stays
+        // up, each centred under the one before.
+        f32 y = height * kTitleStackTopFraction;
+        f32 previous_bottom = 0.0f;
+        for (size_t i = 0; i < text_run_.size(); ++i) {
+          const ScriptLine &card = text_run_[i];
+          y += (i == 0 ? 0.0f : previous_bottom + kOverlayLineGap) +
+               kTextAscent * card.size;
+          renderer_draw_text(
+              card.text,
+              glm::vec2(centered_x(width, card.text.size(), card.size), y),
+              flashed(card, glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)), card.size);
+          previous_bottom = kTextDescent * card.size;
+        }
+        renderer_draw_text(
+            kTitleHint,
+            glm::vec2(centered_x(width, kTitleHint.size()),
+                      y + previous_bottom + kTitleHintGap),
+            kHint);
+        return;
+      }
+      // A [size]d card wraps and spaces its lines to match.
+      const f32 size = line.size;
       std::vector<std::string> wrapped =
-          wrap_text(line.text, width * kTitleMaxWidthFraction);
-      f32 block_height =
-          static_cast<f32>(wrapped.size() - 1) * kTitleLineSpacing;
+          wrap_text(line.text, width * kTitleMaxWidthFraction,
+                    kAverageCharWidth * size);
+      const f32 line_spacing = kTitleLineSpacing * size;
+      f32 block_height = static_cast<f32>(wrapped.size() - 1) * line_spacing;
       f32 top_y = height / 2.0f - block_height / 2.0f;
       for (size_t i = 0; i < wrapped.size(); ++i) {
         renderer_draw_text(
             wrapped[i],
-            glm::vec2(centered_x(width, wrapped[i].size()),
-                      top_y + static_cast<f32>(i) * kTitleLineSpacing),
-            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+            glm::vec2(centered_x(width, wrapped[i].size(), size),
+                      top_y + static_cast<f32>(i) * line_spacing),
+            flashed(line, glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)), size);
       }
-      constexpr std::string_view kTitleHint = "[Enter] continue";
-      renderer_draw_text(kTitleHint,
-                         glm::vec2(centered_x(width, kTitleHint.size()),
-                                   top_y + block_height + kTitleHintGap),
-                         kHint);
+      renderer_draw_text(
+          kTitleHint,
+          glm::vec2(centered_x(width, kTitleHint.size()),
+                    top_y + block_height + kTextDescent * size + kTitleHintGap),
+          kHint);
       return;
     }
 
     if (line.overlay) {
-      // An [overlay] run (see overlay_run_): every line so far stays up,
+      // An [overlay] run (see text_run_): every line so far stays up,
       // each stepped down and across from the one before, wrapping back
       // to the left after three -- out in the open frame rather than in
-      // the dialogue corner.
-      for (size_t i = 0; i < overlay_run_.size(); ++i) {
-        f32 x = kListX + width * kOverlayIndentFraction * static_cast<f32>(i % 3);
-        f32 y = height * kOverlayTopFraction +
-                static_cast<f32>(i) * kOverlayLineStep;
-        std::vector<std::string> wrapped =
-            wrap_text(overlay_run_[i], width - x - kRightMargin);
-        for (size_t w = 0; w < wrapped.size(); ++w) {
-          renderer_draw_text(wrapped[w],
-                             glm::vec2(x, y + static_cast<f32>(w) * kLineSpacing),
-                             kOverlay);
+      // the dialogue corner. A [stack] line keeps the previous line's x
+      // instead, and a [size]d line steps down far enough to clear its
+      // neighbours.
+      f32 x = kListX;
+      f32 y = 0.0f;
+      f32 previous_bottom = 0.0f; // descent below the previous baseline
+      for (size_t i = 0; i < text_run_.size(); ++i) {
+        const ScriptLine &run_line = text_run_[i];
+        const f32 size = run_line.size;
+        if (i == 0) {
+          y = std::max(height * kOverlayTopFraction,
+                       kTextAscent * size + kOverlayLineGap);
+        } else {
+          y += std::max(kOverlayLineStep,
+                        previous_bottom + kOverlayLineGap + kTextAscent * size);
         }
+        if (!run_line.stack) {
+          x = kListX + width * kOverlayIndentFraction * static_cast<f32>(i % 3);
+        }
+        std::vector<std::string> wrapped =
+            wrap_text(run_line.text, width - x - kRightMargin,
+                      kAverageCharWidth * size);
+        const glm::vec4 colour = flashed(run_line, kOverlay);
+        for (size_t w = 0; w < wrapped.size(); ++w) {
+          renderer_draw_text(wrapped[w], glm::vec2(x, y), colour, size);
+          if (w + 1 < wrapped.size()) {
+            y += kLineSpacing * size;
+          }
+        }
+        previous_bottom = kTextDescent * size;
       }
       renderer_draw_text("[Enter] continue", glm::vec2(kListX, hint_y), kHint);
       return;

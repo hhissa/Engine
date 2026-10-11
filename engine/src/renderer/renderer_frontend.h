@@ -21,9 +21,11 @@ void renderer_set_camera(const Camera &camera);
 
 // Queues one line of text to be drawn this frame (see
 // RendererBackend::draw_text) -- call from the game's render(), not once
-// at startup, since queued draws don't persist to the next frame.
+// at startup, since queued draws don't persist to the next frame. scale
+// enlarges the glyphs about position (the baseline origin) -- the font's
+// one baked atlas stretched, so large sizes come out a little soft.
 void renderer_draw_text(std::string_view text, glm::vec2 position,
-                       glm::vec4 colour);
+                       glm::vec4 colour, f32 scale = 1.0f);
 
 // Queues the engine's built-in demo UI texture to be drawn at
 // position/size (screen pixels) this frame (see
@@ -53,6 +55,18 @@ void renderer_draw_solid_quad(glm::vec2 position, glm::vec2 size,
 // to sit on without unloading the scene behind it.
 void renderer_draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
                                 glm::vec4 colour);
+
+// Queues an image -- a path under assets/ with its extension, e.g.
+// "photos/cloud_mel.jpg" -- stretched over position/size (screen pixels,
+// top-left origin) this frame. Same layer and ordering as
+// renderer_draw_backdrop_quad(): over the scene, under all text.
+void renderer_draw_image(std::string_view path, glm::vec2 position,
+                         glm::vec2 size);
+
+// Loads an image ahead of its first renderer_draw_image() and returns its
+// size in pixels ((0, 0) if it can't be loaded) -- e.g. to fit it to the
+// screen without stretching it.
+glm::vec2 renderer_preload_image(std::string_view path);
 
 // Queues a "looking through a camera" viewfinder-style HUD overlay within
 // the given screen rect (position/size in screen pixels, matching
