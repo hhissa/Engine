@@ -1,0 +1,265 @@
+#sdf scene file
+version=0.1
+# Alex outside the club -- a phone face up on wet pavement, twelve missed
+# calls, the club's doorway glowing behind.
+ambient=0.06
+
+material pavement {
+    id=8a86bcf2c9e94d73
+    base_colour=0.12 0.12 0.14 1
+    roughness=0.1
+    bump_map=concrete_wall
+    bump_strength=1
+    base_map=white
+}
+
+material puddle {
+    id=500ee0ee62cbccc3
+    base_colour=0.09 0.09 0.11 1
+    roughness=0.02
+    base_map=white
+}
+
+material phone {
+    id=88579687cc653a5b
+    base_colour=0.03 0.03 0.035 1
+    roughness=0.2
+    base_map=white
+}
+
+material screen {
+    id=11e9cfd771160ed7
+    base_colour=0.7 0.85 1 1
+    emissive_colour=0.7 0.85 1
+    emissive_intensity=1.4
+    base_map=white
+}
+
+material missed_calls {
+    id=8b16cbe6ed7ea86c
+    base_colour=1 0.2 0.2 1
+    emissive_colour=1 0.2 0.2
+    emissive_intensity=1.8
+    base_map=white
+}
+
+material club_wall {
+    id=0ec73c647737fbb1
+    base_colour=0.2 0.17 0.18 1
+    base_map=dirtywall
+    uv_scale=0.5
+}
+
+material doorway {
+    id=44fcf8aa50e577ed
+    base_colour=1 0.25 0.7 1
+    emissive_colour=1 0.2 0.7
+    emissive_intensity=2
+    base_map=white
+}
+
+material neon {
+    id=764ecb08b408bfcb
+    base_colour=0.3 0.9 1 1
+    emissive_colour=0.3 0.9 1
+    emissive_intensity=2.5
+    base_map=white
+}
+
+material cigarette {
+    id=57bd112b8fb77bfe
+    base_colour=0.95 0.95 0.92 1
+    roughness=0.9
+    base_map=white
+}
+
+material ember {
+    id=bcb0fb1ad8140309
+    base_colour=1 0.4 0.1 1
+    emissive_colour=1 0.35 0.05
+    emissive_intensity=2
+    base_map=white
+}
+
+light light0 {
+    type=point
+    position=1.6 -1.2 5
+    colour=1 0.3 0.75
+    intensity=2.2
+}
+
+light light1 {
+    type=point
+    position=1.6 -3.2 5.3
+    colour=0.3 0.9 1
+    intensity=0.9
+}
+
+light light2 {
+    type=point
+    position=0 -0.6 1.2
+    colour=0.7 0.85 1
+    intensity=0.25
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.1 4
+        rotation=0 0 0
+        params=20 0.1 20 0
+        material=8a86bcf2c9e94d73
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p1 {
+        type=ellipsoid
+        position=-0.9 -0.005 0.7
+        rotation=0 0 0
+        params=0.8 0.012 0.45 0
+        material=500ee0ee62cbccc3
+    }
+
+    primitive p2 {
+        type=ellipsoid
+        position=1.1 -0.005 1.8
+        rotation=0 0 0
+        params=0.6 0.012 0.35 0
+        material=500ee0ee62cbccc3
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p3 {
+        type=round_box
+        position=0 -0.018 1.2
+        rotation=0 0.35 0
+        params=0.15 0.018 0.31 0.03
+        material=88579687cc653a5b
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0
+
+    primitive p4 {
+        type=box
+        position=-0.003429 -0.037 1.191
+        rotation=0 0.35 0
+        params=0.13 0.002 0.27 0
+        material=11e9cfd771160ed7
+    }
+
+    primitive p5 {
+        type=box
+        position=0.06172 -0.04 1.369
+        rotation=0 0.35 0
+        params=0.11 0.002 0.026 0
+        material=8b16cbe6ed7ea86c
+    }
+
+    primitive p6 {
+        type=box
+        position=0.036 -0.04 1.299
+        rotation=0 0.35 0
+        params=0.11 0.002 0.026 0
+        material=8b16cbe6ed7ea86c
+    }
+
+    primitive p7 {
+        type=box
+        position=0.01029 -0.04 1.228
+        rotation=0 0.35 0
+        params=0.11 0.002 0.026 0
+        material=8b16cbe6ed7ea86c
+    }
+
+    primitive p8 {
+        type=box
+        position=-0.01543 -0.04 1.158
+        rotation=0 0.35 0
+        params=0.11 0.002 0.026 0
+        material=8b16cbe6ed7ea86c
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0
+
+    primitive p9 {
+        type=capsule
+        position=0.535 -0.02 1
+        rotation=0.5989 0.4523 -1.281
+        params=0.018 0.09862 0 0
+        material=57bd112b8fb77bfe
+    }
+
+    primitive p10 {
+        type=sphere
+        position=0.45 -0.02 0.95
+        rotation=0 0 0
+        params=0.02 0 0 0
+        material=bcb0fb1ad8140309
+    }
+
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0
+
+    primitive p11 {
+        type=box
+        position=0 -3 6.3
+        rotation=0 0 0
+        params=12 3 0.3 0
+        material=0ec73c647737fbb1
+    }
+
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0
+
+    primitive p12 {
+        type=box
+        position=1.6 -1.3 5.98
+        rotation=0 0 0
+        params=0.75 1.3 0.03 0
+        material=44fcf8aa50e577ed
+    }
+
+    primitive p13 {
+        type=capsule
+        position=1.6 -3 5.95
+        rotation=0 0 -1.571
+        params=0.05 0.7 0 0
+        material=764ecb08b408bfcb
+    }
+
+    primitive p14 {
+        type=capsule
+        position=1.6 -3.4 5.95
+        rotation=0 0 -1.571
+        params=0.05 0.7 0 0
+        material=764ecb08b408bfcb
+    }
+
+}

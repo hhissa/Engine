@@ -1,0 +1,2526 @@
+#sdf scene file
+version=0.1
+# Theo, manic -- a glowing giant standing over a tiny town at night.
+ambient=0.1
+
+material ground {
+    id=0579b0091ea8ad9c
+    base_colour=0.06 0.06 0.07 1
+    roughness=1
+    base_map=white
+}
+
+material houses {
+    id=8f9c744c0fdf7dc1
+    base_colour=0.32 0.3 0.32 1
+    roughness=1
+    base_map=white
+}
+
+material roofs {
+    id=622d821d2e94f31e
+    base_colour=0.2 0.16 0.16 1
+    roughness=1
+    base_map=white
+}
+
+material windows {
+    id=c45983e7b850d6cf
+    base_colour=1 0.85 0.5 1
+    emissive_colour=1 0.8 0.4
+    emissive_intensity=1.2
+    base_map=white
+}
+
+material figure {
+    id=154ee86c4d8a3b53
+    base_colour=1 0.96 0.85 1
+    roughness=1
+    emissive_colour=1 0.93 0.75
+    emissive_intensity=0.55
+    base_map=white
+}
+
+light light0 {
+    type=point
+    position=0 -5 10.5
+    colour=1 0.9 0.7
+    intensity=2.5
+}
+
+light light1 {
+    type=directional
+    direction=0.2 -1 0.5
+    colour=0.5 0.55 0.8
+    intensity=0.15
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.05 10
+        rotation=0 0 0
+        params=40 0.05 30 0
+        material=0579b0091ea8ad9c
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p1 {
+        type=box
+        position=-8.684 -0.2074 0.6139
+        rotation=0 0 0
+        params=0.2849 0.2074 0.3241 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p2 {
+        type=box
+        position=-8.749 -0.2941 3.423
+        rotation=0 0 0
+        params=0.2337 0.2941 0.254 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p3 {
+        type=box
+        position=-8.351 -0.1801 5.143
+        rotation=0 0 0
+        params=0.302 0.1801 0.2661 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p4 {
+        type=box
+        position=-8.423 -0.2578 7.775
+        rotation=0 0 0
+        params=0.2816 0.2578 0.2679 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p5 {
+        type=box
+        position=-8.438 -0.2882 10.83
+        rotation=0 0 0
+        params=0.3367 0.2882 0.3203 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p6 {
+        type=box
+        position=-8.701 -0.3135 12.49
+        rotation=0 0 0
+        params=0.2501 0.3135 0.3359 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p7 {
+        type=box
+        position=-7.619 -0.179 0.4315
+        rotation=0 0 0
+        params=0.2733 0.179 0.2367 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p8 {
+        type=box
+        position=-7.403 -0.2872 1.998
+        rotation=0 0 0
+        params=0.2938 0.2872 0.2528 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p9 {
+        type=box
+        position=-7.732 -0.2646 4.909
+        rotation=0 0 0
+        params=0.2683 0.2646 0.2633 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p10 {
+        type=box
+        position=-7.475 -0.2764 6.666
+        rotation=0 0 0
+        params=0.3104 0.2764 0.3373 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p11 {
+        type=box
+        position=-7.637 -0.3075 8.293
+        rotation=0 0 0
+        params=0.2988 0.3075 0.2864 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p12 {
+        type=box
+        position=-7.478 -0.1828 11.16
+        rotation=0 0 0
+        params=0.3296 0.1828 0.2572 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p13 {
+        type=box
+        position=-7.732 -0.3225 12.24
+        rotation=0 0 0
+        params=0.3374 0.3225 0.3182 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p14 {
+        type=box
+        position=-6.466 -0.2068 0.5154
+        rotation=0 0 0
+        params=0.2285 0.2068 0.3298 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p15 {
+        type=box
+        position=-6.497 -0.3024 2.061
+        rotation=0 0 0
+        params=0.2976 0.3024 0.2635 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p16 {
+        type=box
+        position=-6.543 -0.1785 3.206
+        rotation=0 0 0
+        params=0.3442 0.1785 0.2992 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p17 {
+        type=box
+        position=-6.688 -0.1892 6.775
+        rotation=0 0 0
+        params=0.2417 0.1892 0.2367 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p18 {
+        type=box
+        position=-6.794 -0.2558 8.22
+        rotation=0 0 0
+        params=0.2408 0.2558 0.2655 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p19 {
+        type=box
+        position=-6.784 -0.2575 9.31
+        rotation=0 0 0
+        params=0.3137 0.2575 0.2308 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p20 {
+        type=box
+        position=-6.5 -0.2446 11.16
+        rotation=0 0 0
+        params=0.226 0.2446 0.2329 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p21 {
+        type=box
+        position=-5.744 -0.2505 1.886
+        rotation=0 0 0
+        params=0.2619 0.2505 0.2937 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p22 {
+        type=box
+        position=-5.861 -0.3201 3.561
+        rotation=0 0 0
+        params=0.3168 0.3201 0.2638 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p23 {
+        type=box
+        position=-5.574 -0.324 6.786
+        rotation=0 0 0
+        params=0.2648 0.324 0.2385 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p24 {
+        type=box
+        position=-5.574 -0.178 8.156
+        rotation=0 0 0
+        params=0.3027 0.178 0.3056 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p25 {
+        type=box
+        position=-5.618 -0.2105 12.69
+        rotation=0 0 0
+        params=0.282 0.2105 0.2732 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p26 {
+        type=box
+        position=-4.565 -0.2826 0.2512
+        rotation=0 0 0
+        params=0.2865 0.2826 0.3363 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p27 {
+        type=box
+        position=-4.699 -0.2799 2.155
+        rotation=0 0 0
+        params=0.3324 0.2799 0.3104 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p28 {
+        type=box
+        position=-4.796 -0.3234 3.569
+        rotation=0 0 0
+        params=0.3455 0.3234 0.2258 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p29 {
+        type=box
+        position=-4.794 -0.2204 4.787
+        rotation=0 0 0
+        params=0.2349 0.2204 0.3429 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p30 {
+        type=box
+        position=-4.765 -0.2059 6.265
+        rotation=0 0 0
+        params=0.313 0.2059 0.2669 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p31 {
+        type=box
+        position=-4.677 -0.2131 7.857
+        rotation=0 0 0
+        params=0.2653 0.2131 0.3307 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p32 {
+        type=box
+        position=-4.798 -0.2676 11.26
+        rotation=0 0 0
+        params=0.2796 0.2676 0.2601 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p33 {
+        type=box
+        position=-4.841 -0.2966 12.31
+        rotation=0 0 0
+        params=0.2293 0.2966 0.3418 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p34 {
+        type=box
+        position=-3.876 -0.1952 4.972
+        rotation=0 0 0
+        params=0.2713 0.1952 0.324 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p35 {
+        type=box
+        position=-3.679 -0.1776 9.706
+        rotation=0 0 0
+        params=0.3354 0.1776 0.2978 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p36 {
+        type=box
+        position=-3.976 -0.2457 12.69
+        rotation=0 0 0
+        params=0.3025 0.2457 0.325 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p37 {
+        type=box
+        position=-2.909 -0.1857 0.3788
+        rotation=0 0 0
+        params=0.3363 0.1857 0.2335 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p38 {
+        type=box
+        position=-3.035 -0.1987 3.497
+        rotation=0 0 0
+        params=0.3066 0.1987 0.238 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p39 {
+        type=box
+        position=-2.835 -0.2537 4.945
+        rotation=0 0 0
+        params=0.316 0.2537 0.2348 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p40 {
+        type=box
+        position=-2.965 -0.2692 6.224
+        rotation=0 0 0
+        params=0.2916 0.2692 0.2468 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p41 {
+        type=box
+        position=-2.852 -0.311 7.797
+        rotation=0 0 0
+        params=0.3258 0.311 0.3099 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p42 {
+        type=box
+        position=-2.689 -0.2335 9.52
+        rotation=0 0 0
+        params=0.3463 0.2335 0.3427 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p43 {
+        type=box
+        position=-2.732 -0.2661 10.71
+        rotation=0 0 0
+        params=0.3017 0.2661 0.3195 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p44 {
+        type=box
+        position=-2.985 -0.206 12.76
+        rotation=0 0 0
+        params=0.3352 0.206 0.3498 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p45 {
+        type=box
+        position=-1.804 -0.2358 0.7297
+        rotation=0 0 0
+        params=0.2354 0.2358 0.2473 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p46 {
+        type=box
+        position=-1.729 -0.1934 6.514
+        rotation=0 0 0
+        params=0.2892 0.1934 0.255 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p47 {
+        type=box
+        position=-1.792 -0.2395 8.151
+        rotation=0 0 0
+        params=0.2566 0.2395 0.2723 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p48 {
+        type=box
+        position=-1.771 -0.2846 11.05
+        rotation=0 0 0
+        params=0.3171 0.2846 0.3492 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p49 {
+        type=box
+        position=-2.099 -0.3246 12.6
+        rotation=0 0 0
+        params=0.2971 0.3246 0.2496 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p50 {
+        type=box
+        position=-1.002 -0.2334 2.196
+        rotation=0 0 0
+        params=0.2827 0.2334 0.3036 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p51 {
+        type=box
+        position=-0.8039 -0.2923 3.651
+        rotation=0 0 0
+        params=0.2563 0.2923 0.3241 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p52 {
+        type=box
+        position=-1.07 -0.2212 5.209
+        rotation=0 0 0
+        params=0.2347 0.2212 0.3042 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p53 {
+        type=box
+        position=-1.063 -0.2077 7.824
+        rotation=0 0 0
+        params=0.3141 0.2077 0.3108 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p54 {
+        type=box
+        position=-0.1507 -0.2837 0.7283
+        rotation=0 0 0
+        params=0.2276 0.2837 0.2993 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p55 {
+        type=box
+        position=0.1849 -0.2299 1.924
+        rotation=0 0 0
+        params=0.3045 0.2299 0.2683 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p56 {
+        type=box
+        position=0.0543 -0.2934 3.474
+        rotation=0 0 0
+        params=0.2529 0.2934 0.2275 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p57 {
+        type=box
+        position=-0.01802 -0.188 4.833
+        rotation=0 0 0
+        params=0.2979 0.188 0.2863 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p58 {
+        type=box
+        position=0.8315 -0.2745 5.046
+        rotation=0 0 0
+        params=0.2901 0.2745 0.2261 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p59 {
+        type=box
+        position=1.115 -0.2498 6.415
+        rotation=0 0 0
+        params=0.2293 0.2498 0.3364 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p60 {
+        type=box
+        position=0.9819 -0.3197 7.809
+        rotation=0 0 0
+        params=0.235 0.3197 0.322 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p61 {
+        type=box
+        position=1.736 -0.1974 1.895
+        rotation=0 0 0
+        params=0.3192 0.1974 0.2635 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p62 {
+        type=box
+        position=1.877 -0.2388 3.339
+        rotation=0 0 0
+        params=0.3332 0.2388 0.3114 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p63 {
+        type=box
+        position=1.889 -0.2492 5.034
+        rotation=0 0 0
+        params=0.2498 0.2492 0.2631 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p64 {
+        type=box
+        position=1.713 -0.2751 7.829
+        rotation=0 0 0
+        params=0.2671 0.2751 0.2538 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p65 {
+        type=box
+        position=1.88 -0.217 9.642
+        rotation=0 0 0
+        params=0.2719 0.217 0.2993 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p66 {
+        type=box
+        position=1.977 -0.3019 10.99
+        rotation=0 0 0
+        params=0.3364 0.3019 0.2432 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p67 {
+        type=box
+        position=2.009 -0.2119 12.61
+        rotation=0 0 0
+        params=0.3349 0.2119 0.3496 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p68 {
+        type=box
+        position=3.041 -0.2159 0.3004
+        rotation=0 0 0
+        params=0.3032 0.2159 0.2584 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p69 {
+        type=box
+        position=2.895 -0.309 2.146
+        rotation=0 0 0
+        params=0.334 0.309 0.3279 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p70 {
+        type=box
+        position=2.85 -0.2733 3.621
+        rotation=0 0 0
+        params=0.3462 0.2733 0.2788 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p71 {
+        type=box
+        position=2.768 -0.1756 4.778
+        rotation=0 0 0
+        params=0.2421 0.1756 0.2366 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p72 {
+        type=box
+        position=2.854 -0.237 7.877
+        rotation=0 0 0
+        params=0.314 0.237 0.274 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p73 {
+        type=box
+        position=2.696 -0.3219 9.409
+        rotation=0 0 0
+        params=0.3294 0.3219 0.2571 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p74 {
+        type=box
+        position=2.775 -0.2268 11.12
+        rotation=0 0 0
+        params=0.2419 0.2268 0.342 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p75 {
+        type=box
+        position=2.977 -0.2261 12.37
+        rotation=0 0 0
+        params=0.2255 0.2261 0.2459 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p76 {
+        type=box
+        position=3.829 -0.2682 2.033
+        rotation=0 0 0
+        params=0.3309 0.2682 0.2461 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p77 {
+        type=box
+        position=3.639 -0.2075 3.757
+        rotation=0 0 0
+        params=0.2566 0.2075 0.2745 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p78 {
+        type=box
+        position=3.942 -0.2232 5.148
+        rotation=0 0 0
+        params=0.2555 0.2232 0.263 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p79 {
+        type=box
+        position=3.998 -0.2441 6.25
+        rotation=0 0 0
+        params=0.3398 0.2441 0.3116 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p80 {
+        type=box
+        position=3.675 -0.3117 8.07
+        rotation=0 0 0
+        params=0.335 0.3117 0.2356 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p81 {
+        type=box
+        position=3.82 -0.1797 10.77
+        rotation=0 0 0
+        params=0.3153 0.1797 0.2637 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p82 {
+        type=box
+        position=3.852 -0.2411 12.24
+        rotation=0 0 0
+        params=0.3457 0.2411 0.2968 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p83 {
+        type=box
+        position=4.709 -0.2197 0.4644
+        rotation=0 0 0
+        params=0.2483 0.2197 0.3205 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p84 {
+        type=box
+        position=4.915 -0.2143 1.796
+        rotation=0 0 0
+        params=0.2642 0.2143 0.2691 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p85 {
+        type=box
+        position=4.631 -0.3005 4.844
+        rotation=0 0 0
+        params=0.2614 0.3005 0.3073 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p86 {
+        type=box
+        position=4.824 -0.2551 6.389
+        rotation=0 0 0
+        params=0.3182 0.2551 0.3191 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p87 {
+        type=box
+        position=4.921 -0.2542 7.858
+        rotation=0 0 0
+        params=0.3471 0.2542 0.3382 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p88 {
+        type=box
+        position=4.656 -0.2123 9.65
+        rotation=0 0 0
+        params=0.2919 0.2123 0.2571 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p89 {
+        type=box
+        position=5.715 -0.3205 0.6179
+        rotation=0 0 0
+        params=0.2943 0.3205 0.3227 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p90 {
+        type=box
+        position=5.668 -0.2789 2.11
+        rotation=0 0 0
+        params=0.2576 0.2789 0.2789 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p91 {
+        type=box
+        position=5.651 -0.3147 3.318
+        rotation=0 0 0
+        params=0.349 0.3147 0.3037 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p92 {
+        type=box
+        position=5.697 -0.2293 5.052
+        rotation=0 0 0
+        params=0.2325 0.2293 0.2718 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p93 {
+        type=box
+        position=5.523 -0.2029 6.607
+        rotation=0 0 0
+        params=0.2543 0.2029 0.2668 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p94 {
+        type=box
+        position=5.738 -0.3185 9.633
+        rotation=0 0 0
+        params=0.2356 0.3185 0.331 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p95 {
+        type=box
+        position=5.74 -0.2446 10.8
+        rotation=0 0 0
+        params=0.3276 0.2446 0.2302 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p96 {
+        type=box
+        position=5.734 -0.3194 12.59
+        rotation=0 0 0
+        params=0.2755 0.3194 0.2679 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p97 {
+        type=box
+        position=6.602 -0.2466 3.592
+        rotation=0 0 0
+        params=0.3245 0.2466 0.2355 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p98 {
+        type=box
+        position=6.611 -0.2126 5.151
+        rotation=0 0 0
+        params=0.2905 0.2126 0.2697 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p99 {
+        type=box
+        position=6.491 -0.2892 6.439
+        rotation=0 0 0
+        params=0.327 0.2892 0.3355 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p100 {
+        type=box
+        position=6.639 -0.2921 10.86
+        rotation=0 0 0
+        params=0.2783 0.2921 0.3405 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p101 {
+        type=box
+        position=6.602 -0.2035 12.41
+        rotation=0 0 0
+        params=0.3381 0.2035 0.2703 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p102 {
+        type=box
+        position=7.703 -0.1885 0.3699
+        rotation=0 0 0
+        params=0.3452 0.1885 0.2593 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p103 {
+        type=box
+        position=7.763 -0.3208 2.268
+        rotation=0 0 0
+        params=0.3238 0.3208 0.2662 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p104 {
+        type=box
+        position=7.713 -0.2052 3.284
+        rotation=0 0 0
+        params=0.3412 0.2052 0.3036 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p105 {
+        type=box
+        position=7.605 -0.1968 4.995
+        rotation=0 0 0
+        params=0.319 0.1968 0.3255 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p106 {
+        type=box
+        position=7.785 -0.2164 6.496
+        rotation=0 0 0
+        params=0.2534 0.2164 0.2508 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p107 {
+        type=box
+        position=7.421 -0.2601 8.059
+        rotation=0 0 0
+        params=0.3169 0.2601 0.3409 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p108 {
+        type=box
+        position=7.633 -0.2781 9.362
+        rotation=0 0 0
+        params=0.3402 0.2781 0.3292 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p109 {
+        type=box
+        position=7.553 -0.2731 10.91
+        rotation=0 0 0
+        params=0.2847 0.2731 0.2281 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p110 {
+        type=box
+        position=7.787 -0.2809 12.53
+        rotation=0 0 0
+        params=0.2644 0.2809 0.3138 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p111 {
+        type=box
+        position=8.582 -0.2866 0.3619
+        rotation=0 0 0
+        params=0.2313 0.2866 0.2633 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p112 {
+        type=box
+        position=8.365 -0.2534 3.358
+        rotation=0 0 0
+        params=0.2736 0.2534 0.3238 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p113 {
+        type=box
+        position=8.454 -0.227 5.116
+        rotation=0 0 0
+        params=0.3242 0.227 0.2843 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p114 {
+        type=box
+        position=8.45 -0.2116 6.491
+        rotation=0 0 0
+        params=0.3314 0.2116 0.3082 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p115 {
+        type=box
+        position=8.541 -0.1996 8.089
+        rotation=0 0 0
+        params=0.3435 0.1996 0.2913 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p116 {
+        type=box
+        position=8.366 -0.3133 11.09
+        rotation=0 0 0
+        params=0.253 0.3133 0.3044 0
+        material=8f9c744c0fdf7dc1
+    }
+
+    primitive p117 {
+        type=box
+        position=8.691 -0.2272 12.39
+        rotation=0 0 0
+        params=0.2413 0.2272 0.2774 0
+        material=8f9c744c0fdf7dc1
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p118 {
+        type=box
+        position=-8.684 -0.4148 0.6139
+        rotation=0 0 0.7854
+        params=0.2055 0.2055 0.3141 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p119 {
+        type=box
+        position=-8.749 -0.5881 3.423
+        rotation=0 0 0.7854
+        params=0.1685 0.1685 0.244 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p120 {
+        type=box
+        position=-8.351 -0.3602 5.143
+        rotation=0 0 0.7854
+        params=0.2178 0.2178 0.2561 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p121 {
+        type=box
+        position=-8.423 -0.5156 7.775
+        rotation=0 0 0.7854
+        params=0.2031 0.2031 0.2579 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p122 {
+        type=box
+        position=-8.438 -0.5764 10.83
+        rotation=0 0 0.7854
+        params=0.2429 0.2429 0.3103 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p123 {
+        type=box
+        position=-8.701 -0.627 12.49
+        rotation=0 0 0.7854
+        params=0.1804 0.1804 0.3259 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p124 {
+        type=box
+        position=-7.619 -0.3581 0.4315
+        rotation=0 0 0.7854
+        params=0.1971 0.1971 0.2267 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p125 {
+        type=box
+        position=-7.403 -0.5745 1.998
+        rotation=0 0 0.7854
+        params=0.2119 0.2119 0.2428 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p126 {
+        type=box
+        position=-7.732 -0.5292 4.909
+        rotation=0 0 0.7854
+        params=0.1935 0.1935 0.2533 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p127 {
+        type=box
+        position=-7.475 -0.5528 6.666
+        rotation=0 0 0.7854
+        params=0.2239 0.2239 0.3273 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p128 {
+        type=box
+        position=-7.637 -0.615 8.293
+        rotation=0 0 0.7854
+        params=0.2155 0.2155 0.2764 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p129 {
+        type=box
+        position=-7.478 -0.3657 11.16
+        rotation=0 0 0.7854
+        params=0.2377 0.2377 0.2472 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p130 {
+        type=box
+        position=-7.732 -0.645 12.24
+        rotation=0 0 0.7854
+        params=0.2433 0.2433 0.3082 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p131 {
+        type=box
+        position=-6.466 -0.4136 0.5154
+        rotation=0 0 0.7854
+        params=0.1648 0.1648 0.3198 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p132 {
+        type=box
+        position=-6.497 -0.6048 2.061
+        rotation=0 0 0.7854
+        params=0.2147 0.2147 0.2535 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p133 {
+        type=box
+        position=-6.543 -0.3571 3.206
+        rotation=0 0 0.7854
+        params=0.2483 0.2483 0.2892 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p134 {
+        type=box
+        position=-6.688 -0.3785 6.775
+        rotation=0 0 0.7854
+        params=0.1743 0.1743 0.2267 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p135 {
+        type=box
+        position=-6.794 -0.5116 8.22
+        rotation=0 0 0.7854
+        params=0.1737 0.1737 0.2555 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p136 {
+        type=box
+        position=-6.784 -0.515 9.31
+        rotation=0 0 0.7854
+        params=0.2263 0.2263 0.2208 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p137 {
+        type=box
+        position=-6.5 -0.4892 11.16
+        rotation=0 0 0.7854
+        params=0.163 0.163 0.2229 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p138 {
+        type=box
+        position=-5.744 -0.5009 1.886
+        rotation=0 0 0.7854
+        params=0.1889 0.1889 0.2837 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p139 {
+        type=box
+        position=-5.861 -0.6401 3.561
+        rotation=0 0 0.7854
+        params=0.2285 0.2285 0.2538 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p140 {
+        type=box
+        position=-5.574 -0.648 6.786
+        rotation=0 0 0.7854
+        params=0.191 0.191 0.2285 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p141 {
+        type=box
+        position=-5.574 -0.3559 8.156
+        rotation=0 0 0.7854
+        params=0.2183 0.2183 0.2956 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p142 {
+        type=box
+        position=-5.618 -0.4209 12.69
+        rotation=0 0 0.7854
+        params=0.2034 0.2034 0.2632 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p143 {
+        type=box
+        position=-4.565 -0.5652 0.2512
+        rotation=0 0 0.7854
+        params=0.2066 0.2066 0.3263 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p144 {
+        type=box
+        position=-4.699 -0.5597 2.155
+        rotation=0 0 0.7854
+        params=0.2397 0.2397 0.3004 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p145 {
+        type=box
+        position=-4.796 -0.6468 3.569
+        rotation=0 0 0.7854
+        params=0.2492 0.2492 0.2158 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p146 {
+        type=box
+        position=-4.794 -0.4408 4.787
+        rotation=0 0 0.7854
+        params=0.1694 0.1694 0.3329 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p147 {
+        type=box
+        position=-4.765 -0.4117 6.265
+        rotation=0 0 0.7854
+        params=0.2257 0.2257 0.2569 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p148 {
+        type=box
+        position=-4.677 -0.4263 7.857
+        rotation=0 0 0.7854
+        params=0.1913 0.1913 0.3207 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p149 {
+        type=box
+        position=-4.798 -0.5351 11.26
+        rotation=0 0 0.7854
+        params=0.2017 0.2017 0.2501 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p150 {
+        type=box
+        position=-4.841 -0.5931 12.31
+        rotation=0 0 0.7854
+        params=0.1654 0.1654 0.3318 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p151 {
+        type=box
+        position=-3.876 -0.3905 4.972
+        rotation=0 0 0.7854
+        params=0.1956 0.1956 0.314 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p152 {
+        type=box
+        position=-3.679 -0.3553 9.706
+        rotation=0 0 0.7854
+        params=0.2419 0.2419 0.2878 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p153 {
+        type=box
+        position=-3.976 -0.4913 12.69
+        rotation=0 0 0.7854
+        params=0.2182 0.2182 0.315 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p154 {
+        type=box
+        position=-2.909 -0.3713 0.3788
+        rotation=0 0 0.7854
+        params=0.2425 0.2425 0.2235 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p155 {
+        type=box
+        position=-3.035 -0.3975 3.497
+        rotation=0 0 0.7854
+        params=0.2212 0.2212 0.228 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p156 {
+        type=box
+        position=-2.835 -0.5074 4.945
+        rotation=0 0 0.7854
+        params=0.2279 0.2279 0.2248 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p157 {
+        type=box
+        position=-2.965 -0.5385 6.224
+        rotation=0 0 0.7854
+        params=0.2103 0.2103 0.2368 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p158 {
+        type=box
+        position=-2.852 -0.6219 7.797
+        rotation=0 0 0.7854
+        params=0.235 0.235 0.2999 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p159 {
+        type=box
+        position=-2.689 -0.467 9.52
+        rotation=0 0 0.7854
+        params=0.2497 0.2497 0.3327 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p160 {
+        type=box
+        position=-2.732 -0.5322 10.71
+        rotation=0 0 0.7854
+        params=0.2176 0.2176 0.3095 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p161 {
+        type=box
+        position=-2.985 -0.412 12.76
+        rotation=0 0 0.7854
+        params=0.2418 0.2418 0.3398 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p162 {
+        type=box
+        position=-1.804 -0.4717 0.7297
+        rotation=0 0 0.7854
+        params=0.1697 0.1697 0.2373 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p163 {
+        type=box
+        position=-1.729 -0.3869 6.514
+        rotation=0 0 0.7854
+        params=0.2086 0.2086 0.245 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p164 {
+        type=box
+        position=-1.792 -0.479 8.151
+        rotation=0 0 0.7854
+        params=0.1851 0.1851 0.2623 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p165 {
+        type=box
+        position=-1.771 -0.5693 11.05
+        rotation=0 0 0.7854
+        params=0.2287 0.2287 0.3392 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p166 {
+        type=box
+        position=-2.099 -0.6493 12.6
+        rotation=0 0 0.7854
+        params=0.2143 0.2143 0.2396 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p167 {
+        type=box
+        position=-1.002 -0.4668 2.196
+        rotation=0 0 0.7854
+        params=0.2039 0.2039 0.2936 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p168 {
+        type=box
+        position=-0.8039 -0.5846 3.651
+        rotation=0 0 0.7854
+        params=0.1849 0.1849 0.3141 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p169 {
+        type=box
+        position=-1.07 -0.4424 5.209
+        rotation=0 0 0.7854
+        params=0.1692 0.1692 0.2942 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p170 {
+        type=box
+        position=-1.063 -0.4154 7.824
+        rotation=0 0 0.7854
+        params=0.2266 0.2266 0.3008 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p171 {
+        type=box
+        position=-0.1507 -0.5674 0.7283
+        rotation=0 0 0.7854
+        params=0.1642 0.1642 0.2893 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p172 {
+        type=box
+        position=0.1849 -0.4597 1.924
+        rotation=0 0 0.7854
+        params=0.2196 0.2196 0.2583 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p173 {
+        type=box
+        position=0.0543 -0.5868 3.474
+        rotation=0 0 0.7854
+        params=0.1824 0.1824 0.2175 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p174 {
+        type=box
+        position=-0.01802 -0.376 4.833
+        rotation=0 0 0.7854
+        params=0.2148 0.2148 0.2763 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p175 {
+        type=box
+        position=0.8315 -0.5491 5.046
+        rotation=0 0 0.7854
+        params=0.2092 0.2092 0.2161 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p176 {
+        type=box
+        position=1.115 -0.4995 6.415
+        rotation=0 0 0.7854
+        params=0.1654 0.1654 0.3264 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p177 {
+        type=box
+        position=0.9819 -0.6394 7.809
+        rotation=0 0 0.7854
+        params=0.1695 0.1695 0.312 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p178 {
+        type=box
+        position=1.736 -0.3948 1.895
+        rotation=0 0 0.7854
+        params=0.2302 0.2302 0.2535 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p179 {
+        type=box
+        position=1.877 -0.4775 3.339
+        rotation=0 0 0.7854
+        params=0.2403 0.2403 0.3014 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p180 {
+        type=box
+        position=1.889 -0.4983 5.034
+        rotation=0 0 0.7854
+        params=0.1802 0.1802 0.2531 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p181 {
+        type=box
+        position=1.713 -0.5501 7.829
+        rotation=0 0 0.7854
+        params=0.1927 0.1927 0.2438 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p182 {
+        type=box
+        position=1.88 -0.434 9.642
+        rotation=0 0 0.7854
+        params=0.1961 0.1961 0.2893 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p183 {
+        type=box
+        position=1.977 -0.6039 10.99
+        rotation=0 0 0.7854
+        params=0.2426 0.2426 0.2332 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p184 {
+        type=box
+        position=2.009 -0.4238 12.61
+        rotation=0 0 0.7854
+        params=0.2415 0.2415 0.3396 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p185 {
+        type=box
+        position=3.041 -0.4319 0.3004
+        rotation=0 0 0.7854
+        params=0.2187 0.2187 0.2484 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p186 {
+        type=box
+        position=2.895 -0.6181 2.146
+        rotation=0 0 0.7854
+        params=0.2409 0.2409 0.3179 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p187 {
+        type=box
+        position=2.85 -0.5465 3.621
+        rotation=0 0 0.7854
+        params=0.2497 0.2497 0.2688 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p188 {
+        type=box
+        position=2.768 -0.3512 4.778
+        rotation=0 0 0.7854
+        params=0.1746 0.1746 0.2266 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p189 {
+        type=box
+        position=2.854 -0.474 7.877
+        rotation=0 0 0.7854
+        params=0.2265 0.2265 0.264 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p190 {
+        type=box
+        position=2.696 -0.6438 9.409
+        rotation=0 0 0.7854
+        params=0.2376 0.2376 0.2471 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p191 {
+        type=box
+        position=2.775 -0.4535 11.12
+        rotation=0 0 0.7854
+        params=0.1745 0.1745 0.332 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p192 {
+        type=box
+        position=2.977 -0.4521 12.37
+        rotation=0 0 0.7854
+        params=0.1626 0.1626 0.2359 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p193 {
+        type=box
+        position=3.829 -0.5365 2.033
+        rotation=0 0 0.7854
+        params=0.2386 0.2386 0.2361 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p194 {
+        type=box
+        position=3.639 -0.415 3.757
+        rotation=0 0 0.7854
+        params=0.1851 0.1851 0.2645 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p195 {
+        type=box
+        position=3.942 -0.4464 5.148
+        rotation=0 0 0.7854
+        params=0.1843 0.1843 0.253 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p196 {
+        type=box
+        position=3.998 -0.4883 6.25
+        rotation=0 0 0.7854
+        params=0.2451 0.2451 0.3016 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p197 {
+        type=box
+        position=3.675 -0.6235 8.07
+        rotation=0 0 0.7854
+        params=0.2417 0.2417 0.2256 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p198 {
+        type=box
+        position=3.82 -0.3593 10.77
+        rotation=0 0 0.7854
+        params=0.2274 0.2274 0.2537 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p199 {
+        type=box
+        position=3.852 -0.4822 12.24
+        rotation=0 0 0.7854
+        params=0.2493 0.2493 0.2868 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p200 {
+        type=box
+        position=4.709 -0.4395 0.4644
+        rotation=0 0 0.7854
+        params=0.1791 0.1791 0.3105 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p201 {
+        type=box
+        position=4.915 -0.4285 1.796
+        rotation=0 0 0.7854
+        params=0.1905 0.1905 0.2591 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p202 {
+        type=box
+        position=4.631 -0.6011 4.844
+        rotation=0 0 0.7854
+        params=0.1885 0.1885 0.2973 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p203 {
+        type=box
+        position=4.824 -0.5103 6.389
+        rotation=0 0 0.7854
+        params=0.2295 0.2295 0.3091 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p204 {
+        type=box
+        position=4.921 -0.5084 7.858
+        rotation=0 0 0.7854
+        params=0.2503 0.2503 0.3282 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p205 {
+        type=box
+        position=4.656 -0.4246 9.65
+        rotation=0 0 0.7854
+        params=0.2105 0.2105 0.2471 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p206 {
+        type=box
+        position=5.715 -0.6411 0.6179
+        rotation=0 0 0.7854
+        params=0.2123 0.2123 0.3127 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p207 {
+        type=box
+        position=5.668 -0.5577 2.11
+        rotation=0 0 0.7854
+        params=0.1858 0.1858 0.2689 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p208 {
+        type=box
+        position=5.651 -0.6295 3.318
+        rotation=0 0 0.7854
+        params=0.2517 0.2517 0.2937 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p209 {
+        type=box
+        position=5.697 -0.4587 5.052
+        rotation=0 0 0.7854
+        params=0.1677 0.1677 0.2618 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p210 {
+        type=box
+        position=5.523 -0.4057 6.607
+        rotation=0 0 0.7854
+        params=0.1834 0.1834 0.2568 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p211 {
+        type=box
+        position=5.738 -0.637 9.633
+        rotation=0 0 0.7854
+        params=0.1699 0.1699 0.321 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p212 {
+        type=box
+        position=5.74 -0.4891 10.8
+        rotation=0 0 0.7854
+        params=0.2363 0.2363 0.2202 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p213 {
+        type=box
+        position=5.734 -0.6388 12.59
+        rotation=0 0 0.7854
+        params=0.1987 0.1987 0.2579 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p214 {
+        type=box
+        position=6.602 -0.4932 3.592
+        rotation=0 0 0.7854
+        params=0.234 0.234 0.2255 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p215 {
+        type=box
+        position=6.611 -0.4251 5.151
+        rotation=0 0 0.7854
+        params=0.2095 0.2095 0.2597 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p216 {
+        type=box
+        position=6.491 -0.5785 6.439
+        rotation=0 0 0.7854
+        params=0.2358 0.2358 0.3255 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p217 {
+        type=box
+        position=6.639 -0.5843 10.86
+        rotation=0 0 0.7854
+        params=0.2008 0.2008 0.3305 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p218 {
+        type=box
+        position=6.602 -0.4069 12.41
+        rotation=0 0 0.7854
+        params=0.2438 0.2438 0.2603 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p219 {
+        type=box
+        position=7.703 -0.3771 0.3699
+        rotation=0 0 0.7854
+        params=0.249 0.249 0.2493 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p220 {
+        type=box
+        position=7.763 -0.6417 2.268
+        rotation=0 0 0.7854
+        params=0.2335 0.2335 0.2562 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p221 {
+        type=box
+        position=7.713 -0.4103 3.284
+        rotation=0 0 0.7854
+        params=0.2461 0.2461 0.2936 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p222 {
+        type=box
+        position=7.605 -0.3936 4.995
+        rotation=0 0 0.7854
+        params=0.2301 0.2301 0.3155 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p223 {
+        type=box
+        position=7.785 -0.4329 6.496
+        rotation=0 0 0.7854
+        params=0.1827 0.1827 0.2408 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p224 {
+        type=box
+        position=7.421 -0.5202 8.059
+        rotation=0 0 0.7854
+        params=0.2286 0.2286 0.3309 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p225 {
+        type=box
+        position=7.633 -0.5563 9.362
+        rotation=0 0 0.7854
+        params=0.2454 0.2454 0.3192 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p226 {
+        type=box
+        position=7.553 -0.5462 10.91
+        rotation=0 0 0.7854
+        params=0.2054 0.2054 0.2181 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p227 {
+        type=box
+        position=7.787 -0.5617 12.53
+        rotation=0 0 0.7854
+        params=0.1907 0.1907 0.3038 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p228 {
+        type=box
+        position=8.582 -0.5732 0.3619
+        rotation=0 0 0.7854
+        params=0.1668 0.1668 0.2533 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p229 {
+        type=box
+        position=8.365 -0.5068 3.358
+        rotation=0 0 0.7854
+        params=0.1973 0.1973 0.3138 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p230 {
+        type=box
+        position=8.454 -0.454 5.116
+        rotation=0 0 0.7854
+        params=0.2339 0.2339 0.2743 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p231 {
+        type=box
+        position=8.45 -0.4231 6.491
+        rotation=0 0 0.7854
+        params=0.239 0.239 0.2982 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p232 {
+        type=box
+        position=8.541 -0.3993 8.089
+        rotation=0 0 0.7854
+        params=0.2478 0.2478 0.2813 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p233 {
+        type=box
+        position=8.366 -0.6265 11.09
+        rotation=0 0 0.7854
+        params=0.1824 0.1824 0.2944 0
+        material=622d821d2e94f31e
+    }
+
+    primitive p234 {
+        type=box
+        position=8.691 -0.4544 12.39
+        rotation=0 0 0.7854
+        params=0.174 0.174 0.2674 0
+        material=622d821d2e94f31e
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0
+
+    primitive p235 {
+        type=box
+        position=-8.84 -0.3235 3.183
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p236 {
+        type=box
+        position=-8.428 -0.1981 4.903
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p237 {
+        type=box
+        position=-8.486 -0.2836 7.535
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p238 {
+        type=box
+        position=-8.392 -0.317 10.59
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p239 {
+        type=box
+        position=-8.728 -0.3448 12.25
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p240 {
+        type=box
+        position=-7.819 -0.291 4.669
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p241 {
+        type=box
+        position=-7.688 -0.3382 8.053
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p242 {
+        type=box
+        position=-7.494 -0.2011 10.92
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p243 {
+        type=box
+        position=-7.781 -0.3548 12
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p244 {
+        type=box
+        position=-6.542 -0.3326 1.821
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p245 {
+        type=box
+        position=-6.698 -0.2081 6.535
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p246 {
+        type=box
+        position=-6.85 -0.2814 7.98
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p247 {
+        type=box
+        position=-5.659 -0.3564 6.546
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p248 {
+        type=box
+        position=-5.571 -0.1958 7.916
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p249 {
+        type=box
+        position=-5.592 -0.2315 12.45
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p250 {
+        type=box
+        position=-4.616 -0.3078 1.915
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p251 {
+        type=box
+        position=-4.833 -0.3557 3.329
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p252 {
+        type=box
+        position=-4.641 -0.2344 7.617
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p253 {
+        type=box
+        position=-4.821 -0.2943 11.02
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p254 {
+        type=box
+        position=-3.599 -0.1954 9.466
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p255 {
+        type=box
+        position=-4.022 -0.2702 12.45
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p256 {
+        type=box
+        position=-2.873 -0.2042 0.1388
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p257 {
+        type=box
+        position=-2.797 -0.3421 7.557
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p258 {
+        type=box
+        position=-2.93 -0.2266 12.52
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p259 {
+        type=box
+        position=-1.741 -0.2594 0.4897
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p260 {
+        type=box
+        position=-1.701 -0.2128 6.274
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p261 {
+        type=box
+        position=-1.839 -0.2635 7.911
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p262 {
+        type=box
+        position=-1.792 -0.3131 10.81
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p263 {
+        type=box
+        position=-2.052 -0.3571 12.36
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p264 {
+        type=box
+        position=-0.9632 -0.2568 1.956
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p265 {
+        type=box
+        position=-1.004 -0.2433 4.969
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p266 {
+        type=box
+        position=-1.033 -0.2284 7.584
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p267 {
+        type=box
+        position=-0.1506 -0.3121 0.4883
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p268 {
+        type=box
+        position=0.0418 -0.2068 4.593
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p269 {
+        type=box
+        position=0.7951 -0.302 4.806
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p270 {
+        type=box
+        position=1.769 -0.2171 1.655
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p271 {
+        type=box
+        position=1.827 -0.2741 4.794
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p272 {
+        type=box
+        position=1.985 -0.2331 12.37
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p273 {
+        type=box
+        position=2.821 -0.1932 4.538
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p274 {
+        type=box
+        position=2.801 -0.2494 10.88
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p275 {
+        type=box
+        position=2.92 -0.2487 12.13
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p276 {
+        type=box
+        position=4.017 -0.2455 4.908
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p277 {
+        type=box
+        position=3.847 -0.1976 10.53
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p278 {
+        type=box
+        position=3.873 -0.2652 12
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p279 {
+        type=box
+        position=4.623 -0.2417 0.2244
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p280 {
+        type=box
+        position=4.838 -0.2357 1.556
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p281 {
+        type=box
+        position=4.685 -0.3306 4.604
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p282 {
+        type=box
+        position=4.966 -0.2796 7.618
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p283 {
+        type=box
+        position=5.701 -0.3526 0.3779
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p284 {
+        type=box
+        position=5.626 -0.3067 1.87
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p285 {
+        type=box
+        position=5.682 -0.2523 4.812
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p286 {
+        type=box
+        position=5.81 -0.3503 9.393
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p287 {
+        type=box
+        position=5.678 -0.269 10.56
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p288 {
+        type=box
+        position=6.575 -0.2338 4.911
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p289 {
+        type=box
+        position=7.715 -0.3529 2.028
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p290 {
+        type=box
+        position=7.806 -0.2257 3.044
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p291 {
+        type=box
+        position=7.699 -0.2165 4.755
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p292 {
+        type=box
+        position=7.831 -0.2381 6.256
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p293 {
+        type=box
+        position=7.339 -0.2861 7.819
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p294 {
+        type=box
+        position=7.63 -0.306 9.122
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p295 {
+        type=box
+        position=7.479 -0.3004 10.67
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p296 {
+        type=box
+        position=8.382 -0.2327 6.251
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p297 {
+        type=box
+        position=8.493 -0.2196 7.849
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+    primitive p298 {
+        type=box
+        position=8.454 -0.3446 10.85
+        rotation=0 0 0
+        params=0.06 0.06 0.02 0
+        material=c45983e7b850d6cf
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0.1
+
+    primitive p299 {
+        type=sphere
+        position=0 -8.25 12
+        rotation=0 0 0
+        params=0.5625 0 0 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p300 {
+        type=capsule
+        position=0 -5.812 12
+        rotation=0 0 0
+        params=0.6375 1.688 0 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p301 {
+        type=capsule
+        position=-0.4312 -1.969 12
+        rotation=0 0 0.009524
+        params=0.2812 1.969 0 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p302 {
+        type=capsule
+        position=0.4312 -1.969 12
+        rotation=0 0 -0.009524
+        params=0.2812 1.969 0 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p303 {
+        type=capsule
+        position=-2.119 -8.662 12
+        rotation=0 0 2.363
+        params=0.225 2.055 0 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p304 {
+        type=capsule
+        position=2.119 -8.662 12
+        rotation=0 0 -2.363
+        params=0.225 2.055 0 0
+        material=154ee86c4d8a3b53
+    }
+
+}

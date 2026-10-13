@@ -1,0 +1,1420 @@
+#sdf scene file
+version=0.1
+# Theo's daydream -- a cabin by a lake in the woods, in the fog.
+ambient=0.25
+
+material lake {
+    id=bc5ebb13aa567146
+    base_colour=0.07 0.1 0.13 1
+    roughness=0.05
+    base_map=white
+}
+
+material shore {
+    id=4faf28b061d14f32
+    base_colour=0.14 0.18 0.11 1
+    roughness=1
+    base_map=white
+}
+
+material pines {
+    id=28a458251e01b692
+    base_colour=0.05 0.11 0.08 1
+    roughness=1
+    base_map=white
+}
+
+material bark {
+    id=6ce9f85d27a6a98b
+    base_colour=0.18 0.12 0.08 1
+    roughness=1
+    base_map=white
+}
+
+material logs {
+    id=79d0673e912af667
+    base_colour=0.55 0.38 0.25 1
+    base_map=woodpanel
+    uv_scale=0.8
+    roughness=0.9
+}
+
+material roof {
+    id=8f5739fd174924f8
+    base_colour=0.14 0.11 0.1 1
+    roughness=1
+    base_map=white
+}
+
+material chimney {
+    id=3c77e8e8efecd436
+    base_colour=0.6 0.6 0.6 1
+    base_map=cobblestone
+    uv_scale=1
+}
+
+material door {
+    id=98e5dc1bd6e10462
+    base_colour=0.3 0.2 0.13 1
+    roughness=0.8
+    base_map=white
+}
+
+material window {
+    id=3edfbb44af3d0850
+    base_colour=1 0.8 0.5 1
+    emissive_colour=1 0.75 0.4
+    emissive_intensity=1.5
+    base_map=white
+}
+
+material fog {
+    id=a17dfb3553428084
+    base_colour=0.45 0.5 0.55 1
+    base_map=white
+}
+
+light light0 {
+    type=directional
+    direction=-0.4 -0.6 -1
+    colour=0.7 0.75 0.9
+    intensity=0.45
+}
+
+light light1 {
+    type=point
+    position=2 -1.5 18.1
+    colour=1 0.75 0.45
+    intensity=1.2
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.05 12
+        rotation=0 0 0
+        params=45 0.05 30 0
+        material=bc5ebb13aa567146
+    }
+
+    primitive p1 {
+        type=box
+        position=0 0 -6
+        rotation=0 0 0
+        params=45 0.15 6 0
+        material=4faf28b061d14f32
+    }
+
+    primitive p2 {
+        type=box
+        position=0 0 30
+        rotation=0 0 0
+        params=45 0.3 12 0
+        material=4faf28b061d14f32
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p3 {
+        type=box
+        position=2 -1.5 20.5
+        rotation=0 0 0
+        params=2 1.2 1.6 0
+        material=79d0673e912af667
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p4 {
+        type=box
+        position=2 -2.7 20.5
+        rotation=0 0 0.7854
+        params=1.442 1.442 1.59 0
+        material=8f5739fd174924f8
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0
+
+    primitive p5 {
+        type=box
+        position=3.2 -4.2 21.1
+        rotation=0 0 0
+        params=0.22 0.75 0.22 0
+        material=3c77e8e8efecd436
+    }
+
+    primitive p6 {
+        type=box
+        position=2 -1.05 18.88
+        rotation=0 0 0
+        params=0.35 0.75 0.03 0
+        material=98e5dc1bd6e10462
+    }
+
+    primitive p7 {
+        type=box
+        position=0.85 -1.8 18.88
+        rotation=0 0 0
+        params=0.32 0.26 0.03 0
+        material=3edfbb44af3d0850
+    }
+
+    primitive p8 {
+        type=box
+        position=3.15 -1.8 18.88
+        rotation=0 0 0
+        params=0.32 0.26 0.03 0
+        material=3edfbb44af3d0850
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0
+
+    primitive p9 {
+        type=box
+        position=2 -0.32 16.2
+        rotation=0 0 0
+        params=0.55 0.04 2.2 0
+        material=79d0673e912af667
+    }
+
+    primitive p10 {
+        type=capsule
+        position=1.5 -0.11 14.4
+        rotation=3.142 0 0
+        params=0.05 0.21 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p11 {
+        type=capsule
+        position=2.5 -0.11 14.4
+        rotation=3.142 0 0
+        params=0.05 0.21 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p12 {
+        type=capsule
+        position=1.5 -0.11 15.8
+        rotation=3.142 0 0
+        params=0.05 0.21 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p13 {
+        type=capsule
+        position=2.5 -0.11 15.8
+        rotation=3.142 0 0
+        params=0.05 0.21 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p14 {
+        type=capsule
+        position=1.5 -0.11 17.2
+        rotation=3.142 0 0
+        params=0.05 0.21 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p15 {
+        type=capsule
+        position=2.5 -0.11 17.2
+        rotation=3.142 0 0
+        params=0.05 0.21 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0.05
+
+    primitive p16 {
+        type=capped_cone
+        position=-26 -2.36 27.82
+        rotation=0 0 0
+        params=0.9613 0.1099 2.307 0
+        material=28a458251e01b692
+    }
+
+    primitive p17 {
+        type=capped_cone
+        position=-26 -3.733 27.82
+        rotation=0 0 0
+        params=0.9613 0.1099 1.758 0
+        material=28a458251e01b692
+    }
+
+    primitive p18 {
+        type=capped_cone
+        position=-26 -4.969 27.82
+        rotation=0 0 0
+        params=0.824 0.1099 1.099 0
+        material=28a458251e01b692
+    }
+
+    primitive p19 {
+        type=capped_cone
+        position=-24.92 -1.81 32.47
+        rotation=0 0 0
+        params=0.7045 0.08051 1.691 0
+        material=28a458251e01b692
+    }
+
+    primitive p20 {
+        type=capped_cone
+        position=-24.92 -2.816 32.47
+        rotation=0 0 0
+        params=0.7045 0.08051 1.288 0
+        material=28a458251e01b692
+    }
+
+    primitive p21 {
+        type=capped_cone
+        position=-24.92 -3.722 32.47
+        rotation=0 0 0
+        params=0.6039 0.08051 0.8051 0
+        material=28a458251e01b692
+    }
+
+    primitive p22 {
+        type=capped_cone
+        position=-23.37 -1.921 32.83
+        rotation=0 0 0
+        params=0.7566 0.08647 1.816 0
+        material=28a458251e01b692
+    }
+
+    primitive p23 {
+        type=capped_cone
+        position=-23.37 -3.002 32.83
+        rotation=0 0 0
+        params=0.7566 0.08647 1.383 0
+        material=28a458251e01b692
+    }
+
+    primitive p24 {
+        type=capped_cone
+        position=-23.37 -3.975 32.83
+        rotation=0 0 0
+        params=0.6485 0.08647 0.8647 0
+        material=28a458251e01b692
+    }
+
+    primitive p25 {
+        type=capped_cone
+        position=-21.75 -1.861 29.59
+        rotation=0 0 0
+        params=0.7286 0.08327 1.749 0
+        material=28a458251e01b692
+    }
+
+    primitive p26 {
+        type=capped_cone
+        position=-21.75 -2.902 29.59
+        rotation=0 0 0
+        params=0.7286 0.08327 1.332 0
+        material=28a458251e01b692
+    }
+
+    primitive p27 {
+        type=capped_cone
+        position=-21.75 -3.839 29.59
+        rotation=0 0 0
+        params=0.6245 0.08327 0.8327 0
+        material=28a458251e01b692
+    }
+
+    primitive p28 {
+        type=capped_cone
+        position=-20.35 -2.478 30.59
+        rotation=0 0 0
+        params=1.016 0.1162 2.439 0
+        material=28a458251e01b692
+    }
+
+    primitive p29 {
+        type=capped_cone
+        position=-20.35 -3.93 30.59
+        rotation=0 0 0
+        params=1.016 0.1162 1.859 0
+        material=28a458251e01b692
+    }
+
+    primitive p30 {
+        type=capped_cone
+        position=-20.35 -5.237 30.59
+        rotation=0 0 0
+        params=0.8712 0.1162 1.162 0
+        material=28a458251e01b692
+    }
+
+    primitive p31 {
+        type=capped_cone
+        position=-18.51 -2.157 24.31
+        rotation=0 0 0
+        params=0.8666 0.09904 2.08 0
+        material=28a458251e01b692
+    }
+
+    primitive p32 {
+        type=capped_cone
+        position=-18.51 -3.395 24.31
+        rotation=0 0 0
+        params=0.8666 0.09904 1.585 0
+        material=28a458251e01b692
+    }
+
+    primitive p33 {
+        type=capped_cone
+        position=-18.51 -4.509 24.31
+        rotation=0 0 0
+        params=0.7428 0.09904 0.9904 0
+        material=28a458251e01b692
+    }
+
+    primitive p34 {
+        type=capped_cone
+        position=-17.47 -3.186 28.32
+        rotation=0 0 0
+        params=1.347 0.1539 3.232 0
+        material=28a458251e01b692
+    }
+
+    primitive p35 {
+        type=capped_cone
+        position=-17.47 -5.11 28.32
+        rotation=0 0 0
+        params=1.347 0.1539 2.463 0
+        material=28a458251e01b692
+    }
+
+    primitive p36 {
+        type=capped_cone
+        position=-17.47 -6.841 28.32
+        rotation=0 0 0
+        params=1.154 0.1539 1.539 0
+        material=28a458251e01b692
+    }
+
+    primitive p37 {
+        type=capped_cone
+        position=-15.8 -2.375 31.4
+        rotation=0 0 0
+        params=0.9686 0.1107 2.325 0
+        material=28a458251e01b692
+    }
+
+    primitive p38 {
+        type=capped_cone
+        position=-15.8 -3.759 31.4
+        rotation=0 0 0
+        params=0.9686 0.1107 1.771 0
+        material=28a458251e01b692
+    }
+
+    primitive p39 {
+        type=capped_cone
+        position=-15.8 -5.004 31.4
+        rotation=0 0 0
+        params=0.8302 0.1107 1.107 0
+        material=28a458251e01b692
+    }
+
+    primitive p40 {
+        type=capped_cone
+        position=-13.93 -2.237 23.67
+        rotation=0 0 0
+        params=0.9038 0.1033 2.169 0
+        material=28a458251e01b692
+    }
+
+    primitive p41 {
+        type=capped_cone
+        position=-13.93 -3.528 23.67
+        rotation=0 0 0
+        params=0.9038 0.1033 1.653 0
+        material=28a458251e01b692
+    }
+
+    primitive p42 {
+        type=capped_cone
+        position=-13.93 -4.69 23.67
+        rotation=0 0 0
+        params=0.7747 0.1033 1.033 0
+        material=28a458251e01b692
+    }
+
+    primitive p43 {
+        type=capped_cone
+        position=-12.15 -2.433 30.85
+        rotation=0 0 0
+        params=0.9952 0.1137 2.389 0
+        material=28a458251e01b692
+    }
+
+    primitive p44 {
+        type=capped_cone
+        position=-12.15 -3.854 30.85
+        rotation=0 0 0
+        params=0.9952 0.1137 1.82 0
+        material=28a458251e01b692
+    }
+
+    primitive p45 {
+        type=capped_cone
+        position=-12.15 -5.134 30.85
+        rotation=0 0 0
+        params=0.8531 0.1137 1.137 0
+        material=28a458251e01b692
+    }
+
+    primitive p46 {
+        type=capped_cone
+        position=-11.14 -2.115 25.57
+        rotation=0 0 0
+        params=0.8469 0.09679 2.033 0
+        material=28a458251e01b692
+    }
+
+    primitive p47 {
+        type=capped_cone
+        position=-11.14 -3.325 25.57
+        rotation=0 0 0
+        params=0.8469 0.09679 1.549 0
+        material=28a458251e01b692
+    }
+
+    primitive p48 {
+        type=capped_cone
+        position=-11.14 -4.414 25.57
+        rotation=0 0 0
+        params=0.7259 0.09679 0.9679 0
+        material=28a458251e01b692
+    }
+
+    primitive p49 {
+        type=capped_cone
+        position=-9.873 -2.099 31.81
+        rotation=0 0 0
+        params=0.8396 0.09596 2.015 0
+        material=28a458251e01b692
+    }
+
+    primitive p50 {
+        type=capped_cone
+        position=-9.873 -3.299 31.81
+        rotation=0 0 0
+        params=0.8396 0.09596 1.535 0
+        material=28a458251e01b692
+    }
+
+    primitive p51 {
+        type=capped_cone
+        position=-9.873 -4.378 31.81
+        rotation=0 0 0
+        params=0.7197 0.09596 0.9596 0
+        material=28a458251e01b692
+    }
+
+    primitive p52 {
+        type=capped_cone
+        position=-7.82 -1.882 32.61
+        rotation=0 0 0
+        params=0.7384 0.08438 1.772 0
+        material=28a458251e01b692
+    }
+
+    primitive p53 {
+        type=capped_cone
+        position=-7.82 -2.937 32.61
+        rotation=0 0 0
+        params=0.7384 0.08438 1.35 0
+        material=28a458251e01b692
+    }
+
+    primitive p54 {
+        type=capped_cone
+        position=-7.82 -3.886 32.61
+        rotation=0 0 0
+        params=0.6329 0.08438 0.8438 0
+        material=28a458251e01b692
+    }
+
+    primitive p55 {
+        type=capped_cone
+        position=-6.428 -1.835 28.15
+        rotation=0 0 0
+        params=0.7164 0.08188 1.719 0
+        material=28a458251e01b692
+    }
+
+    primitive p56 {
+        type=capped_cone
+        position=-6.428 -2.859 28.15
+        rotation=0 0 0
+        params=0.7164 0.08188 1.31 0
+        material=28a458251e01b692
+    }
+
+    primitive p57 {
+        type=capped_cone
+        position=-6.428 -3.78 28.15
+        rotation=0 0 0
+        params=0.6141 0.08188 0.8188 0
+        material=28a458251e01b692
+    }
+
+    primitive p58 {
+        type=capped_cone
+        position=-4.976 -1.968 32.92
+        rotation=0 0 0
+        params=0.7784 0.08896 1.868 0
+        material=28a458251e01b692
+    }
+
+    primitive p59 {
+        type=capped_cone
+        position=-4.976 -3.08 32.92
+        rotation=0 0 0
+        params=0.7784 0.08896 1.423 0
+        material=28a458251e01b692
+    }
+
+    primitive p60 {
+        type=capped_cone
+        position=-4.976 -4.081 32.92
+        rotation=0 0 0
+        params=0.6672 0.08896 0.8896 0
+        material=28a458251e01b692
+    }
+
+    primitive p61 {
+        type=capped_cone
+        position=-3.3 -2.668 23.89
+        rotation=0 0 0
+        params=1.105 0.1263 2.652 0
+        material=28a458251e01b692
+    }
+
+    primitive p62 {
+        type=capped_cone
+        position=-3.3 -4.247 23.89
+        rotation=0 0 0
+        params=1.105 0.1263 2.021 0
+        material=28a458251e01b692
+    }
+
+    primitive p63 {
+        type=capped_cone
+        position=-3.3 -5.668 23.89
+        rotation=0 0 0
+        params=0.9472 0.1263 1.263 0
+        material=28a458251e01b692
+    }
+
+    primitive p64 {
+        type=capped_cone
+        position=2.287 -3.181 28.21
+        rotation=0 0 0
+        params=1.345 0.1537 3.227 0
+        material=28a458251e01b692
+    }
+
+    primitive p65 {
+        type=capped_cone
+        position=2.287 -5.102 28.21
+        rotation=0 0 0
+        params=1.345 0.1537 2.459 0
+        material=28a458251e01b692
+    }
+
+    primitive p66 {
+        type=capped_cone
+        position=2.287 -6.831 28.21
+        rotation=0 0 0
+        params=1.153 0.1537 1.537 0
+        material=28a458251e01b692
+    }
+
+    primitive p67 {
+        type=capped_cone
+        position=3.733 -2.758 27.08
+        rotation=0 0 0
+        params=1.147 0.1311 2.753 0
+        material=28a458251e01b692
+    }
+
+    primitive p68 {
+        type=capped_cone
+        position=3.733 -4.397 27.08
+        rotation=0 0 0
+        params=1.147 0.1311 2.098 0
+        material=28a458251e01b692
+    }
+
+    primitive p69 {
+        type=capped_cone
+        position=3.733 -5.872 27.08
+        rotation=0 0 0
+        params=0.9832 0.1311 1.311 0
+        material=28a458251e01b692
+    }
+
+    primitive p70 {
+        type=capped_cone
+        position=4.754 -2.059 29.17
+        rotation=0 0 0
+        params=0.8208 0.0938 1.97 0
+        material=28a458251e01b692
+    }
+
+    primitive p71 {
+        type=capped_cone
+        position=4.754 -3.231 29.17
+        rotation=0 0 0
+        params=0.8208 0.0938 1.501 0
+        material=28a458251e01b692
+    }
+
+    primitive p72 {
+        type=capped_cone
+        position=4.754 -4.287 29.17
+        rotation=0 0 0
+        params=0.7035 0.0938 0.938 0
+        material=28a458251e01b692
+    }
+
+    primitive p73 {
+        type=capped_cone
+        position=6.446 -1.881 33.52
+        rotation=0 0 0
+        params=0.7379 0.08433 1.771 0
+        material=28a458251e01b692
+    }
+
+    primitive p74 {
+        type=capped_cone
+        position=6.446 -2.935 33.52
+        rotation=0 0 0
+        params=0.7379 0.08433 1.349 0
+        material=28a458251e01b692
+    }
+
+    primitive p75 {
+        type=capped_cone
+        position=6.446 -3.884 33.52
+        rotation=0 0 0
+        params=0.6325 0.08433 0.8433 0
+        material=28a458251e01b692
+    }
+
+    primitive p76 {
+        type=capped_cone
+        position=8.068 -2.024 29.47
+        rotation=0 0 0
+        params=0.8045 0.09194 1.931 0
+        material=28a458251e01b692
+    }
+
+    primitive p77 {
+        type=capped_cone
+        position=8.068 -3.173 29.47
+        rotation=0 0 0
+        params=0.8045 0.09194 1.471 0
+        material=28a458251e01b692
+    }
+
+    primitive p78 {
+        type=capped_cone
+        position=8.068 -4.208 29.47
+        rotation=0 0 0
+        params=0.6896 0.09194 0.9194 0
+        material=28a458251e01b692
+    }
+
+    primitive p79 {
+        type=capped_cone
+        position=9.316 -3.297 33.94
+        rotation=0 0 0
+        params=1.399 0.1598 3.357 0
+        material=28a458251e01b692
+    }
+
+    primitive p80 {
+        type=capped_cone
+        position=9.316 -5.295 33.94
+        rotation=0 0 0
+        params=1.399 0.1598 2.557 0
+        material=28a458251e01b692
+    }
+
+    primitive p81 {
+        type=capped_cone
+        position=9.316 -7.093 33.94
+        rotation=0 0 0
+        params=1.199 0.1598 1.598 0
+        material=28a458251e01b692
+    }
+
+    primitive p82 {
+        type=capped_cone
+        position=10.37 -3.226 30.61
+        rotation=0 0 0
+        params=1.366 0.1561 3.278 0
+        material=28a458251e01b692
+    }
+
+    primitive p83 {
+        type=capped_cone
+        position=10.37 -5.177 30.61
+        rotation=0 0 0
+        params=1.366 0.1561 2.497 0
+        material=28a458251e01b692
+    }
+
+    primitive p84 {
+        type=capped_cone
+        position=10.37 -6.933 30.61
+        rotation=0 0 0
+        params=1.171 0.1561 1.561 0
+        material=28a458251e01b692
+    }
+
+    primitive p85 {
+        type=capped_cone
+        position=11.58 -1.865 29.53
+        rotation=0 0 0
+        params=0.7301 0.08344 1.752 0
+        material=28a458251e01b692
+    }
+
+    primitive p86 {
+        type=capped_cone
+        position=11.58 -2.908 29.53
+        rotation=0 0 0
+        params=0.7301 0.08344 1.335 0
+        material=28a458251e01b692
+    }
+
+    primitive p87 {
+        type=capped_cone
+        position=11.58 -3.846 29.53
+        rotation=0 0 0
+        params=0.6258 0.08344 0.8344 0
+        material=28a458251e01b692
+    }
+
+    primitive p88 {
+        type=capped_cone
+        position=12.96 -2.685 30.25
+        rotation=0 0 0
+        params=1.113 0.1272 2.672 0
+        material=28a458251e01b692
+    }
+
+    primitive p89 {
+        type=capped_cone
+        position=12.96 -4.276 30.25
+        rotation=0 0 0
+        params=1.113 0.1272 2.036 0
+        material=28a458251e01b692
+    }
+
+    primitive p90 {
+        type=capped_cone
+        position=12.96 -5.707 30.25
+        rotation=0 0 0
+        params=0.9542 0.1272 1.272 0
+        material=28a458251e01b692
+    }
+
+    primitive p91 {
+        type=capped_cone
+        position=14.86 -2.321 23.5
+        rotation=0 0 0
+        params=0.943 0.1078 2.263 0
+        material=28a458251e01b692
+    }
+
+    primitive p92 {
+        type=capped_cone
+        position=14.86 -3.668 23.5
+        rotation=0 0 0
+        params=0.943 0.1078 1.724 0
+        material=28a458251e01b692
+    }
+
+    primitive p93 {
+        type=capped_cone
+        position=14.86 -4.88 23.5
+        rotation=0 0 0
+        params=0.8083 0.1078 1.078 0
+        material=28a458251e01b692
+    }
+
+    primitive p94 {
+        type=capped_cone
+        position=16.89 -2.477 29.22
+        rotation=0 0 0
+        params=1.016 0.1161 2.438 0
+        material=28a458251e01b692
+    }
+
+    primitive p95 {
+        type=capped_cone
+        position=16.89 -3.928 29.22
+        rotation=0 0 0
+        params=1.016 0.1161 1.858 0
+        material=28a458251e01b692
+    }
+
+    primitive p96 {
+        type=capped_cone
+        position=16.89 -5.234 29.22
+        rotation=0 0 0
+        params=0.8708 0.1161 1.161 0
+        material=28a458251e01b692
+    }
+
+    primitive p97 {
+        type=capped_cone
+        position=18.31 -2.662 33.84
+        rotation=0 0 0
+        params=1.102 0.126 2.645 0
+        material=28a458251e01b692
+    }
+
+    primitive p98 {
+        type=capped_cone
+        position=18.31 -4.236 33.84
+        rotation=0 0 0
+        params=1.102 0.126 2.015 0
+        material=28a458251e01b692
+    }
+
+    primitive p99 {
+        type=capped_cone
+        position=18.31 -5.653 33.84
+        rotation=0 0 0
+        params=0.9447 0.126 1.26 0
+        material=28a458251e01b692
+    }
+
+    primitive p100 {
+        type=capped_cone
+        position=19.23 -2.293 31.69
+        rotation=0 0 0
+        params=0.9301 0.1063 2.232 0
+        material=28a458251e01b692
+    }
+
+    primitive p101 {
+        type=capped_cone
+        position=19.23 -3.622 31.69
+        rotation=0 0 0
+        params=0.9301 0.1063 1.701 0
+        material=28a458251e01b692
+    }
+
+    primitive p102 {
+        type=capped_cone
+        position=19.23 -4.818 31.69
+        rotation=0 0 0
+        params=0.7972 0.1063 1.063 0
+        material=28a458251e01b692
+    }
+
+    primitive p103 {
+        type=capped_cone
+        position=20.7 -2.466 24.95
+        rotation=0 0 0
+        params=1.011 0.1155 2.426 0
+        material=28a458251e01b692
+    }
+
+    primitive p104 {
+        type=capped_cone
+        position=20.7 -3.91 24.95
+        rotation=0 0 0
+        params=1.011 0.1155 1.848 0
+        material=28a458251e01b692
+    }
+
+    primitive p105 {
+        type=capped_cone
+        position=20.7 -5.21 24.95
+        rotation=0 0 0
+        params=0.8664 0.1155 1.155 0
+        material=28a458251e01b692
+    }
+
+    primitive p106 {
+        type=capped_cone
+        position=22.02 -2.744 23.52
+        rotation=0 0 0
+        params=1.141 0.1304 2.738 0
+        material=28a458251e01b692
+    }
+
+    primitive p107 {
+        type=capped_cone
+        position=22.02 -4.374 23.52
+        rotation=0 0 0
+        params=1.141 0.1304 2.086 0
+        material=28a458251e01b692
+    }
+
+    primitive p108 {
+        type=capped_cone
+        position=22.02 -5.84 23.52
+        rotation=0 0 0
+        params=0.9777 0.1304 1.304 0
+        material=28a458251e01b692
+    }
+
+    primitive p109 {
+        type=capped_cone
+        position=23.05 -1.838 31.52
+        rotation=0 0 0
+        params=0.7178 0.08203 1.723 0
+        material=28a458251e01b692
+    }
+
+    primitive p110 {
+        type=capped_cone
+        position=23.05 -2.863 31.52
+        rotation=0 0 0
+        params=0.7178 0.08203 1.313 0
+        material=28a458251e01b692
+    }
+
+    primitive p111 {
+        type=capped_cone
+        position=23.05 -3.786 31.52
+        rotation=0 0 0
+        params=0.6152 0.08203 0.8203 0
+        material=28a458251e01b692
+    }
+
+    primitive p112 {
+        type=capped_cone
+        position=24.97 -2.546 31.79
+        rotation=0 0 0
+        params=1.048 0.1198 2.516 0
+        material=28a458251e01b692
+    }
+
+    primitive p113 {
+        type=capped_cone
+        position=24.97 -4.043 31.79
+        rotation=0 0 0
+        params=1.048 0.1198 1.917 0
+        material=28a458251e01b692
+    }
+
+    primitive p114 {
+        type=capped_cone
+        position=24.97 -5.391 31.79
+        rotation=0 0 0
+        params=0.8984 0.1198 1.198 0
+        material=28a458251e01b692
+    }
+
+    primitive p115 {
+        type=capped_cone
+        position=-6.5 -2.775 -1.5
+        rotation=0 0 0
+        params=1.225 0.14 2.94 0
+        material=28a458251e01b692
+    }
+
+    primitive p116 {
+        type=capped_cone
+        position=-6.5 -4.525 -1.5
+        rotation=0 0 0
+        params=1.225 0.14 2.24 0
+        material=28a458251e01b692
+    }
+
+    primitive p117 {
+        type=capped_cone
+        position=-6.5 -6.1 -1.5
+        rotation=0 0 0
+        params=1.05 0.14 1.4 0
+        material=28a458251e01b692
+    }
+
+    primitive p118 {
+        type=capped_cone
+        position=-8 -2.4 1
+        rotation=0 0 0
+        params=1.05 0.12 2.52 0
+        material=28a458251e01b692
+    }
+
+    primitive p119 {
+        type=capped_cone
+        position=-8 -3.9 1
+        rotation=0 0 0
+        params=1.05 0.12 1.92 0
+        material=28a458251e01b692
+    }
+
+    primitive p120 {
+        type=capped_cone
+        position=-8 -5.25 1
+        rotation=0 0 0
+        params=0.9 0.12 1.2 0
+        material=28a458251e01b692
+    }
+
+    primitive p121 {
+        type=capped_cone
+        position=7.5 -2.962 -0.5
+        rotation=0 0 0
+        params=1.313 0.15 3.15 0
+        material=28a458251e01b692
+    }
+
+    primitive p122 {
+        type=capped_cone
+        position=7.5 -4.838 -0.5
+        rotation=0 0 0
+        params=1.313 0.15 2.4 0
+        material=28a458251e01b692
+    }
+
+    primitive p123 {
+        type=capped_cone
+        position=7.5 -6.525 -0.5
+        rotation=0 0 0
+        params=1.125 0.15 1.5 0
+        material=28a458251e01b692
+    }
+
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0
+
+    primitive p124 {
+        type=capsule
+        position=-26 -1.261 27.82
+        rotation=3.142 0 0
+        params=0.1099 0.9613 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p125 {
+        type=capsule
+        position=-24.92 -1.005 32.47
+        rotation=3.142 0 0
+        params=0.08051 0.7045 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p126 {
+        type=capsule
+        position=-23.37 -1.057 32.83
+        rotation=3.142 0 0
+        params=0.08647 0.7566 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p127 {
+        type=capsule
+        position=-21.75 -1.029 29.59
+        rotation=3.142 0 0
+        params=0.08327 0.7286 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p128 {
+        type=capsule
+        position=-20.35 -1.316 30.59
+        rotation=3.142 0 0
+        params=0.1162 1.016 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p129 {
+        type=capsule
+        position=-18.51 -1.167 24.31
+        rotation=3.142 0 0
+        params=0.09904 0.8666 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p130 {
+        type=capsule
+        position=-17.47 -1.647 28.32
+        rotation=3.142 0 0
+        params=0.1539 1.347 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p131 {
+        type=capsule
+        position=-15.8 -1.269 31.4
+        rotation=3.142 0 0
+        params=0.1107 0.9686 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p132 {
+        type=capsule
+        position=-13.93 -1.204 23.67
+        rotation=3.142 0 0
+        params=0.1033 0.9038 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p133 {
+        type=capsule
+        position=-12.15 -1.295 30.85
+        rotation=3.142 0 0
+        params=0.1137 0.9952 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p134 {
+        type=capsule
+        position=-11.14 -1.147 25.57
+        rotation=3.142 0 0
+        params=0.09679 0.8469 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p135 {
+        type=capsule
+        position=-9.873 -1.14 31.81
+        rotation=3.142 0 0
+        params=0.09596 0.8396 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p136 {
+        type=capsule
+        position=-7.82 -1.038 32.61
+        rotation=3.142 0 0
+        params=0.08438 0.7384 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p137 {
+        type=capsule
+        position=-6.428 -1.016 28.15
+        rotation=3.142 0 0
+        params=0.08188 0.7164 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p138 {
+        type=capsule
+        position=-4.976 -1.078 32.92
+        rotation=3.142 0 0
+        params=0.08896 0.7784 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p139 {
+        type=capsule
+        position=-3.3 -1.405 23.89
+        rotation=3.142 0 0
+        params=0.1263 1.105 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p140 {
+        type=capsule
+        position=2.287 -1.645 28.21
+        rotation=3.142 0 0
+        params=0.1537 1.345 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p141 {
+        type=capsule
+        position=3.733 -1.447 27.08
+        rotation=3.142 0 0
+        params=0.1311 1.147 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p142 {
+        type=capsule
+        position=4.754 -1.121 29.17
+        rotation=3.142 0 0
+        params=0.0938 0.8208 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p143 {
+        type=capsule
+        position=6.446 -1.038 33.52
+        rotation=3.142 0 0
+        params=0.08433 0.7379 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p144 {
+        type=capsule
+        position=8.068 -1.105 29.47
+        rotation=3.142 0 0
+        params=0.09194 0.8045 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p145 {
+        type=capsule
+        position=9.316 -1.699 33.94
+        rotation=3.142 0 0
+        params=0.1598 1.399 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p146 {
+        type=capsule
+        position=10.37 -1.666 30.61
+        rotation=3.142 0 0
+        params=0.1561 1.366 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p147 {
+        type=capsule
+        position=11.58 -1.03 29.53
+        rotation=3.142 0 0
+        params=0.08344 0.7301 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p148 {
+        type=capsule
+        position=12.96 -1.413 30.25
+        rotation=3.142 0 0
+        params=0.1272 1.113 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p149 {
+        type=capsule
+        position=14.86 -1.243 23.5
+        rotation=3.142 0 0
+        params=0.1078 0.943 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p150 {
+        type=capsule
+        position=16.89 -1.316 29.22
+        rotation=3.142 0 0
+        params=0.1161 1.016 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p151 {
+        type=capsule
+        position=18.31 -1.402 33.84
+        rotation=3.142 0 0
+        params=0.126 1.102 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p152 {
+        type=capsule
+        position=19.23 -1.23 31.69
+        rotation=3.142 0 0
+        params=0.1063 0.9301 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p153 {
+        type=capsule
+        position=20.7 -1.311 24.95
+        rotation=3.142 0 0
+        params=0.1155 1.011 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p154 {
+        type=capsule
+        position=22.02 -1.441 23.52
+        rotation=3.142 0 0
+        params=0.1304 1.141 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p155 {
+        type=capsule
+        position=23.05 -1.018 31.52
+        rotation=3.142 0 0
+        params=0.08203 0.7178 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p156 {
+        type=capsule
+        position=24.97 -1.348 31.79
+        rotation=3.142 0 0
+        params=0.1198 1.048 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p157 {
+        type=capsule
+        position=-6.5 -1.375 -1.5
+        rotation=3.142 0 0
+        params=0.14 1.225 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p158 {
+        type=capsule
+        position=-8 -1.2 1
+        rotation=3.142 0 0
+        params=0.12 1.05 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+    primitive p159 {
+        type=capsule
+        position=7.5 -1.462 -0.5
+        rotation=3.142 0 0
+        params=0.15 1.312 0 0
+        material=6ce9f85d27a6a98b
+    }
+
+}
+
+volumetric volumetric0 {
+    type=box
+    position=0 -0.5 14
+    rotation=0 0 0
+    params=45 0.6 16 0
+    density=0.012
+    material=a17dfb3553428084
+}

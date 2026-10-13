@@ -1,0 +1,152 @@
+#sdf scene file
+version=0.1
+# Mel's Drake -- one too-tall shadow figure stooping in a doorway that
+# stands alone on the white plane.
+ambient=0.75
+
+material white {
+    id=cbf1f62b2ad53d4c
+    base_colour=0.97 0.97 0.96 1
+    roughness=1
+    base_map=white
+}
+
+material frame {
+    id=4dfbf453182c4be9
+    base_colour=0.4 0.4 0.4 1
+    roughness=0.8
+    base_map=white
+}
+
+material door {
+    id=d77bed1aa83c83fe
+    base_colour=0.55 0.55 0.54 1
+    roughness=0.7
+    base_map=white
+}
+
+material shadow {
+    id=c204ebf429b1fef6
+    base_colour=0 0 0 1
+    roughness=1
+    base_map=white
+}
+
+light light0 {
+    type=directional
+    direction=0.3 -0.6 1
+    colour=1 1 1
+    intensity=0.5
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.05 8
+        rotation=0 0 0
+        params=30 0.05 30 0
+        material=cbf1f62b2ad53d4c
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p1 {
+        type=box
+        position=-0.62 -1.2 4
+        rotation=0 0 0
+        params=0.08 1.2 0.12 0
+        material=4dfbf453182c4be9
+    }
+
+    primitive p2 {
+        type=box
+        position=0.62 -1.2 4
+        rotation=0 0 0
+        params=0.08 1.2 0.12 0
+        material=4dfbf453182c4be9
+    }
+
+    primitive p3 {
+        type=box
+        position=0 -2.44 4
+        rotation=0 0 0
+        params=0.7 0.08 0.12 0
+        material=4dfbf453182c4be9
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p4 {
+        type=box
+        position=-0.4861 -1.18 3.474
+        rotation=0 1.45 0
+        params=0.53 1.15 0.03 0
+        material=d77bed1aa83c83fe
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0.04
+
+    primitive p5 {
+        type=sphere
+        position=0 -2.345 3.502
+        rotation=0 0 0
+        params=0.1875 0 0 0
+        material=c204ebf429b1fef6
+    }
+
+    primitive p6 {
+        type=capsule
+        position=0 -1.795 3.923
+        rotation=0.4844 0 0
+        params=0.2125 0.4783 0 0
+        material=c204ebf429b1fef6
+    }
+
+    primitive p7 {
+        type=capsule
+        position=-0.115 -0.6559 4.149
+        rotation=0.0008576 -3.269e-06 0.007623
+        params=0.09375 0.6559 0 0
+        material=c204ebf429b1fef6
+    }
+
+    primitive p8 {
+        type=capsule
+        position=0.115 -0.6559 4.149
+        rotation=0.0008576 3.269e-06 -0.007623
+        params=0.09375 0.6559 0 0
+        material=c204ebf429b1fef6
+    }
+
+    primitive p9 {
+        type=capsule
+        position=-0.315 -1.449 3.968
+        rotation=0.2547 -0.007973 0.06225
+        params=0.075 0.7234 0 0
+        material=c204ebf429b1fef6
+    }
+
+    primitive p10 {
+        type=capsule
+        position=0.315 -1.449 3.968
+        rotation=0.2547 0.007973 -0.06225
+        params=0.075 0.7234 0 0
+        material=c204ebf429b1fef6
+    }
+
+}

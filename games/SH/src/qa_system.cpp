@@ -7,6 +7,7 @@
 #include <resources/conversation.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <optional>
@@ -85,6 +86,17 @@ constexpr f32 kFlashOffAlpha = 0.1f;
 constexpr f32 kTextDescent = 7.0f;
 // Gap kept between the bottom of one overlay line and the top of the next.
 constexpr f32 kOverlayLineGap = 16.0f;
+// A [flash] overlay line's other colour.
+constexpr glm::vec4 kOverlayFlash{1.0f, 1.0f, 1.0f, 1.0f};
+// [fill] text: capitals are wider than kAverageCharWidth's mixed-case
+// guess. The line is scaled to span kFillWidthFraction of the screen,
+// unless that would make it taller than kFillHeightFraction of it.
+constexpr f32 kCapsCharWidth = 20.0f;
+constexpr f32 kFillWidthFraction = 0.9f;
+constexpr f32 kFillHeightFraction = 0.6f;
+constexpr f32 kFontHeight = 28.0f; // vulkan_text_shader.cpp's default font
+// [center] and [at] lines wrap within this much of the screen's width.
+constexpr f32 kOverlayCenterWidthFraction = 0.8f;
 
 bool key_pressed(input::Key key) {
   return input::is_key_down(key) && !input::was_key_down(key);
@@ -96,19 +108,35 @@ f32 centered_x(f32 screen_width, size_t char_count, f32 size = 1.0f) {
          2.0f;
 }
 
-// colour, dimmed in the off half of the blink if line is [flash].
-glm::vec4 flashed(const ScriptLine &line, glm::vec4 colour) {
-  if (!line.flash) {
-    return colour;
-  }
+// True in the off part of every [flash] blink.
+bool flash_off() {
   using Clock = std::chrono::steady_clock;
   static const Clock::time_point start = Clock::now();
   const f32 seconds =
       std::chrono::duration<f32>(Clock::now() - start).count();
-  if (std::fmod(seconds, kFlashPeriodSeconds) >= kFlashOnSeconds) {
+  return std::fmod(seconds, kFlashPeriodSeconds) >= kFlashOnSeconds;
+}
+
+// colour, dimmed in the off half of the blink if line is [flash].
+glm::vec4 flashed(const ScriptLine &line, glm::vec4 colour) {
+  if (line.flash && flash_off()) {
     colour.a *= kFlashOffAlpha;
   }
   return colour;
+}
+
+// An [overlay] line's colour: blue, or for a [flash] line blue and white
+// in turn rather than fading out.
+glm::vec4 overlay_colour(const ScriptLine &line) {
+  return line.flash && flash_off() ? kOverlayFlash : kOverlay;
+}
+
+std::string upper(std::string_view text) {
+  std::string result(text);
+  for (char &c : result) {
+    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  }
+  return result;
 }
 
 } // namespace
@@ -400,11 +428,16 @@ void QASystem::show_current_line() {
   if (!current_line_.speaker) {
     current_line_.speaker = std::move(previous_speaker);
   }
-  // A run is overlay lines, or stacked title cards -- never a mix.
+  // A run is overlay lines, or stacked title cards -- never a mix. A
+  // [fill] line is always a run of its own, and [center] lines only run on
+  // from each other (see script_line.h).
   const bool runs =
       current_line_.overlay || (current_line_.title && current_line_.stack);
-  if (!runs ||
-      (!text_run_.empty() && text_run_.back().title != current_line_.title)) {
+  const auto continues = [this](const ScriptLine &previous) {
+    return previous.title == current_line_.title && !previous.fill &&
+           !current_line_.fill && previous.center == current_line_.center;
+  };
+  if (!runs || (!text_run_.empty() && !continues(text_run_.back()))) {
     text_run_.clear();
   }
   if (runs) {
@@ -741,6 +774,60 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
       return;
     }
 
+    if (line.overlay && line.fill) {
+      // A [fill] line (see script_line.h): alone, in capitals, as large as
+      // the screen allows, centred both ways.
+      const std::string text = upper(line.text);
+      const f32 size = std::min(
+          width * kFillWidthFraction /
+              (static_cast<f32>(std::max<size_t>(text.size(), 1)) *
+               kCapsCharWidth),
+          height * kFillHeightFraction / kFontHeight);
+      const f32 x =
+          (width - static_cast<f32>(text.size()) * kCapsCharWidth * size) /
+          2.0f;
+      // Baseline placed so the capitals' height sits centred.
+      const f32 y = (height + kTextAscent * size) / 2.0f;
+      renderer_draw_text(text, glm::vec2(x, y), overlay_colour(line), size);
+      renderer_draw_text("[Enter] continue", glm::vec2(kListX, hint_y), kHint);
+      return;
+    }
+
+    if (line.overlay && line.center) {
+      // A [center] run: every line so far, each centred across the screen,
+      // the whole block centred down it.
+      struct Placed {
+        std::string text;
+        f32 size;
+        const ScriptLine *line;
+      };
+      std::vector<Placed> placed;
+      for (const ScriptLine &run_line : text_run_) {
+        for (std::string &wrapped :
+             wrap_text(run_line.text, width * kOverlayCenterWidthFraction,
+                       kAverageCharWidth * run_line.size)) {
+          placed.push_back({std::move(wrapped), run_line.size, &run_line});
+        }
+      }
+      f32 block_height = 0.0f;
+      for (size_t i = 0; i < placed.size(); ++i) {
+        block_height += (kTextAscent + kTextDescent) * placed[i].size +
+                        (i == 0 ? 0.0f : kOverlayLineGap);
+      }
+      f32 y = (height - block_height) / 2.0f;
+      for (size_t i = 0; i < placed.size(); ++i) {
+        y += kTextAscent * placed[i].size + (i == 0 ? 0.0f : kOverlayLineGap);
+        renderer_draw_text(
+            placed[i].text,
+            glm::vec2(centered_x(width, placed[i].text.size(), placed[i].size),
+                      y),
+            overlay_colour(*placed[i].line), placed[i].size);
+        y += kTextDescent * placed[i].size;
+      }
+      renderer_draw_text("[Enter] continue", glm::vec2(kListX, hint_y), kHint);
+      return;
+    }
+
     if (line.overlay) {
       // An [overlay] run (see text_run_): every line so far stays up,
       // each stepped down and across from the one before, wrapping back
@@ -751,10 +838,41 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
       f32 x = kListX;
       f32 y = 0.0f;
       f32 previous_bottom = 0.0f; // descent below the previous baseline
+      size_t stepped = 0; // lines laid out by stepping, i.e. not [at]
       for (size_t i = 0; i < text_run_.size(); ++i) {
         const ScriptLine &run_line = text_run_[i];
         const f32 size = run_line.size;
-        if (i == 0) {
+        if (run_line.has_at) {
+          // Placed where the script says, out of the stepping entirely.
+          std::vector<std::string> wrapped =
+              wrap_text(run_line.text, width * kOverlayCenterWidthFraction,
+                        kAverageCharWidth * size);
+          const f32 line_height = (kTextAscent + kTextDescent) * size;
+          const f32 block_height =
+              static_cast<f32>(wrapped.size()) * line_height +
+              static_cast<f32>(wrapped.size() - 1) * kOverlayLineGap;
+          // Above the hint at the bottom, clear of the top edge.
+          const f32 top = std::clamp(
+              height * run_line.at_y - block_height / 2.0f, kOverlayLineGap,
+              std::max(kOverlayLineGap,
+                       hint_y - kTextAscent - kOverlayLineGap - block_height));
+          for (size_t w = 0; w < wrapped.size(); ++w) {
+            const f32 line_width =
+                static_cast<f32>(wrapped[w].size()) * kAverageCharWidth * size;
+            const f32 at_x = std::clamp(
+                width * run_line.at_x - line_width / 2.0f, kListX,
+                std::max(kListX, width - kRightMargin - line_width));
+            renderer_draw_text(
+                wrapped[w],
+                glm::vec2(at_x, top + static_cast<f32>(w) *
+                                          (line_height + kOverlayLineGap) +
+                                      kTextAscent * size),
+                overlay_colour(run_line), size);
+          }
+          continue;
+        }
+        const size_t step = stepped++;
+        if (step == 0) {
           y = std::max(height * kOverlayTopFraction,
                        kTextAscent * size + kOverlayLineGap);
         } else {
@@ -762,12 +880,13 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
                         previous_bottom + kOverlayLineGap + kTextAscent * size);
         }
         if (!run_line.stack) {
-          x = kListX + width * kOverlayIndentFraction * static_cast<f32>(i % 3);
+          x = kListX +
+              width * kOverlayIndentFraction * static_cast<f32>(step % 3);
         }
         std::vector<std::string> wrapped =
             wrap_text(run_line.text, width - x - kRightMargin,
                       kAverageCharWidth * size);
-        const glm::vec4 colour = flashed(run_line, kOverlay);
+        const glm::vec4 colour = overlay_colour(run_line);
         for (size_t w = 0; w < wrapped.size(); ++w) {
           renderer_draw_text(wrapped[w], glm::vec2(x, y), colour, size);
           if (w + 1 < wrapped.size()) {

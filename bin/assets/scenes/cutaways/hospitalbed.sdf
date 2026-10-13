@@ -1,0 +1,302 @@
+#sdf scene file
+version=0.1
+# Diego, catatonic -- an empty hospital bed alone in a white void, an IV
+# stand beside it.
+ambient=0.45
+
+material white {
+    id=c96951025208085c
+    base_colour=0.96 0.96 0.96 1
+    roughness=1
+    base_map=white
+}
+
+material frame {
+    id=4dbb88119e495d73
+    base_colour=0.5 0.53 0.57 1
+    roughness=0.3
+    base_map=white
+}
+
+material sheets {
+    id=5cf10b5524d35ce0
+    base_colour=1 1 1 1
+    base_map=blueandwhitesheets
+    uv_scale=1
+}
+
+material pillow {
+    id=8a364c2e273588fb
+    base_colour=0.97 0.97 0.97 1
+    roughness=0.9
+    base_map=white
+}
+
+material blanket {
+    id=bee3f48b747653ef
+    base_colour=0.7 0.8 0.9 1
+    roughness=1
+    base_map=white
+}
+
+material iv_bag {
+    id=470aa32ede217101
+    base_colour=0.85 0.9 0.95 1
+    roughness=0.2
+    base_map=white
+}
+
+light light0 {
+    type=directional
+    direction=0.3 -1 -0.5
+    colour=1 1 1
+    intensity=0.6
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.05 0
+        rotation=0 0 0
+        params=20 0.05 20 0
+        material=c96951025208085c
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p1 {
+        type=box
+        position=0 -0.45 0
+        rotation=0 0 0
+        params=0.5 0.05 1.05 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p2 {
+        type=capsule
+        position=-0.45 -0.255 -0.95
+        rotation=3.142 0 0
+        params=0.025 0.195 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p3 {
+        type=sphere
+        position=-0.45 -0.05 -0.95
+        rotation=0 0 0
+        params=0.05 0 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p4 {
+        type=capsule
+        position=-0.45 -0.255 0.95
+        rotation=3.142 0 0
+        params=0.025 0.195 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p5 {
+        type=sphere
+        position=-0.45 -0.05 0.95
+        rotation=0 0 0
+        params=0.05 0 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p6 {
+        type=capsule
+        position=0.45 -0.255 -0.95
+        rotation=3.142 0 0
+        params=0.025 0.195 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p7 {
+        type=sphere
+        position=0.45 -0.05 -0.95
+        rotation=0 0 0
+        params=0.05 0 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p8 {
+        type=capsule
+        position=0.45 -0.255 0.95
+        rotation=3.142 0 0
+        params=0.025 0.195 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p9 {
+        type=sphere
+        position=0.45 -0.05 0.95
+        rotation=0 0 0
+        params=0.05 0 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p10 {
+        type=box
+        position=0 -0.85 1.08
+        rotation=0 0 0
+        params=0.52 0.38 0.03 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p11 {
+        type=box
+        position=0 -0.68 -1.08
+        rotation=0 0 0
+        params=0.52 0.22 0.03 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p12 {
+        type=capsule
+        position=-0.53 -0.92 0
+        rotation=1.571 0 0
+        params=0.03 0.45 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p13 {
+        type=capsule
+        position=-0.53 -0.71 -0.4
+        rotation=3.142 0 0
+        params=0.03 0.21 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p14 {
+        type=capsule
+        position=-0.53 -0.71 0.4
+        rotation=3.142 0 0
+        params=0.03 0.21 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p15 {
+        type=capsule
+        position=0.53 -0.92 0
+        rotation=1.571 0 0
+        params=0.03 0.45 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p16 {
+        type=capsule
+        position=0.53 -0.71 -0.4
+        rotation=3.142 0 0
+        params=0.03 0.21 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p17 {
+        type=capsule
+        position=0.53 -0.71 0.4
+        rotation=3.142 0 0
+        params=0.03 0.21 0 0
+        material=4dbb88119e495d73
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p18 {
+        type=round_box
+        position=0 -0.62 0
+        rotation=0 0 0
+        params=0.47 0.11 1 0.04
+        material=5cf10b5524d35ce0
+    }
+
+    primitive p19 {
+        type=round_box
+        position=0 -0.78 0.78
+        rotation=0 0 0
+        params=0.33 0.06 0.17 0.05
+        material=8a364c2e273588fb
+    }
+
+    primitive p20 {
+        type=round_box
+        position=0 -0.76 -0.62
+        rotation=0 0 0
+        params=0.46 0.035 0.28 0.03
+        material=bee3f48b747653ef
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0
+
+    primitive p21 {
+        type=capsule
+        position=0.9651 -0.035 0.7987
+        rotation=0.4273 0.3515 -1.372
+        params=0.03 0.1251 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p22 {
+        type=capsule
+        position=0.8013 -0.035 0.8651
+        rotation=1.372 -0.3515 0.4273
+        params=0.03 0.1251 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p23 {
+        type=capsule
+        position=0.7349 -0.035 0.7013
+        rotation=-0.4273 0.3515 1.372
+        params=0.03 0.1251 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p24 {
+        type=capsule
+        position=0.8987 -0.035 0.6349
+        rotation=-1.372 -0.3515 -0.4273
+        params=0.03 0.1251 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p25 {
+        type=capsule
+        position=0.85 -1.02 0.75
+        rotation=3.142 0 0
+        params=0.025 0.98 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p26 {
+        type=torus
+        position=0.85 -2 0.75
+        rotation=1.571 0 0
+        params=0.07 0.02 0 0
+        material=4dbb88119e495d73
+    }
+
+    primitive p27 {
+        type=ellipsoid
+        position=0.85 -1.8 0.7
+        rotation=0 0 0
+        params=0.09 0.14 0.04 0
+        material=470aa32ede217101
+    }
+
+}

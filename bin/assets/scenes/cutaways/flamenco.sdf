@@ -1,0 +1,326 @@
+#sdf scene file
+version=0.1
+# Theresa's flamenco -- an empty red dress on a stand, a chair, one
+# spotlight.
+ambient=0.03
+
+material boards {
+    id=8cc2825fa5a5eac1
+    base_colour=0.6 0.5 0.42 1
+    base_map=woodfloor
+    uv_scale=0.7
+    roughness=0.5
+}
+
+material backdrop {
+    id=90dd1cf9f63d0c5f
+    base_colour=0.025 0.02 0.02 1
+    roughness=1
+    base_map=white
+}
+
+material dress {
+    id=995f40539b54f692
+    base_colour=0.72 0.04 0.06 1
+    roughness=0.6
+    base_map=white
+}
+
+material ruffle {
+    id=9a3e8f4f02cd0a27
+    base_colour=0.45 0.02 0.04 1
+    roughness=0.6
+    base_map=white
+}
+
+material stand {
+    id=4b15650793a13c94
+    base_colour=0.08 0.07 0.06 1
+    roughness=0.4
+    base_map=white
+}
+
+material chair {
+    id=e9875b29548004be
+    base_colour=0.55 0.35 0.2 1
+    base_map=brownwoodtexture
+    uv_scale=0.8
+    roughness=0.6
+}
+
+material beam {
+    id=ef02289a5672af92
+    base_colour=1 0.93 0.8 1
+    base_map=white
+}
+
+material rose {
+    id=18e4810cf1ca1ffd
+    base_colour=0.6 0.02 0.05 1
+    roughness=0.6
+    base_map=white
+}
+
+material stem {
+    id=6d9276a06f0803cf
+    base_colour=0.12 0.3 0.1 1
+    roughness=0.8
+    base_map=white
+}
+
+light light0 {
+    type=point
+    position=0.3 -4.5 0.3
+    colour=1 0.92 0.78
+    intensity=3
+}
+
+light light1 {
+    type=directional
+    direction=0.1 -1 -0.3
+    colour=1 0.92 0.8
+    intensity=0.15
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.25 0.5
+        rotation=0 0 0
+        params=6 0.25 4 0
+        material=8cc2825fa5a5eac1
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p1 {
+        type=box
+        position=0 -3 4.2
+        rotation=0 0 0
+        params=7 3.2 0.1 0
+        material=90dd1cf9f63d0c5f
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p2 {
+        type=capsule
+        position=0.6911 -0.03 0.8591
+        rotation=0.3114 0.2715 -1.432
+        params=0.025 0.2002 0 0
+        material=4b15650793a13c94
+    }
+
+    primitive p3 {
+        type=capsule
+        position=0.3533 -0.03 0.9359
+        rotation=0.8799 -0.4934 0.9826
+        params=0.025 0.2002 0 0
+        material=4b15650793a13c94
+    }
+
+    primitive p4 {
+        type=capsule
+        position=0.4557 -0.03 0.605
+        rotation=-1.472 0.2069 0.2283
+        params=0.025 0.2002 0 0
+        material=4b15650793a13c94
+    }
+
+    primitive p5 {
+        type=capsule
+        position=0.5 -1.02 0.8
+        rotation=3.142 0 0
+        params=0.025 0.98 0 0
+        material=4b15650793a13c94
+    }
+
+    primitive p6 {
+        type=capsule
+        position=0.5 -2.04 0.8
+        rotation=3.142 0 0
+        params=0.045 0.06 0 0
+        material=4b15650793a13c94
+    }
+
+    primitive p7 {
+        type=sphere
+        position=0.5 -2.14 0.8
+        rotation=0 0 0
+        params=0.065 0 0 0
+        material=4b15650793a13c94
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0.06
+
+    primitive p8 {
+        type=capsule
+        position=0.5 -1.96 0.8
+        rotation=0 0 -1.571
+        params=0.06 0.18 0 0
+        material=995f40539b54f692
+    }
+
+    primitive p9 {
+        type=ellipsoid
+        position=0.5 -1.7 0.8
+        rotation=0 0 0
+        params=0.19 0.32 0.14 0
+        material=995f40539b54f692
+    }
+
+    primitive p10 {
+        type=capped_cone
+        position=0.5 -0.725 0.8
+        rotation=0 0 0
+        params=0.675 0.16 0.75 0
+        material=995f40539b54f692
+    }
+
+    primitive p11 {
+        type=ellipsoid
+        position=0.5 -0.05 1.2
+        rotation=0 0 0
+        params=0.55 0.05 0.55 0
+        material=995f40539b54f692
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0.03
+
+    primitive p12 {
+        type=torus
+        position=0.5 -0.1 0.8
+        rotation=0.06 0 0.04
+        params=0.7381 0.055 0 0
+        material=9a3e8f4f02cd0a27
+    }
+
+    primitive p13 {
+        type=torus
+        position=0.5 -0.32 0.8
+        rotation=0.06 0 0.04
+        params=0.642 0.055 0 0
+        material=995f40539b54f692
+    }
+
+    primitive p14 {
+        type=torus
+        position=0.5 -0.54 0.8
+        rotation=0.06 0 0.04
+        params=0.5459 0.055 0 0
+        material=9a3e8f4f02cd0a27
+    }
+
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0
+
+    primitive p15 {
+        type=box
+        position=-1.3 -0.9 0.6
+        rotation=0 0.6 0
+        params=0.42 0.035 0.4 0
+        material=e9875b29548004be
+    }
+
+    primitive p16 {
+        type=capsule
+        position=-1.789 -0.45 0.5227
+        rotation=3.142 0 0
+        params=0.035 0.45 0 0
+        material=e9875b29548004be
+    }
+
+    primitive p17 {
+        type=capsule
+        position=-1.195 -0.45 0.1161
+        rotation=3.142 0 0
+        params=0.035 0.45 0 0
+        material=e9875b29548004be
+    }
+
+    primitive p18 {
+        type=capsule
+        position=-1.405 -0.975 1.084
+        rotation=3.142 0 0
+        params=0.035 0.975 0 0
+        material=e9875b29548004be
+    }
+
+    primitive p19 {
+        type=capsule
+        position=-0.8109 -0.975 0.6773
+        rotation=3.142 0 0
+        params=0.035 0.975 0 0
+        material=e9875b29548004be
+    }
+
+    primitive p20 {
+        type=box
+        position=-1.108 -1.45 0.8806
+        rotation=0 0.6 0
+        params=0.38 0.06 0.025 0
+        material=e9875b29548004be
+    }
+
+    primitive p21 {
+        type=box
+        position=-1.108 -1.85 0.8806
+        rotation=0 0.6 0
+        params=0.38 0.06 0.025 0
+        material=e9875b29548004be
+    }
+
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0.01
+
+    primitive p22 {
+        type=capsule
+        position=-1.265 -0.95 0.6065
+        rotation=0.02025 0.02025 -1.57
+        params=0.012 0.2151 0 0
+        material=6d9276a06f0803cf
+    }
+
+    primitive p23 {
+        type=sphere
+        position=-1.516 -0.99 0.6026
+        rotation=0 0 0
+        params=0.06 0 0 0
+        material=18e4810cf1ca1ffd
+    }
+
+}
+
+volumetric volumetric0 {
+    type=capped_cone
+    position=0.4 -3.2 0.7
+    rotation=0 0 0.06
+    params=3.2 0.25 1.5 0
+    density=0.12
+    material=ef02289a5672af92
+}

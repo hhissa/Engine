@@ -14,15 +14,16 @@ version=0.1
 #   [Name]            who speaks (sticky); cuts to their room, from a new
 #                     camera angle each time we come back to them
 #   [P]               the photographer -- never on screen, keeps the shot
-#   [title]           bold line: black screen (the ding needs audio)
+#   [title]           bold line: black screen with a ding ([quiet]: none)
 #   [overlay]         blue line: laid over the scene, not bottom-left
 #   [cutaway <id>]    red tag: cut to the set assets/scenes/<id>.sdf (see
 #                     kCutaways); a placeholder card naming it if none
 #   [photo <path>]    a photo (path under assets/), shown instead of the room
 #   [link <url>]      song recommendation; [L] opens it
 #   [room]            back from a cutaway to the speaker's own room
-#   [size <n>] [flash] [stack]   large / blinking / stacked text -- see
-#                     script_line.h (used from chapter 2 on)
+#   [size <n>] [flash] [stack] [fill] [center] [at <x> <y>]
+#                     large / blinking / stacked / full-screen / centred /
+#                     placed text -- see script_line.h
 
 question "Introductions" {
     id=intro
@@ -77,11 +78,11 @@ question "What is your go-to meal?" {
     answer=[Pat] I'm not too picky
     answer=Anything but this fucking hospital food
     answer=[Alex] I'm gonna be a bit extra here
-    answer=Ice cream
+    answer=[cutaway cutaways/icecream] Ice cream
     answer=[Theresa] Hmm
     answer=HMMM
     answer=AH
-    answer=Hot tomato soup and a nice slice of toasted sourdough bread
+    answer=[cutaway cutaways/soup] Hot tomato soup and a nice slice of toasted sourdough bread
 }
 
 # Cloud photos show up instead of the usual scenes (assets/photos/cloud_<name>.jpg;
@@ -169,7 +170,7 @@ question "Do you take dancing seriously?" {
     answer=[P] We'll get into that soon enough
     answer=[Theresa] Oh, dead serious
     answer=I love dancing
-    answer=I used to do flamenco when these hips were still real
+    answer=[cutaway cutaways/flamenco] I used to do flamenco when these hips were still real
 }
 
 question "How do you feel about graffiti?" {
@@ -205,7 +206,10 @@ question "How do you feel about graffiti? (everyone else)" {
     answer=But if it's a cool artwork, I approve
     answer=[Alex] Yeah, I used to graffiti all the time
     answer=[Theresa] Not a fan
-    answer=[overlay] I guess if I was younger, I wouldn't mind so much
+    answer=[overlay][at 0.3 0.25][size 1.3] I guess
+    answer=[overlay][at 0.62 0.38][size 0.8] if I was
+    answer=[overlay][at 0.45 0.52][size 2] younger
+    answer=[overlay][at 0.68 0.68] I wouldn't mind so much
 }
 
 question "How many seasons is your favourite show?" {
@@ -285,11 +289,11 @@ question "How many hours of sleep do you get?" {
     question "Why's that?" {
         loop_to=sleep_rest
         answer=[Mel] At around 4:30
-        answer=[cutaway cutaways/bluehour][overlay] Still a ways from sunset
-        answer=[overlay] There's an hour
-        answer=[overlay] That's blue
-        answer=[overlay] No one is awake at this time, not the degenerates or the early risers
-        answer=[overlay] It's just me
+        answer=[cutaway cutaways/bluehour][overlay][at 0.3 0.15][size 0.9] Still a ways from sunset
+        answer=[overlay][at 0.7 0.28][size 1.4] There's an hour
+        answer=[overlay][at 0.42 0.42][size 2.6] That's blue
+        answer=[overlay][at 0.5 0.6][size 0.8] No one is awake at this time, not the degenerates or the early risers
+        answer=[overlay][at 0.72 0.76][size 1.8] It's just me
     }
 
     # Still in Mel's place.
@@ -310,7 +314,7 @@ question "How many hours of sleep do you get? (everyone else)" {
     answer=[Pat] I sleep a good twelve hours
     answer=They give you some pretty heavy stuff to help you sleep
     answer=And it's all there is to do around here
-    answer=Unless you wanna do the same 3 puzzles over and over
+    answer=[cutaway cutaways/puzzles] Unless you wanna do the same 3 puzzles over and over
     answer=[Alex] I sleep weird
     answer=I get like 8, 9 hours
     answer=But in spurts of 4 or 5 hours
@@ -329,11 +333,11 @@ question "Do you dream? Do you have nightmares?" {
     answer=[P] Smoke what?
     answer=[Theo] The carts, bro
     answer=Like disposable weed pens
-    answer=[Pat][cutaway cutaways/moon][overlay] I have pretty vivid dreams
-    answer=[overlay] I've been having this recurring one
-    answer=[overlay] I'm on the moon
-    answer=[overlay] And there's this well
-    answer=[overlay] I jump in the well
+    answer=[Pat][cutaway cutaways/moon][overlay][at 0.3 0.14][size 1.2] I have pretty vivid dreams
+    answer=[overlay][at 0.66 0.26][size 0.8] I've been having this recurring one
+    answer=[overlay][at 0.35 0.4][size 2.2] I'm on the moon
+    answer=[overlay][at 0.7 0.56][size 1.1] And there's this well
+    answer=[overlay][at 0.4 0.72][size 1.6] I jump in the well
     answer=[room] And I wake up every time
     answer=Just before I hit the bottom
     answer=[Alex] Nightmares every time I sleep
@@ -451,7 +455,7 @@ question "Do you ever fantasise about running away? (everyone else)" {
     loop_to=images
     answer=[Theo] Oh, I would love to disappear one day
     answer=Just vanish without telling anyone
-    answer=Move into a cabin by the lake in the woods
+    answer=[cutaway cutaways/cabin] Move into a cabin by the lake in the woods
     answer=That's the life
     answer=[Pat] Yeah, I think that's my only option
     answer=Start somewhere new after the hospital
@@ -459,10 +463,10 @@ question "Do you ever fantasise about running away? (everyone else)" {
     answer=[Alex] I used to
     answer=I wanted to run away somewhere when I was younger
     answer=Even had it all planned out
-    answer=I was gonna hit all the national parks on the way
+    answer=[cutaway cutaways/road] I was gonna hit all the national parks on the way
     answer=[P] What happened to the plan?
-    answer=[Alex] The person I was gonna do it with killed themselves
-    answer=[title] Oh
+    answer=[Alex][room] The person I was gonna do it with killed themselves
+    answer=[title][quiet] Oh
     answer=[P] I'm sorry
     answer=Let's move on
     answer=[Theresa] Oh, I'm too old for that
@@ -493,7 +497,9 @@ question "Do you see images or things in your head?" {
     answer=[P] It's good?
     answer=[Alex] Yeah, it's good
     answer=[Theresa] I have a very active imagination
-    answer=[overlay] Most of the day is spent in a daydream
+    answer=[overlay][at 0.25 0.22] Most of the day
+    answer=[overlay][at 0.62 0.36][size 0.8] is spent
+    answer=[overlay][at 0.5 0.55][size 2.4] in a daydream
 }
 
 question "Do you believe in an objective reality?" {

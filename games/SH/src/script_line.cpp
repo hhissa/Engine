@@ -62,6 +62,26 @@ ScriptLine parse_script_line(std::string_view raw) {
       line.stack = true;
     } else if (word == "room" && argument.empty()) {
       line.room = true;
+    } else if (word == "fill" && argument.empty()) {
+      line.fill = true;
+    } else if (word == "center" && argument.empty()) {
+      line.center = true;
+    } else if (word == "quiet" && argument.empty()) {
+      line.quiet = true;
+    } else if (word == "at") {
+      const std::string numbers(argument);
+      char *end_x = nullptr;
+      const f32 x = std::strtof(numbers.c_str(), &end_x);
+      char *end_y = nullptr;
+      const f32 y = std::strtof(end_x, &end_y);
+      if (end_x == numbers.c_str() || end_y == end_x) {
+        KWARN("Script line '{}': '[{}]' needs two numbers -- ignored.", raw,
+              directive);
+      } else {
+        line.has_at = true;
+        line.at_x = x;
+        line.at_y = y;
+      }
     } else if (argument.empty()) {
       line.speaker = std::string(word);
     } else {

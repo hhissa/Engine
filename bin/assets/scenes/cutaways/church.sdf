@@ -1,0 +1,316 @@
+#sdf scene file
+version=0.1
+# Pat's church -- pews down a dark nave, one high window, and a shaft of
+# light falling through it.
+ambient=0.08
+
+material floor {
+    id=de49b107adaadc2d
+    base_colour=0.7 0.68 0.65 1
+    base_map=marble
+    uv_scale=0.5
+}
+
+material stone {
+    id=8107cbbeb582a000
+    base_colour=0.72 0.68 0.64 1
+    base_map=concrete_wall
+    uv_scale=0.4
+}
+
+material pews {
+    id=07d2ae20976e2394
+    base_colour=0.45 0.28 0.15 1
+    base_map=dark_brown_wood_texture_background_with_design_space
+    uv_scale=0.8
+    roughness=0.6
+}
+
+material altar_cloth {
+    id=a600fdb866dea86b
+    base_colour=0.95 0.94 0.9 1
+    roughness=1
+    base_map=white
+}
+
+material cross {
+    id=8640686a31364eb8
+    base_colour=0.8 0.62 0.28 1
+    roughness=0.3
+    base_map=white
+}
+
+material candles {
+    id=2e67463bcc905d90
+    base_colour=0.95 0.93 0.85 1
+    roughness=0.8
+    base_map=white
+}
+
+material light_shaft {
+    id=72354994906e5d29
+    base_colour=1 0.95 0.82 1
+    base_map=white
+}
+
+light light0 {
+    type=directional
+    direction=-5.1 -7 1
+    colour=1 0.92 0.75
+    intensity=1.8
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.05 6
+        rotation=0 0 0
+        params=5.3 0.05 12.5 0
+        material=de49b107adaadc2d
+    }
+
+    primitive p1 {
+        type=box
+        position=-5 -2.8 6
+        rotation=0 0 0
+        params=0.3 2.8 12.5 0
+        material=8107cbbeb582a000
+    }
+
+    primitive p2 {
+        type=box
+        position=-5 -9.2 6
+        rotation=0 0 0
+        params=0.3 0.8 12.5 0
+        material=8107cbbeb582a000
+    }
+
+    primitive p3 {
+        type=box
+        position=-5 -7 1.45
+        rotation=0 0 0
+        params=0.3 1.4 7.95 0
+        material=8107cbbeb582a000
+    }
+
+    primitive p4 {
+        type=box
+        position=-5 -7 14.55
+        rotation=0 0 0
+        params=0.3 1.4 3.95 0
+        material=8107cbbeb582a000
+    }
+
+    primitive p5 {
+        type=box
+        position=5 -5 6
+        rotation=0 0 0
+        params=0.3 5 12.5 0
+        material=8107cbbeb582a000
+    }
+
+    primitive p6 {
+        type=box
+        position=0 -5 18.2
+        rotation=0 0 0
+        params=5.3 5 0.3 0
+        material=8107cbbeb582a000
+    }
+
+    primitive p7 {
+        type=box
+        position=0 -10.2 6
+        rotation=0 0 0
+        params=5.3 0.3 12.5 0
+        material=8107cbbeb582a000
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p8 {
+        type=capped_cylinder
+        position=-3.6 -5 6
+        rotation=0 0 0
+        params=0.3 5 0 0
+        repetition=limited
+        repetition_cell=0 0 4
+        repetition_count=1 1 4
+        material=8107cbbeb582a000
+    }
+
+    primitive p9 {
+        type=capped_cylinder
+        position=3.6 -5 6
+        rotation=0 0 0
+        params=0.3 5 0 0
+        repetition=limited
+        repetition_cell=0 0 4
+        repetition_count=1 1 4
+        material=8107cbbeb582a000
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p10 {
+        type=box
+        position=-2.1 -0.45 4.5
+        rotation=0 0 0
+        params=1.5 0.05 0.24 0
+        repetition=limited
+        repetition_cell=0 0 1.4
+        repetition_count=1 1 7
+        material=07d2ae20976e2394
+    }
+
+    primitive p11 {
+        type=box
+        position=-2.1 -0.85 4.75
+        rotation=0 0 0
+        params=1.5 0.4 0.035 0
+        repetition=limited
+        repetition_cell=0 0 1.4
+        repetition_count=1 1 7
+        material=07d2ae20976e2394
+    }
+
+    primitive p12 {
+        type=box
+        position=-3.55 -0.45 4.6
+        rotation=0 0 0
+        params=0.04 0.45 0.3 0
+        repetition=limited
+        repetition_cell=0 0 1.4
+        repetition_count=1 1 7
+        material=07d2ae20976e2394
+    }
+
+    primitive p13 {
+        type=box
+        position=-0.65 -0.45 4.6
+        rotation=0 0 0
+        params=0.04 0.45 0.3 0
+        repetition=limited
+        repetition_cell=0 0 1.4
+        repetition_count=1 1 7
+        material=07d2ae20976e2394
+    }
+
+    primitive p14 {
+        type=box
+        position=2.1 -0.45 4.5
+        rotation=0 0 0
+        params=1.5 0.05 0.24 0
+        repetition=limited
+        repetition_cell=0 0 1.4
+        repetition_count=1 1 7
+        material=07d2ae20976e2394
+    }
+
+    primitive p15 {
+        type=box
+        position=2.1 -0.85 4.75
+        rotation=0 0 0
+        params=1.5 0.4 0.035 0
+        repetition=limited
+        repetition_cell=0 0 1.4
+        repetition_count=1 1 7
+        material=07d2ae20976e2394
+    }
+
+    primitive p16 {
+        type=box
+        position=0.65 -0.45 4.6
+        rotation=0 0 0
+        params=0.04 0.45 0.3 0
+        repetition=limited
+        repetition_cell=0 0 1.4
+        repetition_count=1 1 7
+        material=07d2ae20976e2394
+    }
+
+    primitive p17 {
+        type=box
+        position=3.55 -0.45 4.6
+        rotation=0 0 0
+        params=0.04 0.45 0.3 0
+        repetition=limited
+        repetition_cell=0 0 1.4
+        repetition_count=1 1 7
+        material=07d2ae20976e2394
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0
+
+    primitive p18 {
+        type=box
+        position=0 -0.55 15
+        rotation=0 0 0
+        params=1.4 0.55 0.6 0
+        material=a600fdb866dea86b
+    }
+
+    primitive p19 {
+        type=box
+        position=0 -1.7 17.75
+        rotation=0 0 0
+        params=1.8 1.7 0.12 0
+        material=07d2ae20976e2394
+    }
+
+    primitive p20 {
+        type=box
+        position=0 -4.6 17.85
+        rotation=0 0 0
+        params=0.12 1.3 0.06 0
+        material=8640686a31364eb8
+    }
+
+    primitive p21 {
+        type=box
+        position=0 -5.2 17.85
+        rotation=0 0 0
+        params=0.65 0.12 0.06 0
+        material=8640686a31364eb8
+    }
+
+    primitive p22 {
+        type=capped_cylinder
+        position=-0.9 -1.35 15
+        rotation=0 0 0
+        params=0.07 0.25 0 0
+        material=2e67463bcc905d90
+    }
+
+    primitive p23 {
+        type=capped_cylinder
+        position=0.9 -1.35 15
+        rotation=0 0 0
+        params=0.07 0.25 0 0
+        material=2e67463bcc905d90
+    }
+
+}
+
+volumetric volumetric0 {
+    type=box
+    position=-2.45 -3.5 9.5
+    rotation=-0.115 -0.03722 -0.6253
+    params=0.55 4.659 1 0
+    density=0.22
+    material=72354994906e5d29
+}

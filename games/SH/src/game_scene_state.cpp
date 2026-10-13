@@ -570,18 +570,20 @@ struct CutawayStaging {
   std::vector<Station> stations;
 };
 
-const std::array<CutawayStaging, 6> kCutaways = {{
+const std::array<CutawayStaging, 21> kCutaways = {{
     // Theo's Indomie: the bowl from above, then from the table's edge.
     {"cutaways/ramen",
      "white",
      2.0f,
-     {{{0.0f, -2.3f, -2.7f}, {0.0f, -0.05f, 0.1f}, 0.06f, 0.5f, 0.6f},
+     {{{0.0f, -1.95f, -1.35f}, {0.0f, 0.1f, 0.12f}, 0.06f, 0.5f, 0.4f},
       {{1.5f, -0.75f, -1.3f}, {0.0f, -0.1f, 0.0f}, 0.06f, 0.5f, 0.6f}}},
-    // Mel's blue hour: the row of houses, looking slightly up into the sky.
+    // Mel's blue hour: up close, looking up at the rooftops and the right
+    // hand telephone pole against the sky -- the walls below drop out of
+    // frame.
     {"cutaways/bluehour",
      "sky_bluehour",
      1.0f,
-     {{{0.0f, -1.5f, -12.0f}, {0.0f, -2.6f, 9.0f}, 0.05f, 1.0f, 3.0f}}},
+     {{{4.5f, -3.0f, -1.0f}, {5.5f, -5.9f, 9.0f}, 0.05f, 1.0f, 2.0f}}},
     // Pat's dream: across the regolith to the well.
     {"cutaways/moon",
      "sky_stars",
@@ -604,6 +606,82 @@ const std::array<CutawayStaging, 6> kCutaways = {{
      "black",
      1.5f,
      {{{0.0f, -0.05f, -3.3f}, {0.0f, -0.05f, 0.0f}, 0.04f, 0.4f, 0.5f}}},
+    // Theresa's soup and toast, from above.
+    {"cutaways/soup",
+     "sky_warm",
+     2.0f,
+     {{{0.95f, -2.7f, -2.1f}, {0.95f, 0.15f, 0.2f}, 0.06f, 0.5f, 0.4f}}},
+    // Alex's ice cream, floating in the pastel sky.
+    {"cutaways/icecream",
+     "sky_pastel",
+     1.0f,
+     {{{0.0f, -1.75f, -3.2f}, {0.0f, -1.6f, 0.0f}, 0.05f, 0.6f, 0.8f}}},
+    // Theresa's flamenco: the empty dress in its spotlight.
+    {"cutaways/flamenco",
+     "black",
+     1.0f,
+     {{{-0.1f, -1.5f, -3.6f}, {0.1f, -1.1f, 0.8f}, 0.05f, 1.0f, 2.0f}}},
+    // The drag stage, its curtain and lights.
+    {"cutaways/dragbar",
+     "black",
+     1.0f,
+     {{{0.0f, -1.6f, -5.5f}, {0.0f, -1.6f, 1.5f}, 0.05f, 1.0f, 2.0f}}},
+    // Pat's three puzzles, from above the table.
+    {"cutaways/puzzles",
+     "white",
+     2.0f,
+     {{{0.0f, -2.6f, -1.6f}, {0.0f, 0.0f, 0.3f}, 0.06f, 0.5f, 0.4f}}},
+    // Theo's cabin, across the lake.
+    {"cutaways/cabin",
+     "sky_dusk",
+     1.0f,
+     {{{1.0f, -1.3f, 5.0f}, {1.9f, -1.7f, 20.0f}, 0.05f, 1.0f, 3.0f}}},
+    // Alex's road, down the middle of it.
+    {"cutaways/road",
+     "sky_desert",
+     1.0f,
+     {{{0.4f, -1.4f, -2.0f}, {0.3f, -1.9f, 40.0f}, 0.05f, 1.0f, 3.0f}}},
+    // Mel's drug years, in the leaning room.
+    {"cutaways/trippyroom",
+     "black",
+     1.0f,
+     {{{0.3f, -1.5f, -3.4f}, {0.0f, -1.7f, 4.0f}, 0.06f, 0.6f, 1.5f}}},
+    // Drake, stooping in the doorway.
+    {"cutaways/shadowdoorway",
+     "white",
+     1.0f,
+     {{{0.3f, -1.35f, -0.6f}, {0.0f, -1.4f, 4.0f}, 0.05f, 1.0f, 1.5f}}},
+    // The hospital corridor, down its length.
+    {"cutaways/corridor",
+     "black",
+     1.0f,
+     {{{0.0f, -1.55f, -1.5f}, {0.0f, -1.45f, 30.0f}, 0.04f, 0.8f, 3.0f}}},
+    // Diego's empty bed: wide, then closer.
+    {"cutaways/hospitalbed",
+     "white",
+     1.0f,
+     {{{-2.8f, -2.2f, -3.2f}, {0.0f, -0.7f, 0.0f}, 0.05f, 1.0f, 1.0f},
+      {{-1.6f, -1.5f, -2.0f}, {0.0f, -0.7f, 0.1f}, 0.05f, 0.6f, 0.6f}}},
+    // Theo's giant, from down among the houses.
+    {"cutaways/deity",
+     "sky_stars",
+     1.0f,
+     {{{0.5f, -0.6f, -2.0f}, {0.0f, -4.0f, 12.0f}, 0.05f, 1.0f, 2.0f}}},
+    // Pat's church, from the back of the nave.
+    {"cutaways/church",
+     "black",
+     1.0f,
+     {{{0.0f, -1.7f, -3.0f}, {0.0f, -3.0f, 14.0f}, 0.05f, 1.0f, 3.0f}}},
+    // Alex's phone on the pavement, the club behind.
+    {"cutaways/phone",
+     "black",
+     1.0f,
+     {{{-0.1f, -1.0f, -1.6f}, {0.1f, -0.75f, 2.4f}, 0.05f, 0.4f, 0.5f}}},
+    // Theresa's living room, the empty chair.
+    {"cutaways/livingroom",
+     "black",
+     1.0f,
+     {{{0.4f, -1.3f, -2.6f}, {0.0f, -0.8f, 2.2f}, 0.05f, 0.8f, 1.5f}}},
 }};
 
 const CutawayStaging *find_cutaway(std::string_view id) {
@@ -782,7 +860,8 @@ void SHGame::on_script_line(const ScriptLine &line) {
   // Every [title] card lands with a ding -- the script's "black screen with
   // a ding sound effect when it first appears". This hook fires once per
   // line as it comes up, so a card dings once, not every frame it's shown.
-  if (line.title) {
+  // A [quiet] card is the exception.
+  if (line.title && !line.quiet) {
     audio_play_sound("ding");
   }
   if (!speaker_staged_) {

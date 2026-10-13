@@ -22,6 +22,8 @@
 //   answer=[link https://...] The Moon by The Microphones
 //   answer=[overlay][size 3][flash] Again
 //   answer=[title][stack][size 2] Deeper
+//   answer=[overlay][fill][flash] Again
+//   answer=[overlay][at 0.8 0.2][size 1.6] and really high highs
 //
 //   [<Name>]        who is speaking. Sticky: a line with no name is said by
 //                   whoever spoke last in the same answer. [P] is the
@@ -47,6 +49,15 @@
 //                   previous line rather than stepping across, and a run of
 //                   [title][stack] cards keeps every earlier card's text up,
 //                   each new one under the last.
+//   [fill]          an [overlay] line shown alone, in capitals, centred and
+//                   scaled up to fill the screen -- the script's "very
+//                   large text". Ignores [size].
+//   [center]        an [overlay] line centred across the screen; a run of
+//                   them is centred down it as one block too.
+//   [at <x> <y>]    an [overlay] line centred on that point of the screen,
+//                   as fractions of its width and height (0 0 top-left,
+//                   1 1 bottom-right) -- kept fully on screen.
+//   [quiet]         a [title] card that lands without its ding.
 //   [room]          cut back from a cutaway/photo to the speaker's own room
 //                   -- for when the speaker carries on past the moment the
 //                   cutaway illustrated. See SHGame::on_script_line().
@@ -65,6 +76,12 @@ struct ScriptLine {
   bool flash = false;
   bool stack = false;
   bool room = false;
+  bool fill = false;
+  bool center = false;
+  bool quiet = false;
+  bool has_at = false;
+  f32 at_x = 0.5f; // see [at] -- only meaningful when has_at
+  f32 at_y = 0.5f;
   std::string text; // what's left once every leading directive is removed
 };
 

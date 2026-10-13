@@ -1,0 +1,198 @@
+#sdf scene file
+version=0.1
+# A hospital corridor running on further than it should -- closed doors,
+# strip lights, and dark at the end.
+ambient=0.12
+
+material floor {
+    id=df90fc12f07534e1
+    base_colour=0.9 0.92 0.9 1
+    base_map=hospitalfloor
+    uv_scale=1
+}
+
+material walls {
+    id=3b690cf64c8930e3
+    base_colour=0.84 0.89 0.86 1
+    roughness=0.6
+    base_map=white
+}
+
+material ceiling {
+    id=731c9fd0322091a9
+    base_colour=0.9 0.9 0.9 1
+    base_map=ceilingtiles
+    uv_scale=1
+}
+
+material strip_light {
+    id=a029a48f13b8dcd9
+    base_colour=0.9 1 0.95 1
+    emissive_colour=0.9 1 0.95
+    emissive_intensity=2
+    base_map=white
+}
+
+material doors {
+    id=f4af214284494ef7
+    base_colour=0.62 0.7 0.68 1
+    roughness=0.5
+    base_map=white
+}
+
+material rail {
+    id=941224897449b3a8
+    base_colour=0.7 0.72 0.74 1
+    roughness=0.3
+    base_map=white
+}
+
+material end {
+    id=a57b8eeced8a58f2
+    base_colour=0 0 0 1
+    roughness=1
+    base_map=white
+}
+
+material murk {
+    id=8a09317081733878
+    base_colour=0 0 0 1
+    base_map=white
+}
+
+light light0 {
+    type=point
+    position=0 -2.5 2
+    colour=0.85 1 0.92
+    intensity=0.7
+}
+
+light light1 {
+    type=point
+    position=0 -2.5 10
+    colour=0.85 1 0.92
+    intensity=0.7
+}
+
+light light2 {
+    type=point
+    position=0 -2.5 18
+    colour=0.85 1 0.92
+    intensity=0.7
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.05 25
+        rotation=0 0 0
+        params=1.5 0.05 30 0
+        material=df90fc12f07534e1
+    }
+
+    primitive p1 {
+        type=box
+        position=-1.5 -1.45 25
+        rotation=0 0 0
+        params=0.05 1.45 30 0
+        material=3b690cf64c8930e3
+    }
+
+    primitive p2 {
+        type=box
+        position=1.5 -1.45 25
+        rotation=0 0 0
+        params=0.05 1.45 30 0
+        material=3b690cf64c8930e3
+    }
+
+    primitive p3 {
+        type=box
+        position=0 -2.95 25
+        rotation=0 0 0
+        params=1.55 0.05 30 0
+        material=731c9fd0322091a9
+    }
+
+    primitive p4 {
+        type=box
+        position=0 -1.45 55
+        rotation=0 0 0
+        params=1.55 1.5 0.05 0
+        material=a57b8eeced8a58f2
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p5 {
+        type=box
+        position=-1.44 -1.05 26
+        rotation=0 0 0
+        params=0.03 1.05 0.5 0
+        repetition=limited
+        repetition_cell=0 0 6
+        repetition_count=1 1 9
+        material=f4af214284494ef7
+    }
+
+    primitive p6 {
+        type=box
+        position=1.44 -1.05 29
+        rotation=0 0 0
+        params=0.03 1.05 0.5 0
+        repetition=limited
+        repetition_cell=0 0 6
+        repetition_count=1 1 8
+        material=f4af214284494ef7
+    }
+
+    primitive p7 {
+        type=capsule
+        position=-1.41 -0.9 25
+        rotation=1.571 0 0
+        params=0.025 30 0 0
+        material=941224897449b3a8
+    }
+
+    primitive p8 {
+        type=capsule
+        position=1.41 -0.9 25
+        rotation=1.571 0 0
+        params=0.025 30 0 0
+        material=941224897449b3a8
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p9 {
+        type=box
+        position=0 -2.885 26
+        rotation=0 0 0
+        params=0.12 0.015 0.6 0
+        repetition=limited
+        repetition_cell=0 0 4
+        repetition_count=1 1 14
+        material=a029a48f13b8dcd9
+    }
+
+}
+
+volumetric volumetric0 {
+    type=box
+    position=0 -1.45 42
+    rotation=0 0 0
+    params=1.45 1.45 16 0
+    density=0.35
+    material=8a09317081733878
+}

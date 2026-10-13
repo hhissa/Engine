@@ -9,11 +9,14 @@ version=0.1
 # directions map onto directives:
 #   bold line                       [title] card
 #   blue line                       [overlay]
-#   "Very large flashing text"      [overlay][size 3][flash] on the next line
-#   "Large text one line"           [overlay][size 2.5] on the next line
+#   "Very large flashing text"      [overlay][fill][flash] on the next line
+#   "Large text one line"           [overlay][fill] on the next line
 #   "Text gets bigger every word"   [title] cards each a [size] up
 #   "Each word in large text stacked one above the other revealed one at a
 #   time with each enter click"     one [title][stack][size 2] card per word
+#   blue lines laid out by hand     [at <x> <y>] and [size] per line, so
+#                                   the words vary in place and size;
+#                                   [center] for a run centred on screen
 #   red tag                         [cutaway <id>]; [room] cuts back once
 #                                   the blue text it was shot for ends
 
@@ -67,15 +70,15 @@ question "Mel" {
     answer=Certainly the best in my grade at least
     answer=Anyway, enough showboating, I'm not like that anymore anyway
     answer=The one thing is that I would get these really violent depressive episodes
-    answer=[cutaway cutaways/glowingfetalposition][overlay] It was mostly okay
-    answer=[overlay] Mostly
-    answer=[overlay] I wouldn't leave my room for days at a time
-    answer=[overlay] I wouldn't eat
-    answer=[overlay] It felt
-    answer=[overlay] It felt like there was something inside me
-    answer=[overlay] Weighing me down
-    answer=[overlay] Sucking the life force
-    answer=[overlay] out of me
+    answer=[cutaway cutaways/glowingfetalposition][overlay][at 0.28 0.12][size 1.2] It was mostly okay
+    answer=[overlay][at 0.62 0.2][size 0.8] Mostly
+    answer=[overlay][at 0.68 0.32] I wouldn't leave my room for days at a time
+    answer=[overlay][at 0.22 0.4][size 1.6] I wouldn't eat
+    answer=[overlay][at 0.75 0.47][size 0.8] It felt
+    answer=[overlay][at 0.42 0.56][size 1.3] It felt like there was something inside me
+    answer=[overlay][at 0.26 0.68][size 2] Weighing me down
+    answer=[overlay][at 0.72 0.76][size 0.9] Sucking the life force
+    answer=[overlay][at 0.55 0.84][size 2.4] out of me
     answer=[P] What did your parents think about this?
     answer=[Mel][room] Hardly noticed
     answer=I was categorised as a quiet kid
@@ -106,7 +109,7 @@ question "Mel" {
     answer=Honestly, I hadn't felt better than then
     answer=It seemed like I was getting what I wanted
     answer=What I moved for
-    answer=That's when I started doing a lot of drugs
+    answer=[cutaway cutaways/trippyroom] That's when I started doing a lot of drugs
 
     question "What kind of drugs?" {
         loop_to=mel_rest
@@ -137,14 +140,14 @@ question "Mel (continued)" {
     answer=[Mel] So all of this
     answer=Plus a nasty trick of genetics
     answer=I have my first psychotic episode
-    answer=[cutaway cutaways/shadowmen][overlay] The shadows
-    answer=[overlay] that were darting
-    answer=[overlay] in the corner of my
-    answer=[overlay] eye
-    answer=[overlay] Were now
-    answer=[overlay] Fully materialized
+    answer=[cutaway cutaways/shadowmen][overlay][at 0.25 0.15][size 1.8] The shadows
+    answer=[overlay][at 0.6 0.24][size 0.8] that were darting
+    answer=[overlay][at 0.78 0.34] in the corner of my
+    answer=[overlay][at 0.84 0.44][size 2.4] eye
+    answer=[overlay][at 0.3 0.56][size 0.9] Were now
+    answer=[overlay][at 0.5 0.72][size 2.6] Fully materialized
     answer=[room] Plus a bunch of other shit
-    answer=Like Drake
+    answer=[cutaway cutaways/shadowdoorway] Like Drake
     answer=I thought he was after me
     answer=A surprisingly common hallucination, I'm told
     answer=Weird guy
@@ -172,15 +175,15 @@ question "Mel (continued)" {
     answer=What I'm even less proud of is how I've spent the last 3 years
     answer=Just sitting here
     answer=Rotting
-    answer=All I do is sit in my room and do nothing
+    answer=[room] All I do is sit in my room and do nothing
     answer=[P] Is that really all you do?
     answer=[Mel] I truly haven't left the house in the last three years
-    answer=Except one 3 month stint in the hospital earlier this year
+    answer=[cutaway cutaways/corridor] Except one 3 month stint in the hospital earlier this year
     answer=[P] Why did you end up in the hospital?
-    answer=[Mel] I was getting to that
+    answer=[Mel][room] I was getting to that
     answer=It was to do with my last episode
     answer=It was starting to feel like something was inside me
-    answer=[overlay][size 3][flash] again
+    answer=[overlay][fill][flash] again
     answer=This time I worked out a plan
     answer=I would make an incision
     answer=About 6 centimeters long
@@ -202,7 +205,7 @@ question "Diego" {
     loop_to=theo
     answer=[Diego] I've got this thing called treatment-resistant depression
     answer=Basically, what that means is
-    answer=[overlay][size 2.5] I'm totally fucked
+    answer=[overlay][fill] I'm totally fucked
     answer=I'm just kidding
     answer=What it means is traditional treatments don't work for me
     answer=I've tried a lot of SSRIs and stuff but nothing's really stuck
@@ -229,11 +232,11 @@ question "Diego" {
     answer=That worked for a bit
     answer=But not for long
     answer=I ended up in the hospital
-    answer=[overlay][size 3][flash] Again
-    answer=I was catatonic for a period of time
+    answer=[overlay][fill][flash] Again
+    answer=[cutaway cutaways/hospitalbed] I was catatonic for a period of time
     answer=I don't know if you've ever had a catheter inserted
     answer=But that is not fun
-    answer=I got out of the hospital
+    answer=[room] I got out of the hospital
     answer=Even got a promotion
     answer=But honestly that just made it worse
     answer=The only thing that really made it any easier
@@ -250,8 +253,8 @@ question "Theo" {
     answer=[Theo] I'm bipolar
     answer=More specifically, I'm bipolar type 1 with psychotic symptoms
     answer=That means I have periods, sometimes months long
-    answer=[overlay] Of really low lows
-    answer=[overlay] and really high highs
+    answer=[overlay][at 0.2 0.85][size 1.4] Of really low lows
+    answer=[overlay][at 0.78 0.14][size 1.8] and really high highs
     answer=Those are called depression and mania
     answer=My mania is a little different
     answer=I have serious delusions
@@ -272,9 +275,9 @@ question "Theo" {
     answer=I thought I had super powers
     answer=[P] What kind of super powers?
     answer=[Theo] I thought I could read people's minds
-    answer=I thought I was an immortal deity
+    answer=[cutaway cutaways/deity] I thought I was an immortal deity
     answer=A lot of other stupid shit like that
-    answer=But if anything, all that kept my confidence up, you know
+    answer=[room] But if anything, all that kept my confidence up, you know
     answer=When you feel like god you start acting, all things considered, pretty good
     answer=You just have to keep your thoughts to yourself
     answer=It gets harder once you start feeling the paranoia
@@ -300,24 +303,24 @@ question "Pat" {
     loop_to=alex
     answer=[Pat] So I was a Catholic growing up
     answer=I had a very strong connection to God since I started going to church
-    answer=I just always felt so safe in church
+    answer=[cutaway cutaways/church] I just always felt so safe in church
     answer=That was my childhood
     answer=I had a good time and went to church pretty much every day
     answer=Scripture brought me a lot of comfort
     answer=Me and the priest were really close
     answer=Not like that
     answer=Over time though
-    answer=[overlay] That connection between
-    answer=[overlay] me
-    answer=[overlay] and
-    answer=[overlay] God
-    answer=[overlay] Got weaker and weaker
-    answer=I was maybe 20, 21
+    answer=[overlay][at 0.3 0.14] That connection between
+    answer=[overlay][at 0.22 0.32][size 1.4] me
+    answer=[overlay][at 0.5 0.32][size 0.7] and
+    answer=[overlay][at 0.78 0.32][size 2.8] God
+    answer=[overlay][at 0.5 0.62][size 0.8] Got weaker and weaker
+    answer=[room] I was maybe 20, 21
     answer=I was not being that good of a Christian
     answer=I was having a lot of sex and doing a lot of drugs
     answer=I hadn't been to church in months at that point
     answer=That's when I started hearing a voice
-    answer=It was the voice of God
+    answer=[cutaway cutaways/church] It was the voice of God
     answer=He was upset with me
     answer=I had strayed too far off his path
     answer=He told me I was irredeemable
@@ -340,13 +343,13 @@ question "Alex" {
     answer=But he was just so much cooler and funnier than us
     answer=He basically took our group by storm
     answer=I should mention, I was really sad back then
-    answer=[overlay] Always so sullen
-    answer=[overlay] But
-    answer=[overlay] I met someone
-    answer=[overlay] Who was kind enough
-    answer=[overlay] To share
-    answer=[overlay] Their happiness
-    answer=[overlay] With me
+    answer=[overlay][at 0.3 0.14][size 1.6] Always so sullen
+    answer=[overlay][at 0.66 0.24][size 0.8] But
+    answer=[overlay][at 0.5 0.34][size 1.3] I met someone
+    answer=[overlay][at 0.26 0.46][size 0.9] Who was kind enough
+    answer=[overlay][at 0.72 0.55][size 0.8] To share
+    answer=[overlay][at 0.5 0.66][size 2.4] Their happiness
+    answer=[overlay][at 0.76 0.8][size 1.2] With me
     answer=Soon we were inseparable
     answer=We were starting bands
     answer=We were staying over at each other's houses every weekend
@@ -371,13 +374,13 @@ question "Alex" {
     answer=Anyway, one day I'm out with friends
     answer=We're at a club and the music is really loud
     answer=After a few drinks I step outside for a cigarette and check my phone
-    answer=About 12 missed calls from *****
+    answer=[cutaway cutaways/phone] About 12 missed calls from *****
     answer=This was the first time he did something like that
     answer=I called him back
-    answer=[overlay] I called
-    answer=[overlay][size 3][flash] Again
-    answer=[overlay][size 3][flash] And again
-    answer=Eventually he picked up
+    answer=[overlay][center][size 1.4] I called
+    answer=[overlay][fill][flash] Again
+    answer=[overlay][fill][flash] And again
+    answer=[room] Eventually he picked up
     answer=He was slurring his words
     answer=He told me he took a lot of pills
     answer=He sounded like he was relieved to hear my voice
@@ -388,11 +391,11 @@ question "Alex" {
     answer=Even if I had picked up
     answer=I know that now
     answer=But still a part of me can't help but feel
-    answer=[overlay] I
-    answer=[overlay] Could
-    answer=[overlay] Have
-    answer=[overlay] Done
-    answer=[overlay] Something
+    answer=[overlay][center][size 1.2] I
+    answer=[overlay][center][size 1.5] Could
+    answer=[overlay][center][size 1.8] Have
+    answer=[overlay][center][size 2.1] Done
+    answer=[overlay][center][size 2.6] Something
     answer=This understandably makes me break down
     answer=I was so guilty
     answer=So I made myself a deal
@@ -433,10 +436,10 @@ question "Theresa" {
     answer=I still would have fallen in love with him
     answer=That was the state of mind I was in
     answer=So yeah, I really lucked out
-    answer=I remember on our first date he accidentally took us to a gay bar
+    answer=[cutaway cutaways/dragbar] I remember on our first date he accidentally took us to a gay bar
     answer=He was on stage dancing with the drag queens in about 30 minutes
     answer=He was so dynamic and vibrant
-    answer=Anyway, like always, that first episode turned sour
+    answer=[room] Anyway, like always, that first episode turned sour
     answer=I completely lost it
     answer=I'll spare you the details
     answer=I'm sure you've heard everything you need to about psychosis at this point
@@ -447,13 +450,13 @@ question "Theresa" {
     answer=And I got better
     answer=For a time
     answer=Obviously this happens...
-    answer=[overlay][size 3][flash] Again
+    answer=[overlay][fill][flash] Again
     answer=It always does
-    answer=[overlay] That's the thing they don't tell you at the start
-    answer=[overlay] It is for the rest of your life
-    answer=[overlay] It's so hard to escape
-    answer=[overlay] And you only get brief moments of respite
-    answer=[overlay] So try to find someone who's kind
+    answer=[overlay][at 0.4 0.13][size 0.9] That's the thing they don't tell you at the start
+    answer=[overlay][at 0.45 0.28][size 1.6] It is for the rest of your life
+    answer=[overlay][at 0.7 0.42][size 1.2] It's so hard to escape
+    answer=[overlay][at 0.4 0.56][size 0.8] And you only get brief moments of respite
+    answer=[overlay][at 0.5 0.72][size 1.8] So try to find someone who's kind
     answer=Anyway, I keep having episodes
     answer=And my husband continues to be the miraculous saviour he is
     answer=And I cheat
@@ -470,8 +473,8 @@ question "Theresa" {
     answer=That pretty much gives you a get out of jail free card
     answer=[P] I'm so sorry
     answer=[Theresa] Don't interrupt
-    answer=He died 3 years ago now
+    answer=[cutaway cutaways/livingroom] He died 3 years ago now
     answer=Ever since, I've just felt very lost
-    answer=So I did what I did in my youth
+    answer=[room] So I did what I did in my youth
     answer=And started cutting again
 }

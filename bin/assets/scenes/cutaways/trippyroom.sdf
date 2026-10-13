@@ -1,0 +1,246 @@
+#sdf scene file
+version=0.1
+# Mel's drug years -- a room gone wrong: leaning walls, loud colours,
+# shapes repeating off into it, rings on the back wall.
+ambient=0.35
+
+material floor {
+    id=7bcbce781bfb6a00
+    base_colour=1 0.45 0.8 1
+    base_map=floral3
+    uv_scale=0.8
+}
+
+material wall0 {
+    id=63a8ad21e918fcf8
+    base_colour=0.6 1 0.6 1
+    base_map=floral1
+    uv_scale=0.7
+}
+
+material wall1 {
+    id=a91f9ce528d7bc74
+    base_colour=0.6 0.8 1 1
+    base_map=floral5
+    uv_scale=0.7
+}
+
+material wall2 {
+    id=6d12ac4dc8e2af0b
+    base_colour=1 0.8 0.4 1
+    base_map=floral7
+    uv_scale=0.7
+}
+
+material wall3 {
+    id=9973cbb93c38e04d
+    base_colour=1 0.6 1 1
+    base_map=floral9
+    uv_scale=0.7
+}
+
+material gems {
+    id=da14b7d4b6dee68f
+    base_colour=0.2 1 0.9 1
+    emissive_colour=0.2 1 0.9
+    emissive_intensity=0.6
+    base_map=white
+}
+
+material dots {
+    id=c831830e18d7c9b6
+    base_colour=1 0.9 0.1 1
+    emissive_colour=1 0.85 0.1
+    emissive_intensity=0.6
+    base_map=white
+}
+
+material ring0 {
+    id=afd200b92842d095
+    base_colour=1 0.15 0.2 1
+    emissive_colour=1 0.15 0.2
+    emissive_intensity=1
+    base_map=white
+}
+
+material ring1 {
+    id=61fd612b4b659990
+    base_colour=1 0.6 0.1 1
+    emissive_colour=1 0.6 0.1
+    emissive_intensity=1
+    base_map=white
+}
+
+material ring2 {
+    id=4d00c72cd69bf0a6
+    base_colour=1 0.95 0.2 1
+    emissive_colour=1 0.95 0.2
+    emissive_intensity=1
+    base_map=white
+}
+
+material ring3 {
+    id=b46de427a6cadbd9
+    base_colour=0.2 0.9 0.3 1
+    emissive_colour=0.2 0.9 0.3
+    emissive_intensity=1
+    base_map=white
+}
+
+material ring4 {
+    id=261862510ba366eb
+    base_colour=0.2 0.5 1 1
+    emissive_colour=0.2 0.5 1
+    emissive_intensity=1
+    base_map=white
+}
+
+material ring5 {
+    id=3b2d3c26e472da9e
+    base_colour=0.6 0.2 1 1
+    emissive_colour=0.6 0.2 1
+    emissive_intensity=1
+    base_map=white
+}
+
+light light0 {
+    type=point
+    position=0 -2.5 0
+    colour=1 0.4 0.9
+    intensity=1.4
+}
+
+light light1 {
+    type=point
+    position=2 -1 2
+    colour=0.3 1 1
+    intensity=0.9
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.1 0.5
+        rotation=0 0 0
+        params=4.5 0.1 5 0
+        material=7bcbce781bfb6a00
+    }
+
+    primitive p1 {
+        type=box
+        position=0 -1.6 4.1
+        rotation=0.08 0 0.05
+        params=4.5 1.9 0.1 0
+        material=63a8ad21e918fcf8
+    }
+
+    primitive p2 {
+        type=box
+        position=-4.1 -1.6 0.5
+        rotation=0 0 -0.12
+        params=0.1 1.9 5 0
+        material=a91f9ce528d7bc74
+    }
+
+    primitive p3 {
+        type=box
+        position=4.1 -1.6 0.5
+        rotation=0.06 0 0.1
+        params=0.1 1.9 5 0
+        material=6d12ac4dc8e2af0b
+    }
+
+    primitive p4 {
+        type=box
+        position=0 -3.4 0.5
+        rotation=0.05 0 -0.04
+        params=4.5 0.1 5 0
+        material=9973cbb93c38e04d
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p5 {
+        type=torus
+        position=0 -1.7 3.85
+        rotation=1.571 0 0
+        params=0.3 0.06 0 0
+        material=afd200b92842d095
+    }
+
+    primitive p6 {
+        type=torus
+        position=0 -1.7 3.85
+        rotation=1.571 0 0
+        params=0.5 0.06 0 0
+        material=61fd612b4b659990
+    }
+
+    primitive p7 {
+        type=torus
+        position=0 -1.7 3.85
+        rotation=1.571 0 0
+        params=0.7 0.06 0 0
+        material=4d00c72cd69bf0a6
+    }
+
+    primitive p8 {
+        type=torus
+        position=0 -1.7 3.85
+        rotation=1.571 0 0
+        params=0.9 0.06 0 0
+        material=b46de427a6cadbd9
+    }
+
+    primitive p9 {
+        type=torus
+        position=0 -1.7 3.85
+        rotation=1.571 0 0
+        params=1.1 0.06 0 0
+        material=261862510ba366eb
+    }
+
+    primitive p10 {
+        type=torus
+        position=0 -1.7 3.85
+        rotation=1.571 0 0
+        params=1.3 0.06 0 0
+        material=3b2d3c26e472da9e
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p11 {
+        type=octahedron
+        position=0 -1.6 1.2
+        rotation=0.4 0.6 0
+        params=0.16 0 0 0
+        repetition=limited
+        repetition_cell=1.1 0.9 1.1
+        repetition_count=7 3 5
+        material=da14b7d4b6dee68f
+    }
+
+    primitive p12 {
+        type=sphere
+        position=0.55 -1.15 1.75
+        rotation=0 0 0
+        params=0.09 0 0 0
+        repetition=limited
+        repetition_cell=1.1 0.9 1.1
+        repetition_count=7 3 5
+        material=c831830e18d7c9b6
+    }
+
+}
