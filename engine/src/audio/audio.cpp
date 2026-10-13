@@ -4,6 +4,8 @@
 
 #include <alsa/asoundlib.h>
 
+#include <atomic>
+#include <algorithm>
 #include <condition_variable>
 #include <cstring>
 #include <deque>
@@ -88,8 +90,8 @@ std::optional<SoundClip> load_wav(const std::string &path) {
 }
 
 // The background player -- see audio.h. Owns the clip cache and the queue;
-// its one thread opens the ALSA device for each clip, plays it to the end
-// and closes it again, so a mismatched sample rate between two clips is
+// its one thread opens the ALSA device for each clip, plays it until it ends
+// or a newer play() cuts it off, and closes it again, so a mismatched sample rate between two clips is
 // never a problem and the device isn't held while nothing is playing.
 class AudioPlayer {
 public:
@@ -122,7 +124,11 @@ public:
                .emplace(key, std::make_shared<const SoundClip>(std::move(*clip)))
                .first;
     }
+    // The newest cue wins: drop anything still waiting and tell the clip
+    // that's playing to stop (play_blocking() watches generation_).
+    queue_.clear();
     queue_.push_back(it->second);
+    generation_.fetch_add(1, std::memory_order_relaxed);
     if (!thread_.joinable()) {
       thread_ = std::thread([this] { run(); });
     }
@@ -133,6 +139,7 @@ private:
   void run() {
     for (;;) {
       std::shared_ptr<const SoundClip> clip;
+      u64 generation = 0;
       {
         std::unique_lock lock(mutex_);
         wake_.wait(lock, [this] { return stopping_ || !queue_.empty(); });
@@ -141,12 +148,15 @@ private:
         }
         clip = queue_.front();
         queue_.pop_front();
+        generation = generation_.load(std::memory_order_relaxed);
       }
-      play_blocking(*clip);
+      play_blocking(*clip, generation);
     }
   }
 
-  void play_blocking(const SoundClip &clip) {
+  // Plays `clip` unless a play() newer than `generation` arrives first, in
+  // which case it stops mid-clip.
+  void play_blocking(const SoundClip &clip, u64 generation) {
     snd_pcm_t *pcm = nullptr;
     int result = snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, 0);
     if (result < 0) {
@@ -163,12 +173,22 @@ private:
       return;
     }
 
+    // Written in short slices rather than all at once so a newer play() is
+    // noticed within a slice (plus the device's ~100ms latency) instead of
+    // after the whole clip.
     const snd_pcm_uframes_t total = clip.samples.size() / clip.channels;
+    const snd_pcm_uframes_t slice = std::max<snd_pcm_uframes_t>(
+        clip.sample_rate / 50, 1); // 20ms
     snd_pcm_uframes_t written = 0;
+    bool interrupted = false;
     while (written < total) {
+      if (generation_.load(std::memory_order_relaxed) != generation) {
+        interrupted = true;
+        break;
+      }
       snd_pcm_sframes_t frames =
           snd_pcm_writei(pcm, clip.samples.data() + written * clip.channels,
-                         total - written);
+                         std::min(slice, total - written));
       if (frames < 0) {
         // An underrun or a suspend -- recover once and carry on; anything
         // it can't recover from ends this clip early.
@@ -179,7 +199,11 @@ private:
       }
       written += static_cast<snd_pcm_uframes_t>(frames);
     }
-    snd_pcm_drain(pcm);
+    if (interrupted) {
+      snd_pcm_drop(pcm); // discard what's buffered -- cut off now
+    } else {
+      snd_pcm_drain(pcm);
+    }
     snd_pcm_close(pcm);
   }
 
@@ -196,6 +220,7 @@ private:
   std::deque<std::shared_ptr<const SoundClip>> queue_;
   std::unordered_map<std::string, std::shared_ptr<const SoundClip>> clips_;
   std::unordered_set<std::string> failed_;
+  std::atomic<u64> generation_ = 0; // bumped by every play()
   bool stopping_ = false;
   bool device_warned_ = false; // only touched by the player thread
   std::thread thread_;

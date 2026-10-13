@@ -16,9 +16,11 @@
 // that.
 //
 // Playback happens on a background thread (through ALSA, which PipeWire
-// and PulseAudio both serve), so this call never blocks the frame. Sounds
-// queued while another is still playing wait their turn rather than mix --
-// fine for the occasional cue this exists for, wrong for anything denser.
+// and PulseAudio both serve), so this call never blocks the frame. A new
+// play cuts off whatever is still sounding and starts fresh -- the newest
+// cue wins, nothing mixes or queues. Fine for the occasional cue this
+// exists for (back-to-back title cards each get their own ding), wrong for
+// anything denser.
 // The device is opened lazily on the first play and released when the
 // engine library unloads, so there's nothing to initialize.
 //
