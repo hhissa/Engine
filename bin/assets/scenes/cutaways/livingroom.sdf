@@ -62,8 +62,9 @@ material black_keys {
 
 material lamp_stand {
     id=1519f1377d225e2a
-    base_colour=0.6 0.48 0.25 1
-    roughness=0.3
+    base_colour=0.85 0.66 0.35 1
+    roughness=0.25
+    metallic=1
     casts_shadow=0
     base_map=white
 }
@@ -82,6 +83,93 @@ material photo {
     base_colour=1 1 1 1
     base_map=family
     uv_scale=3.5
+}
+
+material glasses {
+    id=946f9829268c045b
+    base_colour=0.15 0.1 0.08 1
+    roughness=0.3
+    base_map=white
+}
+
+material slippers {
+    id=f1145fbfd495a881
+    base_colour=0.35 0.25 0.22 1
+    roughness=1
+    base_map=white
+}
+
+material side_table {
+    id=c3e5a68baa1606be
+    base_colour=0.4 0.26 0.16 1
+    base_map=dark_brown_wood_texture_background_with_design_space
+    uv_scale=0.8
+    roughness=0.4
+}
+
+material teacup {
+    id=c28012d9c1f72ba1
+    base_colour=0.96 0.95 0.92 1
+    roughness=0.15
+    base_map=white
+}
+
+material tea {
+    id=326bf774519895a8
+    base_colour=0.4 0.2 0.08 1
+    roughness=0.05
+    base_map=white
+}
+
+material clock_face {
+    id=b316a2013a145e10
+    base_colour=0.95 0.93 0.85 1
+    roughness=0.3
+    base_map=white
+}
+
+material clock_hands {
+    id=8b987400ec72ad06
+    base_colour=0.05 0.05 0.05 1
+    roughness=0.4
+    base_map=white
+}
+
+material night_window {
+    id=42b283ee5e333c64
+    base_colour=0.25 0.35 0.6 1
+    emissive_colour=0.2 0.3 0.55
+    emissive_intensity=0.5
+    casts_shadow=0
+    base_map=white
+}
+
+material curtains {
+    id=0cde5beac9812ed7
+    base_colour=0.55 0.2 0.2 1
+    base_map=floral6
+    uv_scale=0.8
+}
+
+material book0 {
+    id=9ec082354229e3c5
+    base_colour=0.5 0.15 0.1 1
+    roughness=0.7
+    base_map=white
+}
+
+material book1 {
+    id=a542a24a09cc43ee
+    base_colour=0.15 0.3 0.2 1
+    roughness=0.7
+    base_map=white
+}
+
+material book2 {
+    id=5bb67bcf03c9707e
+    base_colour=0.2 0.2 0.4 1
+    roughness=0.7
+    base_map=white
 }
 
 light light0 {
@@ -315,6 +403,218 @@ layer layer6 {
         rotation=0 -0.2 0
         params=0.15 0.13 0.015 0
         material=5f47f5bde735fe39
+    }
+
+}
+
+layer layer7 {
+    operation=union
+    smoothness=0
+
+    primitive p22 {
+        type=torus
+        position=-1.013 -0.54 1.539
+        rotation=0 0 0
+        params=0.065 0.012 0 0
+        material=946f9829268c045b
+    }
+
+    primitive p23 {
+        type=torus
+        position=-0.8653 -0.54 1.477
+        rotation=0 0 0
+        params=0.065 0.012 0 0
+        material=946f9829268c045b
+    }
+
+    primitive p24 {
+        type=capsule
+        position=-0.9389 -0.54 1.508
+        rotation=-0.4303 -0.3669 -1.408
+        params=0.01 0.015 0 0
+        material=946f9829268c045b
+    }
+
+}
+
+layer layer8 {
+    operation=union
+    smoothness=0.02
+
+    primitive p25 {
+        type=ellipsoid
+        position=-1.321 -0.04 0.9637
+        rotation=0 0.26 0
+        params=0.09 0.05 0.17 0
+        material=f1145fbfd495a881
+    }
+
+    primitive p26 {
+        type=ellipsoid
+        position=-1.063 -0.04 0.8547
+        rotation=0 0.54 0
+        params=0.09 0.05 0.17 0
+        material=f1145fbfd495a881
+    }
+
+}
+
+layer layer9 {
+    operation=union
+    smoothness=0
+
+    primitive p27 {
+        type=capped_cylinder
+        position=-1.85 -0.62 1
+        rotation=0 0 0
+        params=0.3 0.025 0 0
+        material=c3e5a68baa1606be
+    }
+
+    primitive p28 {
+        type=capsule
+        position=-1.85 -0.31 1
+        rotation=0 0 0
+        params=0.04 0.29 0 0
+        material=c3e5a68baa1606be
+    }
+
+    primitive p29 {
+        type=capped_cylinder
+        position=-1.85 -0.02 1
+        rotation=0 0 0
+        params=0.2 0.02 0 0
+        material=c3e5a68baa1606be
+    }
+
+    primitive p30 {
+        type=capped_cylinder
+        position=-1.8 -0.655 0.95
+        rotation=0 0 0
+        params=0.11 0.008 0 0
+        material=c28012d9c1f72ba1
+    }
+
+    primitive p31 {
+        type=capped_cone
+        position=-1.8 -0.71 0.95
+        rotation=0 0 0
+        params=0.05 0.05 0.07 0
+        material=c28012d9c1f72ba1
+    }
+
+    primitive p32 {
+        type=torus
+        position=-1.72 -0.72 0.95
+        rotation=1.571 0 0
+        params=0.03 0.01 0 0
+        material=c28012d9c1f72ba1
+    }
+
+    primitive p33 {
+        type=capped_cylinder
+        position=-1.8 -0.75 0.95
+        rotation=0 0 0
+        params=0.062 0.004 0 0
+        material=326bf774519895a8
+    }
+
+}
+
+layer layer10 {
+    operation=union
+    smoothness=0
+
+    primitive p34 {
+        type=capped_cylinder
+        position=-0.6 -2.2 3.48
+        rotation=1.571 0 0
+        params=0.22 0.02 0 0
+        material=b316a2013a145e10
+    }
+
+    primitive p35 {
+        type=torus
+        position=-0.6 -2.2 3.47
+        rotation=1.571 0 0
+        params=0.22 0.025 0 0
+        material=1519f1377d225e2a
+    }
+
+    primitive p36 {
+        type=capsule
+        position=-0.6 -2.28 3.45
+        rotation=3.142 0 0
+        params=0.01 0.08 0 0
+        material=8b987400ec72ad06
+    }
+
+    primitive p37 {
+        type=capsule
+        position=-0.55 -2.175 3.45
+        rotation=0 0 -1.107
+        params=0.012 0.0559 0 0
+        material=8b987400ec72ad06
+    }
+
+}
+
+layer layer11 {
+    operation=union
+    smoothness=0
+
+    primitive p38 {
+        type=box
+        position=-3.48 -1.7 0.3
+        rotation=0 0 0
+        params=0.02 0.7 0.8 0
+        material=42b283ee5e333c64
+    }
+
+    primitive p39 {
+        type=box
+        position=-3.42 -1.55 -0.65
+        rotation=0 0 0
+        params=0.05 1.1 0.28 0
+        material=0cde5beac9812ed7
+    }
+
+    primitive p40 {
+        type=box
+        position=-3.42 -1.55 1.25
+        rotation=0 0 0
+        params=0.05 1.1 0.28 0
+        material=0cde5beac9812ed7
+    }
+
+}
+
+layer layer12 {
+    operation=union
+    smoothness=0
+
+    primitive p41 {
+        type=box
+        position=2.4 -1.39 3.15
+        rotation=0 0 0
+        params=0.17 0.035 0.12 0
+        material=9ec082354229e3c5
+    }
+
+    primitive p42 {
+        type=box
+        position=2.4 -1.46 3.15
+        rotation=0 0.1 0
+        params=0.17 0.035 0.12 0
+        material=a542a24a09cc43ee
+    }
+
+    primitive p43 {
+        type=box
+        position=2.4 -1.53 3.15
+        rotation=0 0.2 0
+        params=0.17 0.035 0.12 0
+        material=5bb67bcf03c9707e
     }
 
 }

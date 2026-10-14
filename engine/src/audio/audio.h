@@ -16,7 +16,8 @@
 // that.
 //
 // Playback happens on a background thread (through ALSA, which PipeWire
-// and PulseAudio both serve), so this call never blocks the frame. A new
+// and PulseAudio both serve; on Windows, winmm's PlaySound), so this call
+// never blocks the frame. A new
 // play cuts off whatever is still sounding and starts fresh -- the newest
 // cue wins, nothing mixes or queues. Fine for the occasional cue this
 // exists for (back-to-back title cards each get their own ding), wrong for

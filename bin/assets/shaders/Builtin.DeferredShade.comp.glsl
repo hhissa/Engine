@@ -236,8 +236,11 @@ const int SHADOW_MAX_STEPS = 256;
 // (scene_diffuse_colours, scene_tex_transform) have no free component
 // left:
 //   x = 1.0 if that primitive's material is pixelation-exempt
-//       (Material::pixelation_exempt), 0.0 otherwise. Written into
-//       out_image's alpha channel below (see main()) for
+//       (Material::pixelation_exempt), 0.0 otherwise, PLUS half its
+//       metallic (MaterialDef::metallic) -- so [0, 0.5] is a non-exempt
+//       material and [1, 1.5] an exempt one (material_scalar_x(), engine
+//       side). Builtin.DeferredShade.comp.glsl decodes both: the exempt
+//       flag goes into out_image's alpha channel (see main()) for
 //       Builtin.PostComposite.comp.glsl's pixelation pass to read.
 //   y = its bump-map magnitude (Material::bump_strength) -- a multiplier
 //       on BUMP_STRENGTH_BASE, so 1.0 (the engine-side default) is the
@@ -1319,6 +1322,7 @@ void main() {
     // background (a miss) is never exempt: it's not a primitive, so it
     // pixelates along with everything else that doesn't opt out.
     float exempt_flag = 0.0;
+    float metallic = 0.0;
 
     if (travelled < MAX_DIST) {
         // The normal comes from the G-buffer, not from six more field
@@ -1365,7 +1369,11 @@ void main() {
         if (analytic_material >= 0) {
             hit_material = analytic_material;
         }
-        exempt_flag = material_scalars[hit_material].x;
+        // x packs the exempt flag and half the metallic -- see
+        // ScenePrimitiveMaterialScalars.
+        float scalar_x = material_scalars[hit_material].x;
+        exempt_flag = scalar_x > 0.75 ? 1.0 : 0.0;
+        metallic = clamp((scalar_x - exempt_flag) * 2.0, 0.0, 1.0);
 
         // World units per texture tile, from this hit's material (packed
         // in the colour's alpha slot -- see ScenePrimitiveColours above).
@@ -1471,7 +1479,10 @@ void main() {
         vec3 specular = vec3(0.0);
         vec3 view_dir = -ray_dir;
         float roughness = clamp(material_scalars[hit_material].w, 0.0, 1.0);
-        float f0 = DEFAULT_DIELECTRIC_F0;
+        // A metal reflects nearly everything at every angle (Schlick with
+        // f0 -> 1), and tints what it reflects by its own colour -- see
+        // the final combine below.
+        float f0 = mix(DEFAULT_DIELECTRIC_F0, 1.0, metallic);
 
         for (int i = 0; i < push.light_count; ++i) {
             Light light = lights[i];
@@ -1572,7 +1583,12 @@ void main() {
             specular += sample_skybox(reflect(ray_dir, normal)) * env_strength;
         }
 
-        colour = tex_colour * tint * lighting + specular;
+        // Metals have no diffuse substrate; their reflection carries their
+        // colour instead. A dielectric (metallic 0) is exactly the old
+        // albedo * lighting + white specular.
+        vec3 albedo = tex_colour * tint;
+        colour = albedo * lighting * (1.0 - metallic) +
+                 specular * mix(vec3(1.0), albedo, metallic);
 
         // Self-illumination: added straight in, independent of every light/
         // ambient/GI term above -- an emissive primitive (Material::

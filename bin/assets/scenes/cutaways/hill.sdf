@@ -1,0 +1,582 @@
+#sdf scene file
+version=0.1
+# Diego's hill -- a long grey slope climbing into fog, a figure bent
+# under a crate partway up it, no top in sight.
+ambient=0.3
+
+material slope {
+    id=7afbbbfe5b02fb9c
+    base_colour=0.36 0.36 0.34 1
+    roughness=1
+    base_map=white
+}
+
+material path {
+    id=c0fec0f4ff13006b
+    base_colour=0.27 0.25 0.22 1
+    roughness=1
+    base_map=white
+}
+
+material rocks {
+    id=b38f9a59e061b608
+    base_colour=0.3 0.3 0.3 1
+    roughness=0.9
+    base_map=white
+}
+
+material figure {
+    id=911f3e7a06ea1899
+    base_colour=0.16 0.16 0.18 1
+    roughness=0.8
+    base_map=white
+}
+
+material crate {
+    id=92bf39398663c1fe
+    base_colour=0.42 0.33 0.22 1
+    base_map=woodpanel
+    uv_scale=0.6
+    roughness=0.9
+}
+
+material hill_fog {
+    id=d2aeada0789097b7
+    base_colour=0.7 0.72 0.74 1
+    base_map=white
+}
+
+light light0 {
+    type=directional
+    direction=0.3 -0.8 0.4
+    colour=0.85 0.87 0.9
+    intensity=0.7
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.5676 0.1944
+        rotation=0.33 0 0
+        params=14 0.6 70 0
+        material=7afbbbfe5b02fb9c
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0
+
+    primitive p1 {
+        type=box
+        position=0 0.675 -2
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p2 {
+        type=box
+        position=0.04207 -0.2155 0.6
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p3 {
+        type=box
+        position=0.04546 -1.106 3.2
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p4 {
+        type=box
+        position=0.007056 -1.997 5.8
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p5 {
+        type=box
+        position=-0.03784 -2.887 8.4
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p6 {
+        type=box
+        position=-0.04795 -3.778 11
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p7 {
+        type=box
+        position=-0.01397 -4.668 13.6
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p8 {
+        type=box
+        position=0.03285 -5.559 16.2
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p9 {
+        type=box
+        position=0.04947 -6.449 18.8
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p10 {
+        type=box
+        position=0.02061 -7.34 21.4
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p11 {
+        type=box
+        position=-0.0272 -8.231 24
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p12 {
+        type=box
+        position=-0.05 -9.121 26.6
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p13 {
+        type=box
+        position=-0.02683 -10.01 29.2
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p14 {
+        type=box
+        position=0.02101 -10.9 31.8
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p15 {
+        type=box
+        position=0.04953 -11.79 34.4
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p16 {
+        type=box
+        position=0.03251 -12.68 37
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p17 {
+        type=box
+        position=-0.0144 -13.57 39.6
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+    primitive p18 {
+        type=box
+        position=-0.04807 -14.46 42.2
+        rotation=0.33 0 0
+        params=0.55 0.02 1.25 0
+        material=c0fec0f4ff13006b
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0.05
+
+    primitive p19 {
+        type=ellipsoid
+        position=-4.373 -9.917 28.83
+        rotation=0 2.114 0
+        params=0.2896 0.1448 0.2068 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p20 {
+        type=ellipsoid
+        position=-6.637 -2.405 6.671
+        rotation=0 0.6282 0
+        params=0.8395 0.4197 0.5996 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p21 {
+        type=ellipsoid
+        position=2.27 -4.603 13.23
+        rotation=0 1.485 0
+        params=0.4955 0.2477 0.3539 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p22 {
+        type=ellipsoid
+        position=-4.924 -8.514 24.75
+        rotation=0 0.7025 0
+        params=0.2664 0.1332 0.1903 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p23 {
+        type=ellipsoid
+        position=-7.68 -2.557 7.27
+        rotation=0 2.706 0
+        params=0.4668 0.2334 0.3334 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p24 {
+        type=ellipsoid
+        position=-1.935 -0.9184 2.526
+        rotation=0 2.975 0
+        params=0.3728 0.1864 0.2663 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p25 {
+        type=ellipsoid
+        position=-6.991 -6.307 18.23
+        rotation=0 1.983 0
+        params=0.4476 0.2238 0.3197 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p26 {
+        type=ellipsoid
+        position=-2.585 -7.073 20.43
+        rotation=0 1.949 0
+        params=0.5235 0.2617 0.3739 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p27 {
+        type=ellipsoid
+        position=6.422 -5.875 17.03
+        rotation=0 0.1931 0
+        params=0.2995 0.1498 0.214 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p28 {
+        type=ellipsoid
+        position=7.137 -4.894 14.15
+        rotation=0 2.838 0
+        params=0.3321 0.1661 0.2372 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p29 {
+        type=ellipsoid
+        position=1.263 -7.507 21.6
+        rotation=0 0.857 0
+        params=0.765 0.3825 0.5464 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p30 {
+        type=ellipsoid
+        position=-2.293 -9.023 26.22
+        rotation=0 2.293 0
+        params=0.295 0.1475 0.2107 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p31 {
+        type=ellipsoid
+        position=-6.438 -7.079 20.4
+        rotation=0 2.85 0
+        params=0.6524 0.3262 0.466 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p32 {
+        type=ellipsoid
+        position=5.496 -5.053 14.61
+        rotation=0 0.4505 0
+        params=0.3345 0.1673 0.2389 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p33 {
+        type=ellipsoid
+        position=-6.857 -9.324 27
+        rotation=0 2.104 0
+        params=0.5297 0.2648 0.3783 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p34 {
+        type=ellipsoid
+        position=-4.481 -2.278 6.56
+        rotation=0 1.03 0
+        params=0.2175 0.1088 0.1554 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p35 {
+        type=ellipsoid
+        position=-3.731 -4.217 12.13
+        rotation=0 2.503 0
+        params=0.4475 0.2237 0.3196 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p36 {
+        type=ellipsoid
+        position=6.263 -1.584 4.433
+        rotation=0 0.4985 0
+        params=0.4596 0.2298 0.3283 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p37 {
+        type=ellipsoid
+        position=2.611 -10.06 29.22
+        rotation=0 2.299 0
+        params=0.3371 0.1686 0.2408 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p38 {
+        type=ellipsoid
+        position=-3.199 0.1034 -0.5903
+        rotation=0 1.025 0
+        params=0.6915 0.3458 0.4939 0
+        material=b38f9a59e061b608
+    }
+
+    primitive p39 {
+        type=ellipsoid
+        position=-5.277 -4.334 12.5
+        rotation=0 1.23 0
+        params=0.356 0.178 0.2543 0
+        material=b38f9a59e061b608
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0.021
+
+    primitive p40 {
+        type=ellipsoid
+        position=0 -2.316 3.696
+        rotation=0 3.142 0
+        params=0.091 0.1085 0.1015 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p41 {
+        type=ellipsoid
+        position=0 -2.3 3.627
+        rotation=0 3.142 0
+        params=0.07 0.0525 0.077 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p42 {
+        type=round_cone
+        position=0 -2.28 3.523
+        rotation=1.819 0 0
+        params=0.0455 0.0385 0.05993 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p43 {
+        type=capsule
+        position=0 -2.248 3.411
+        rotation=0 0 1.571
+        params=0.0595 0.175 0 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p44 {
+        type=ellipsoid
+        position=0 -2.192 3.279
+        rotation=0 3.142 0
+        params=0.1837 0.1488 0.1085 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p45 {
+        type=ellipsoid
+        position=0 -2.077 3.124
+        rotation=0 3.142 0
+        params=0.1365 0.1225 0.091 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p46 {
+        type=ellipsoid
+        position=0 -1.946 3.036
+        rotation=0 3.142 0
+        params=0.1645 0.105 0.105 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p47 {
+        type=round_cone
+        position=0.224 -2.147 3.242
+        rotation=-1.002 -0.05437 -0.09923
+        params=0.0595 0.04375 0.1769 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p48 {
+        type=round_cone
+        position=0.2503 -1.929 3.065
+        rotation=-0.2224 -0.00769 -0.06883
+        params=0.04375 0.0315 0.1272 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p49 {
+        type=ellipsoid
+        position=0.2644 -1.729 3.02
+        rotation=-0.2224 -0.00769 -0.06883
+        params=0.028 0.07875 0.0525 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p50 {
+        type=round_cone
+        position=0.09625 -1.697 3.014
+        rotation=-0.01905 -0.0002541 -0.02667
+        params=0.098 0.063 0.1969 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p51 {
+        type=round_cone
+        position=0.1033 -1.303 3.005
+        rotation=-0.02666 -0.0001184 -0.008885
+        params=0.063 0.0385 0.197 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p52 {
+        type=ellipsoid
+        position=0.1085 -1.066 3.061
+        rotation=0 3.142 0
+        params=0.049 0.0385 0.119 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p53 {
+        type=round_cone
+        position=-0.224 -2.147 3.242
+        rotation=-1.002 0.05437 0.09923
+        params=0.0595 0.04375 0.1769 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p54 {
+        type=round_cone
+        position=-0.2503 -1.929 3.065
+        rotation=-0.2224 0.00769 0.06883
+        params=0.04375 0.0315 0.1272 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p55 {
+        type=ellipsoid
+        position=-0.2644 -1.729 3.02
+        rotation=-0.2224 0.00769 0.06883
+        params=0.028 0.07875 0.0525 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p56 {
+        type=round_cone
+        position=-0.09625 -1.697 3.014
+        rotation=-0.01905 0.0002541 0.02667
+        params=0.098 0.063 0.1969 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p57 {
+        type=round_cone
+        position=-0.1033 -1.303 3.005
+        rotation=-0.02666 0.0001184 0.008885
+        params=0.063 0.0385 0.197 0
+        material=911f3e7a06ea1899
+    }
+
+    primitive p58 {
+        type=ellipsoid
+        position=-0.1085 -1.066 3.061
+        rotation=0 3.142 0
+        params=0.049 0.0385 0.119 0
+        material=911f3e7a06ea1899
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0
+
+    primitive p59 {
+        type=box
+        position=0 -2.408 2.88
+        rotation=0.55 0 0
+        params=0.32 0.22 0.3 0
+        material=92bf39398663c1fe
+    }
+
+}
+
+volumetric volumetric0 {
+    type=box
+    position=0 -9.536 22
+    rotation=0.33 0 0
+    params=16 4 14 0
+    density=0.05
+    material=d2aeada0789097b7
+}
+
+volumetric volumetric1 {
+    type=box
+    position=0 -18.07 44
+    rotation=0.33 0 0
+    params=18 6 12 0
+    density=0.12
+    material=d2aeada0789097b7
+}

@@ -68,6 +68,8 @@ ScriptLine parse_script_line(std::string_view raw) {
       line.center = true;
     } else if (word == "quiet" && argument.empty()) {
       line.quiet = true;
+    } else if (word == "invert" && argument.empty()) {
+      line.invert = true;
     } else if (word == "at") {
       const std::string numbers(argument);
       char *end_x = nullptr;

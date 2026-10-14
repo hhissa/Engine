@@ -10,6 +10,7 @@
 #include "game.h"
 #include <core/input.h>
 #include <core/logger.h>
+#include <platform/platform.h>
 #include <renderer/camera.h>
 #include <renderer/renderer_frontend.h>
 
@@ -35,16 +36,11 @@ SHGame::SHGame() {
   // host (see VulkanRaymarchShader's KENGINE_CHUNK_CACHE_DIR handling), and
   // reads it before the renderer starts, which is after this constructor.
   // An explicit KENGINE_CHUNK_CACHE_DIR still wins.
-  if (!std::getenv("KENGINE_CHUNK_CACHE_DIR")) {
-    std::string cache_dir;
-    if (const char *xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg) {
-      cache_dir = std::string(xdg) + "/kengine/sh_chunks";
-    } else if (const char *home = std::getenv("HOME")) {
-      cache_dir = std::string(home) + "/.cache/kengine/sh_chunks";
-    }
-    if (!cache_dir.empty()) {
-      setenv("KENGINE_CHUNK_CACHE_DIR", cache_dir.c_str(), /*overwrite=*/0);
-    }
+  if (const std::string cache_root = Platform::user_cache_directory();
+      !cache_root.empty()) {
+    Platform::set_environment_variable("KENGINE_CHUNK_CACHE_DIR",
+                                       cache_root + "/kengine/sh_chunks",
+                                       /*overwrite=*/FALSE);
   }
 }
 

@@ -82,16 +82,21 @@ STATIC_ASSERT(sizeof(f64) == 8, "Expected f64 to be 8 bytes.");
 #error "Unknown platform!"
 #endif
 
+// On Windows only KAPI-marked symbols cross the engine.dll boundary --
+// unlike a Linux .so, a DLL exports nothing by default. A function the game
+// calls that lacks KAPI links fine on Linux and fails as an unresolved
+// external on Windows. Keyed on the platform rather than _MSC_VER so it also
+// holds for clang/MinGW, which don't define _MSC_VER.
 #ifdef KEXPORT
 // Exports
-#ifdef _MSC_VER
+#if KPLATFORM_WINDOWS
 #define KAPI __declspec(dllexport)
 #else
 #define KAPI __attribute__((visibility("default")))
 #endif
 #else
 // Imports
-#ifdef _MSC_VER
+#if KPLATFORM_WINDOWS
 #define KAPI __declspec(dllimport)
 #else
 #define KAPI

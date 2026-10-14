@@ -1,0 +1,239 @@
+#sdf scene file
+version=0.1
+# Diego's forearm, on his bed -- sleeve rolled to the elbow.
+ambient=0.15
+
+material skin {
+    id=12ed2732ebc1be39
+    base_colour=0.8 0.6 0.45 1
+    base_map=18_severe_mixed_chaos_diffuse
+    bump_map=18_severe_mixed_chaos_bump
+    bump_strength=2
+    uv_scale=1.2
+    roughness=0.6
+}
+
+material sleeve {
+    id=c14733e599157079
+    base_colour=0.72 0.8 0.92 1
+    roughness=1
+    base_map=white
+}
+
+material sheet {
+    id=471976a2e1f42b75
+    base_colour=1 1 1 1
+    base_map=blueandwhitesheets
+    uv_scale=2.5
+}
+
+material watch {
+    id=47045e60d6ed85b4
+    base_colour=0.8 0.8 0.82 1
+    roughness=0.18
+    metallic=1
+    base_map=white
+}
+
+material plasters {
+    id=b7b6d32386aab88f
+    base_colour=0.86 0.68 0.52 1
+    roughness=0.8
+    base_map=white
+}
+
+light light0 {
+    type=directional
+    direction=0.3 -1 -0.5
+    colour=1 0.97 0.92
+    intensity=0.5
+}
+
+light light1 {
+    type=point
+    position=0.5 -1.4 -1.2
+    colour=0.95 0.95 1
+    intensity=0.6
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.05 0
+        rotation=0 0 0
+        params=6 0.05 6 0
+        material=471976a2e1f42b75
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0.08
+
+    primitive p1 {
+        type=capsule
+        position=-0.175 -0.175 0
+        rotation=0 0 -1.536
+        params=0.19 0.7254 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p2 {
+        type=ellipsoid
+        position=-0.55 -0.22 0
+        rotation=0 0 0
+        params=0.4 0.22 0.24 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p3 {
+        type=round_box
+        position=0.83 -0.15 0
+        rotation=0 0 0
+        params=0.21 0.0672 0.1764 0.0504
+        material=12ed2732ebc1be39
+    }
+
+    primitive p4 {
+        type=capsule
+        position=1.108 -0.159 -0.1323
+        rotation=-0.06941 -0.08377 -1.758
+        params=0.0441 0.09115 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p5 {
+        type=capsule
+        position=1.236 -0.2029 -0.1417
+        rotation=-0.06745 -0.1261 -2.16
+        params=0.0399 0.04711 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p6 {
+        type=capsule
+        position=1.119 -0.159 -0.0441
+        rotation=-0.02074 -0.02467 -1.743
+        params=0.0441 0.1013 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p7 {
+        type=capsule
+        position=1.265 -0.2029 -0.04725
+        rotation=-0.01973 -0.03401 -2.09
+        params=0.0399 0.05325 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p8 {
+        type=capsule
+        position=1.113 -0.159 0.0441
+        rotation=0.02186 0.02624 -1.753
+        params=0.0441 0.09612 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p9 {
+        type=capsule
+        position=1.251 -0.2029 0.04725
+        rotation=0.02098 0.03772 -2.127
+        params=0.0399 0.0501 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p10 {
+        type=capsule
+        position=1.095 -0.159 0.1323
+        rotation=0.08145 0.1015 -1.789
+        params=0.0441 0.07784 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p11 {
+        type=capsule
+        position=1.199 -0.2029 0.1417
+        rotation=0.08091 0.1783 -2.291
+        params=0.0399 0.0396 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p12 {
+        type=capsule
+        position=0.7985 -0.1857 -0.2184
+        rotation=-0.6018 -0.5288 -1.435
+        params=0.0546 0.08592 0 0
+        material=12ed2732ebc1be39
+    }
+
+    primitive p13 {
+        type=capsule
+        position=0.9392 -0.2403 -0.2604
+        rotation=0 0 -2.107
+        params=0.0462 0.07815 0 0
+        material=12ed2732ebc1be39
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0.03
+
+    primitive p14 {
+        type=torus
+        position=-1.05 -0.22 0
+        rotation=0 0 1.571
+        params=0.26 0.09 0 0
+        material=c14733e599157079
+    }
+
+    primitive p15 {
+        type=capsule
+        position=-1.75 -0.235 0
+        rotation=0 0 1.594
+        params=0.27 0.6502 0 0
+        material=c14733e599157079
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0
+
+    primitive p16 {
+        type=torus
+        position=0.42 -0.16 0
+        rotation=0 0 1.571
+        params=0.19 0.035 0 0
+        material=47045e60d6ed85b4
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0
+
+    primitive p17 {
+        type=round_box
+        position=-0.15 -0.38 0.03
+        rotation=0 0.3 0
+        params=0.11 0.012 0.04 0.008
+        material=b7b6d32386aab88f
+    }
+
+    primitive p18 {
+        type=round_box
+        position=0.2 -0.38 -0.05
+        rotation=0 -0.4 0
+        params=0.11 0.012 0.04 0.008
+        material=b7b6d32386aab88f
+    }
+
+}

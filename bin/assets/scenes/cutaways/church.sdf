@@ -35,8 +35,9 @@ material altar_cloth {
 
 material cross {
     id=8640686a31364eb8
-    base_colour=0.8 0.62 0.28 1
-    roughness=0.3
+    base_colour=0.95 0.75 0.38 1
+    roughness=0.25
+    metallic=1
     base_map=white
 }
 
@@ -50,6 +51,73 @@ material candles {
 material light_shaft {
     id=72354994906e5d29
     base_colour=1 0.95 0.82 1
+    base_map=white
+}
+
+material runner {
+    id=623fba1fcf1881c6
+    base_colour=0.5 0.06 0.06 1
+    roughness=1
+    base_map=white
+}
+
+material hymn_books {
+    id=d7b6ceb459d461e2
+    base_colour=0.2 0.08 0.06 1
+    roughness=0.7
+    base_map=white
+}
+
+material lamps {
+    id=0ea85b6f29a00612
+    base_colour=1 0.8 0.5 1
+    emissive_colour=1 0.75 0.45
+    emissive_intensity=1
+    casts_shadow=0
+    base_map=white
+}
+
+material chains {
+    id=ff767d4d96904441
+    base_colour=0.3 0.28 0.25 1
+    roughness=0.4
+    metallic=1
+    base_map=white
+}
+
+material glass0 {
+    id=7063d3974b8e98d3
+    base_colour=0.8 0.15 0.15 1
+    emissive_colour=0.8 0.15 0.15
+    emissive_intensity=0.6
+    casts_shadow=0
+    base_map=white
+}
+
+material glass1 {
+    id=ac5471f0e7637284
+    base_colour=0.2 0.35 0.85 1
+    emissive_colour=0.2 0.35 0.85
+    emissive_intensity=0.6
+    casts_shadow=0
+    base_map=white
+}
+
+material glass2 {
+    id=c44e01861cdd0718
+    base_colour=0.9 0.75 0.2 1
+    emissive_colour=0.9 0.75 0.2
+    emissive_intensity=0.6
+    casts_shadow=0
+    base_map=white
+}
+
+material glass3 {
+    id=80a666a61513711c
+    base_colour=0.2 0.6 0.3 1
+    emissive_colour=0.2 0.6 0.3
+    emissive_intensity=0.6
+    casts_shadow=0
     base_map=white
 }
 
@@ -302,6 +370,212 @@ layer layer3 {
         rotation=0 0 0
         params=0.07 0.25 0 0
         material=2e67463bcc905d90
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0
+
+    primitive p24 {
+        type=box
+        position=0 -0.006 8.5
+        rotation=0 0 0
+        params=0.65 0.006 7.5 0
+        material=623fba1fcf1881c6
+    }
+
+    primitive p25 {
+        type=box
+        position=-2.1 -0.92 4.82
+        rotation=0 0 0
+        params=0.06 0.09 0.035 0
+        repetition=limited
+        repetition_cell=0.45 0 1.4
+        repetition_count=5 1 7
+        material=d7b6ceb459d461e2
+    }
+
+    primitive p26 {
+        type=box
+        position=2.1 -0.92 4.82
+        rotation=0 0 0
+        params=0.06 0.09 0.035 0
+        repetition=limited
+        repetition_cell=0.45 0 1.4
+        repetition_count=5 1 7
+        material=d7b6ceb459d461e2
+    }
+
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0.02
+
+    primitive p27 {
+        type=box
+        position=2.3 -0.6 13.6
+        rotation=0 0 0
+        params=0.25 0.6 0.2 0
+        material=07d2ae20976e2394
+    }
+
+    primitive p28 {
+        type=box
+        position=2.3 -1.25 13.5
+        rotation=-0.4 0 0
+        params=0.35 0.03 0.25 0
+        material=07d2ae20976e2394
+    }
+
+    primitive p29 {
+        type=box
+        position=2.3 -1.29 13.48
+        rotation=-0.4 0 0
+        params=0.22 0.012 0.15 0
+        material=a600fdb866dea86b
+    }
+
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0
+
+    primitive p30 {
+        type=capsule
+        position=-2.1 -7.1 5
+        rotation=0 0 0
+        params=0.02 2.8 0 0
+        material=ff767d4d96904441
+    }
+
+    primitive p31 {
+        type=capped_cone
+        position=-2.1 -4.1 5
+        rotation=0 0 0
+        params=0.18 0.08 0.22 0
+        material=ff767d4d96904441
+    }
+
+    primitive p32 {
+        type=sphere
+        position=-2.1 -3.95 5
+        rotation=0 0 0
+        params=0.09 0 0 0
+        material=0ea85b6f29a00612
+    }
+
+    primitive p33 {
+        type=capsule
+        position=-2.1 -7.1 11
+        rotation=0 0 0
+        params=0.02 2.8 0 0
+        material=ff767d4d96904441
+    }
+
+    primitive p34 {
+        type=capped_cone
+        position=-2.1 -4.1 11
+        rotation=0 0 0
+        params=0.18 0.08 0.22 0
+        material=ff767d4d96904441
+    }
+
+    primitive p35 {
+        type=sphere
+        position=-2.1 -3.95 11
+        rotation=0 0 0
+        params=0.09 0 0 0
+        material=0ea85b6f29a00612
+    }
+
+    primitive p36 {
+        type=capsule
+        position=2.1 -7.1 5
+        rotation=0 0 0
+        params=0.02 2.8 0 0
+        material=ff767d4d96904441
+    }
+
+    primitive p37 {
+        type=capped_cone
+        position=2.1 -4.1 5
+        rotation=0 0 0
+        params=0.18 0.08 0.22 0
+        material=ff767d4d96904441
+    }
+
+    primitive p38 {
+        type=sphere
+        position=2.1 -3.95 5
+        rotation=0 0 0
+        params=0.09 0 0 0
+        material=0ea85b6f29a00612
+    }
+
+    primitive p39 {
+        type=capsule
+        position=2.1 -7.1 11
+        rotation=0 0 0
+        params=0.02 2.8 0 0
+        material=ff767d4d96904441
+    }
+
+    primitive p40 {
+        type=capped_cone
+        position=2.1 -4.1 11
+        rotation=0 0 0
+        params=0.18 0.08 0.22 0
+        material=ff767d4d96904441
+    }
+
+    primitive p41 {
+        type=sphere
+        position=2.1 -3.95 11
+        rotation=0 0 0
+        params=0.09 0 0 0
+        material=0ea85b6f29a00612
+    }
+
+}
+
+layer layer7 {
+    operation=union
+    smoothness=0
+
+    primitive p42 {
+        type=box
+        position=-5.25 -7.7 9.7
+        rotation=0 0 0
+        params=0.02 0.65 0.27 0
+        material=7063d3974b8e98d3
+    }
+
+    primitive p43 {
+        type=box
+        position=-5.25 -7.7 10.3
+        rotation=0 0 0
+        params=0.02 0.65 0.27 0
+        material=ac5471f0e7637284
+    }
+
+    primitive p44 {
+        type=box
+        position=-5.25 -6.3 9.7
+        rotation=0 0 0
+        params=0.02 0.65 0.27 0
+        material=c44e01861cdd0718
+    }
+
+    primitive p45 {
+        type=box
+        position=-5.25 -6.3 10.3
+        rotation=0 0 0
+        params=0.02 0.65 0.27 0
+        material=80a666a61513711c
     }
 
 }

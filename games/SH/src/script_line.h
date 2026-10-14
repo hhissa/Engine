@@ -58,6 +58,9 @@
 //                   as fractions of its width and height (0 0 top-left,
 //                   1 1 bottom-right) -- kept fully on screen.
 //   [quiet]         a [title] card that lands without its ding.
+//   [invert]        a [title] card drawn black on white instead of white
+//                   on black -- the script's "bolded italic text is white
+//                   background black text".
 //   [room]          cut back from a cutaway/photo to the speaker's own room
 //                   -- for when the speaker carries on past the moment the
 //                   cutaway illustrated. See SHGame::on_script_line().
@@ -79,6 +82,7 @@ struct ScriptLine {
   bool fill = false;
   bool center = false;
   bool quiet = false;
+  bool invert = false;
   bool has_at = false;
   f32 at_x = 0.5f; // see [at] -- only meaningful when has_at
   f32 at_y = 0.5f;

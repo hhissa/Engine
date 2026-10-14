@@ -1,0 +1,1045 @@
+#conversation file
+version=0.1
+
+# Chapter 4: Why we're really here -- from "Beatsheets and scripts/
+# Completed beatsheet and script.docx", the part after Chapter 3's "How does
+# it feel to self harm?".
+#
+# Built the same way as ch3_the_cutting.conversation (see
+# ch1_introductions.conversation's header for the directives). This chapter
+# adds:
+#   bold italic line                [title][invert] -- the script's "white
+#                                   background black text"
+#   "One positive point for <x>"    sets=<x>_point_1 / <x>_point_2 on that
+#                                   option
+#   "If all positive choices have   the persuading option's follow-ups: an
+#   been made"                      `auto` branch requiring both points
+#                                   (sets <x>_saved), then an unconditional
+#                                   one after it -- QASystem asks the first
+#                                   VISIBLE follow-up, so the second only
+#                                   plays when the first is hidden
+#
+# Each person goes Why / Attempted / Anything to say, then on to the next.
+# Their bad ending is its own top-level beat (<x>_lost), gated on a flag set
+# by the two paths that lead to it rather than placed inside both -- and so
+# Continue (QASystem::resume_at_first_unasked()) can't land on it for
+# someone who was saved, or who hadn't reached the choice yet.
+#
+# Not in the script, written to fill gaps:
+#   - the "<x> isn't convinced" branches: what each person says when the
+#     player picks the persuading last option without both points. The
+#     script only gives that option's all-points outcome.
+#   - the closing quotes. The script's "Quotes:" section has Mel's and
+#     names everyone else with no quote; theirs are lines from their own
+#     dialogue in chapters 2-4.
+#
+# The number of <x>_saved flags set by the end becomes the game's title --
+# see SHGame::finish_chapter() and kTitles (game_menus.cpp).
+#
+# Cutaways (none are red-tagged in this chapter; all suggested):
+#   Mel      tall grass       cutaways/tallgrass  (meadow, dusk)
+#            "began again in the morning"  cutaways/bluehour
+#   Diego    the hill with no top          cutaways/hill
+#            "I was so scared in there"    cutaways/hospitalbed
+#            "it'll be sunny"              cutaways/beach
+#   Theo     "I've already been god"       cutaways/deity
+#            "Buy the cabin"               cutaways/cabin
+#   Pat      "if anyone was ever talking"  cutaways/church
+#            the moon, the well            cutaways/moon
+#            "somebody needs to paint"     cutaways/easel
+#   Alex     the phone that doesn't ring   cutaways/phone
+#            "standing at one right now"   cutaways/road
+#   Theresa  the two cups                  cutaways/twocups
+#            "Save me a dance"             cutaways/flamenco
+#            "clear blue days"             cutaways/clearday  (meadow, noon)
+
+question "Why we're really here" {
+    id=intro
+    auto
+    loop_to=mel_why
+    answer=[P][title][invert] I want to say sorry first for misleading you
+    answer=[title][invert] The purpose of this series was to get a closer look at mental illness and self-harm
+    answer=[title][invert] But in truth, the people I have gathered aren't linked by a common mental illness
+    answer=[title][invert] Or grouped by self-harm
+    answer=[title][invert] The truth is, all these people have decided to kill themselves
+    answer=[title][invert] I'll ask my trite questions, and nothing will change
+    answer=[title] I have still yet to see something like this go well
+}
+
+# --- Mel -----------------------------------------------------------------
+
+question "Mel: why do you want to die?" {
+    id=mel_why
+    auto
+    answer=[title] Why do you want to die?
+    answer=[Mel] Haha
+    answer=That question sounds so strange
+    answer=Nobody ever asks that question in real life
+    answer=I guess I'm ashamed
+    answer=The way I live is just so wrong
+    answer=I need something to change
+    answer=And I've tried everything else
+    answer=My brain is just too atrophied to do what normal people do
+    answer=Go out
+    answer=Converse
+    answer=Focus
+    answer=It's just not there anymore
+    answer=But it's okay
+    answer=I will be reborn someday
+    answer=I will be made a new creature
+    answer=Something without this disease
+
+    question "I was once in a place like that" {
+        sets=mel_point_1
+        loop_to=mel_attempt
+        answer=[P] I want you to know that it doesn't have to be like that
+        answer=[title][invert] What kept me alive for so long
+        answer=[title][invert] Was killing me
+        answer=[title][invert] You have to let go
+        answer=[Mel] I don't know how to
+        answer=[P][title][invert] You only have to be brave enough
+        answer=[title][invert] No amount of fear will save you
+        answer=[Mel] It's not that easy
+    }
+
+    question "I understand" {
+        loop_to=mel_attempt
+        answer=[P][title] You're right
+        answer=[title] You can't recover from this
+        answer=[title] Think about all the time you've already wasted
+        answer=[title][invert] Don't think about all the time you have left
+    }
+}
+
+question "Mel: have you ever attempted suicide?" {
+    id=mel_attempt
+    auto
+    answer=[title] Have you ever attempted suicide?
+    answer=[Mel] I've thought about it
+    answer=I've thought about it a lot
+    answer=Cutting myself open was different
+    answer=I didn't want to die
+    answer=I just wanted the thing out
+
+    question "You must be scared" {
+        loop_to=mel_say
+        answer=[Mel] No, not really
+        answer=You can't really be scared
+        answer=[cutaway cutaways/tallgrass][overlay][stack][at 0.3 0.14][size 1.3] In the
+        answer=[overlay][stack][size 1.5] end
+        answer=[overlay][stack][size 1.8] the tall grass
+        answer=[overlay][stack][size 2.1] claims
+        answer=[overlay][stack][size 2.4] us
+        answer=[overlay][stack][size 2.8] all
+        answer=[P] I suppose you already have the logistics side of it down
+    }
+
+    question "There's a way out of this, you know" {
+        sets=mel_point_2
+        loop_to=mel_say
+        answer=[Mel][title] Stop that
+        answer=You promised you wouldn't try to stop us
+        answer=It's why half of us signed up anyway
+        answer=Just keep the questions coming
+    }
+}
+
+question "Mel: is there anything you want to say?" {
+    id=mel_say
+    auto
+    answer=[title] Is there anything you want to say?
+    answer=[Mel] That I'm sorry
+    answer=I wish I was better, okay?
+    answer=I wish I was someone that society could embrace
+    answer=That could embrace society
+    answer=But in the end, I just can't
+    answer=I want it known that this schizo shit is one of the worst ways biology can go wrong
+    answer=There's no silver lining
+    answer=It's one of the worst things that can happen to someone
+
+    question "Listen to me" {
+        answer=[P][title][invert] Self-hatred is actively antithetical to actually getting your shit together
+        answer=[title][invert] I have yet to find a situation that requires it
+        answer=[title][invert] If what you were doing worked, it would have worked already
+        answer=[title][invert] We have to try something different
+        answer=[Mel] I know
+        answer=I really know
+        answer=I just don't know if I can do it
+        answer=[P] I understand that it's going to be difficult
+        answer=But you have to press on
+
+        question "Mel takes your words to heart" {
+            auto
+            requires=mel_point_1
+            requires=mel_point_2
+            sets=mel_saved
+            loop_to=diego_why
+            answer=[Mel] Do you really think I can do it?
+            answer=[P][cutaway cutaways/bluehour][overlay][at 0.5 0.16][size 1.6] I know you can
+            answer=[overlay][at 0.3 0.34] The world has ended for me many times
+            answer=[overlay][at 0.66 0.48] And still began again in the morning
+            answer=[overlay][at 0.36 0.66] If you stay here any longer
+            answer=[overlay][at 0.62 0.82][size 1.4] You might miss your whole life
+            answer=[title][invert] Mel takes your words to heart
+            answer=[title][invert] Slowly, she gets the help she needs
+            answer=[title][invert] She is now in outpatient care and trying new medication
+            answer=[title][invert] She left the house earlier this week
+            answer=[title][invert] The first time in months
+        }
+
+        question "Mel isn't convinced" {
+            auto
+            sets=mel_lost
+            loop_to=mel_lost
+            answer=[Mel] Press on
+            answer=That's all I've been doing
+            answer=Three years of pressing on, in this room
+            answer=It's a nice thing to say
+            answer=I just don't believe it anymore
+        }
+    }
+
+    question "I hate to say it, but I understand" {
+        sets=mel_lost
+        loop_to=mel_lost
+        answer=[Mel] A lot has happened, you know
+        answer=I'm not just giving up
+        answer=I really tried my hardest
+        answer=I just wanted to live a good life
+        answer=But now I know I can't
+        answer=There's nothing I can do
+    }
+}
+
+question "Mel's ending" {
+    id=mel_lost
+    auto
+    requires=mel_lost
+    loop_to=diego_why
+    answer=[title] Mel resigns herself to her misery
+    answer=[title] She spends the next 3 months in her apartment
+    answer=[title] Working up the courage
+    answer=[title] She stabs herself in the stomach and bleeds out
+}
+
+# --- Diego ---------------------------------------------------------------
+
+question "Diego: why do you want to die?" {
+    id=diego_why
+    auto
+    answer=[title] Why do you want to die?
+    answer=[Diego] Ha
+    answer=Straight to it, then
+    answer=Honestly?
+    answer=I'm tired
+    answer=Not like sleepy tired
+    answer=I mean, I am that too, 6 hours at best, remember
+    answer=[cutaway cutaways/hill] I mean tired like I've been carrying something heavy up a hill since I was 8
+    answer=And I just found out the hill doesn't have a top
+    answer=[room] I'm an auditor at heart, you know
+    answer=So I ran the numbers
+    answer=Every pill
+    answer=ECT
+    answer=The hospital
+    answer=The promotion
+    answer=Nothing moves the needle
+    answer=The plan was always 45
+    answer=Just make it to 45 and go home
+    answer=But I'm 32
+    answer=That's 13 more years of this
+    answer=[overlay][stack][at 0.5 0.2][size 1.4] The numbers
+    answer=[overlay][stack][size 1.8] just
+    answer=[overlay][stack][size 2.2] don't
+    answer=[overlay][stack][size 2.6] add up
+
+    question "Thirteen years is a long time" {
+        loop_to=diego_attempt
+        answer=[Diego] Yeah
+        answer=It is
+        answer=[P] I can see why you'd want to close the books
+        answer=[Diego] See, you get it
+    }
+
+    question "Treatment-resistant isn't the same as treatment-proof" {
+        sets=diego_point_1
+        loop_to=diego_attempt
+        answer=[P] You've changed the medication a dozen times
+        answer=But you've never changed the life
+        answer=[Diego] What's that supposed to mean?
+        answer=[P] You've been at the same desk for 6 years
+        answer=And you've told me twice now that it's killing you
+        answer=[Diego] ...
+        answer=Okay, that's
+        answer=That's fair
+    }
+}
+
+question "Diego: have you ever attempted suicide?" {
+    id=diego_attempt
+    auto
+    answer=[title] Have you ever attempted suicide?
+    answer=[Diego] No
+    answer=Not really
+    answer=I'm a planner
+    answer=I don't do things halfway
+    answer=The hospital thing
+    answer=When I was catatonic
+    answer=Some of the doctors wrote it up like it was one
+    answer=Like my body made the decision for me
+    answer=Just sort of
+    answer=switched off
+    answer=But I didn't choose that
+    answer=I call it a really long weekend
+
+    question "You make a joke every time it gets close" {
+        sets=diego_point_2
+        loop_to=diego_say
+        answer=[Diego] What's the alternative?
+        answer=[P] Saying it plainly
+        answer=[Diego] ...
+        answer=Fine
+        answer=[cutaway cutaways/hospitalbed][overlay][at 0.3 0.2][size 1.6] I was
+        answer=[overlay][at 0.62 0.36][size 1.2] so
+        answer=[overlay][at 0.42 0.56][size 2.6] scared
+        answer=[overlay][at 0.7 0.74][size 1.3] in there
+        answer=[room] I couldn't move, but I could hear everything
+        answer=My mom flew in
+        answer=She sat next to me for nine days
+        answer=I haven't called her since
+    }
+
+    question "Well, you're nothing if not thorough" {
+        loop_to=diego_say
+        answer=[Diego] Ha
+        answer=Thank you
+        answer=Someone finally appreciates my work
+    }
+}
+
+question "Diego: is there anything you want to say?" {
+    id=diego_say
+    auto
+    answer=[title] Is there anything you want to say?
+    answer=[Diego] To work
+    answer=The Q3 reconciliations are in the shared drive
+    answer=Labelled and everything
+    answer=Don't say I never did anything for you
+    answer=To my mom
+    answer=I'm sorry I never came home
+    answer=I was going to
+    answer=I really was
+    answer=At 45
+    answer=And to whoever's watching this
+    answer=[overlay][center][size 1.4] You'd be surprised what you can hide with long sleeves and a smile
+    answer=Seriously
+    answer=Look at me
+    answer=I was Gomez Addams in the 7th grade
+    answer=I've been performing my whole life
+
+    question "Then stop performing" {
+        answer=[P][title][invert] You've been saving up for a life you keep pushing back
+        answer=[title][invert] Like you have to earn the right to be happy first
+        answer=[title][invert] You don't
+        answer=[Diego] That's easy for you to say
+        answer=You don't know what my rent is
+        answer=[P] Maybe not
+        answer=But you've got savings
+        answer=And you've got a home to go back to
+        answer=[Diego] And if it's the same there?
+        answer=If I'm just as fucked on a beach?
+        answer=[P][cutaway cutaways/beach][overlay][at 0.4 0.3][size 1.6] Then at least
+        answer=[overlay][at 0.6 0.52][size 2.2] it'll be sunny
+
+        question "Diego hands in his notice" {
+            auto
+            requires=diego_point_1
+            requires=diego_point_2
+            sets=diego_saved
+            loop_to=theo_why
+            answer=[Diego] ...
+            answer=Ha
+            answer=Okay
+            answer=Okay, that was a good one
+            answer=[title][invert] Diego hands in his notice the following Monday
+            answer=[title][invert] His psychiatrist refers him to a newer treatment for treatment-resistant depression
+            answer=[title][invert] It doesn't fix everything
+            answer=[title][invert] But it's the first thing that's ever moved the needle
+            answer=[title][invert] Three months later, he calls his mom
+            answer=[title][invert] His next story post is a beach
+        }
+
+        question "Diego isn't convinced" {
+            auto
+            sets=diego_lost
+            loop_to=diego_lost
+            answer=[Diego] ...
+            answer=Ha
+            answer=Nice try
+            answer=I already ran those numbers too
+        }
+    }
+
+    question "I think you've already done the math" {
+        sets=diego_lost
+        loop_to=diego_lost
+        answer=[Diego] Yeah
+        answer=I have
+        answer=Thanks for not making it weird
+        answer=Most people make it weird
+    }
+}
+
+question "Diego's ending" {
+    id=diego_lost
+    auto
+    requires=diego_lost
+    loop_to=theo_why
+    answer=[title] Diego finishes the Q3 reconciliations
+    answer=[title] He labels everything
+    answer=[title] He leaves his desk cleaner than he's ever left it
+    answer=[title] He doesn't come in on Monday
+    answer=[title] His last story post is a bowl of pho
+}
+
+# --- Theo ----------------------------------------------------------------
+
+question "Theo: why do you want to die?" {
+    id=theo_why
+    auto
+    answer=[title] Why do you want to die?
+    answer=[Theo] Because this is it, right?
+    answer=This is what the rest of my life looks like
+    answer=Up
+    answer=Down
+    answer=Up
+    answer=Down
+    answer=[cutaway cutaways/deity] I'm 19 and I've already been god
+    answer=[room] And I've already been nothing
+    answer=Where do you even go from there?
+    answer=Everyone keeps saying it gets better
+    answer=But they don't know what it's like
+    answer=To not be able to trust
+    answer=your own head
+    answer=Like, I'm saying this to you right now
+    answer=And part of me is going
+    answer=Is he even real?
+    answer=I'd rather go now
+    answer=While it's still me deciding
+
+    question "You've seen both ends" {
+        loop_to=theo_attempt
+        answer=[P] I can see why the middle looks a bit grey
+        answer=[Theo] See
+        answer=Finally, someone who gets it
+    }
+
+    question "You're 19" {
+        sets=theo_point_1
+        loop_to=theo_attempt
+        answer=[P] You've had one episode that went untreated
+        answer=And not even a year of actually being treated
+        answer=[title][invert] That's not the rest of your life
+        answer=[title][invert] That's a sample size of one
+        answer=[Theo] You sound like my mom
+        answer=[P] Your mom sounds smart
+        answer=[Theo] Eh
+    }
+}
+
+question "Theo: have you ever attempted suicide?" {
+    id=theo_attempt
+    auto
+    answer=[title] Have you ever attempted suicide?
+    answer=[Theo] Not really
+    answer=There was this one night during the episode
+    answer=I was so sure I was immortal
+    answer=I wanted to prove it
+    answer=My roommate came home early
+    answer=He doesn't know what he walked in on
+    answer=He thinks I was just being weird
+    answer=I let him think that
+
+    question "And this time?" {
+        loop_to=theo_say
+        answer=[Theo] This time I'm not telling anyone
+        answer=Like the cabin thing
+        answer=Just vanish
+        answer=No goodbyes
+        answer=Cleaner that way
+    }
+
+    question "Your roommate came home early" {
+        sets=theo_point_2
+        loop_to=theo_say
+        answer=[P] Some part of you might be glad he did
+        answer=[Theo][title] Don't
+        answer=...
+        answer=Maybe
+        answer=Fuck
+        answer=Next question
+    }
+}
+
+question "Theo: is there anything you want to say?" {
+    id=theo_say
+    auto
+    answer=[title] Is there anything you want to say?
+    answer=[Theo] To my family
+    answer=It's not your fault
+    answer=You got me help the second I let you
+    answer=To my friends
+    answer=I'm sorry I thought you wanted to murder me
+    answer=I don't think that anymore
+    answer=Mostly
+    answer=And to whoever's watching this
+    answer=Ask the stupid questions
+    answer=I never did
+    answer=I always figured it was better to stay quiet than look like an idiot
+    answer=Turns out staying quiet is how you end up here
+
+    question "Then ask one now" {
+        answer=[Theo] What?
+        answer=[P] Ask me a stupid question
+        answer=You've been holding one in this whole interview
+        answer=[Theo] ...
+        answer=Does it actually get better?
+        answer=Like, actually?
+        answer=[P] Not all at once
+        answer=And not in a straight line
+
+        question "Theo asks for help" {
+            auto
+            requires=theo_point_1
+            requires=theo_point_2
+            sets=theo_saved
+            loop_to=pat_why
+            answer=[P][title][invert] But you've only ever seen this thing untreated
+            answer=[title][invert] Or barely treated
+            answer=[title][invert] You haven't met the version of you that's on the right meds yet
+            answer=[title][invert] Neither have I
+            answer=[title][invert] I'd like to
+            answer=[Theo] And the cabin by the lake?
+            answer=[P][cutaway cutaways/cabin][overlay][at 0.5 0.2][size 1.8] Buy the cabin
+            answer=[overlay][at 0.36 0.42][size 1.3] Just tell someone
+            answer=[overlay][at 0.64 0.6][size 1.5] where it is
+            answer=[Theo] Ha
+            answer=That was a pretty stupid question, huh?
+            answer=[P] The best kind
+            answer=[title][invert] Theo tells his parents about the cutting that weekend
+            answer=[title][invert] His psychiatrist switches his mood stabiliser
+            answer=[title][invert] It's the third one he's tried. It's the one that sticks
+            answer=[title][invert] He quits the carts
+            answer=[title][invert] He buys a secondhand guitar with his dishwashing money
+            answer=[title][invert] He still has bad weeks
+            answer=[title][invert] Now he tells someone when he does
+        }
+
+        question "Theo isn't convinced" {
+            auto
+            sets=theo_lost
+            loop_to=theo_lost
+            answer=[Theo] Yeah
+            answer=That's what everyone says
+            answer=Thanks for letting me ask, though
+        }
+    }
+
+    question "Some questions don't have answers" {
+        sets=theo_lost
+        loop_to=theo_lost
+        answer=[Theo] Yeah
+        answer=That's what I figured
+    }
+}
+
+question "Theo's ending" {
+    id=theo_lost
+    auto
+    requires=theo_lost
+    loop_to=pat_why
+    answer=[title] Theo finishes the semester
+    answer=[title] One weekend, he doesn't show up for his shift
+    answer=[title] He didn't tell anyone where he was going
+    answer=[title] Just like he said
+    answer=[title] His family finds him two weeks later
+    answer=[title] In a cabin by a lake
+}
+
+# --- Pat -----------------------------------------------------------------
+
+question "Pat: why do you want to die?" {
+    id=pat_why
+    auto
+    answer=[title] Why do you want to die?
+    answer=[Pat] You know what I did
+    answer=For a voice
+    answer=And the thing is
+    answer=The meds work now
+    answer=The voice is gone
+    answer=Which means I know it was never god
+    answer=It was just me
+    answer=Just my brain misfiring
+    answer=If it was god, at least it would have meant something
+    answer=At least I would have been obedient
+    answer=Now I'm just a guy who did that
+    answer=To himself
+    answer=For nothing
+    answer=I'm 23
+    answer=I'm never going to have kids
+    answer=I can't even take a shower without
+    answer=Without remembering
+    answer=And part of me thinks
+    answer=If I go
+    answer=[cutaway cutaways/church][overlay][at 0.5 0.18][size 1.6] I'll finally find out
+    answer=[overlay][at 0.34 0.4][size 1.3] if anyone
+    answer=[overlay][at 0.64 0.58][size 1.3] was ever
+    answer=[overlay][at 0.5 0.78][size 2.2] talking
+
+    question "You keep saying you were crazy" {
+        sets=pat_point_1
+        loop_to=pat_attempt
+        answer=[P] Past tense
+        answer=[title][invert] You know it wasn't real now
+        answer=[title][invert] That's the hardest part of getting better
+        answer=[title][invert] And you've already done it
+        answer=[Pat] That's the part that hurts
+        answer=[P] It hurts because you're well
+        answer=[Pat] ...
+        answer=I never thought about it like that
+    }
+
+    question "Some things you can't take back" {
+        loop_to=pat_attempt
+        answer=[Pat] No
+        answer=You can't
+    }
+}
+
+question "Pat: have you ever attempted suicide?" {
+    id=pat_attempt
+    auto
+    answer=[title] Have you ever attempted suicide?
+    answer=[Pat] Depends who you ask
+    answer=The doctors wrote it down as one
+    answer=When I did what I did
+    answer=But I didn't want to die
+    answer=God told me I'd live forever after
+    answer=Shows what he knew
+
+    question "And now?" {
+        loop_to=pat_say
+        answer=[Pat] Now I'm just waiting on my discharge date
+    }
+
+    question "The doctors write other things down too" {
+        sets=pat_point_2
+        loop_to=pat_say
+        answer=[P] I bet they've written that you're getting better
+        answer=[Pat][title] Stop that
+        answer=That's not fair
+        answer=...
+        answer=They have
+        answer=Last week
+    }
+}
+
+question "Pat: is there anything you want to say?" {
+    id=pat_say
+    auto
+    answer=[title] Is there anything you want to say?
+    answer=[Pat] To Father *****
+    answer=I'm sorry I stopped coming
+    answer=It was never you
+    answer=To my mum
+    answer=I'm sorry you had to see me like that
+    answer=I'm sorry about the grandkids
+    answer=And to god
+    answer=If you're actually out there this time
+    answer=I'd really like to know
+    answer=[overlay][center][size 2.2] Was that you?
+
+    question "Pat" {
+        answer=[P][cutaway cutaways/moon] You told me about your dream
+        answer=The moon
+        answer=The well
+        answer=You jump in every time
+        answer=[title][invert] And every time
+        answer=[title][invert] you wake up
+        answer=[title][invert] before you hit the bottom
+        answer=[Pat] So?
+        answer=[P] So some part of you keeps choosing to wake up
+        answer=[Pat] ...
+
+        question "Pat starts somewhere new" {
+            auto
+            requires=pat_point_1
+            requires=pat_point_2
+            sets=pat_saved
+            loop_to=alex_why
+            answer=[P] You said your only option was to start somewhere new after the hospital
+            answer=Do it right this time
+            answer=That's still on the table
+            answer=[Pat] Who's gonna want me
+            answer=After that
+            answer=[P] You ask everyone about their experiences
+            answer=[cutaway cutaways/easel][overlay][at 0.5 0.2][size 1.4] People need someone who asks
+            answer=[overlay][at 0.34 0.44][size 1.6] And somebody needs
+            answer=[overlay][at 0.62 0.66][size 2] to paint again
+            answer=[Pat] ...
+            answer=I haven't painted in two years
+            answer=[P] Then you're due
+            answer=[title][invert] Pat is discharged in the spring
+            answer=[title][invert] He moves into supported housing two bus stops from the hospital
+            answer=[title][invert] He starts painting again
+            answer=[title][invert] The first one is the moon
+            answer=[title][invert] There is a well in it
+            answer=[title][invert] He still isn't sure what he believes
+            answer=[title][invert] But he sits in the hospital chapel on Sundays
+            answer=[title][invert] He likes the quiet
+        }
+
+        question "Pat isn't convinced" {
+            auto
+            sets=pat_lost
+            loop_to=pat_lost
+            answer=[Pat] Or some part of me just hasn't hit the bottom yet
+        }
+    }
+
+    question "I hope you get your answer" {
+        sets=pat_lost
+        loop_to=pat_lost
+        answer=[Pat] Me too
+    }
+}
+
+question "Pat's ending" {
+    id=pat_lost
+    auto
+    requires=pat_lost
+    loop_to=alex_why
+    answer=[title] Pat is discharged in the spring
+    answer=[title] He paints one last picture
+    answer=[title] The moon
+    answer=[title] And a well
+    answer=[title] This time
+    answer=[title] he doesn't wake up
+}
+
+# --- Alex ----------------------------------------------------------------
+
+question "Alex: why do you want to die?" {
+    id=alex_why
+    auto
+    answer=[title] Why do you want to die?
+    answer=[Alex] I made a deal
+    answer=I told you that
+    answer=I'd go to the funeral
+    answer=I'd help everyone grieve
+    answer=And then I'd go
+    answer=Well
+    answer=The funeral's done
+    answer=Everyone's grieved
+    answer=I'm the last one left on the list
+    answer=And honestly
+    answer=He was the one who got me out of bed
+    answer=For twelve years
+    answer=He was always a phone call away
+    answer=[cutaway cutaways/phone][overlay][at 0.5 0.18][size 1.4] Now the phone just
+    answer=[overlay][at 0.4 0.44][size 2.2] doesn't
+    answer=[overlay][at 0.6 0.7][size 2.8] ring
+
+    question "You made that deal on the worst night of your life" {
+        sets=alex_point_1
+        loop_to=alex_attempt
+        answer=[P][title][invert] You're allowed to renegotiate
+        answer=[Alex] ...
+        answer=Fuck
+        answer=That's exactly what he'd say
+        answer=That's exactly what he'd fucking say
+    }
+
+    question "A deal's a deal" {
+        loop_to=alex_attempt
+        answer=[Alex] That's what I keep telling myself
+    }
+}
+
+question "Alex: have you ever attempted suicide?" {
+    id=alex_attempt
+    auto
+    answer=[title] Have you ever attempted suicide?
+    answer=[Alex] Not yet
+    answer=Everything since the funeral has been working up to it
+    answer=Like I said
+    answer=A means to an end
+    answer=I'm not a flake
+    answer=I keep my promises
+    answer=Unlike some people
+
+    question "You've always been the one who shows up" {
+        loop_to=alex_say
+        answer=[Alex] Yeah
+        answer=Somebody has to
+    }
+
+    question "You're angry at him" {
+        sets=alex_point_2
+        loop_to=alex_say
+        answer=[Alex][title] Of course I'm fucking angry at him
+        answer=He spent years telling me not to let my life be limited
+        answer=Not by my diagnosis
+        answer=Not by anything
+        answer=And then he goes and
+        answer=...
+        answer=[P] And now you're about to do the same thing to everyone else
+        answer=[Alex] ...
+        answer=That's a low blow
+        answer=[P] Is it wrong?
+        answer=[Alex] No
+    }
+}
+
+question "Alex: is there anything you want to say?" {
+    id=alex_say
+    auto
+    answer=[title] Is there anything you want to say?
+    answer=[Alex] To everyone from back home
+    answer=I'm sorry
+    answer=I know I'm doing the exact thing I hated him for
+    answer=I know
+    answer=And to *****
+    answer=I'm sorry I didn't pick up
+    answer=I'm sorry I was outside having a cigarette
+    answer=I'm sorry the music was so loud
+
+    question "You told me you think every decision spawns its own little universe" {
+        answer=[Alex] Yeah
+        answer=[P][cutaway cutaways/road][overlay][at 0.5 0.2][size 1.6] Then you're standing
+        answer=[overlay][at 0.4 0.42][size 2] at one
+        answer=[overlay][at 0.6 0.64][size 2.4] right now
+        answer=Somewhere there's a version of you who does the national parks
+        answer=Who gets the Gob Knoblins back together for one awful reunion show
+        answer=[title][invert] He didn't want your life limited by anything
+        answer=[title][invert] That includes him
+        answer=[Alex] I don't know how to do it without him
+        answer=[P] Nobody knows how, the first time
+
+        question "Alex takes the trip" {
+            auto
+            requires=alex_point_1
+            requires=alex_point_2
+            sets=alex_saved
+            loop_to=theresa_why
+            answer=[P] You do it badly
+            answer=Then a little less badly
+            answer=[Alex] ...
+            answer=One park
+            answer=I'll do one park
+            answer=[P] That's all I'm asking
+            answer=[title][invert] Alex throws the pocket knife in the river on the way home
+            answer=[title][invert] She starts DBT that winter
+            answer=[title][invert] It's slow, and some weeks it's awful
+            answer=[title][invert] In the summer, she does the national parks with two friends from the old group
+            answer=[title][invert] They make it to eleven
+            answer=[title][invert] She posts for the first time in two years
+            answer=[title][invert] A grey sky. A little drizzle
+        }
+
+        question "Alex isn't convinced" {
+            auto
+            sets=alex_lost
+            loop_to=alex_lost
+            answer=[Alex] Yeah
+            answer=He used to say stuff like that too
+            answer=Look where it got him
+        }
+    }
+
+    question "You kept your promise to everyone else" {
+        sets=alex_lost
+        loop_to=alex_lost
+        answer=[P] I guess this one's yours to keep
+        answer=[Alex] Yeah
+        answer=It is
+    }
+}
+
+question "Alex's ending" {
+    id=alex_lost
+    auto
+    requires=alex_lost
+    loop_to=theresa_why
+    answer=[title] Alex sets out on the national parks trip alone
+    answer=[title] She makes it to the third one
+    answer=[title] Her last story post is a grey sky and a little drizzle
+    answer=[title] She doesn't come home
+}
+
+# --- Theresa -------------------------------------------------------------
+
+question "Theresa: why do you want to die?" {
+    id=theresa_why
+    auto
+    answer=[title] Why do you want to die?
+    answer=[Theresa] Because I'm going to forget him, dear
+    answer=It's already started
+    answer=[cutaway cutaways/twocups] Some mornings I set out two cups
+    answer=And I stand there with the kettle
+    answer=Waiting
+    answer=And then I remember
+    answer=And I have to lose him all over again
+    answer=[room] One day I won't remember at all
+    answer=And then I'll forget my sister
+    answer=My children
+    answer=Their children
+    answer=I'd rather leave while I still know who I'm leaving
+    answer=And I was a burden on one good man for thirty years
+    answer=I won't do that to my children
+
+    question "You want to leave on your own terms" {
+        loop_to=theresa_attempt
+        answer=[Theresa] Exactly that
+        answer=I knew you'd understand
+    }
+
+    question "You told me to find someone who's kind" {
+        sets=theresa_point_1
+        loop_to=theresa_attempt
+        answer=[P] Your husband was kind to you through every single episode
+        answer=[title][invert] Do you think he would have called that being a burden?
+        answer=[Theresa] Oh, don't you dare use him on me, dear
+        answer=...
+        answer=No
+        answer=He'd have called it Tuesday
+    }
+}
+
+question "Theresa: have you ever attempted suicide?" {
+    id=theresa_attempt
+    auto
+    answer=[title] Have you ever attempted suicide?
+    answer=[Theresa] Never
+    answer=Not once
+    answer=Isn't that funny
+    answer=All those episodes
+    answer=All those years
+    answer=And I never once
+    answer=Because he was there
+
+    question "Does your family know?" {
+        sets=theresa_point_2
+        loop_to=theresa_say
+        answer=[Theresa] Know what, dear?
+        answer=[P] About the diagnosis
+        answer=About this
+        answer=[Theresa] ...
+        answer=My sister knows about the diagnosis
+        answer=She always knows
+        answer=She doesn't know about this
+        answer=[overlay][at 0.5 0.24][size 1.5] She kept my secret once
+        answer=[overlay][at 0.4 0.46][size 1.2] I don't think
+        answer=[overlay][at 0.6 0.66][size 1.6] she'd keep this one
+    }
+
+    question "And now he isn't" {
+        loop_to=theresa_say
+        answer=[Theresa] And now he isn't
+    }
+}
+
+question "Theresa: is there anything you want to say?" {
+    id=theresa_say
+    auto
+    answer=[title] Is there anything you want to say?
+    answer=[Theresa] To my children
+    answer=I'm sorry for every birthday I spent in a hospital
+    answer=You turned out lovely anyway
+    answer=To my sister
+    answer=Thank you
+    answer=For the first time
+    answer=And to *******
+    answer=[cutaway cutaways/flamenco][overlay][at 0.42 0.3][size 1.8] Save me
+    answer=[overlay][at 0.6 0.56][size 2.4] a dance
+
+    question "Theresa" {
+        answer=[P] You told me your fifties feel like a conclusion
+        answer=[title][invert] A conclusion isn't the last page
+        answer=[cutaway cutaways/clearday] There are still years where you'll know them
+        answer=Years of clear blue days
+        answer=You don't have to spend them guarding against the worst ones
+        answer=Let them be kind to you
+        answer=Like he was
+        answer=[Theresa] And when I don't know who they are?
+
+        question "Theresa tells her family" {
+            auto
+            requires=theresa_point_1
+            requires=theresa_point_2
+            sets=theresa_saved
+            loop_to=end
+            answer=[P][overlay][at 0.5 0.26][size 1.6] Then they'll know
+            answer=[overlay][at 0.4 0.46][size 2] who you are
+            answer=[overlay][at 0.6 0.68][size 1.3] Let them do that for you
+            answer=[Theresa] You're a very irritating young man
+            answer=...
+            answer=Alright
+            answer=Alright
+            answer=[title][invert] Theresa tells her family about the diagnosis that Sunday
+            answer=[title][invert] Her sister moves in by the end of the month
+            answer=[title][invert] She teaches her grandchildren piano while her hands still remember
+            answer=[title][invert] At her niece's wedding, she dances flamenco
+            answer=[title][invert] Carefully. The hips aren't real
+            answer=[title][invert] But she dances
+        }
+
+        question "Theresa isn't convinced" {
+            auto
+            sets=theresa_lost
+            loop_to=theresa_lost
+            answer=[P] Then they'll know who you are
+            answer=[Theresa] That's exactly what I'm afraid of, dear
+            answer=I'd rather they remember me while I'm still me
+        }
+    }
+
+    question "I hope it's a clear day" {
+        sets=theresa_lost
+        loop_to=theresa_lost
+        answer=[Theresa] Oh, that's lovely
+        answer=Yes
+        answer=I hope so too
+    }
+}
+
+question "Theresa's ending" {
+    id=theresa_lost
+    auto
+    requires=theresa_lost
+    loop_to=end
+    answer=[title] Theresa spends one more Christmas with her family
+    answer=[title] She plays the piano for them
+    answer=[title] Nobody notices the second cup
+    answer=[title] She is gone by the new year
+    answer=[title] It was a clear day
+    answer=[title] A perfectly blue sky
+}
+
+# --- End -----------------------------------------------------------------
+# The script's "Quotes:", one card each. The game's new title, then
+# ending_text, follow on the closing black screen -- see
+# SHGame::finish_chapter().
+
+question "Quotes" {
+    id=end
+    auto
+    ending
+    ending_text=If you are struggling with thoughts of suicide or self-harm, you don't have to carry it alone
+    ending_text=findahelpline.com lists free, confidential support near you
+    answer=[title][quiet] "Sometimes the only way to be seen is to leave" -- Mel
+    answer=[title][quiet] "You'd be surprised what you can hide with long sleeves and a smile" -- Diego
+    answer=[title][quiet] "Ask the stupid questions" -- Theo
+    answer=[title][quiet] "If you're actually out there this time, I'd really like to know" -- Pat
+    answer=[title][quiet] "He was always a phone call away" -- Alex
+    answer=[title][quiet] "So try to find someone who's kind" -- Theresa
+}

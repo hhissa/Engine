@@ -11,6 +11,7 @@
 #include <renderer/renderer_frontend.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <format>
 #include <string>
 #include <string_view>
@@ -293,13 +294,19 @@ void SHGame::load_settings() {
   if (!file) {
     return;
   }
-  std::optional<std::string> line = file.read_line();
-  if (!line) {
-    return;
-  }
-  if (std::optional<std::string_view> value = parse_kv(*line, "render_scale")) {
-    render_scale_ = std::clamp(std::stof(std::string(*value)),
-                               kMinRenderScale, kMaxRenderScale);
+  while (std::optional<std::string> line = file.read_line()) {
+    // read_line() keeps the newline -- trim it so parse_kv()'s value is
+    // just the number.
+    std::string_view text(*line);
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
+      text.remove_suffix(1);
+    }
+    if (std::optional<std::string_view> value = parse_kv(text, "render_scale")) {
+      render_scale_ = std::clamp(std::stof(std::string(*value)),
+                                 kMinRenderScale, kMaxRenderScale);
+    } else if (std::optional<std::string_view> value = parse_kv(text, "saved")) {
+      saved_count_ = static_cast<u32>(std::stoul(std::string(*value)));
+    }
   }
 }
 
@@ -311,4 +318,13 @@ void SHGame::save_settings() const {
     return;
   }
   file.write_line(std::format("render_scale={:.2f}", render_scale_));
+  if (saved_count_) {
+    file.write_line(std::format("saved={}", *saved_count_));
+  }
+}
+
+void SHGame::clear_save() const {
+  if (Filesystem::exists(kSaveFilePath)) {
+    std::remove(std::string(kSaveFilePath).c_str());
+  }
 }

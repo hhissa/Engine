@@ -18,6 +18,15 @@ KAPI void console_write_error(std::string_view message, u8 colour);
 
 KAPI f64 get_absolute_time();
 KAPI void sleep(u64 ms);
+
+// The per-user directory for regenerable caches: $XDG_CACHE_HOME (else
+// ~/.cache) on Linux, %LOCALAPPDATA% on Windows. Empty if none can be
+// found -- callers should then run without an on-disk cache.
+KAPI std::string user_cache_directory();
+// setenv() on Linux, _putenv_s() on Windows. Lives in the engine so the
+// write lands in the same C runtime the engine's getenv() calls read from.
+KAPI void set_environment_variable(std::string_view name,
+                                   std::string_view value, b8 overwrite);
 } // namespace Platform
 
 // An already-existing native window handle to render into, rather than one

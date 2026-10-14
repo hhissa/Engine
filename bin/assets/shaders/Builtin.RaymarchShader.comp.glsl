@@ -226,8 +226,11 @@ const int SHADOW_MAX_STEPS = 256;
 // (scene_diffuse_colours, scene_tex_transform) have no free component
 // left:
 //   x = 1.0 if that primitive's material is pixelation-exempt
-//       (Material::pixelation_exempt), 0.0 otherwise. Written into
-//       out_image's alpha channel below (see main()) for
+//       (Material::pixelation_exempt), 0.0 otherwise, PLUS half its
+//       metallic (MaterialDef::metallic) -- so [0, 0.5] is a non-exempt
+//       material and [1, 1.5] an exempt one (material_scalar_x(), engine
+//       side). Builtin.DeferredShade.comp.glsl decodes both: the exempt
+//       flag goes into out_image's alpha channel (see main()) for
 //       Builtin.PostComposite.comp.glsl's pixelation pass to read.
 //   y = its bump-map magnitude (Material::bump_strength) -- a multiplier
 //       on BUMP_STRENGTH_BASE, so 1.0 (the engine-side default) is the

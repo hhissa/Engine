@@ -13,6 +13,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <format>
 #include <optional>
@@ -60,9 +61,8 @@ struct ChapterDef {
 // scripts/). Each chapter interviews everyone at once, cutting between
 // their rooms line by line, so these are speaker-staged (see
 // ChapterDef::speaker_staged) rather than one person per chapter like the
-// old ch1_theo..ch8_photographer files were. Chapters 3 and 4 ("The
-// cutting", "Why we're really here") get an entry here as their scripts
-// are written.
+// old ch1_theo..ch8_photographer files were. The last entry is the last
+// chapter of the game -- finish_chapter() ends the game after it.
 const std::vector<ChapterDef> kChapters = {
     {"Introductions", "assets/conversations/ch1_introductions.conversation",
      SceneState::MelRoom1,
@@ -79,7 +79,29 @@ const std::vector<ChapterDef> kChapters = {
     {"Your Story", "assets/conversations/ch2_your_story.conversation",
      SceneState::MelRoom1, {"Chapter 2: Your Story"},
      /*speaker_staged=*/true},
+    {"The Cutting", "assets/conversations/ch3_the_cutting.conversation",
+     SceneState::MelRoom1, {"Chapter 3: The Cutting"},
+     /*speaker_staged=*/true},
+    {"Why We're Really Here",
+     "assets/conversations/ch4_why_were_really_here.conversation",
+     SceneState::MelRoom1, {"Chapter 4: Why We're Really Here"},
+     /*speaker_staged=*/true},
 };
+
+// The game's title by how many of the six the last finished playthrough
+// saved -- see SHGame::game_title(). "SH" is what it's called before
+// anyone has been through the last chapter; saving everyone spells the
+// same two letters out.
+constexpr std::array<std::string_view, 7> kTitles = {
+    "SH",               // nobody
+    "One Still Here",   "Two Still Here", "Three Still Here",
+    "Four Still Here",  "Five Still Here",
+    "Still Here",       // everyone
+};
+
+// The flag suffix the last chapter sets on each person it saves (see
+// ch4_why_were_really_here.conversation's "<name>_saved").
+constexpr std::string_view kSavedFlagSuffix = "_saved";
 
 // Mirrors kMinRenderScale/kMaxRenderScale in game_save.cpp (load_settings()'s
 // own clamp) -- keep both in sync with the Vulkan backend's actual clamp
@@ -194,6 +216,22 @@ void SHGame::setup_menus() {
                               build_title_menu();
                             }}});
 
+  stage_title_backdrop();
+
+  // Authoring aid: SH_PREVIEW_CUTAWAY=cutaways/moon (any kCutaways id)
+  // shows that cutaway behind the title menu instead, to check its set and
+  // camera without playing up to the line that calls for it. Shows its
+  // first station; '0' free-flies as usual.
+  if (const char *preview = std::getenv("SH_PREVIEW_CUTAWAY")) {
+    if (!stage_cutaway(preview)) {
+      KWARN("SH_PREVIEW_CUTAWAY: no cutaway '{}'.", preview);
+    }
+  }
+
+  build_title_menu();
+}
+
+void SHGame::stage_title_backdrop() {
   // Title screen background -- real 3D geometry rather than just the flat
   // skybox set in initialize(): man.sdf alone at 3x, framed from
   // torso height so the figure fills the screen behind the menu. Loaded
@@ -223,18 +261,6 @@ void SHGame::setup_menus() {
       {glm::vec3(-1.57f, 9.76f, -5.82f), glm::radians(0.0f), glm::radians(-0.0f),
          0.0f, 0.0, 0.0},
   });
-
-  // Authoring aid: SH_PREVIEW_CUTAWAY=cutaways/moon (any kCutaways id)
-  // shows that cutaway behind the title menu instead, to check its set and
-  // camera without playing up to the line that calls for it. Shows its
-  // first station; '0' free-flies as usual.
-  if (const char *preview = std::getenv("SH_PREVIEW_CUTAWAY")) {
-    if (!stage_cutaway(preview)) {
-      KWARN("SH_PREVIEW_CUTAWAY: no cutaway '{}'.", preview);
-    }
-  }
-
-  build_title_menu();
 }
 
 void SHGame::build_title_menu() {
@@ -298,6 +324,13 @@ void SHGame::show_intertitle(std::vector<std::string> lines,
   screen_ = AppScreen::Intertitle;
 }
 
+std::string SHGame::game_title() const {
+  if (!saved_count_) {
+    return std::string(kTitles.front());
+  }
+  return std::string(kTitles[std::min<size_t>(*saved_count_, kTitles.size() - 1)]);
+}
+
 void SHGame::finish_chapter(std::vector<std::string> ending_lines) {
   if (ending_lines.empty()) {
     // A `ending` question with no `ending_text=` lines of its own -- see
@@ -306,6 +339,27 @@ void SHGame::finish_chapter(std::vector<std::string> ending_lines) {
     ending_lines = {"The End"};
   }
   size_t next_index = active_chapter_ ? *active_chapter_ + 1 : kChapters.size();
+  if (active_chapter_ && next_index == kChapters.size()) {
+    // The end of the game: count who was saved, retitle the game, and show
+    // the new title first on the closing black screen.
+    u32 saved = 0;
+    for (const std::string &flag : qa_.flags()) {
+      if (flag.ends_with(kSavedFlagSuffix)) {
+        ++saved;
+      }
+    }
+    saved_count_ = saved;
+    save_settings();
+    clear_save();
+    ending_lines.insert(ending_lines.begin(), game_title());
+    show_intertitle(std::move(ending_lines), [this] {
+      active_chapter_.reset();
+      stage_title_backdrop();
+      build_title_menu();
+      screen_ = AppScreen::Title;
+    });
+    return;
+  }
   if (next_index < kChapters.size()) {
     // Straight into the next chapter once the outro's dismissed -- reuses
     // start_chapter() so that chapter's own intro_lines (if any) still show
@@ -388,7 +442,7 @@ void SHGame::update_title_screen() {
 
 void SHGame::render_title_screen() const {
   render_debug_camera_hud();
-  renderer_draw_text("SH", menu_heading_pos(height_, title_menu_.item_count()),
+  renderer_draw_text(game_title(), menu_heading_pos(height_, title_menu_.item_count()),
                      glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
   title_menu_.render(menu_bottom_left(height_));
 }

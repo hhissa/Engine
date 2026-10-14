@@ -18,6 +18,13 @@ material eye {
     base_map=white
 }
 
+material scales {
+    id=dee925cfbaaa029e
+    base_colour=0.82 0.82 0.8 1
+    roughness=0.35
+    base_map=white
+}
+
 light light0 {
     type=directional
     direction=-0.4 -0.7 -1
@@ -60,13 +67,347 @@ layer layer0 {
         material=44dc0a8644c1ee24
     }
 
+    primitive p3 {
+        type=ellipsoid
+        position=-0.05356 -1.381 -0.17
+        rotation=0 0 0
+        params=0.1 0.035 0.05 0
+        material=44dc0a8644c1ee24
+    }
+
+    primitive p4 {
+        type=ellipsoid
+        position=-0.05356 -1.381 0.17
+        rotation=0 0 0
+        params=0.1 0.035 0.05 0
+        material=44dc0a8644c1ee24
+    }
+
 }
 
 layer layer1 {
     operation=union
+    smoothness=0.02
+
+    primitive p5 {
+        type=ellipsoid
+        position=0.7061 -0.9703 -0.05805
+        rotation=0 0 -0.9417
+        params=0.03721 0.02381 0.02233 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p6 {
+        type=ellipsoid
+        position=0.8269 -0.8696 -0.06152
+        rotation=0 0 -0.8106
+        params=0.03943 0.02524 0.02366 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p7 {
+        type=ellipsoid
+        position=0.9335 -0.7541 -0.06482
+        rotation=0 0 -0.6795
+        params=0.04155 0.02659 0.02493 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p8 {
+        type=ellipsoid
+        position=1.024 -0.6256 -0.06798
+        rotation=0 0 -0.5484
+        params=0.04358 0.02789 0.02615 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p9 {
+        type=ellipsoid
+        position=1.097 -0.4864 -0.07103
+        rotation=0 0 -0.4173
+        params=0.04553 0.02914 0.02732 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p10 {
+        type=ellipsoid
+        position=1.151 -0.3388 -0.07399
+        rotation=0 0 -0.2862
+        params=0.04743 0.03036 0.02846 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p11 {
+        type=ellipsoid
+        position=1.186 -0.1854 -0.07687
+        rotation=0 0 -0.1551
+        params=0.04927 0.03154 0.02956 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p12 {
+        type=ellipsoid
+        position=1.2 -0.02885 -0.07967
+        rotation=0 0 -0.02405
+        params=0.05107 0.03269 0.03064 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p13 {
+        type=ellipsoid
+        position=1.193 0.1282 -0.08242
+        rotation=0 0 0.107
+        params=0.05283 0.03381 0.0317 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p14 {
+        type=ellipsoid
+        position=1.166 0.2831 -0.0851
+        rotation=0 0 0.2381
+        params=0.05455 0.03491 0.03273 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p15 {
+        type=ellipsoid
+        position=1.119 0.4331 -0.08774
+        rotation=0 0 0.3692
+        params=0.05624 0.036 0.03375 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p16 {
+        type=ellipsoid
+        position=1.053 0.5757 -0.09033
+        rotation=0 0 0.5003
+        params=0.0579 0.03706 0.03474 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p17 {
+        type=ellipsoid
+        position=0.9686 0.7084 -0.09287
+        rotation=0 0 0.6314
+        params=0.05953 0.0381 0.03572 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p18 {
+        type=ellipsoid
+        position=0.8677 0.8289 -0.09538
+        rotation=0 0 0.7625
+        params=0.06114 0.03913 0.03668 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p19 {
+        type=ellipsoid
+        position=0.7519 0.9352 -0.09785
+        rotation=0 0 0.8936
+        params=0.06272 0.04014 0.03763 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p20 {
+        type=ellipsoid
+        position=0.6232 1.025 -0.1003
+        rotation=0 0 1.025
+        params=0.06428 0.04114 0.03857 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p21 {
+        type=ellipsoid
+        position=0.4838 1.098 -0.1027
+        rotation=0 0 1.156
+        params=0.06582 0.04213 0.03949 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p22 {
+        type=ellipsoid
+        position=0.3361 1.152 -0.1051
+        rotation=0 0 1.287
+        params=0.06735 0.0431 0.04041 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p23 {
+        type=ellipsoid
+        position=0.1827 1.186 -0.1074
+        rotation=0 0 1.418
+        params=0.06885 0.04406 0.04131 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p24 {
+        type=ellipsoid
+        position=0.02606 1.2 -0.1097
+        rotation=0 0 1.549
+        params=0.07034 0.04502 0.0422 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p25 {
+        type=ellipsoid
+        position=-0.131 1.193 -0.112
+        rotation=0 0 1.68
+        params=0.07181 0.04596 0.04308 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p26 {
+        type=ellipsoid
+        position=-0.2858 1.165 -0.1143
+        rotation=0 0 1.811
+        params=0.07326 0.04689 0.04396 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p27 {
+        type=ellipsoid
+        position=-0.4357 1.118 -0.1165
+        rotation=0 0 1.942
+        params=0.0747 0.04781 0.04482 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p28 {
+        type=ellipsoid
+        position=-0.5781 1.052 -0.1188
+        rotation=0 0 2.073
+        params=0.07613 0.04872 0.04568 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p29 {
+        type=ellipsoid
+        position=-0.7106 0.967 -0.121
+        rotation=0 0 2.205
+        params=0.07754 0.04963 0.04653 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p30 {
+        type=ellipsoid
+        position=-0.8309 0.8658 -0.1232
+        rotation=0 0 2.336
+        params=0.07894 0.05052 0.04737 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p31 {
+        type=ellipsoid
+        position=-0.937 0.7497 -0.1253
+        rotation=0 0 2.467
+        params=0.08033 0.05141 0.0482 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p32 {
+        type=ellipsoid
+        position=-1.027 0.6208 -0.1275
+        rotation=0 0 2.598
+        params=0.08171 0.0523 0.04903 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p33 {
+        type=ellipsoid
+        position=-1.099 0.4813 -0.1296
+        rotation=0 0 2.729
+        params=0.08308 0.05317 0.04985 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p34 {
+        type=ellipsoid
+        position=-1.153 0.3334 -0.1317
+        rotation=0 0 2.86
+        params=0.08443 0.05404 0.05066 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p35 {
+        type=ellipsoid
+        position=-1.186 0.1799 -0.1338
+        rotation=0 0 2.991
+        params=0.08578 0.0549 0.05147 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p36 {
+        type=ellipsoid
+        position=-1.2 0.02327 -0.1359
+        rotation=0 0 3.122
+        params=0.08712 0.05575 0.05227 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p37 {
+        type=ellipsoid
+        position=-1.193 -0.1338 -0.138
+        rotation=0 0 3.253
+        params=0.08844 0.0566 0.05307 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p38 {
+        type=ellipsoid
+        position=-1.165 -0.2885 -0.14
+        rotation=0 0 3.384
+        params=0.08976 0.05745 0.05386 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p39 {
+        type=ellipsoid
+        position=-1.117 -0.4383 -0.1421
+        rotation=0 0 3.515
+        params=0.09107 0.05828 0.05464 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p40 {
+        type=ellipsoid
+        position=-1.05 -0.5805 -0.1441
+        rotation=0 0 3.647
+        params=0.09237 0.05912 0.05542 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p41 {
+        type=ellipsoid
+        position=-0.9653 -0.7129 -0.1461
+        rotation=0 0 3.778
+        params=0.09366 0.05994 0.0562 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p42 {
+        type=ellipsoid
+        position=-0.8639 -0.8329 -0.1481
+        rotation=0 0 3.909
+        params=0.09494 0.06076 0.05697 0
+        material=dee925cfbaaa029e
+    }
+
+    primitive p43 {
+        type=ellipsoid
+        position=-0.7476 -0.9387 -0.1477
+        rotation=0 0 4.04
+        params=0.09468 0.06059 0.05681 0
+        material=dee925cfbaaa029e
+    }
+
+}
+
+layer layer2 {
+    operation=union
     smoothness=0.07
 
-    primitive p3 {
+    primitive p44 {
         type=sphere
         position=0.1254 -1.193 0
         rotation=0 0 0
@@ -74,7 +415,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p4 {
+    primitive p45 {
         type=sphere
         position=0.2033 -1.183 0
         rotation=0 0 0
@@ -82,7 +423,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p5 {
+    primitive p46 {
         type=sphere
         position=0.2804 -1.167 0
         rotation=0 0 0
@@ -90,7 +431,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p6 {
+    primitive p47 {
         type=sphere
         position=0.3562 -1.146 0
         rotation=0 0 0
@@ -98,7 +439,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p7 {
+    primitive p48 {
         type=sphere
         position=0.4305 -1.12 0
         rotation=0 0 0
@@ -106,7 +447,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p8 {
+    primitive p49 {
         type=sphere
         position=0.5029 -1.09 0
         rotation=0 0 0
@@ -114,7 +455,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p9 {
+    primitive p50 {
         type=sphere
         position=0.5732 -1.054 0
         rotation=0 0 0
@@ -122,7 +463,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p10 {
+    primitive p51 {
         type=sphere
         position=0.641 -1.014 0
         rotation=0 0 0
@@ -130,7 +471,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p11 {
+    primitive p52 {
         type=sphere
         position=0.7061 -0.9703 0
         rotation=0 0 0
@@ -138,7 +479,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p12 {
+    primitive p53 {
         type=sphere
         position=0.7681 -0.9219 0
         rotation=0 0 0
@@ -146,7 +487,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p13 {
+    primitive p54 {
         type=sphere
         position=0.8269 -0.8696 0
         rotation=0 0 0
@@ -154,7 +495,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p14 {
+    primitive p55 {
         type=sphere
         position=0.8821 -0.8136 0
         rotation=0 0 0
@@ -162,7 +503,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p15 {
+    primitive p56 {
         type=sphere
         position=0.9335 -0.7541 0
         rotation=0 0 0
@@ -170,7 +511,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p16 {
+    primitive p57 {
         type=sphere
         position=0.9808 -0.6913 0
         rotation=0 0 0
@@ -178,7 +519,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p17 {
+    primitive p58 {
         type=sphere
         position=1.024 -0.6256 0
         rotation=0 0 0
@@ -186,7 +527,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p18 {
+    primitive p59 {
         type=sphere
         position=1.063 -0.5572 0
         rotation=0 0 0
@@ -194,7 +535,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p19 {
+    primitive p60 {
         type=sphere
         position=1.097 -0.4864 0
         rotation=0 0 0
@@ -202,7 +543,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p20 {
+    primitive p61 {
         type=sphere
         position=1.127 -0.4135 0
         rotation=0 0 0
@@ -210,7 +551,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p21 {
+    primitive p62 {
         type=sphere
         position=1.151 -0.3388 0
         rotation=0 0 0
@@ -218,7 +559,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p22 {
+    primitive p63 {
         type=sphere
         position=1.171 -0.2627 0
         rotation=0 0 0
@@ -226,7 +567,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p23 {
+    primitive p64 {
         type=sphere
         position=1.186 -0.1854 0
         rotation=0 0 0
@@ -234,7 +575,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p24 {
+    primitive p65 {
         type=sphere
         position=1.195 -0.1074 0
         rotation=0 0 0
@@ -242,7 +583,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p25 {
+    primitive p66 {
         type=sphere
         position=1.2 -0.02885 0
         rotation=0 0 0
@@ -250,7 +591,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p26 {
+    primitive p67 {
         type=sphere
         position=1.199 0.04979 0
         rotation=0 0 0
@@ -258,7 +599,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p27 {
+    primitive p68 {
         type=sphere
         position=1.193 0.1282 0
         rotation=0 0 0
@@ -266,7 +607,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p28 {
+    primitive p69 {
         type=sphere
         position=1.182 0.2061 0
         rotation=0 0 0
@@ -274,7 +615,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p29 {
+    primitive p70 {
         type=sphere
         position=1.166 0.2831 0
         rotation=0 0 0
@@ -282,7 +623,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p30 {
+    primitive p71 {
         type=sphere
         position=1.145 0.3588 0
         rotation=0 0 0
@@ -290,7 +631,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p31 {
+    primitive p72 {
         type=sphere
         position=1.119 0.4331 0
         rotation=0 0 0
@@ -298,7 +639,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p32 {
+    primitive p73 {
         type=sphere
         position=1.088 0.5055 0
         rotation=0 0 0
@@ -306,7 +647,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p33 {
+    primitive p74 {
         type=sphere
         position=1.053 0.5757 0
         rotation=0 0 0
@@ -314,7 +655,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p34 {
+    primitive p75 {
         type=sphere
         position=1.013 0.6434 0
         rotation=0 0 0
@@ -322,7 +663,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p35 {
+    primitive p76 {
         type=sphere
         position=0.9686 0.7084 0
         rotation=0 0 0
@@ -330,7 +671,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p36 {
+    primitive p77 {
         type=sphere
         position=0.9202 0.7703 0
         rotation=0 0 0
@@ -338,7 +679,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p37 {
+    primitive p78 {
         type=sphere
         position=0.8677 0.8289 0
         rotation=0 0 0
@@ -346,7 +687,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p38 {
+    primitive p79 {
         type=sphere
         position=0.8116 0.8839 0
         rotation=0 0 0
@@ -354,7 +695,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p39 {
+    primitive p80 {
         type=sphere
         position=0.7519 0.9352 0
         rotation=0 0 0
@@ -362,7 +703,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p40 {
+    primitive p81 {
         type=sphere
         position=0.6891 0.9824 0
         rotation=0 0 0
@@ -370,7 +711,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p41 {
+    primitive p82 {
         type=sphere
         position=0.6232 1.025 0
         rotation=0 0 0
@@ -378,7 +719,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p42 {
+    primitive p83 {
         type=sphere
         position=0.5547 1.064 0
         rotation=0 0 0
@@ -386,7 +727,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p43 {
+    primitive p84 {
         type=sphere
         position=0.4838 1.098 0
         rotation=0 0 0
@@ -394,7 +735,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p44 {
+    primitive p85 {
         type=sphere
         position=0.4109 1.127 0
         rotation=0 0 0
@@ -402,7 +743,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p45 {
+    primitive p86 {
         type=sphere
         position=0.3361 1.152 0
         rotation=0 0 0
@@ -410,7 +751,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p46 {
+    primitive p87 {
         type=sphere
         position=0.26 1.172 0
         rotation=0 0 0
@@ -418,7 +759,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p47 {
+    primitive p88 {
         type=sphere
         position=0.1827 1.186 0
         rotation=0 0 0
@@ -426,7 +767,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p48 {
+    primitive p89 {
         type=sphere
         position=0.1046 1.195 0
         rotation=0 0 0
@@ -434,7 +775,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p49 {
+    primitive p90 {
         type=sphere
         position=0.02606 1.2 0
         rotation=0 0 0
@@ -442,7 +783,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p50 {
+    primitive p91 {
         type=sphere
         position=-0.05258 1.199 0
         rotation=0 0 0
@@ -450,7 +791,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p51 {
+    primitive p92 {
         type=sphere
         position=-0.131 1.193 0
         rotation=0 0 0
@@ -458,7 +799,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p52 {
+    primitive p93 {
         type=sphere
         position=-0.2088 1.182 0
         rotation=0 0 0
@@ -466,7 +807,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p53 {
+    primitive p94 {
         type=sphere
         position=-0.2858 1.165 0
         rotation=0 0 0
@@ -474,7 +815,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p54 {
+    primitive p95 {
         type=sphere
         position=-0.3615 1.144 0
         rotation=0 0 0
@@ -482,7 +823,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p55 {
+    primitive p96 {
         type=sphere
         position=-0.4357 1.118 0
         rotation=0 0 0
@@ -490,7 +831,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p56 {
+    primitive p97 {
         type=sphere
         position=-0.508 1.087 0
         rotation=0 0 0
@@ -498,7 +839,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p57 {
+    primitive p98 {
         type=sphere
         position=-0.5781 1.052 0
         rotation=0 0 0
@@ -506,7 +847,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p58 {
+    primitive p99 {
         type=sphere
         position=-0.6457 1.011 0
         rotation=0 0 0
@@ -514,7 +855,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p59 {
+    primitive p100 {
         type=sphere
         position=-0.7106 0.967 0
         rotation=0 0 0
@@ -522,7 +863,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p60 {
+    primitive p101 {
         type=sphere
         position=-0.7724 0.9184 0
         rotation=0 0 0
@@ -530,7 +871,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p61 {
+    primitive p102 {
         type=sphere
         position=-0.8309 0.8658 0
         rotation=0 0 0
@@ -538,7 +879,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p62 {
+    primitive p103 {
         type=sphere
         position=-0.8858 0.8095 0
         rotation=0 0 0
@@ -546,7 +887,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p63 {
+    primitive p104 {
         type=sphere
         position=-0.937 0.7497 0
         rotation=0 0 0
@@ -554,7 +895,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p64 {
+    primitive p105 {
         type=sphere
         position=-0.984 0.6868 0
         rotation=0 0 0
@@ -562,7 +903,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p65 {
+    primitive p106 {
         type=sphere
         position=-1.027 0.6208 0
         rotation=0 0 0
@@ -570,7 +911,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p66 {
+    primitive p107 {
         type=sphere
         position=-1.065 0.5522 0
         rotation=0 0 0
@@ -578,7 +919,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p67 {
+    primitive p108 {
         type=sphere
         position=-1.099 0.4813 0
         rotation=0 0 0
@@ -586,7 +927,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p68 {
+    primitive p109 {
         type=sphere
         position=-1.128 0.4082 0
         rotation=0 0 0
@@ -594,7 +935,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p69 {
+    primitive p110 {
         type=sphere
         position=-1.153 0.3334 0
         rotation=0 0 0
@@ -602,7 +943,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p70 {
+    primitive p111 {
         type=sphere
         position=-1.172 0.2572 0
         rotation=0 0 0
@@ -610,7 +951,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p71 {
+    primitive p112 {
         type=sphere
         position=-1.186 0.1799 0
         rotation=0 0 0
@@ -618,7 +959,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p72 {
+    primitive p113 {
         type=sphere
         position=-1.196 0.1018 0
         rotation=0 0 0
@@ -626,7 +967,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p73 {
+    primitive p114 {
         type=sphere
         position=-1.2 0.02327 0
         rotation=0 0 0
@@ -634,7 +975,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p74 {
+    primitive p115 {
         type=sphere
         position=-1.199 -0.05537 0
         rotation=0 0 0
@@ -642,7 +983,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p75 {
+    primitive p116 {
         type=sphere
         position=-1.193 -0.1338 0
         rotation=0 0 0
@@ -650,7 +991,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p76 {
+    primitive p117 {
         type=sphere
         position=-1.181 -0.2116 0
         rotation=0 0 0
@@ -658,7 +999,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p77 {
+    primitive p118 {
         type=sphere
         position=-1.165 -0.2885 0
         rotation=0 0 0
@@ -666,7 +1007,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p78 {
+    primitive p119 {
         type=sphere
         position=-1.143 -0.3642 0
         rotation=0 0 0
@@ -674,7 +1015,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p79 {
+    primitive p120 {
         type=sphere
         position=-1.117 -0.4383 0
         rotation=0 0 0
@@ -682,7 +1023,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p80 {
+    primitive p121 {
         type=sphere
         position=-1.086 -0.5105 0
         rotation=0 0 0
@@ -690,7 +1031,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p81 {
+    primitive p122 {
         type=sphere
         position=-1.05 -0.5805 0
         rotation=0 0 0
@@ -698,7 +1039,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p82 {
+    primitive p123 {
         type=sphere
         position=-1.01 -0.6481 0
         rotation=0 0 0
@@ -706,7 +1047,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p83 {
+    primitive p124 {
         type=sphere
         position=-0.9653 -0.7129 0
         rotation=0 0 0
@@ -714,7 +1055,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p84 {
+    primitive p125 {
         type=sphere
         position=-0.9166 -0.7745 0
         rotation=0 0 0
@@ -722,7 +1063,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p85 {
+    primitive p126 {
         type=sphere
         position=-0.8639 -0.8329 0
         rotation=0 0 0
@@ -730,7 +1071,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p86 {
+    primitive p127 {
         type=sphere
         position=-0.8074 -0.8877 0
         rotation=0 0 0
@@ -738,7 +1079,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p87 {
+    primitive p128 {
         type=sphere
         position=-0.7476 -0.9387 0
         rotation=0 0 0
@@ -746,7 +1087,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p88 {
+    primitive p129 {
         type=sphere
         position=-0.6845 -0.9856 0
         rotation=0 0 0
@@ -754,7 +1095,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p89 {
+    primitive p130 {
         type=sphere
         position=-0.6184 -1.028 0
         rotation=0 0 0
@@ -762,7 +1103,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p90 {
+    primitive p131 {
         type=sphere
         position=-0.5498 -1.067 0
         rotation=0 0 0
@@ -770,7 +1111,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p91 {
+    primitive p132 {
         type=sphere
         position=-0.4787 -1.1 0
         rotation=0 0 0
@@ -778,7 +1119,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p92 {
+    primitive p133 {
         type=sphere
         position=-0.4056 -1.129 0
         rotation=0 0 0
@@ -786,7 +1127,7 @@ layer layer1 {
         material=44dc0a8644c1ee24
     }
 
-    primitive p93 {
+    primitive p134 {
         type=sphere
         position=-0.3308 -1.154 0
         rotation=0 0 0
@@ -796,11 +1137,11 @@ layer layer1 {
 
 }
 
-layer layer2 {
+layer layer3 {
     operation=union
     smoothness=0
 
-    primitive p94 {
+    primitive p135 {
         type=sphere
         position=-0.03356 -1.311 -0.19
         rotation=0 0 0
@@ -808,11 +1149,27 @@ layer layer2 {
         material=2506897942489f90
     }
 
-    primitive p95 {
+    primitive p136 {
         type=sphere
         position=-0.03356 -1.311 0.19
         rotation=0 0 0
         params=0.045 0 0 0
+        material=2506897942489f90
+    }
+
+    primitive p137 {
+        type=sphere
+        position=0.3264 -1.341 -0.0595
+        rotation=0 0 0
+        params=0.018 0 0 0
+        material=2506897942489f90
+    }
+
+    primitive p138 {
+        type=sphere
+        position=0.3264 -1.341 0.0595
+        rotation=0 0 0
+        params=0.018 0 0 0
         material=2506897942489f90
     }
 

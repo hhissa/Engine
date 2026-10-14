@@ -53,6 +53,41 @@ material sprinkle4 {
     base_map=white
 }
 
+material cherry {
+    id=b000d773ccfc7950
+    base_colour=0.75 0.04 0.08 1
+    roughness=0.15
+    base_map=white
+}
+
+material cherry_stem {
+    id=82d94ff560a551a9
+    base_colour=0.35 0.28 0.1 1
+    roughness=0.8
+    base_map=white
+}
+
+material wafer {
+    id=019df95cbedb7d50
+    base_colour=0.92 0.78 0.5 1
+    roughness=0.8
+    base_map=white
+}
+
+material sleeve {
+    id=f92698b4ffab0b6f
+    base_colour=0.96 0.96 0.98 1
+    roughness=0.9
+    base_map=white
+}
+
+material sleeve_stripe {
+    id=d59c1c529674be4c
+    base_colour=0.35 0.55 0.95 1
+    roughness=0.9
+    base_map=white
+}
+
 light light0 {
     type=directional
     direction=0.3 -1 -0.6
@@ -295,6 +330,94 @@ layer layer3 {
         rotation=2.754 1.02 2.773
         params=0.016 0.03 0 0
         material=befa0d840bd44a31
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0.01
+
+    primitive p26 {
+        type=sphere
+        position=0.04 -2.78 -0.04
+        rotation=0 0 0
+        params=0.08 0 0 0
+        material=b000d773ccfc7950
+    }
+
+    primitive p27 {
+        type=capsule
+        position=0.07 -2.925 -0.01
+        rotation=1.387 1.209 -1.387
+        params=0.01 0.08617 0 0
+        material=82d94ff560a551a9
+    }
+
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0
+
+    primitive p28 {
+        type=box
+        position=-0.2 -2.72 0.12
+        rotation=0.25 0.4 0.35
+        params=0.05 0.24 0.035 0
+        material=019df95cbedb7d50
+    }
+
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0
+
+    primitive p29 {
+        type=torus
+        position=0 -2 0
+        rotation=0 0 0
+        params=0.3133 0.012 0 0
+        material=8470fb8ff178d0ce
+    }
+
+    primitive p30 {
+        type=torus
+        position=0 -1.85 0
+        rotation=0 0 0
+        params=0.2733 0.012 0 0
+        material=8470fb8ff178d0ce
+    }
+
+    primitive p31 {
+        type=torus
+        position=0 -1.7 0
+        rotation=0 0 0
+        params=0.2333 0.012 0 0
+        material=8470fb8ff178d0ce
+    }
+
+}
+
+layer layer7 {
+    operation=union
+    smoothness=0
+
+    primitive p32 {
+        type=capped_cone
+        position=0 -1.27 0
+        rotation=0 0 0
+        params=0.33 0.215 0.05 0
+        material=f92698b4ffab0b6f
+    }
+
+    primitive p33 {
+        type=torus
+        position=0 -1.48 0
+        rotation=0 0 0
+        params=0.15 0.012 0 0
+        material=d59c1c529674be4c
     }
 
 }

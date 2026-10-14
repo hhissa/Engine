@@ -1,0 +1,217 @@
+#sdf scene file
+version=0.1
+# Theresa's morning -- two cups set out on the kitchen table, the
+# kettle beside them, one chair pulled out.
+ambient=0.4
+
+material kitchen_table {
+    id=273ec785fe0b767f
+    base_colour=0.55 0.4 0.26 1
+    base_map=woodpanel
+    uv_scale=0.7
+    roughness=0.6
+}
+
+material cups {
+    id=41c64e9a55e64de7
+    base_colour=0.96 0.96 0.94 1
+    roughness=0.2
+    base_map=white
+}
+
+material cup_blue {
+    id=5716d8bfb2dcf783
+    base_colour=0.35 0.5 0.75 1
+    roughness=0.2
+    base_map=white
+}
+
+material kettle {
+    id=d557160220ba1bcf
+    base_colour=0.82 0.82 0.84 1
+    roughness=0.15
+    metallic=1
+    base_map=white
+}
+
+material sugar_bowl {
+    id=05da6a0a7bf3698e
+    base_colour=0.95 0.93 0.88 1
+    roughness=0.3
+    base_map=white
+}
+
+light light0 {
+    type=directional
+    direction=0.6 -0.5 0.5
+    colour=1 0.9 0.75
+    intensity=1.1
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0
+
+    primitive p0 {
+        type=box
+        position=0 0.05 0
+        rotation=0 0 0
+        params=1.6 0.05 0.9 0
+        material=273ec785fe0b767f
+    }
+
+}
+
+layer layer1 {
+    operation=union
+    smoothness=0.01
+
+    primitive p1 {
+        type=capped_cylinder
+        position=-0.35 -0.1 0
+        rotation=0 0 0
+        params=0.09 0.1 0 0
+        material=41c64e9a55e64de7
+    }
+
+    primitive p2 {
+        type=capped_cylinder
+        position=0.25 -0.1 0
+        rotation=0 0 0
+        params=0.09 0.1 0 0
+        material=5716d8bfb2dcf783
+    }
+
+}
+
+layer layer2 {
+    operation=subtraction
+    smoothness=0.005
+
+    primitive p3 {
+        type=capped_cylinder
+        position=-0.35 -0.13 0
+        rotation=0 0 0
+        params=0.078 0.09 0 0
+        material=41c64e9a55e64de7
+    }
+
+    primitive p4 {
+        type=capped_cylinder
+        position=0.25 -0.13 0
+        rotation=0 0 0
+        params=0.078 0.09 0 0
+        material=5716d8bfb2dcf783
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0
+
+    primitive p5 {
+        type=torus
+        position=-0.245 -0.1 0
+        rotation=1.571 0 0
+        params=0.045 0.012 0 0
+        material=41c64e9a55e64de7
+    }
+
+    primitive p6 {
+        type=capped_cylinder
+        position=-0.35 -0.005 0
+        rotation=0 0 0
+        params=0.13 0.005 0 0
+        material=41c64e9a55e64de7
+    }
+
+    primitive p7 {
+        type=torus
+        position=0.355 -0.1 0
+        rotation=1.571 0 0
+        params=0.045 0.012 0 0
+        material=5716d8bfb2dcf783
+    }
+
+    primitive p8 {
+        type=capped_cylinder
+        position=0.25 -0.005 0
+        rotation=0 0 0
+        params=0.13 0.005 0 0
+        material=5716d8bfb2dcf783
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0.04
+
+    primitive p9 {
+        type=ellipsoid
+        position=-0.9 -0.16 0.3
+        rotation=0 0 0
+        params=0.2 0.16 0.2 0
+        material=d557160220ba1bcf
+    }
+
+    primitive p10 {
+        type=sphere
+        position=-0.9 -0.33 0.3
+        rotation=0 0 0
+        params=0.035 0 0 0
+        material=d557160220ba1bcf
+    }
+
+    primitive p11 {
+        type=capsule
+        position=-0.665 -0.21 0.3
+        rotation=0 0 -2.26
+        params=0.03 0.1101 0 0
+        material=d557160220ba1bcf
+    }
+
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0
+
+    primitive p12 {
+        type=torus
+        position=-0.9 -0.3 0.3
+        rotation=1.571 0 0
+        params=0.14 0.018 0 0
+        material=d557160220ba1bcf
+    }
+
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0.01
+
+    primitive p13 {
+        type=ellipsoid
+        position=0 -0.06 0.45
+        rotation=0 0 0
+        params=0.09 0.07 0.09 0
+        material=05da6a0a7bf3698e
+    }
+
+}
+
+layer layer7 {
+    operation=union
+    smoothness=0
+
+    primitive p14 {
+        type=capsule
+        position=0.04 -0.006 -0.285
+        rotation=-0.3953 -0.3446 -1.431
+        params=0.01 0.09657 0 0
+        material=d557160220ba1bcf
+    }
+
+}

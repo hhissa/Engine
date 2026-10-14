@@ -215,9 +215,24 @@ From the repo root:
 ./post-build.sh   # compiles every shader to SPIR-V and copies assets/ into bin/
 ```
 
-(`build-all.bat` / `post-build.bat` on Windows.)
-
 The engine builds as a shared library and the executables link against it with an `$ORIGIN` rpath, so everything runs out of `bin/` without installing anything.
+
+### Windows
+
+Builds the engine (`engine.dll`) and the game (`SH.exe`); testbed, tests and the Qt editors are Linux-only for now. You need:
+
+- [LLVM](https://github.com/llvm/llvm-project/releases) (`clang++` on `PATH`, version 16 or newer) plus the Visual Studio Build Tools ("Desktop development with C++"), which provide the C++ standard library and Windows SDK that clang links against
+- The [Vulkan SDK](https://vulkan.lunarg.com/), with the **GLM headers** component ticked in the installer; it sets `VULKAN_SDK`
+
+From the repo root, in a fresh terminal (so it picks up `VULKAN_SDK`):
+
+```bat
+build-all.bat          :: debug: needs the Vulkan SDK's validation layer at run time
+build-all.bat release  :: optimised, no validation -- build this to hand the game to someone else
+post-build.bat         :: compiles every shader to SPIR-V and copies assets\ into bin\
+```
+
+Then run `bin\SH.exe` with `bin\` as the working directory (double-clicking it does that). To run the game on another machine, copy the whole `bin\` folder from a **release** build; that machine needs only a Vulkan-capable GPU driver and the [Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist).
 
 ### Run
 
@@ -265,7 +280,7 @@ Stated plainly, because the interesting engineering is here rather than in the f
 
 - **Brick pool capacity** is the binding constraint on how much of a scene can stay resident. Narrow-band quantized storage would cut it several-fold and has not been done.
 
-- **Single-platform.** The platform layer is Linux/X11; Windows build scripts exist but are not exercised.
+- **Windows is newer and less exercised than Linux.** The engine and SH build for it through a Win32 platform layer; testbed, tests and the editors are still Linux-only.
 
 ---
 
