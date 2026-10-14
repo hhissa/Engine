@@ -3,12 +3,15 @@
 #include "core/hmemory.h"
 #include "core/logger.h"
 #include "game_types.h"
+#include "platform/platform.h"
 #include <memory>
 
 // Externally-defined factory function provided by the game.
 extern std::unique_ptr<Game> create_game();
 
 int main() {
+  // Before anything opens a file -- see the function's comment.
+  Platform::set_working_directory_to_executable();
   Memory::initialize();
   auto game = create_game();
   if (!game) {

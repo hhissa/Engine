@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <iostream>
 #include <string_view>
@@ -349,6 +350,17 @@ void set_environment_variable(std::string_view name, std::string_view value,
                               b8 overwrite) {
   setenv(std::string(name).c_str(), std::string(value).c_str(),
          overwrite ? 1 : 0);
+}
+
+b8 set_working_directory_to_executable() {
+  std::error_code ec;
+  const std::filesystem::path exe =
+      std::filesystem::read_symlink("/proc/self/exe", ec);
+  if (ec || !exe.has_parent_path()) {
+    return false;
+  }
+  std::filesystem::current_path(exe.parent_path(), ec);
+  return !ec;
 }
 
 } // namespace Platform

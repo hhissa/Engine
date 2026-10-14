@@ -7,3 +7,8 @@ bin/*.exp
 bin/*.pdb
 bin/*.ilk
 bin/*.rsp
+
+# Cross-compiled Windows build + itch.io packages (tools/build-windows.sh,
+# tools/package-windows.sh)
+/build/
+/dist/

@@ -27,6 +27,11 @@ KAPI std::string user_cache_directory();
 // write lands in the same C runtime the engine's getenv() calls read from.
 KAPI void set_environment_variable(std::string_view name,
                                    std::string_view value, b8 overwrite);
+// chdir()s to the directory holding the running executable. Every asset path
+// is relative ("assets/..."), and so are the save/settings files, so without
+// this a game launched from anywhere but its own folder (a desktop shortcut,
+// a terminal elsewhere, a launcher) finds nothing. False if it couldn't.
+KAPI b8 set_working_directory_to_executable();
 } // namespace Platform
 
 // An already-existing native window handle to render into, rather than one

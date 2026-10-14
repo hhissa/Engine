@@ -373,6 +373,29 @@ void set_environment_variable(std::string_view name, std::string_view value,
   _putenv_s(name_str.c_str(), std::string(value).c_str());
 }
 
+b8 set_working_directory_to_executable() {
+  // nullptr = the .exe, not engine.dll (which lives beside it anyway).
+  std::wstring path(MAX_PATH, L'\0');
+  for (;;) {
+    const DWORD length = GetModuleFileNameW(
+        nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (length == 0) {
+      return false;
+    }
+    if (length < path.size()) {
+      path.resize(length);
+      break;
+    }
+    path.resize(path.size() * 2);
+  }
+  const size_t slash = path.find_last_of(L"\\/");
+  if (slash == std::wstring::npos) {
+    return false;
+  }
+  path.resize(slash);
+  return SetCurrentDirectoryW(path.c_str()) != 0;
+}
+
 } // namespace Platform
 
 #endif // KPLATFORM_WINDOWS
