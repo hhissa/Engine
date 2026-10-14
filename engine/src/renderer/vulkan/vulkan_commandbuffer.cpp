@@ -1,4 +1,5 @@
 #include "vulkan_commandbuffer.h"
+#include "../../platform/platform.h"
 
 VulkanCommandBuffer::VulkanCommandBuffer(VulkanContext &context,
                                          VkCommandPool pool, b8 is_primary)
@@ -103,7 +104,16 @@ void VulkanCommandBuffer::end_single_use(
   submit_info.pCommandBuffers = &raw_handle;
   VK_CHECK(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
 
-  VK_CHECK(vkQueueWaitIdle(queue));
+  // How long the GPU ran before a failure is the tell between a hang/TDR
+  // (Windows resets the GPU after ~2s of one submission: VK_ERROR_DEVICE_LOST
+  // at ~2000ms) and a fault (fails almost at once).
+  const f64 wait_start = Platform::get_absolute_time();
+  const VkResult wait_result = vkQueueWaitIdle(queue);
+  if (wait_result != VK_SUCCESS) {
+    KERROR("Single-use submission failed after {:.0f} ms of GPU work.",
+           (Platform::get_absolute_time() - wait_start) * 1000.0);
+  }
+  VK_CHECK(wait_result);
 
   // command_buffer goes out of scope here — ~VulkanCommandBuffer() runs,
   // which is the free() call. No explicit free needed; that's the point

@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include "../../core/asserts.h"
+#include "../../core/logger.h"
 #include "../../defines.h"
 
 #include <memory>
@@ -8,9 +9,20 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
+// vulkan_utils.h -- declared here rather than included, since that header
+// includes this one.
+const char *vulkan_result_string(VkResult result, b8 get_extended);
+
+// Logs WHICH result a failed call returned (VK_ERROR_DEVICE_LOST vs
+// VK_ERROR_OUT_OF_DEVICE_MEMORY are different bugs) before asserting.
 #define VK_CHECK(expr)                                                         \
   {                                                                            \
-    KASSERT((expr) == VK_SUCCESS);                                             \
+    const VkResult vk_check_result_ = (expr);                                  \
+    if (vk_check_result_ != VK_SUCCESS) {                                      \
+      KERROR("{} failed: {}", #expr,                                           \
+             vulkan_result_string(vk_check_result_, true));                    \
+    }                                                                          \
+    KASSERT(vk_check_result_ == VK_SUCCESS);                                   \
   }
 
 struct VulkanSwapchainSupportInfo {

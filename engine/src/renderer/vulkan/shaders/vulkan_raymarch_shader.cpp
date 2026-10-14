@@ -9,6 +9,7 @@
 #include "../vulkan_commandbuffer.h"
 #include "../vulkan_image.h"
 
+#include "../../../platform/platform.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -818,6 +819,8 @@ constexpr u32 kChunkCacheWords =
 // several hundred chunks published). This is the cap on cache throughput in
 // both directions, and at ~2.9MB per region it is cheap to widen.
 constexpr u32 kChunkCacheStagingRegions = 8;
+// See prewarm_chunk_cache()'s batch_cap.
+constexpr u32 kPrewarmChunksPerSubmission = 1;
 // Threads per workgroup in Builtin.ChunkVoxelize.comp.glsl (8 * 8 * 1), which
 // the 1-D cache-pass dispatches below divide the cell count by. The shader
 // flattens the same way in cache_cell_index(); the two MUST agree, and did
@@ -4816,7 +4819,27 @@ void VulkanRaymarchShader::prewarm_chunk_cache() {
     max_chunks = std::strtoull(limit, nullptr, 10);
   }
 
-  const u32 batch_cap = kChunkCacheStagingRegions;
+  // ONE chunk per submission, not a staging-region-sized batch: a submission
+  // is one uninterruptible stretch of GPU work, and Windows resets the driver
+  // (TDR -> VK_ERROR_DEVICE_LOST) once one runs past ~2s. A cold 4u chunk in
+  // a dense room costs 100-200ms on a GTX 1060-class GPU, so 8 per
+  // submission measured 1.6s for TheresasRoom on the dev T2000 and crashed
+  // the GTX 1060 outright; one per submission stays an order of magnitude
+  // under. The extra submit/wait per chunk is noise next to the bake.
+  // Chunks baked per GPU submission. A submission is one uninterruptible
+  // stretch of GPU work, and Windows resets the driver (TDR ->
+  // VK_ERROR_DEVICE_LOST) once one runs past ~2s. The bake is LATENCY-bound
+  // -- each thread walks a whole brick's voxels against the room's
+  // primitives -- so even one dense chunk takes ~800ms on the dev T2000, and
+  // 8 per submission measured 1.5s for TheresasRoom's 4u level and crashed a
+  // GTX 1060 outright. The KENGINE_PREWARM_BATCH override is for measuring.
+  u32 batch_cap = kPrewarmChunksPerSubmission;
+  if (const char *batch_env = std::getenv("KENGINE_PREWARM_BATCH")) {
+    batch_cap = std::clamp<u32>(
+        static_cast<u32>(std::strtoul(batch_env, nullptr, 10)), 1,
+        kChunkCacheStagingRegions);
+  }
+  const f64 prewarm_start = Platform::get_absolute_time();
   struct PrewarmEntry {
     u64 key;
     glm::ivec3 coord;
@@ -4847,41 +4870,65 @@ void VulkanRaymarchShader::prewarm_chunk_cache() {
   // Chunks at the current level that turned out to hold surface -- the seed
   // for the next, finer level.
   std::vector<glm::ivec3> occupied;
+  // Slowest single submission of each phase at the current level -- see
+  // flush() for why it matters.
+  f64 slowest_evict_ms = 0.0, slowest_voxelize_ms = 0.0, slowest_gather_ms = 0.0;
 
   auto flush = [&]() {
     if (batch.empty()) {
       return;
     }
-    auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
-        *context_, context_->device.graphics_command_pool);
+    // Evict, voxelize and gather go in separate submissions so each phase's
+    // GPU time is measured on its own (see the per-level log line). It is
+    // voxelize that runs long -- evict and gather are milliseconds -- which
+    // is what batch_cap is sized against.
+    auto submit = [&](auto &&record, f64 &slowest_ms) {
+      auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+          *context_, context_->device.graphics_command_pool);
+      record(*cmd);
+      const f64 start = Platform::get_absolute_time();
+      VulkanCommandBuffer::end_single_use(
+          *context_, context_->device.graphics_command_pool, std::move(cmd),
+          context_->device.graphics_queue);
+      slowest_ms = std::max(slowest_ms,
+                            (Platform::get_absolute_time() - start) * 1000.0);
+    };
     // Free whatever these slots already hold before rebaking into them, or
     // the pool drains -- but ONLY the ones a previous batch actually baked.
     // See baked_slots.
-    {
-      std::vector<i32> slots;
-      slots.reserve(batch.size());
-      for (const PrewarmEntry &entry : batch) {
-        if (baked_slots.count(entry.slot) != 0) {
-          slots.push_back(static_cast<i32>(entry.slot));
-        }
-      }
-      evict_chunk_batch(*cmd, slots);
-    }
-    voxelize_entries.clear();
-    for (const PrewarmEntry &entry : batch) {
-      voxelize_entries.push_back({static_cast<i32>(entry.slot),
-                                  entry.world_min.x, entry.world_min.y,
-                                  entry.world_min.z, entry.cell_size});
-    }
-    voxelize_chunk_batch(*cmd, voxelize_entries, static_cast<u32>(layer_count_),
-                         max_smoothness_, {});
-    for (const PrewarmEntry &entry : batch) {
-      record_cache_gather(*cmd, entry.slot, entry.region, entry.world_min,
-                          entry.cell_size);
-    }
-    VulkanCommandBuffer::end_single_use(
-        *context_, context_->device.graphics_command_pool, std::move(cmd),
-        context_->device.graphics_queue);
+    submit(
+        [&](VulkanCommandBuffer &cmd) {
+          std::vector<i32> slots;
+          slots.reserve(batch.size());
+          for (const PrewarmEntry &entry : batch) {
+            if (baked_slots.count(entry.slot) != 0) {
+              slots.push_back(static_cast<i32>(entry.slot));
+            }
+          }
+          evict_chunk_batch(cmd, slots);
+        },
+        slowest_evict_ms);
+    submit(
+        [&](VulkanCommandBuffer &cmd) {
+          voxelize_entries.clear();
+          for (const PrewarmEntry &entry : batch) {
+            voxelize_entries.push_back({static_cast<i32>(entry.slot),
+                                        entry.world_min.x, entry.world_min.y,
+                                        entry.world_min.z, entry.cell_size});
+          }
+          voxelize_chunk_batch(cmd, voxelize_entries,
+                               static_cast<u32>(layer_count_), max_smoothness_,
+                               {});
+        },
+        slowest_voxelize_ms);
+    submit(
+        [&](VulkanCommandBuffer &cmd) {
+          for (const PrewarmEntry &entry : batch) {
+            record_cache_gather(cmd, entry.slot, entry.region, entry.world_min,
+                                entry.cell_size);
+          }
+        },
+        slowest_gather_ms);
     for (const PrewarmEntry &entry : batch) {
       baked_slots.insert(entry.slot);
     }
@@ -4927,7 +4974,7 @@ void VulkanRaymarchShader::prewarm_chunk_cache() {
     }
     const u32 region = acquire_cache_region();
     if (region == kInvalidChunkSlot) {
-      return; // cannot happen while batch_cap == kChunkCacheStagingRegions
+      return; // cannot happen while batch_cap <= kChunkCacheStagingRegions
     }
     batch.push_back({key, coord,
                      level * kMaxResidentChunks +
@@ -4969,13 +5016,17 @@ void VulkanRaymarchShader::prewarm_chunk_cache() {
       break;
     }
     occupied.clear();
+    slowest_evict_ms = slowest_voxelize_ms = slowest_gather_ms = 0.0;
     for (const glm::ivec3 &coord : frontier) {
       enqueue(coord, static_cast<u32>(level), level_world_size,
               level_cell_size);
     }
     flush();
-    KINFO("  pre-warm level {} ({:.0f}u chunks): {} visited, {} hold surface",
-         level, level_world_size, frontier.size(), occupied.size());
+    KINFO("  pre-warm level {} ({:.0f}u chunks): {} visited, {} hold surface; "
+         "slowest submission: evict {:.0f} ms, voxelize {:.0f} ms, gather "
+         "{:.0f} ms",
+         level, level_world_size, frontier.size(), occupied.size(),
+         slowest_evict_ms, slowest_voxelize_ms, slowest_gather_ms);
     if (level == 0) {
       break;
     }
@@ -5013,10 +5064,11 @@ void VulkanRaymarchShader::prewarm_chunk_cache() {
         context_->device.graphics_queue);
   }
 
-  KINFO("Chunk cache pre-warm complete: {} chunks visited, {} baked, {} "
-       "cached ({} empty, not worth a file), {} already on disk, {} refused "
-       "as too dense.",
-       visited, baked, stored, baked - stored, already, chunk_cache_too_dense_);
+  KINFO("Chunk cache pre-warm complete in {:.1f} s ({} chunk(s) per "
+       "submission): {} chunks visited, {} baked, {} cached ({} empty, not "
+       "worth a file), {} already on disk, {} refused as too dense.",
+       Platform::get_absolute_time() - prewarm_start, batch_cap, visited,
+       baked, stored, baked - stored, already, chunk_cache_too_dense_);
 }
 
 void VulkanRaymarchShader::reset_chunked_field() {
