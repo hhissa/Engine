@@ -50,7 +50,9 @@ done
 } > "$OUT/lib/vulkan-1.def"
 "$DLLTOOL" -m i386:x86-64 -d "$OUT/lib/vulkan-1.def" -l "$OUT/lib/libvulkan-1.a"
 
-COMMON=(-O2 -std=c++20 -fdeclspec -DNDEBUG -D_CRT_SECURE_NO_WARNINGS -isystem "$OUT/include")
+# -g1: line tables only, so a crash report's "engine.dll+0x..." can be
+# turned back into a source line (see the symbols/ step at the end).
+COMMON=(-O2 -g1 -std=c++20 -fdeclspec -DNDEBUG -D_CRT_SECURE_NO_WARNINGS -isystem "$OUT/include")
 JOBS=$(nproc)
 
 # compile <module> <define> <include flags...> -- <sources...>
@@ -78,6 +80,16 @@ compile SH -DKIMPORT -Igames/SH/src -Iengine/src -- "${sh_sources[@]}"
 # -mwindows: GUI subsystem, so double-clicking the game doesn't also open a
 # console window. Log output still lands in console.log.
 "$CXX" -mwindows -o "$OUT/SH.exe" "$OBJ"/SH/*.o -L"$OUT/lib" -lengine
+
+# Keep the unstripped binaries for symbolizing crash reports:
+#   llvm-addr2line -fipe build/windows/symbols/engine.dll 0x180000000+<offset>
+# (an offset from console.log plus the module's image base, which
+# `llvm-readobj --file-headers` prints), and ship stripped copies.
+mkdir -p "$OUT/symbols"
+for f in engine.dll SH.exe; do
+  cp "$OUT/$f" "$OUT/symbols/$f"
+  "$LLVM_MINGW/bin/llvm-strip" --strip-debug "$OUT/$f"
+done
 
 cp "$LLVM_MINGW/$TARGET/bin/libc++.dll" "$LLVM_MINGW/$TARGET/bin/libunwind.dll" "$OUT/"
 echo "Built $OUT/SH.exe"

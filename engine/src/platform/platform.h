@@ -32,6 +32,14 @@ KAPI void set_environment_variable(std::string_view name,
 // this a game launched from anywhere but its own folder (a desktop shortcut,
 // a terminal elsewhere, a launcher) finds nothing. False if it couldn't.
 KAPI b8 set_working_directory_to_executable();
+// A blocking error box on Windows -- where the game has no console, so
+// without one a failed launch just vanishes. stderr on Linux.
+KAPI void show_error_dialog(std::string_view message);
+// Windows: logs an unhandled crash (exception code, module+offset) or an
+// uncaught C++ exception to console.log and tells the player where to find
+// it, instead of the process silently disappearing. No-op on Linux, where
+// the terminal already shows the signal.
+KAPI void install_crash_handler();
 } // namespace Platform
 
 // An already-existing native window handle to render into, rather than one

@@ -28,6 +28,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <format>
 #include <iostream>
 #include <string_view>
@@ -394,6 +395,81 @@ b8 set_working_directory_to_executable() {
   }
   path.resize(slash);
   return SetCurrentDirectoryW(path.c_str()) != 0;
+}
+
+void show_error_dialog(std::string_view message) {
+  MessageBoxW(nullptr, widen(message).c_str(), L"SH",
+              MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+}
+
+namespace {
+
+constexpr std::string_view kCrashAdvice =
+    "\n\nconsole.log in the game's folder has the details -- please send it "
+    "along when reporting this.";
+
+// Where an address lives, as "engine.dll+0x1a2b3c" -- symbolizable against
+// build/windows/symbols/ with llvm-addr2line.
+std::string describe_address(const void *address) {
+  HMODULE module = nullptr;
+  if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          static_cast<LPCSTR>(address), &module)) {
+    return std::format("{}", address);
+  }
+  char path[MAX_PATH] = {};
+  GetModuleFileNameA(module, path, MAX_PATH);
+  std::string_view name(path);
+  name = name.substr(name.find_last_of("\\/") + 1);
+  return std::format("{}+0x{:X}", name,
+                     static_cast<const char *>(address) -
+                         reinterpret_cast<const char *>(module));
+}
+
+LONG WINAPI crash_filter(EXCEPTION_POINTERS *info) {
+  const EXCEPTION_RECORD *record = info->ExceptionRecord;
+  std::string what =
+      std::format("Crashed: exception 0x{:08X} at {}", record->ExceptionCode,
+                  describe_address(record->ExceptionAddress));
+  if (record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
+      record->NumberParameters >= 2) {
+    what += std::format(
+        " ({} address 0x{:X})",
+        record->ExceptionInformation[0] == 0   ? "reading"
+        : record->ExceptionInformation[0] == 1 ? "writing"
+                                               : "executing",
+        record->ExceptionInformation[1]);
+  } else if (record->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
+    what += " (stack overflow)";
+  }
+  KFATAL("{}", what);
+  show_error_dialog("SH crashed.\n\n" + what + std::string(kCrashAdvice));
+  return EXCEPTION_EXECUTE_HANDLER;
+}
+
+void terminate_handler() {
+  std::string what = "Uncaught C++ exception";
+  if (std::exception_ptr current = std::current_exception()) {
+    try {
+      std::rethrow_exception(current);
+    } catch (const std::exception &e) {
+      what += std::format(": {}", e.what());
+    } catch (...) {
+    }
+  }
+  KFATAL("{}", what);
+  show_error_dialog("SH crashed.\n\n" + what + std::string(kCrashAdvice));
+  std::_Exit(3);
+}
+
+} // namespace
+
+void install_crash_handler() {
+  // Keeps enough stack in reserve for crash_filter to log a stack overflow.
+  ULONG guarantee = 64 * 1024;
+  SetThreadStackGuarantee(&guarantee);
+  SetUnhandledExceptionFilter(crash_filter);
+  std::set_terminate(terminate_handler);
 }
 
 } // namespace Platform

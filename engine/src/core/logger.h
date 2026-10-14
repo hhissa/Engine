@@ -1,6 +1,7 @@
 #pragma once
 #include "../defines.h"
 #include <format>
+#include <string>
 #include <string_view>
 
 #define LOG_WARN_ENABLED 1
@@ -25,6 +26,9 @@ namespace Logger {
 b8 initialize_logging();
 void shutdown_logging();
 KAPI void log_output(log_level level, std::string_view message);
+// The most recent FATAL message (without its "[FATAL]: " prefix), or empty.
+// What a "the game failed to start" dialog shows a player.
+KAPI std::string last_fatal_message();
 template <typename... Args>
 void log_output(log_level level, std::string_view fmt, Args &&...args) {
   log_output(level, std::vformat(fmt, std::make_format_args(args...)));

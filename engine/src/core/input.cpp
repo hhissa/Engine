@@ -35,6 +35,19 @@ bool g_initialized = false;
 InputState g_state{};
 EventSystem *g_events = nullptr; // non-owning; provided to initialize()
 
+// Every process_*() fires through here. The platform layer can deliver input
+// before initialize() or after shutdown(): Windows sends WM_SIZE (and mouse
+// messages, if the cursor is over the window) synchronously from inside
+// CreateWindowEx/ShowWindow -- i.e. while Application is still constructing
+// its PlatformLayer, before input::initialize() has run. Dereferencing the
+// null g_events there crashed every Windows launch instantly (X11 only
+// delivers events through the pump, so Linux never hit it).
+void fire(EventCode code, EventContext context) {
+  if (g_events) {
+    g_events->fire(code, nullptr, context);
+  }
+}
+
 } // namespace
 
 void initialize(EventSystem &events) {
@@ -68,9 +81,9 @@ void process_key(Key key, bool pressed) {
 
     EventContext context{};
     context.data.u16[0] = static_cast<u16>(key);
-    g_events->fire(pressed ? EventCode::EVENT_CODE_KEY_PRESSED
-                           : EventCode::EVENT_CODE_KEY_RELEASED,
-                   nullptr, context);
+    fire(pressed ? EventCode::EVENT_CODE_KEY_PRESSED
+                 : EventCode::EVENT_CODE_KEY_RELEASED,
+         context);
   }
 }
 
@@ -81,9 +94,9 @@ void process_button(Button button, bool pressed) {
 
     EventContext context{};
     context.data.u16[0] = static_cast<u16>(button);
-    g_events->fire(pressed ? EventCode::EVENT_CODE_BUTTON_PRESSED
-                           : EventCode::EVENT_CODE_BUTTON_RELEASED,
-                   nullptr, context);
+    fire(pressed ? EventCode::EVENT_CODE_BUTTON_PRESSED
+                 : EventCode::EVENT_CODE_BUTTON_RELEASED,
+         context);
   }
 }
 
@@ -98,7 +111,7 @@ void process_mouse_move(i16 x, i16 y) {
   EventContext context{};
   context.data.u16[0] = static_cast<u16>(x);
   context.data.u16[1] = static_cast<u16>(y);
-  g_events->fire(EventCode::EVENT_CODE_MOUSE_MOVED, nullptr, context);
+  fire(EventCode::EVENT_CODE_MOUSE_MOVED, context);
 }
 
 void process_mouse_wheel(i8 z_delta) {
@@ -106,14 +119,14 @@ void process_mouse_wheel(i8 z_delta) {
 
   EventContext context{};
   context.data.u8[0] = static_cast<u8>(z_delta);
-  g_events->fire(EventCode::EVENT_CODE_MOUSE_WHEEL, nullptr, context);
+  fire(EventCode::EVENT_CODE_MOUSE_WHEEL, context);
 }
 
 void process_resize(u16 width, u16 height) {
   EventContext context{};
   context.data.u16[0] = width;
   context.data.u16[1] = height;
-  g_events->fire(EventCode::EVENT_CODE_RESIZED, nullptr, context);
+  fire(EventCode::EVENT_CODE_RESIZED, context);
 }
 
 // --- Keyboard queries -------------------------------------------------------

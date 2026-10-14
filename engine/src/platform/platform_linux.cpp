@@ -363,6 +363,12 @@ b8 set_working_directory_to_executable() {
   return !ec;
 }
 
+void show_error_dialog(std::string_view message) {
+  std::cerr << message << '\n';
+}
+
+void install_crash_handler() {}
+
 } // namespace Platform
 input::Key translate_keycode(u32 x_keycode) {
   using input::Key;

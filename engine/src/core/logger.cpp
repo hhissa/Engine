@@ -14,6 +14,7 @@ namespace {
 // default constructor — the log file path is only known once
 // initialize_logging() runs, not at static-init time.
 std::optional<FileHandle> log_file;
+std::string last_fatal;
 
 void append_to_log_file(std::string_view message) {
   if (log_file && log_file->is_valid()) {
@@ -37,6 +38,8 @@ b8 initialize_logging() {
 };
 void shutdown_logging() { log_file.reset(); };
 
+std::string last_fatal_message() { return last_fatal; }
+
 void log_output(log_level level, std::string_view message) {
   constexpr std::array<std::string_view, 6> level_strings = {
       "[FATAL]: ", "[ERROR]: ", "[WARN]:  ",
@@ -48,6 +51,9 @@ void log_output(log_level level, std::string_view message) {
       "{}{}\n", level_strings[static_cast<size_t>(level)], message);
 
   std::cout << out_message;
+  if (level == log_level::FATAL) {
+    last_fatal = message;
+  }
 
   // Queue a copy to be written to the log file.
   append_to_log_file(out_message);
