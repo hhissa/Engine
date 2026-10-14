@@ -4,6 +4,7 @@
 
 #if KPLATFORM_LINUX
 #include <alsa/asoundlib.h>
+#include <mpg123.h>
 #elif KPLATFORM_WINDOWS
 // NOGDI: wingdi.h's `#define ERROR 0` would break KERROR -- see
 // platform_win32.cpp.
@@ -242,6 +243,220 @@ AudioPlayer &player() {
   return instance;
 }
 
+// How long a track takes to fade out when it's replaced or stopped.
+constexpr f32 kMusicFadeSeconds = 1.5f;
+
+// The music player -- see audio.h. Its own thread and its own ALSA stream,
+// separate from AudioPlayer's, so a cue never interrupts the music (the
+// sound server mixes the two streams). The track is decoded by libmpg123 a
+// slice at a time as it's written rather than up front, so a multi-minute
+// track costs no load time and a few KB of memory.
+class MusicPlayer {
+public:
+  ~MusicPlayer() {
+    {
+      std::lock_guard lock(mutex_);
+      stopping_.store(true, std::memory_order_relaxed);
+    }
+    wake_.notify_all();
+    if (thread_.joinable()) {
+      thread_.join();
+    }
+  }
+
+  void play(std::string_view name) {
+    std::lock_guard lock(mutex_);
+    if (requested_ == name) {
+      return; // already playing (or fading to silence) -- see audio.h
+    }
+    requested_ = name;
+    // stream() watches generation_ and fades out once it moves on.
+    generation_.fetch_add(1, std::memory_order_relaxed);
+    if (!thread_.joinable()) {
+      thread_ = std::thread([this] { run(); });
+    }
+    wake_.notify_one();
+  }
+
+private:
+  void run() {
+    mpg123_init(); // a no-op since mpg123 1.27, required before it
+    u64 consumed = 0;
+    for (;;) {
+      std::string track;
+      {
+        std::unique_lock lock(mutex_);
+        wake_.wait(lock, [&] {
+          return stopping_.load(std::memory_order_relaxed) ||
+                 generation_.load(std::memory_order_relaxed) != consumed;
+        });
+        if (stopping_.load(std::memory_order_relaxed)) {
+          return;
+        }
+        track = requested_;
+        consumed = generation_.load(std::memory_order_relaxed);
+      }
+      if (!track.empty() && !failed_.contains(track)) {
+        stream(track, consumed);
+      }
+    }
+  }
+
+  // Loops `track` until a play()/stop() newer than `generation` arrives,
+  // then fades it out and returns.
+  void stream(const std::string &track, u64 generation) {
+    const std::string path = "assets/sounds/" + track + ".mp3";
+    int error = MPG123_OK;
+    mpg123_handle *decoder = mpg123_new(nullptr, &error);
+    if (!decoder) {
+      KERROR("Music '{}': {}.", path, mpg123_plain_strerror(error));
+      failed_.insert(track);
+      return;
+    }
+    // Errors are reported through KERROR below, not libmpg123's stderr.
+    mpg123_param(decoder, MPG123_ADD_FLAGS, MPG123_QUIET, 0);
+    // Always decode to 16-bit stereo, whatever the file is, so the ALSA
+    // stream's format only depends on the sample rate.
+    mpg123_format_none(decoder);
+    const long *rates = nullptr;
+    size_t rate_count = 0;
+    mpg123_rates(&rates, &rate_count);
+    for (size_t i = 0; i < rate_count; ++i) {
+      mpg123_format(decoder, rates[i], MPG123_STEREO, MPG123_ENC_SIGNED_16);
+    }
+    long rate = 0;
+    int channels = 0;
+    int encoding = 0;
+    if (mpg123_open(decoder, path.c_str()) != MPG123_OK ||
+        mpg123_getformat(decoder, &rate, &channels, &encoding) != MPG123_OK) {
+      KERROR("Music '{}' couldn't be opened: {}.", path,
+             mpg123_strerror(decoder));
+      failed_.insert(track);
+      mpg123_delete(decoder);
+      return;
+    }
+
+    snd_pcm_t *pcm = nullptr;
+    int result = snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, 0);
+    if (result >= 0) {
+      result = snd_pcm_set_params(pcm, SND_PCM_FORMAT_S16_LE,
+                                  SND_PCM_ACCESS_RW_INTERLEAVED, 2,
+                                  static_cast<unsigned>(rate),
+                                  /*soft_resample=*/1,
+                                  /*latency_us=*/200000);
+    }
+    if (result < 0) {
+      if (!device_warned_) {
+        device_warned_ = true;
+        KWARN("No audio output ({}) -- music will be silent.",
+              snd_strerror(result));
+      }
+      if (pcm) {
+        snd_pcm_close(pcm);
+      }
+      mpg123_close(decoder);
+      mpg123_delete(decoder);
+      return;
+    }
+
+    // 20ms slices, for the same reason as AudioPlayer::play_blocking().
+    const size_t slice_frames = std::max<size_t>(static_cast<size_t>(rate) / 50, 1);
+    std::vector<i16> slice(slice_frames * 2);
+    const u64 fade_frames = std::max<u64>(
+        static_cast<u64>(static_cast<f32>(rate) * kMusicFadeSeconds), 1);
+    u64 faded = 0; // frames into the fade-out; 0 = not fading yet
+    bool fading = false;
+    bool rewound_empty = false; // guards against spinning on an empty file
+    for (;;) {
+      if (stopping_.load(std::memory_order_relaxed)) {
+        snd_pcm_drop(pcm);
+        break;
+      }
+      if (!fading && generation_.load(std::memory_order_relaxed) != generation) {
+        fading = true;
+      }
+      if (fading && faded >= fade_frames) {
+        snd_pcm_drain(pcm); // let the faded tail play out
+        break;
+      }
+
+      size_t bytes = 0;
+      const int read = mpg123_read(decoder, slice.data(),
+                                   slice.size() * sizeof(i16), &bytes);
+      const size_t frames = bytes / (2 * sizeof(i16));
+      if (read == MPG123_DONE && frames == 0) {
+        // End of the track -- loop back to the top.
+        if (rewound_empty || mpg123_seek(decoder, 0, SEEK_SET) < 0) {
+          snd_pcm_drain(pcm);
+          break;
+        }
+        rewound_empty = true;
+        continue;
+      }
+      if (read != MPG123_OK && read != MPG123_DONE &&
+          read != MPG123_NEW_FORMAT) {
+        KERROR("Music '{}' stopped: {}.", path, mpg123_strerror(decoder));
+        failed_.insert(track);
+        snd_pcm_drain(pcm);
+        break;
+      }
+      if (frames == 0) {
+        continue;
+      }
+      rewound_empty = false;
+
+      if (fading) {
+        for (size_t f = 0; f < frames; ++f, ++faded) {
+          const f32 gain =
+              faded >= fade_frames
+                  ? 0.0f
+                  : 1.0f - static_cast<f32>(faded) / static_cast<f32>(fade_frames);
+          slice[f * 2] = static_cast<i16>(static_cast<f32>(slice[f * 2]) * gain);
+          slice[f * 2 + 1] =
+              static_cast<i16>(static_cast<f32>(slice[f * 2 + 1]) * gain);
+        }
+      }
+
+      size_t written = 0;
+      bool device_lost = false;
+      while (written < frames) {
+        snd_pcm_sframes_t n = snd_pcm_writei(
+            pcm, slice.data() + written * 2, frames - written);
+        if (n < 0) {
+          // Same recover-once policy as AudioPlayer::play_blocking().
+          if (snd_pcm_recover(pcm, static_cast<int>(n), /*silent=*/1) < 0) {
+            device_lost = true;
+            break;
+          }
+          continue;
+        }
+        written += static_cast<size_t>(n);
+      }
+      if (device_lost) {
+        break;
+      }
+    }
+    snd_pcm_close(pcm);
+    mpg123_close(decoder);
+    mpg123_delete(decoder);
+  }
+
+  std::mutex mutex_;
+  std::condition_variable wake_;
+  std::string requested_;              // guarded by mutex_
+  std::atomic<u64> generation_ = 0;    // bumped by every play() that changes track
+  std::atomic<bool> stopping_ = false;
+  // Only touched by the player thread.
+  std::unordered_set<std::string> failed_;
+  bool device_warned_ = false;
+  std::thread thread_;
+};
+
+MusicPlayer &music() {
+  static MusicPlayer instance;
+  return instance;
+}
+
 #elif KPLATFORM_WINDOWS
 
 // Rebuilds a canonical 44-byte-header WAV image from a parsed clip --
@@ -321,8 +536,76 @@ AudioPlayer &player() {
   return *instance;
 }
 
+// Windows music player -- see audio.h. MCI's "mpegvideo" device decodes
+// MP3 itself and loops it with "play ... repeat", on its own thread and on
+// a separate stream from PlaySound(), so like the cue player there's no
+// thread here. MCI has no fade, so a change of track cuts straight over.
+class MusicPlayer {
+public:
+  void play(std::string_view name) {
+    std::lock_guard lock(mutex_);
+    if (current_ == name) {
+      return; // already playing -- see audio.h
+    }
+    close_current();
+    current_ = name;
+    if (current_.empty() || failed_.contains(current_)) {
+      return;
+    }
+    // Absolute, since MCI resolves a relative path against its own idea of
+    // the working directory rather than the process's.
+    char full_path[MAX_PATH];
+    const std::string path = "assets\\sounds\\" + current_ + ".mp3";
+    if (GetFullPathNameA(path.c_str(), MAX_PATH, full_path, nullptr) == 0) {
+      std::strncpy(full_path, path.c_str(), MAX_PATH - 1);
+      full_path[MAX_PATH - 1] = '\0';
+    }
+    const std::string open =
+        std::string("open \"") + full_path + "\" type mpegvideo alias " + kAlias;
+    MCIERROR error = mciSendStringA(open.c_str(), nullptr, 0, nullptr);
+    if (error == 0) {
+      open_ = true;
+      error = mciSendStringA((std::string("play ") + kAlias + " repeat").c_str(),
+                             nullptr, 0, nullptr);
+    }
+    if (error != 0) {
+      char message[256] = {};
+      mciGetErrorStringA(error, message, sizeof(message));
+      KERROR("Music '{}' couldn't be played: {}", path, message);
+      failed_.insert(current_);
+      close_current();
+    }
+  }
+
+private:
+  static constexpr const char *kAlias = "kengine_music";
+
+  void close_current() {
+    if (open_) {
+      mciSendStringA((std::string("close ") + kAlias).c_str(), nullptr, 0,
+                     nullptr);
+      open_ = false;
+    }
+  }
+
+  std::mutex mutex_;
+  std::string current_;
+  std::unordered_set<std::string> failed_;
+  bool open_ = false;
+};
+
+MusicPlayer &music() {
+  // Never destroyed, for the same loader-lock reason as player() above.
+  static MusicPlayer *instance = new MusicPlayer;
+  return *instance;
+}
+
 #endif
 
 } // namespace
 
 void audio_play_sound(std::string_view name) { player().play(name); }
+
+void audio_play_music(std::string_view name) { music().play(name); }
+
+void audio_stop_music() { music().play({}); }

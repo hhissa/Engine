@@ -6,6 +6,7 @@
 #include "game.h"
 #include "text_wrap.h"
 
+#include <audio/audio.h>
 #include <core/input.h>
 #include <core/logger.h>
 #include <renderer/renderer_frontend.h>
@@ -55,6 +56,10 @@ struct ChapterDef {
   // being driven by "Room_01".."Room_05" tag= names. initial_state is
   // then just the room on screen before anyone has said anything.
   bool speaker_staged = false;
+  // Looped under the whole chapter, from its intro intertitle through its
+  // outro -- assets/sounds/<music>.mp3 (see audio_play_music()). Empty
+  // means silence.
+  std::string music;
 };
 
 // One entry per chapter of the script (assets/conversations/Beatsheets and
@@ -75,17 +80,17 @@ const std::vector<ChapterDef> kChapters = {
       "Remember that you are only an interviewer",
       "Nothing you do will change this story",
       "Chapter 1: Introductions"},
-     /*speaker_staged=*/true},
+     /*speaker_staged=*/true, "chapter1"},
     {"Your Story", "assets/conversations/ch2_your_story.conversation",
      SceneState::MelRoom1, {"Chapter 2: Your Story"},
-     /*speaker_staged=*/true},
+     /*speaker_staged=*/true, "Chapter2"},
     {"The Cutting", "assets/conversations/ch3_the_cutting.conversation",
      SceneState::MelRoom1, {"Chapter 3: The Cutting"},
-     /*speaker_staged=*/true},
+     /*speaker_staged=*/true, "chapter3"},
     {"Why We're Really Here",
      "assets/conversations/ch4_why_were_really_here.conversation",
      SceneState::MelRoom1, {"Chapter 4: Why We're Really Here"},
-     /*speaker_staged=*/true},
+     /*speaker_staged=*/true, "chapter4"},
 };
 
 // The game's title by how many of the six the last finished playthrough
@@ -286,6 +291,9 @@ void SHGame::build_title_menu() {
 }
 
 void SHGame::start_chapter(size_t index, bool fresh) {
+  // Here as well as in begin_chapter_playing() so the music is already
+  // playing under the chapter's intro intertitle.
+  audio_play_music(kChapters[index].music);
   if (fresh && !kChapters[index].intro_lines.empty()) {
     show_intertitle(kChapters[index].intro_lines,
                     [this, index] { begin_chapter_playing(index, /*fresh=*/true); });
@@ -353,6 +361,7 @@ void SHGame::finish_chapter(std::vector<std::string> ending_lines) {
     clear_save();
     ending_lines.insert(ending_lines.begin(), game_title());
     show_intertitle(std::move(ending_lines), [this] {
+      audio_stop_music();
       active_chapter_.reset();
       stage_title_backdrop();
       build_title_menu();
@@ -386,6 +395,9 @@ void SHGame::begin_chapter_playing(size_t index, bool fresh) {
     qa_.unload_conversation(dialogue_);
   }
   const ChapterDef &chapter = kChapters[index];
+  // A no-op when start_chapter() already started this track; this is what
+  // starts it on Continue, which skips the intertitle.
+  audio_play_music(chapter.music);
   dialogue_ = qa_.load_conversation(chapter.conversation_path);
   active_chapter_ = index;
   // Wires this chapter's own "Room_01".."Room_05" tags -- the previous
