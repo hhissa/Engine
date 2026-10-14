@@ -236,6 +236,20 @@ void SHGame::setup_menus() {
   build_title_menu();
 }
 
+void SHGame::bake_cache_and_quit() {
+  KINFO("SH_BAKE_CACHE: baking every room and cutaway into the chunk cache, "
+        "then quitting.");
+  prepare_speaker_rooms(kChapters.front().conversation_path, [this] {
+    // Then the title screen's backdrop -- the first thing a player sees.
+    stage_title_backdrop();
+    renderer_request_cache_prewarm();
+    screen_ = AppScreen::Title;
+    // Long enough for the backdrop to stream in and the renderer's
+    // statistics (every 120 frames) to report what came from disk.
+    bake_quit_countdown_ = bake_cache_mode_ ? 3 : 400;
+  });
+}
+
 void SHGame::stage_title_backdrop() {
   // Title screen background -- real 3D geometry rather than just the flat
   // skybox set in initialize(): man.sdf alone at 3x, framed from

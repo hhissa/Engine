@@ -68,6 +68,11 @@ private:
 // set if no Application currently exists (see that function).
 void application_get_framebuffer_size(u32 *width, u32 *height);
 
+// Ends the main loop after the current frame, exactly as if the window had
+// been closed -- for a game that runs a job and exits on its own (e.g.
+// SH's SH_BAKE_CACHE mode). KAPI: the game calls it across engine.dll.
+KAPI void application_request_quit();
+
 // Lets a caller that never constructs an Application at all (e.g. an
 // embedded viewport driven by an external event loop/window, such as a Qt
 // QWindow -- see tools/sdf_editor) supply the framebuffer size

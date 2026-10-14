@@ -728,6 +728,12 @@ private:
   u32 acquire_cache_region();
   b8 load_cached_chunk(u64 key, u32 region);
   void store_cached_chunk(u64 key, u32 region);
+  // Opens key's entry -- the writable directory's plain .brk first, then
+  // the seed directory's compressed .brkz -- with its 2-word header
+  // (version, brick count) already read into header. nullptr if neither
+  // has one. compressed says which: the rest of a .brkz is one zlib
+  // stream of the payload.
+  std::FILE *open_cached_chunk(u64 key, u32 header[2], b8 &compressed) const;
 
   // Per-primitive content fingerprints, rebuilt with the scene -- the
   // ingredient that makes a chunk key change exactly when the geometry
@@ -741,6 +747,22 @@ private:
   // Where cache entries live, and whether the cache is usable at all.
   std::string chunk_cache_dir_;
   b8 chunk_cache_enabled_ = false;
+  // Whether chunk_cache_dir_ exists and can take new entries. Reads can be
+  // served by the seed alone; stores need this.
+  b8 chunk_cache_writable_ = false;
+  // KENGINE_CHUNK_CACHE_SEED_DIR: a read-only cache baked ahead of time and
+  // shipped with the game, so a player's first visit to a scene restores
+  // instead of baking. Never written to. Empty when unset.
+  std::string chunk_cache_seed_dir_;
+  // Keys of chunks a bake found EMPTY (no surface, no bricks), read from
+  // "empty.keys" in the seed and the writable directory, and appended to
+  // the writable one's -- one file of raw u64 keys, not a file per chunk.
+  // Only the pre-warm consults it: an empty chunk is never cached as an
+  // entry (see prewarm_chunk_cache()), so without this every load re-baked
+  // all of them, one blocking submission each, and on a shipped seed that
+  // was most of the wait that was left. Safe for the same reason the cache
+  // is: the key covers everything that can change the bake.
+  std::unordered_set<u64> known_empty_chunks_;
   // Keys known to be absent on disk, so a miss costs one lookup rather than
   // a failed open every time the chunk is re-planned.
   std::unordered_set<u64> chunk_cache_misses_;

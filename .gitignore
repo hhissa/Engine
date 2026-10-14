@@ -12,3 +12,7 @@ bin/*.rsp
 # tools/package-windows.sh)
 /build/
 /dist/
+
+# The shipped seed chunk cache (tools/bake-chunk-cache.sh) -- regenerated,
+# hundreds of MB of binary; built before packaging, never committed.
+bin/assets/chunk_cache/

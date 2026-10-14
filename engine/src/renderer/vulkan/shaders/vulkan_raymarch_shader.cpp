@@ -2,6 +2,7 @@
 #include <filesystem>
 #include "vulkan_raymarch_shader.h"
 #include "../../../core/logger.h"
+#include "../../../core/stable_trig.h"
 #include "../../../resources/expression.h"
 #include "../../../resources/sdf_scene.h"
 #include "../../../systems/geometry_system.h"
@@ -10,6 +11,10 @@
 #include "../vulkan_image.h"
 
 #include "../../../platform/platform.h"
+// Only for stbi_zlib_decode_buffer() -- the seed cache's entries are zlib
+// streams, and stb_image (compiled once, in image_loader.cpp) already
+// carries an inflater for PNG.
+#include "../../../vendor/stb_image.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -2831,12 +2836,38 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     chunk_cache_dir_ = dir;
     std::error_code ec;
     std::filesystem::create_directories(chunk_cache_dir_, ec);
-    chunk_cache_enabled_ = !ec;
-    if (chunk_cache_enabled_) {
+    chunk_cache_writable_ = !ec;
+    if (chunk_cache_writable_) {
       KINFO("Chunk brick cache enabled at '{}'.", chunk_cache_dir_);
     } else {
       KERROR("Chunk brick cache directory '{}' is unusable: {}",
             chunk_cache_dir_, ec.message());
+    }
+  }
+  // A shipped, pre-baked cache to read from before falling back to baking
+  // -- see chunk_cache_seed_dir_. A missing directory is not an error: a
+  // build without one just bakes as before.
+  if (const char *seed = std::getenv("KENGINE_CHUNK_CACHE_SEED_DIR")) {
+    std::error_code ec;
+    if (std::filesystem::is_directory(seed, ec)) {
+      chunk_cache_seed_dir_ = seed;
+      KINFO("Chunk brick cache seeded from '{}' (read-only).",
+            chunk_cache_seed_dir_);
+    }
+  }
+  chunk_cache_enabled_ = chunk_cache_writable_ || !chunk_cache_seed_dir_.empty();
+  for (const std::string &dir : {chunk_cache_seed_dir_,
+                                 chunk_cache_writable_ ? chunk_cache_dir_
+                                                       : std::string()}) {
+    if (dir.empty()) {
+      continue;
+    }
+    if (std::FILE *f = std::fopen((dir + "/empty.keys").c_str(), "rb")) {
+      u64 key = 0;
+      while (std::fread(&key, sizeof(key), 1, f) == 1) {
+        known_empty_chunks_.insert(key);
+      }
+      std::fclose(f);
     }
   }
   // Diagnostic: isolate one clip level in the splat pass. Run the editor
@@ -2861,8 +2892,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   prewarm_requested_ = std::getenv("KENGINE_NO_PREWARM_CACHE") == nullptr;
   if (!prewarm_requested_) {
     KINFO("Chunk cache pre-warm DISABLED (KENGINE_NO_PREWARM_CACHE).");
-  } else if (!chunk_cache_enabled_) {
-    prewarm_requested_ = false; // nowhere to pre-warm to; not an error
+  } else if (!chunk_cache_writable_) {
+    // Nowhere to pre-warm to; not an error. (A seed alone is read-only --
+    // pre-warming would bake every chunk it lacks and throw the result away.)
+    prewarm_requested_ = false;
   } else {
     KINFO("Chunk cache pre-warm enabled -- the whole scene is baked into the "
          "cache once it loads. Disable with KENGINE_NO_PREWARM_CACHE.");
@@ -3659,7 +3692,8 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       prim.params[2] = geometry.params.z;
       prim.params[3] = geometry.extra_param;
 
-      glm::quat rotation(geometry.rotation);
+      // stable_trig: these bytes feed the chunk cache key -- see stable_trig.h.
+      glm::quat rotation = stable_trig::quat_from_euler(geometry.rotation);
       prim.rotation[0] = rotation.x;
       prim.rotation[1] = rotation.y;
       prim.rotation[2] = rotation.z;
@@ -3907,7 +3941,9 @@ void VulkanRaymarchShader::rebuild_static_scene() {
       bound.layer_repeated =
           geometry.layer_repetition_mode != RepetitionMode::None;
       bound.instance_radius = geometry_instance_radius(geometry);
-      bound.rotation = glm::quat(geometry.rotation);
+      // Decides which chunks list this primitive as a candidate, which is
+      // part of their cache key -- see stable_trig.h.
+      bound.rotation = stable_trig::quat_from_euler(geometry.rotation);
       bound.layer_smoothness = scene_layers[layer_slot].smoothness;
       // Publish the radius settled on just above, refinement and all, so
       // the paths that work from a Geometry rather than from
@@ -3986,7 +4022,8 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     prim.params[2] = volumetric.params.z;
     prim.params[3] = volumetric.extra_param;
 
-    glm::quat rotation(volumetric.rotation);
+    // stable_trig: these bytes feed the chunk cache key -- see stable_trig.h.
+    glm::quat rotation = stable_trig::quat_from_euler(volumetric.rotation);
     prim.rotation[0] = rotation.x;
     prim.rotation[1] = rotation.y;
     prim.rotation[2] = rotation.z;
@@ -4066,7 +4103,8 @@ void VulkanRaymarchShader::rebuild_static_scene() {
     prim.params[2] = geometry.params.z;
     prim.params[3] = geometry.extra_param;
 
-    glm::quat rotation(geometry.rotation);
+    // stable_trig: these bytes feed the chunk cache key -- see stable_trig.h.
+      glm::quat rotation = stable_trig::quat_from_euler(geometry.rotation);
     prim.rotation[0] = rotation.x;
     prim.rotation[1] = rotation.y;
     prim.rotation[2] = rotation.z;
@@ -4851,7 +4889,9 @@ void VulkanRaymarchShader::prewarm_chunk_cache() {
   std::vector<PrewarmEntry> batch;
   std::vector<GpuChunkBatchEntry> voxelize_entries;
   batch.reserve(batch_cap);
-  u64 baked = 0, stored = 0, already = 0, visited = 0;
+  u64 baked = 0, stored = 0, already = 0, visited = 0, known_empty = 0;
+  // Empty chunks found by this run, appended to empty.keys at the end.
+  std::vector<u64> new_empty_keys;
   // Exactly which scratch slots have had something baked into them. A slot
   // may ONLY be evicted once it appears here: chunk_indirection_buffer_ is
   // undefined until a bake writes it, and evict_chunk_batch() reads that
@@ -4942,6 +4982,8 @@ void VulkanRaymarchShader::prewarm_chunk_cache() {
         store_cached_chunk(entry.key, entry.region);
         ++stored;
         occupied.push_back(entry.coord);
+      } else if (known_empty_chunks_.insert(entry.key).second) {
+        new_empty_keys.push_back(entry.key);
       }
       chunk_cache_region_busy_[entry.region] = false;
     }
@@ -4957,14 +4999,19 @@ void VulkanRaymarchShader::prewarm_chunk_cache() {
     if (key == 0) {
       return; // nothing reaches it, or a list the key cannot describe
     }
+    // Baked before and found empty -- see known_empty_chunks_.
+    if (known_empty_chunks_.contains(key)) {
+      ++known_empty;
+      return;
+    }
     // Already on disk: its header carries the brick count, so occupancy is
     // known without baking anything.
-    if (std::FILE *f = std::fopen(chunk_cache_path(key).c_str(), "rb")) {
-      u32 header[2] = {0, 0};
-      const b8 ok = std::fread(header, sizeof(u32), 2, f) == 2;
+    u32 header[2] = {0, 0};
+    b8 compressed = false;
+    if (std::FILE *f = open_cached_chunk(key, header, compressed)) {
       std::fclose(f);
       ++already;
-      if (ok && header[0] == kChunkCacheFormatVersion && header[1] > 0) {
+      if (header[0] == kChunkCacheFormatVersion && header[1] > 0) {
         occupied.push_back(coord);
       }
       return;
@@ -5064,11 +5111,22 @@ void VulkanRaymarchShader::prewarm_chunk_cache() {
         context_->device.graphics_queue);
   }
 
+  if (chunk_cache_writable_ && !new_empty_keys.empty()) {
+    if (std::FILE *f =
+            std::fopen((chunk_cache_dir_ + "/empty.keys").c_str(), "ab")) {
+      std::fwrite(new_empty_keys.data(), sizeof(u64), new_empty_keys.size(),
+                  f);
+      std::fclose(f);
+    }
+  }
+
   KINFO("Chunk cache pre-warm complete in {:.1f} s ({} chunk(s) per "
        "submission): {} chunks visited, {} baked, {} cached ({} empty, not "
-       "worth a file), {} already on disk, {} refused as too dense.",
+       "worth a file), {} already on disk, {} known empty, {} refused as too "
+       "dense.",
        Platform::get_absolute_time() - prewarm_start, batch_cap, visited,
-       baked, stored, baked - stored, already, chunk_cache_too_dense_);
+       baked, stored, baked - stored, already, known_empty,
+       chunk_cache_too_dense_);
 }
 
 void VulkanRaymarchShader::reset_chunked_field() {
@@ -5764,18 +5822,45 @@ std::string VulkanRaymarchShader::chunk_cache_path(u64 key) const {
 // version mismatch, an implausible brick count. A cache is an optimisation;
 // the only unacceptable outcome is restoring something wrong, so every
 // failure path falls back to baking.
+std::FILE *VulkanRaymarchShader::open_cached_chunk(u64 key, u32 header[2],
+                                                   b8 &compressed) const {
+  if (chunk_cache_writable_) {
+    if (std::FILE *f = std::fopen(chunk_cache_path(key).c_str(), "rb")) {
+      if (std::fread(header, sizeof(u32), 2, f) == 2) {
+        compressed = false;
+        return f;
+      }
+      std::fclose(f);
+    }
+  }
+  if (!chunk_cache_seed_dir_.empty()) {
+    char name[32];
+    std::snprintf(name, sizeof(name), "%016llx.brkz",
+                 static_cast<unsigned long long>(key));
+    const std::string path = chunk_cache_seed_dir_ + "/" + name;
+    if (std::FILE *f = std::fopen(path.c_str(), "rb")) {
+      if (std::fread(header, sizeof(u32), 2, f) == 2) {
+        compressed = true;
+        return f;
+      }
+      std::fclose(f);
+    }
+  }
+  return nullptr;
+}
+
 b8 VulkanRaymarchShader::load_cached_chunk(u64 key, u32 region) {
   if (!chunk_cache_enabled_ || key == 0) {
     return false;
   }
-  std::FILE *f = std::fopen(chunk_cache_path(key).c_str(), "rb");
+  u32 header[2] = {0, 0}; // version, brick count
+  b8 compressed = false;
+  std::FILE *f = open_cached_chunk(key, header, compressed);
   if (!f) {
     chunk_cache_misses_.insert(key);
     return false;
   }
-  u32 header[2] = {0, 0}; // version, brick count
-  b8 ok = std::fread(header, sizeof(u32), 2, f) == 2 &&
-          header[0] == kChunkCacheFormatVersion &&
+  b8 ok = header[0] == kChunkCacheFormatVersion &&
           header[1] <= kChunkCacheMaxBricks;
   const u64 region_offset =
       static_cast<u64>(region) * kChunkCacheWords * sizeof(u32);
@@ -5785,9 +5870,26 @@ b8 VulkanRaymarchShader::load_cached_chunk(u64 key, u32 region) {
     // rather than 2.9MB.
     const u32 words =
         kChunkCacheVoxelWord + header[1] * kChunkCacheBrickWords;
-    if (void *mapped = chunk_cache_staging_buffer_->lock(
-            region_offset, static_cast<u64>(words) * sizeof(u32), 0)) {
-      ok = std::fread(mapped, sizeof(u32), words, f) == words;
+    const u64 bytes = static_cast<u64>(words) * sizeof(u32);
+    if (void *mapped = chunk_cache_staging_buffer_->lock(region_offset, bytes, 0)) {
+      if (compressed) {
+        // A seed entry: the rest of the file is one zlib stream, inflated
+        // straight into the staging region. It must come out to exactly
+        // the payload size the header promises, or it isn't trusted.
+        std::vector<char> packed;
+        char chunk[1 << 16];
+        size_t got = 0;
+        while ((got = std::fread(chunk, 1, sizeof(chunk), f)) > 0) {
+          packed.insert(packed.end(), chunk, chunk + got);
+        }
+        ok = !packed.empty() &&
+             stbi_zlib_decode_buffer(static_cast<char *>(mapped),
+                                     static_cast<int>(bytes), packed.data(),
+                                     static_cast<int>(packed.size())) ==
+                 static_cast<int>(bytes);
+      } else {
+        ok = std::fread(mapped, sizeof(u32), words, f) == words;
+      }
       chunk_cache_staging_buffer_->unlock();
     } else {
       ok = false;
@@ -5805,7 +5907,7 @@ b8 VulkanRaymarchShader::load_cached_chunk(u64 key, u32 region) {
 // Writes a gathered region out. Called once a gather's fence has signalled,
 // so the region holds the finished payload.
 void VulkanRaymarchShader::store_cached_chunk(u64 key, u32 region) {
-  if (!chunk_cache_enabled_ || key == 0) {
+  if (!chunk_cache_writable_ || key == 0) {
     return;
   }
   const u64 region_offset =
@@ -7372,7 +7474,7 @@ void VulkanRaymarchShader::update_streaming(glm::vec3 camera_pos) {
         break;
       }
       // A miss: bake it, and gather the result so the next visit hits.
-      if (chunk_cache_enabled_ && cache_key != 0 &&
+      if (chunk_cache_writable_ && cache_key != 0 &&
           cache_region == kInvalidChunkSlot) {
         cache_region = acquire_cache_region();
       }

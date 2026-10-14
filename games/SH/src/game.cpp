@@ -8,6 +8,7 @@
 //   game_save.cpp        -- save file / settings file persistence
 
 #include "game.h"
+#include <core/application.h>
 #include <core/input.h>
 #include <core/logger.h>
 #include <platform/platform.h>
@@ -36,6 +37,24 @@ SHGame::SHGame() {
   // host (see VulkanRaymarchShader's KENGINE_CHUNK_CACHE_DIR handling), and
   // reads it before the renderer starts, which is after this constructor.
   // An explicit KENGINE_CHUNK_CACHE_DIR still wins.
+  //
+  // SH_BAKE_CACHE=<dir> instead runs the game as a build step: every room
+  // and cutaway is baked into <dir>, then it quits -- see
+  // bake_cache_and_quit() and tools/bake-chunk-cache.sh, which compresses
+  // the result into the seed below. It bakes from nothing, so neither the
+  // user cache nor the seed is consulted.
+  if (const char *bake = std::getenv("SH_BAKE_CACHE"); bake && *bake) {
+    bake_cache_mode_ = true;
+    Platform::set_environment_variable("KENGINE_CHUNK_CACHE_DIR", bake,
+                                       /*overwrite=*/TRUE);
+    return;
+  }
+  // The pre-baked cache shipped with the game (assets/chunk_cache, made by
+  // tools/bake-chunk-cache.sh): read-only, consulted after the user cache,
+  // so a player's first visit to each scene restores instead of baking.
+  // Relative, like every asset path -- the game runs from its own folder.
+  Platform::set_environment_variable("KENGINE_CHUNK_CACHE_SEED_DIR",
+                                     "assets/chunk_cache", /*overwrite=*/FALSE);
   if (const std::string cache_root = Platform::user_cache_directory();
       !cache_root.empty()) {
     Platform::set_environment_variable("KENGINE_CHUNK_CACHE_DIR",
@@ -120,11 +139,25 @@ b8 SHGame::initialize() {
   // initial title_menu_ build -- see game_menus.cpp.
   setup_menus();
 
+  // SH_PREPARE_AND_QUIT=1: the same tour with the cache set up as a player
+  // gets it (seed + user cache) -- a check that the shipped chunk cache is
+  // being read: its pre-warm lines should say "0 cached", everything with a
+  // surface "already on disk". See tools/bake-chunk-cache.sh.
+  if (bake_cache_mode_ || std::getenv("SH_PREPARE_AND_QUIT")) {
+    bake_cache_and_quit();
+  }
+
   return true;
 }
 
 b8 SHGame::update(f32 dt) {
   delta_time_ = dt;
+
+  // SH_BAKE_CACHE: the title backdrop's pre-warm needs a frame to load and
+  // a frame to run (see kPrepareFramesPerRoom) before quitting.
+  if (bake_quit_countdown_ > 0 && --bake_quit_countdown_ == 0) {
+    application_request_quit();
+  }
 
   // Must run before any camera-position state below is used -- a floating-
   // origin recenter (see RendererBackend::consume_origin_shift()'s comment)

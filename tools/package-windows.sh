@@ -16,6 +16,12 @@ set -euo pipefail
 BUILD=build/windows
 STAGE=dist/SH-windows
 [ -f "$BUILD/SH.exe" ] || { echo "No $BUILD/SH.exe -- run tools/build-windows.sh first"; exit 1; }
+# The pre-baked chunk cache (tools/bake-chunk-cache.sh). Without it the
+# package still works, but every player bakes every scene on first sight.
+if ! ls bin/assets/chunk_cache/*.brkz >/dev/null 2>&1; then
+  echo "WARNING: no bin/assets/chunk_cache -- run tools/bake-chunk-cache.sh"
+  echo "         first, or players wait for every scene to bake."
+fi
 
 rm -rf "$STAGE" dist/SH-windows.zip
 mkdir -p "$STAGE"
@@ -35,9 +41,9 @@ Requirements
   - Windows 10 or 11, 64-bit
   - A GPU with an up-to-date Vulkan driver (NVIDIA, AMD or Intel)
 
-The first launch is slow: the game compiles its shaders and builds each
-scene's cache the first time it is shown, which can take a while with a
-black screen. Later launches reuse that cache (%LOCALAPPDATA%\kengine).
+The first launch takes a little longer: the game compiles its shaders for
+your graphics card, which can sit on a black screen for a while. Later
+launches reuse them (%LOCALAPPDATA%\kengine).
 
 Your save (sh_save.txt) and settings (sh_settings.txt) are written to this
 folder. If something goes wrong, console.log here has the details.

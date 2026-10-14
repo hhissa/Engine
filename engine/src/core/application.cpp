@@ -161,6 +161,11 @@ bool Application::on_quit(const EventContext & /*ctx*/) {
   return true;
 }
 
+void application_request_quit() {
+  EventContext data{};
+  event_system().fire(EventCode::EVENT_CODE_APPLICATION_QUIT, nullptr, data);
+}
+
 bool Application::on_key(EventCode code, void * /*sender*/,
                          const EventContext &ctx) {
   const auto key = static_cast<input::Key>(ctx.data.u16[0]);

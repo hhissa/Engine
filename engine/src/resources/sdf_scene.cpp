@@ -1,5 +1,6 @@
 #include "sdf_scene.h"
 #include "../core/logger.h"
+#include "../core/stable_trig.h"
 
 #include <fstream>
 #include <sstream>
@@ -587,7 +588,11 @@ std::optional<SdfScene> load_sdf_scene(std::string_view path) {
 }
 
 glm::quat sdf_layer_rotation(const SdfLayerDef &layer) {
-  return glm::quat(layer.rotation);
+  // stable_trig rather than glm::quat(euler): a layer transform's result
+  // reaches every primitive in the layer, and through them the chunk cache
+  // key, which must come out the same on every platform -- see
+  // stable_trig.h.
+  return stable_trig::quat_from_euler(layer.rotation);
 }
 
 namespace {
@@ -635,7 +640,8 @@ SdfTransform sdf_layer_world_transform(const SdfLayerDef &layer,
   // when it composes a delta onto a primitive's own orientation.
   return SdfTransform{
       layer.position + layer_rotation * primitive.position,
-      glm::eulerAngles(layer_rotation * glm::quat(primitive.rotation))};
+      stable_trig::euler_from_quat(
+          layer_rotation * stable_trig::quat_from_euler(primitive.rotation))};
 }
 
 SdfTransform sdf_layer_local_transform(const SdfLayerDef &layer,
@@ -651,7 +657,8 @@ SdfTransform sdf_layer_local_transform(const SdfLayerDef &layer,
       glm::conjugate(sdf_layer_rotation(layer));
   return SdfTransform{
       inverse_rotation * (world_position - layer.position),
-      glm::eulerAngles(inverse_rotation * glm::quat(world_rotation))};
+      stable_trig::euler_from_quat(
+          inverse_rotation * stable_trig::quat_from_euler(world_rotation))};
 }
 
 const MaterialDef *sdf_scene_find_material(const SdfScene &scene,

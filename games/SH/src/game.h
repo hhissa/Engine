@@ -224,6 +224,12 @@ private:
   // build_title_menu() -- called once from initialize().
   void setup_menus();
 
+  // SH_BAKE_CACHE / SH_PREPARE_AND_QUIT modes (see the constructor and
+  // initialize()): runs the Preparing screen's tour of every room and
+  // cutaway -- which pre-warms each into the chunk cache -- then the title
+  // backdrop, then quits.
+  void bake_cache_and_quit();
+
   // Loads the title screen's background scene and locks the camera on it
   // -- from setup_menus() at boot, and again when the last chapter ends
   // and the game returns to the Title screen (the closing intertitle
@@ -444,6 +450,10 @@ private:
   // Set once this run has prepared the rooms -- see
   // begin_chapter_playing(), which prepares before its first use.
   bool rooms_prepared_ = false;
+  // Set by SH_BAKE_CACHE -- see bake_cache_and_quit().
+  bool bake_cache_mode_ = false;
+  // Frames left before bake_cache_and_quit() quits; 0 = not counting down.
+  u32 bake_quit_countdown_ = 0;
 
   // A cut to a different room moves the camera somewhere whose streamed
   // field may not be resident yet, and for a frame or two it would show
