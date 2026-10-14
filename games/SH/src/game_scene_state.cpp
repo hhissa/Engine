@@ -568,9 +568,12 @@ struct CutawayStaging {
   std::string_view sky_box;
   f32 world_scale = 1.0f;
   std::vector<Station> stations;
+  // The set, when several ids frame different parts of one (the blades_*
+  // ids); empty means the id's own assets/scenes/<id>.sdf.
+  std::string_view scene = {};
 };
 
-const std::array<CutawayStaging, 21> kCutaways = {{
+const std::array<CutawayStaging, 39> kCutaways = {{
     // Theo's Indomie: the bowl from above, then from the table's edge.
     {"cutaways/ramen",
      "white",
@@ -682,6 +685,98 @@ const std::array<CutawayStaging, 21> kCutaways = {{
      "black",
      1.0f,
      {{{0.4f, -1.3f, -2.6f}, {0.0f, -0.8f, 2.2f}, 0.05f, 0.8f, 1.5f}}},
+    // Chapter 3's "where": each person's scars, close up.
+    {"cutaways/scars_stomach",
+     "black",
+     1.0f,
+     {{{0.15f, -1.15f, -1.5f}, {0.0f, -1.15f, 0.0f}, 0.04f, 0.5f, 0.6f}}},
+    {"cutaways/scars_forearm",
+     "black",
+     1.0f,
+     {{{0.2f, -1.5f, -1.2f}, {0.1f, -0.18f, 0.0f}, 0.04f, 0.5f, 0.6f}}},
+    {"cutaways/scars_wrist",
+     "black",
+     1.0f,
+     {{{0.0f, -1.9f, -1.6f}, {0.0f, -0.15f, -0.1f}, 0.04f, 0.5f, 0.6f}}},
+    {"cutaways/scars_thigh",
+     "black",
+     1.0f,
+     {{{0.4f, -1.7f, -1.6f}, {0.0f, -0.36f, 0.2f}, 0.04f, 0.5f, 0.6f}}},
+    {"cutaways/scars_thigh_old",
+     "black",
+     1.0f,
+     {{{0.5f, -1.7f, -1.6f}, {0.0f, -0.38f, 0.2f}, 0.04f, 0.5f, 0.6f}}},
+    // Chapter 3's "how": one table of blades, framed per answer.
+    {"cutaways/blades_knife",
+     "black",
+     1.0f,
+     {{{-1.3f, -1.5f, -1.4f}, {-1.3f, 0.0f, 0.0f}, 0.04f, 0.5f, 0.5f}},
+     "cutaways/blades"},
+    {"cutaways/blades_pocketknife",
+     "black",
+     1.0f,
+     {{{-0.25f, -0.9f, 0.2f}, {-0.25f, 0.0f, 1.0f}, 0.04f, 0.5f, 0.4f}},
+     "cutaways/blades"},
+    {"cutaways/blades_razor",
+     "black",
+     1.0f,
+     {{{0.6f, -1.0f, -1.4f}, {0.6f, 0.0f, -0.5f}, 0.04f, 0.5f, 0.5f}},
+     "cutaways/blades"},
+    {"cutaways/blades_china",
+     "black",
+     1.0f,
+     {{{2.1f, -1.5f, -1.2f}, {2.1f, 0.0f, -0.1f}, 0.04f, 0.5f, 0.6f}},
+     "cutaways/blades"},
+    // Mel's bath, candles lit, the knife on the rim.
+    {"cutaways/bath",
+     "black",
+     1.0f,
+     {{{0.7f, -1.9f, -1.7f}, {0.0f, -0.9f, 0.2f}, 0.05f, 0.6f, 0.8f}}},
+    // Theo's urinal lecture.
+    {"cutaways/urinals",
+     "black",
+     1.0f,
+     {{{0.3f, -1.6f, -0.6f}, {0.0f, -1.1f, 2.7f}, 0.05f, 0.6f, 1.0f}}},
+    // Diego's first-aid kit, laid out on the bed.
+    {"cutaways/firstaid",
+     "white",
+     1.0f,
+     {{{0.2f, -1.9f, -1.4f}, {0.0f, -0.1f, 0.0f}, 0.05f, 0.6f, 0.8f}}},
+    // Chapter 4. Mel's tall grass: down among it at dusk, looking out
+    // over the field.
+    {"cutaways/tallgrass",
+     "sky_dusk",
+     1.0f,
+     {{{0.3f, -0.85f, -1.6f}, {0.8f, -1.3f, 14.0f}, 0.05f, 0.4f, 0.6f}},
+     "cutaways/meadow"},
+    // Theresa's clear blue days: the same field from standing height,
+    // the lone tree under a cloudless sky.
+    {"cutaways/clearday",
+     "sky_clearday",
+     1.0f,
+     {{{-1.0f, -1.6f, -4.0f}, {7.0f, -4.5f, 34.0f}, 0.05f, 1.0f, 2.0f}},
+     "cutaways/meadow"},
+    // Diego's hill, side on so the slope reads as a climb, the top lost
+    // in fog.
+    {"cutaways/hill",
+     "sky_overcast",
+     1.0f,
+     {{{-8.0f, -2.6f, 1.5f}, {0.0f, -3.4f, 7.0f}, 0.05f, 0.8f, 1.0f}}},
+    // Diego's beach, out to sea between the umbrella and the palm.
+    {"cutaways/beach",
+     "sky_clearday",
+     1.0f,
+     {{{1.0f, -1.5f, -2.5f}, {0.5f, -1.0f, 20.0f}, 0.05f, 1.0f, 1.5f}}},
+    // Pat's easel: the blank canvas under its lamp.
+    {"cutaways/easel",
+     "black",
+     2.0f,
+     {{{0.3f, -1.4f, -2.2f}, {0.2f, -1.1f, 0.0f}, 0.05f, 0.6f, 0.8f}}},
+    // Theresa's two cups and the kettle, from across the table.
+    {"cutaways/twocups",
+     "sky_warm",
+     3.0f,
+     {{{0.3f, -0.9f, -1.4f}, {-0.2f, -0.08f, 0.05f}, 0.05f, 0.4f, 0.4f}}},
 }};
 
 const CutawayStaging *find_cutaway(std::string_view id) {
@@ -694,7 +789,9 @@ const CutawayStaging *find_cutaway(std::string_view id) {
 }
 
 std::string cutaway_scene_path(const CutawayStaging &cutaway) {
-  return "assets/scenes/" + std::string(cutaway.id) + ".sdf";
+  return "assets/scenes/" +
+         std::string(cutaway.scene.empty() ? cutaway.id : cutaway.scene) +
+         ".sdf";
 }
 
 } // namespace

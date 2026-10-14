@@ -1,0 +1,199 @@
+#conversation file
+version=0.1
+
+# Chapter 3: The cutting -- from "Beatsheets and scripts/script and
+# beatsheet chapter 3.docx", the part after Theresa's Chapter 2 story.
+#
+# Built the same way as ch2_your_story.conversation (see its header and
+# ch1_introductions.conversation's for the directives). Beyond what the
+# script marks:
+#   "Close up of all the characters scars"   one cutaways/scars_* close-up
+#                                            per answer to "Where?" (Pat
+#                                            skips it, so stays in his room)
+#   "Models of knives, razors and broken     cutaways/blades_*, one set
+#   patterned blue and white plate"          framed per answer to "How?"
+#   "In the shape of a smiley face"          Diego's blue lines laid out as
+#                                            two eyes and a mouth
+#
+# Theo's and Theresa's "My thighs" answers sit under "How long?" in the
+# script; they answer "Where?", so they're there. Neither has a "How long?"
+# answer of their own.
+
+question "Tell me about the first time you self-harmed" {
+    id=first
+    auto
+    loop_to=why
+    answer=[title] Tell me about the first time you self-harmed
+    answer=[Mel] It was about 6 months ago
+    answer=I was in the midst of that episode I was telling you about
+    answer=I had decided that I needed to cut the damn thing inside me out
+    answer=At first I tried to get the damn thing out in one go
+    answer=But when it came to it, I could barely break the skin
+    answer=[overlay][at 0.3 0.16][size 1.2] They don't tell you this
+    answer=[overlay][at 0.62 0.32][size 1.8] but self-harm is really hard
+    answer=[overlay][at 0.38 0.54] At least, to seriously hurt yourself
+    answer=[overlay][at 0.64 0.7][size 1.6] you have to seriously try
+    answer=I also had to find the right equipment
+    answer=[P] What do you mean?
+    answer=[Mel] You know, what I cut with
+    answer=At first razor blades, but that wasn't the right move
+    answer=I can't really cut deep enough
+    answer=They're a little too frail and I have to push really hard
+    answer=I moved onto knives after that
+    answer=[Diego] It started as an accident, really
+    answer=I accidentally cut into my palm one day
+    answer=And the idea just stuck
+    answer=It didn't happen overnight
+    answer=But sure enough, the next time
+    answer=[overlay][at 0.5 0.16][size 2] the world
+    answer=[overlay][at 0.42 0.4][size 1.2] felt like it was
+    answer=[overlay][at 0.56 0.72][size 2.6] caving in
+    answer=My brain reminded me of that incident
+    answer=I don't even remember what was so catastrophic that I felt that I needed to cut myself
+    answer=All I remember is that I got in bed and started cutting at my arms
+    answer=[Theo] It was earlier this year
+    answer=I had always had the thought in my head
+    answer=So one day I just did it
+    answer=I got in the shower and I just started cutting
+    answer=[Pat] Just the one time
+    answer=When, you know
+    answer=I did that thing
+    answer=[Alex] I had just come back from *****'s funeral
+    answer=I was already planning on killing myself
+    answer=[overlay][center][size 1.6] It was just a matter of logistics
+    answer=The first time I barely broke skin
+    answer=[Theresa] I must have been 12
+    answer=I was in a weird place in school
+    answer=I was getting viciously bullied
+    answer=And one day I got into my dad's shaving stuff
+    answer=And started cutting
+    answer=I got the idea because my older sister used to do it
+    answer=She was the one who found out
+    answer=She got me to stop and kept it secret
+    answer=[overlay][at 0.5 0.66][size 1.5] To this day I still love her for it
+}
+
+question "Why do you self-harm?" {
+    id=why
+    auto
+    loop_to=where
+    answer=[title] Why do you self-harm?
+    answer=[Mel] It was practice, mainly
+    answer=I didn't do it for very long
+    answer=[overlay][at 0.5 0.6][size 1.8] I just wanted to learn how to cut deep
+    answer=[Diego] It helps distract me, I guess
+    answer=Gives you something to focus on other than the mental pain, I guess
+    answer=[Theo] I don't really know
+    answer=[overlay][at 0.3 0.22][size 1.3] I like to think that it helps
+    answer=[overlay][at 0.66 0.74][size 1.6] But maybe it's making it worse
+    answer=I don't know
+    answer=[Pat] I thought it would purify me
+    answer=That something would get better if I self-harmed
+    answer=That I'd stop being so damn crazy
+    answer=I honestly thought it would bring an end to the crazy
+    answer=Just goes to show you how crazy I really was
+    answer=[Alex][overlay][fill] A means to an end
+    answer=[Theresa] I wish there was a simple answer
+    answer=[overlay][center][size 1.6] Things are hardly ever simple
+    answer=Especially when it comes to why people do things
+}
+
+question "Where do you self-harm?" {
+    id=where
+    auto
+    loop_to=how_long
+    answer=[title] Where do you self-harm?
+    answer=[Mel][cutaway cutaways/scars_stomach] My stomach
+    answer=[Diego][cutaway cutaways/scars_forearm] My arms
+    answer=[Theo][cutaway cutaways/scars_thigh] My thighs
+    answer=Nobody sees it that way
+    answer=Except me, of course
+    answer=And peeping toms at the urinals
+    answer=[P] Peeping toms?
+    answer=[Theo][cutaway cutaways/urinals] Yeah, one time I was taking a piss
+    answer=This older guy comes and pisses next to me
+    answer=Looks over, sees my thighs and starts giving me a lecture
+    answer=[room] Here's a word of advice,
+    answer=[overlay][center][size 1.4] IF YOU SEE SOMEONE'S SELF-HARM SCARS
+    answer=[overlay][center][size 1.6] DON'T SAY ANYTHING ABOUT THEM
+    answer=Especially if you're at the urinal
+    answer=[Pat] I'm gonna skip this question
+    answer=For the kids, you know
+    answer=[Alex][cutaway cutaways/scars_wrist] My wrists
+    answer=[Theresa][cutaway cutaways/scars_thigh_old] My thighs mainly, but these days anywhere goes
+    answer=It's not like I'm worried about someone finding out
+    answer=I'm a 56 year old woman, I can do whatever I want
+}
+
+question "How long have you self-harmed?" {
+    id=how_long
+    auto
+    loop_to=how
+    answer=[title] How long have you self-harmed?
+    answer=[Mel] 3 months, I think?
+    answer=It was at the end of those three months that I tried to rip the thing out
+    answer=After I did that, I called an ambulance and got admitted
+    answer=[P] Did you rip the thing out?
+    answer=[Mel] No
+    answer=I failed, and then I called to get help
+    answer=[Diego] 2 years now
+    answer=[P] Has nobody noticed?
+    answer=[Diego][overlay][at 0.34 0.24][size 2] You'd
+    answer=[overlay][at 0.66 0.24][size 2] Be
+    answer=[overlay][at 0.22 0.54] surprised what you
+    answer=[overlay][at 0.5 0.7][size 1.3] can hide with long sleeves
+    answer=[overlay][at 0.78 0.54] and a smile
+    answer=[Pat] Just the once
+    answer=[Alex] Just for that week when I was working myself up
+}
+
+question "How do you self-harm?" {
+    id=how
+    auto
+    loop_to=feel
+    answer=[title] How do you self-harm?
+    answer=[Mel][cutaway cutaways/blades_knife] With a knife in the tub
+    answer=[Diego][cutaway cutaways/blades_knife] Kitchen knife in bed
+    answer=[P] Does that not make a huge mess?
+    answer=[Diego][cutaway cutaways/firstaid] At first it did, but you get the hang of it eventually
+    answer=I get, like, the proper bandaids and everything and see to the wounds right away
+    answer=Disinfect them and everything
+    answer=So no blood stains, see?
+    answer=[Theo][cutaway cutaways/blades_razor] I sit on the toilet and use a razor
+    answer=[Pat][cutaway cutaways/blades_pocketknife] I used a pocket knife
+    answer=[Alex][cutaway cutaways/blades_razor] I cut in the shower with a razor
+    answer=[Theresa] I cut with pretty much anything I can find
+    answer=[cutaway cutaways/blades_china] For a while, I used a piece of broken china
+}
+
+question "How does it feel to self-harm?" {
+    id=feel
+    auto
+    ending
+    ending_text=End of Chapter 3
+    answer=[title] How does it feel to self-harm?
+    answer=[Mel] Honestly, surprisingly comfy
+    answer=[cutaway cutaways/bath] I get in a warm bath
+    answer=I put on some music
+    answer=Light a candle or two
+    answer=It's only after that it really starts to sting
+    answer=[Diego] Bad
+    answer=I feel guilty every time
+    answer=But that being said,
+    answer=[overlay][at 0.22 0.14][size 1.2] I like
+    answer=[overlay][at 0.55 0.28][size 1.8] having the external
+    answer=[overlay][at 0.5 0.76][size 1.8] match the internal
+    answer=[Theo] It feels like a thick fog has been lifted
+    answer=[overlay][at 0.3 0.28][size 1.3] Your heart is finally pumping
+    answer=[overlay][at 0.6 0.56][size 1.9] Your system rushes with endorphins
+    answer=It's honestly the best part of my day
+    answer=[P] I feel bad for you if the best part of your day is being in pain
+    answer=[Theo] Eh
+    answer=[Pat] It's like a moment of satisfaction
+    answer=[overlay][center][size 2.2] followed by immense shame
+    answer=[Alex] Like progress, I guess
+    answer=I don't know, like I said, it was always a means to an end for me
+    answer=[Theresa] It's hard to explain
+    answer=[overlay][at 0.5 0.4][size 1.7] There's a certain freedom to it
+    answer=It just made sense to me back then, and I never really re-evaluated that
+}

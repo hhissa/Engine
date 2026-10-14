@@ -41,6 +41,38 @@ material figure {
     base_map=white
 }
 
+material halo {
+    id=b45454c29cc43242
+    base_colour=1 0.95 0.75 1
+    emissive_colour=1 0.9 0.6
+    emissive_intensity=1.4
+    casts_shadow=0
+    base_map=white
+}
+
+material road {
+    id=36bbbf666be96af5
+    base_colour=0.1 0.1 0.11 1
+    roughness=0.8
+    base_map=white
+}
+
+material streetlamps {
+    id=0dde582f3ec8ad82
+    base_colour=1 0.8 0.5 1
+    emissive_colour=1 0.75 0.4
+    emissive_intensity=1.5
+    casts_shadow=0
+    base_map=white
+}
+
+material lamp_poles {
+    id=feec529a0e633b73
+    base_colour=0.15 0.15 0.16 1
+    roughness=0.5
+    base_map=white
+}
+
 light light0 {
     type=point
     position=0 -5 10.5
@@ -2476,51 +2508,285 @@ layer layer4 {
     smoothness=0.1
 
     primitive p299 {
-        type=sphere
-        position=0 -8.25 12
+        type=ellipsoid
+        position=0 -8.415 12
         rotation=0 0 0
-        params=0.5625 0 0 0
+        params=0.468 0.558 0.522 0
         material=154ee86c4d8a3b53
     }
 
     primitive p300 {
-        type=capsule
-        position=0 -5.812 12
+        type=ellipsoid
+        position=0 -8.1 11.89
         rotation=0 0 0
-        params=0.6375 1.688 0 0
+        params=0.36 0.27 0.396 0
         material=154ee86c4d8a3b53
     }
 
     primitive p301 {
-        type=capsule
-        position=-0.4312 -1.969 12
-        rotation=0 0 0.009524
-        params=0.2812 1.969 0 0
+        type=round_cone
+        position=0 -7.785 12
+        rotation=3.142 0 0
+        params=0.234 0.198 0.225 0
         material=154ee86c4d8a3b53
     }
 
     primitive p302 {
         type=capsule
-        position=0.4312 -1.969 12
-        rotation=0 0 -0.009524
-        params=0.2812 1.969 0 0
+        position=0 -7.335 12
+        rotation=0 0 -1.571
+        params=0.306 0.9 0 0
         material=154ee86c4d8a3b53
     }
 
     primitive p303 {
-        type=capsule
-        position=-2.119 -8.662 12
-        rotation=0 0 2.363
-        params=0.225 2.055 0 0
+        type=ellipsoid
+        position=0 -6.705 12
+        rotation=0 0 0
+        params=0.945 0.765 0.558 0
         material=154ee86c4d8a3b53
     }
 
     primitive p304 {
-        type=capsule
-        position=2.119 -8.662 12
-        rotation=0 0 -2.363
-        params=0.225 2.055 0 0
+        type=ellipsoid
+        position=0 -5.715 12
+        rotation=0 0 0
+        params=0.702 0.63 0.468 0
         material=154ee86c4d8a3b53
+    }
+
+    primitive p305 {
+        type=ellipsoid
+        position=0 -4.815 12
+        rotation=0 0 0
+        params=0.846 0.54 0.54 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p306 {
+        type=round_cone
+        position=-1.656 -7.672 11.96
+        rotation=-0.06185 0.1195 2.187
+        params=0.306 0.225 0.7332 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p307 {
+        type=round_cone
+        position=-2.745 -8.55 11.87
+        rotation=-0.06794 0.1513 2.298
+        params=0.225 0.162 0.6705 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p308 {
+        type=ellipsoid
+        position=-3.539 -9.272 11.79
+        rotation=-0.06794 0.1513 2.298
+        params=0.144 0.405 0.27 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p309 {
+        type=round_cone
+        position=-0.495 -3.465 11.97
+        rotation=-0.02607 0.0003399 0.02607
+        params=0.504 0.324 1.036 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p310 {
+        type=round_cone
+        position=-0.531 -1.417 11.97
+        rotation=0.02666 -0.0001184 0.008885
+        params=0.324 0.198 1.013 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p311 {
+        type=ellipsoid
+        position=-0.558 -0.198 11.69
+        rotation=0 0 0
+        params=0.252 0.198 0.612 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p312 {
+        type=round_cone
+        position=1.656 -7.672 11.96
+        rotation=-0.06185 -0.1195 -2.187
+        params=0.306 0.225 0.7332 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p313 {
+        type=round_cone
+        position=2.745 -8.55 11.87
+        rotation=-0.06794 -0.1513 -2.298
+        params=0.225 0.162 0.6705 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p314 {
+        type=ellipsoid
+        position=3.539 -9.272 11.79
+        rotation=-0.06794 -0.1513 -2.298
+        params=0.144 0.405 0.27 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p315 {
+        type=round_cone
+        position=0.495 -3.465 11.97
+        rotation=-0.02607 -0.0003399 -0.02607
+        params=0.504 0.324 1.036 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p316 {
+        type=round_cone
+        position=0.531 -1.417 11.97
+        rotation=0.02666 0.0001184 -0.008885
+        params=0.324 0.198 1.013 0
+        material=154ee86c4d8a3b53
+    }
+
+    primitive p317 {
+        type=ellipsoid
+        position=0.558 -0.198 11.69
+        rotation=0 0 0
+        params=0.252 0.198 0.612 0
+        material=154ee86c4d8a3b53
+    }
+
+}
+
+layer layer5 {
+    operation=union
+    smoothness=0
+
+    primitive p318 {
+        type=torus
+        position=0 -8.415 12.4
+        rotation=1.571 0 0
+        params=1.1 0.06 0 0
+        material=b45454c29cc43242
+    }
+
+}
+
+layer layer6 {
+    operation=union
+    smoothness=0
+
+    primitive p319 {
+        type=box
+        position=0 -0.003 6
+        rotation=0 0 0
+        params=0.6 0.004 9 0
+        material=36bbbf666be96af5
+    }
+
+}
+
+layer layer7 {
+    operation=union
+    smoothness=0
+
+    primitive p320 {
+        type=capsule
+        position=-0.75 -0.375 0.6
+        rotation=3.142 0 0
+        params=0.02 0.375 0 0
+        material=feec529a0e633b73
+    }
+
+    primitive p321 {
+        type=sphere
+        position=-0.75 -0.78 0.6
+        rotation=0 0 0
+        params=0.045 0 0 0
+        material=0dde582f3ec8ad82
+    }
+
+    primitive p322 {
+        type=capsule
+        position=0.75 -0.375 2.6
+        rotation=3.142 0 0
+        params=0.02 0.375 0 0
+        material=feec529a0e633b73
+    }
+
+    primitive p323 {
+        type=sphere
+        position=0.75 -0.78 2.6
+        rotation=0 0 0
+        params=0.045 0 0 0
+        material=0dde582f3ec8ad82
+    }
+
+    primitive p324 {
+        type=capsule
+        position=-0.75 -0.375 4.6
+        rotation=3.142 0 0
+        params=0.02 0.375 0 0
+        material=feec529a0e633b73
+    }
+
+    primitive p325 {
+        type=sphere
+        position=-0.75 -0.78 4.6
+        rotation=0 0 0
+        params=0.045 0 0 0
+        material=0dde582f3ec8ad82
+    }
+
+    primitive p326 {
+        type=capsule
+        position=0.75 -0.375 6.6
+        rotation=3.142 0 0
+        params=0.02 0.375 0 0
+        material=feec529a0e633b73
+    }
+
+    primitive p327 {
+        type=sphere
+        position=0.75 -0.78 6.6
+        rotation=0 0 0
+        params=0.045 0 0 0
+        material=0dde582f3ec8ad82
+    }
+
+    primitive p328 {
+        type=capsule
+        position=-0.75 -0.375 8.6
+        rotation=3.142 0 0
+        params=0.02 0.375 0 0
+        material=feec529a0e633b73
+    }
+
+    primitive p329 {
+        type=sphere
+        position=-0.75 -0.78 8.6
+        rotation=0 0 0
+        params=0.045 0 0 0
+        material=0dde582f3ec8ad82
+    }
+
+    primitive p330 {
+        type=capsule
+        position=0.75 -0.375 10.6
+        rotation=3.142 0 0
+        params=0.02 0.375 0 0
+        material=feec529a0e633b73
+    }
+
+    primitive p331 {
+        type=sphere
+        position=0.75 -0.78 10.6
+        rotation=0 0 0
+        params=0.045 0 0 0
+        material=0dde582f3ec8ad82
     }
 
 }

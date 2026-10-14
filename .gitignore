@@ -1,1 +1,9 @@
 *.log
+# Windows build outputs (build-all.bat)
+bin/*.exe
+bin/*.dll
+bin/*.lib
+bin/*.exp
+bin/*.pdb
+bin/*.ilk
+bin/*.rsp

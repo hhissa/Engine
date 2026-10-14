@@ -1,5 +1,6 @@
 #include "vulkan_pipeline_cache.h"
 #include "../../core/logger.h"
+#include "../../platform/platform.h"
 #include "vulkan_utils.h"
 
 #include <cstdlib>
@@ -19,15 +20,12 @@ std::string pipeline_cache_path() {
   if (const char *explicit_path = std::getenv("KENGINE_PIPELINE_CACHE")) {
     return explicit_path;
   }
-  std::filesystem::path dir;
-  if (const char *xdg = std::getenv("XDG_CACHE_HOME")) {
-    dir = std::filesystem::path(xdg) / "kengine";
-  } else if (const char *home = std::getenv("HOME")) {
-    dir = std::filesystem::path(home) / ".cache" / "kengine";
-  } else {
+  const std::string cache_root = Platform::user_cache_directory();
+  if (cache_root.empty()) {
     return {}; // nowhere sensible to put it -- run without one
   }
-  return (dir / "pipeline_cache.bin").string();
+  return (std::filesystem::path(cache_root) / "kengine" / "pipeline_cache.bin")
+      .string();
 }
 
 // The 32-byte header every VkPipelineCache blob starts with (Vulkan spec,

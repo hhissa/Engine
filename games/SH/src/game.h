@@ -224,6 +224,18 @@ private:
   // build_title_menu() -- called once from initialize().
   void setup_menus();
 
+  // Loads the title screen's background scene and locks the camera on it
+  // -- from setup_menus() at boot, and again when the last chapter ends
+  // and the game returns to the Title screen (the closing intertitle
+  // cleared every scene).
+  void stage_title_backdrop();
+
+  // The game's name as the Title screen shows it: "SH" until the last
+  // chapter has been finished once, then one of kTitles (game_menus.cpp)
+  // picked by how many people that playthrough saved -- the script's "the
+  // title of the game changes based on how many you save".
+  std::string game_title() const;
+
   void update_title_screen();
   void render_title_screen() const;
   void update_chapter_select();
@@ -292,7 +304,10 @@ private:
   // kChapters (game_menus.cpp) once it's dismissed, exactly as if the
   // player had picked it from Chapter Select themselves -- rather than
   // dropping back to Chapter Select. Falls back to Chapter Select only once
-  // active_chapter_ was the last chapter in kChapters.
+  // active_chapter_ was the last chapter in kChapters. Finishing the last
+  // chapter instead records how many people were saved (saved_count_),
+  // shows the game's new title ahead of ending_lines, and returns to the
+  // Title screen.
   void finish_chapter(std::vector<std::string> ending_lines);
 
   // --- game_save.cpp ---
@@ -316,13 +331,17 @@ private:
   // save format) rather than guessing at a partial read.
   std::optional<SavedProgress> load_save() const;
 
-  // Reads render_scale_ from disk, leaving it at its current value if no
-  // settings file exists yet (e.g. first launch). Called once from
-  // initialize().
+  // Deletes the save file -- once the last chapter is finished there's
+  // nothing left to Continue, so the title screen drops that item.
+  void clear_save() const;
+
+  // Reads render_scale_ and saved_count_ from disk, leaving each at its
+  // current value if no settings file exists yet (e.g. first launch) or it
+  // has no line for it. Called once from initialize().
   void load_settings();
 
-  // Writes render_scale_ to disk -- called immediately whenever the
-  // Settings screen changes it, so the change survives even a hard quit.
+  // Writes render_scale_ and saved_count_ to disk -- called immediately
+  // whenever either changes, so the change survives even a hard quit.
   void save_settings() const;
 
   f32 delta_time_ = 0.0f;
@@ -336,6 +355,13 @@ private:
   // Settings screen; renderer_set_render_scale() itself has no getter, so
   // this is the one place that value is tracked.
   f32 render_scale_ = 0.75f;
+
+  // How many people the most recently finished playthrough of the last
+  // chapter saved (its "<name>_saved" flags) -- nullopt until the game has
+  // been finished once. Kept in the settings file rather than the save
+  // file: Start overwrites the save, but the title should stay changed.
+  // See game_title().
+  std::optional<u32> saved_count_;
 
   // Index into kChapters (game.cpp) for whichever chapter is currently
   // being played -- nullopt while on Title/ChapterSelect/Settings, before

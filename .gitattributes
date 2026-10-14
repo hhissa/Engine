@@ -1,0 +1,17 @@
+# Check text out with LF everywhere, including on Windows: the engine's
+# scene/conversation/material parsers and the save file reader don't expect
+# a trailing '\r', and Git for Windows' default (core.autocrlf=true) would
+# hand them CRLF files.
+* text=auto eol=lf
+
+# cmd.exe misparses LF-only batch files (labels, multi-line blocks).
+*.bat text eol=crlf
+
+*.spv binary
+*.png binary
+*.jpg binary
+*.wav binary
+*.ttf binary
+*.so binary
+*.dll binary
+*.exe binary

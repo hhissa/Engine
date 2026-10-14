@@ -274,7 +274,7 @@ struct Conversation {
 // (missing file); a malformed individual line is skipped with a logged
 // warning rather than failing the whole load, so one typo doesn't lose the
 // rest of the conversation.
-std::optional<Conversation> load_conversation_file(std::string_view path);
+KAPI std::optional<Conversation> load_conversation_file(std::string_view path);
 
 // Walks conversation (top-level questions and, recursively, every nested
 // follow-up) and returns a map from each `id=`'d question's shared_id to a
@@ -286,7 +286,7 @@ std::optional<Conversation> load_conversation_file(std::string_view path);
 // tree order); shared by resolve_shared_questions() below and by
 // tools/conversation_editor's GraphScene::load_from_conversation(), which
 // both need to look up a question_ref='s actual content.
-std::unordered_map<std::string, const ConversationQuestion *>
+KAPI std::unordered_map<std::string, const ConversationQuestion *>
 collect_shared_definitions(const Conversation &conversation);
 
 // Returns a copy of conversation with every `question_ref=` stand-in (see
@@ -311,4 +311,4 @@ collect_shared_definitions(const Conversation &conversation);
 // copy of it) keeps its shared_id in the returned tree, so a loop_to= can
 // still find exactly one unambiguous target after resolution -- see
 // QASystem::load_conversation() for the consumer that relies on this.
-Conversation resolve_shared_questions(const Conversation &conversation);
+KAPI Conversation resolve_shared_questions(const Conversation &conversation);

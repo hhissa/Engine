@@ -7,7 +7,6 @@
 #include "hmemory.h"
 #include "input.h"
 #include "logger.h"
-#include <X11/Xlib.h>
 static EventSystem &event_system() {
   static EventSystem instance;
   return instance;

@@ -9,34 +9,34 @@
 
 struct static_mesh_data;
 class PlatformLayer;
-b8 renderer_initialize(const std::string_view, struct PlatformLayer &platform);
-void renderer_shutdown();
+KAPI b8 renderer_initialize(const std::string_view, struct PlatformLayer &platform);
+KAPI void renderer_shutdown();
 
-void renderer_on_resized(u16 width, u16 height);
+KAPI void renderer_on_resized(u16 width, u16 height);
 
 // Sets the camera used for the next frame's render. The game owns and
 // drives the Camera (position/orientation from input); the renderer just
 // forwards whatever it's given to the backend.
-void renderer_set_camera(const Camera &camera);
+KAPI void renderer_set_camera(const Camera &camera);
 
 // Queues one line of text to be drawn this frame (see
 // RendererBackend::draw_text) -- call from the game's render(), not once
 // at startup, since queued draws don't persist to the next frame. scale
 // enlarges the glyphs about position (the baseline origin) -- the font's
 // one baked atlas stretched, so large sizes come out a little soft.
-void renderer_draw_text(std::string_view text, glm::vec2 position,
+KAPI void renderer_draw_text(std::string_view text, glm::vec2 position,
                        glm::vec4 colour, f32 scale = 1.0f);
 
 // Queues the engine's built-in demo UI texture to be drawn at
 // position/size (screen pixels) this frame (see
 // RendererBackend::draw_ui_quad).
-void renderer_draw_ui_quad(glm::vec2 position, glm::vec2 size);
+KAPI void renderer_draw_ui_quad(glm::vec2 position, glm::vec2 size);
 
 // Queues a solid-colour line segment (screen pixels, fixed thickness) to
 // be drawn this frame (see RendererBackend::draw_line) -- same per-frame
 // queueing discipline as renderer_draw_text()/renderer_draw_ui_quad()
 // above.
-void renderer_draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour);
+KAPI void renderer_draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour);
 
 // Queues a solid-colour, axis-aligned rectangle (screen pixels, (0,0) at
 // the top-left) to be drawn this frame -- see RendererBackend::
@@ -46,27 +46,27 @@ void renderer_draw_line(glm::vec2 start, glm::vec2 end, glm::vec4 colour);
 // discipline as renderer_draw_text()/renderer_draw_ui_quad()/
 // renderer_draw_line() above -- call it every frame you want the box
 // visible, from the game's render().
-void renderer_draw_solid_quad(glm::vec2 position, glm::vec2 size,
+KAPI void renderer_draw_solid_quad(glm::vec2 position, glm::vec2 size,
                              glm::vec4 colour);
 
 // renderer_draw_solid_quad()'s opposite end of the draw order: drawn over
 // the scene but UNDER every text/quad/line queued this frame -- see
 // RendererBackend::draw_backdrop_quad(). E.g. a black card for title text
 // to sit on without unloading the scene behind it.
-void renderer_draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
+KAPI void renderer_draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
                                 glm::vec4 colour);
 
 // Queues an image -- a path under assets/ with its extension, e.g.
 // "photos/cloud_mel.jpg" -- stretched over position/size (screen pixels,
 // top-left origin) this frame. Same layer and ordering as
 // renderer_draw_backdrop_quad(): over the scene, under all text.
-void renderer_draw_image(std::string_view path, glm::vec2 position,
+KAPI void renderer_draw_image(std::string_view path, glm::vec2 position,
                          glm::vec2 size);
 
 // Loads an image ahead of its first renderer_draw_image() and returns its
 // size in pixels ((0, 0) if it can't be loaded) -- e.g. to fit it to the
 // screen without stretching it.
-glm::vec2 renderer_preload_image(std::string_view path);
+KAPI glm::vec2 renderer_preload_image(std::string_view path);
 
 // Queues a "looking through a camera" viewfinder-style HUD overlay within
 // the given screen rect (position/size in screen pixels, matching
@@ -81,7 +81,7 @@ glm::vec2 renderer_preload_image(std::string_view path);
 // not once at startup. blink_time_seconds drives the REC dot's blink (feed
 // it a running clock, e.g. accumulated delta_time -- the dot is solid for
 // the first half of each 1-second cycle and hidden for the second half).
-void renderer_draw_camera_overlay(glm::vec2 position, glm::vec2 size,
+KAPI void renderer_draw_camera_overlay(glm::vec2 position, glm::vec2 size,
                                   f32 blink_time_seconds,
                                   std::string_view caption = {});
 
@@ -137,17 +137,17 @@ private:
 // registered, so removing one scene never affects any other. Returns a
 // SceneRef holding kInvalidSceneHandle on failure (missing/malformed
 // file); see SceneRef above for the chainable post-load transforms.
-SceneRef renderer_load_scene(std::string_view sdf_path);
+KAPI SceneRef renderer_load_scene(std::string_view sdf_path);
 
 // Unloads exactly the scene identified by handle (as returned by an
 // earlier renderer_load_scene() call), releasing every primitive it
 // registered and re-baking. No-op (logs a warning) if handle isn't
 // currently loaded.
-void renderer_remove_scene(SceneHandle handle);
+KAPI void renderer_remove_scene(SceneHandle handle);
 
 // Unloads every currently loaded scene (as if renderer_remove_scene() had
 // been called for each one), then re-bakes once.
-void renderer_clear_scenes();
+KAPI void renderer_clear_scenes();
 
 // Re-parses sdf_path and re-syncs handle (as returned by an earlier
 // renderer_load_scene() call) to match it, touching only the primitives/
@@ -160,19 +160,19 @@ void renderer_clear_scenes();
 // changed (false means nothing to re-bake this call); logs a warning and
 // returns false if handle isn't currently loaded or sdf_path fails to
 // parse.
-bool renderer_reconcile_scene(SceneHandle handle, std::string_view sdf_path);
+KAPI bool renderer_reconcile_scene(SceneHandle handle, std::string_view sdf_path);
 
 // Marks which registered static primitive to draw a selection outline
 // around this frame (see RendererBackend::set_selected_primitive() for what
 // `index` means), or -1 for none. Cheap and immediate (a push constant, not
 // a rebake) -- call every time the selection changes, not once at startup.
-void renderer_set_selected_primitive(i32 index);
+KAPI void renderer_set_selected_primitive(i32 index);
 
 // Resolves a primitive's name (SdfPrimitiveDef::name) to the index
 // renderer_set_selected_primitive() above takes, or -1 if that name isn't
 // currently uploaded/no backend exists yet -- see
 // RendererBackend::primitive_gpu_index().
-i32 renderer_get_primitive_gpu_index(const std::string &name);
+KAPI i32 renderer_get_primitive_gpu_index(const std::string &name);
 
 // Shows/hides the reference grid: the ground plane (y=0) subdivided into
 // 1-unit cells (heavier lines every 10 units, world X/Z axes tinted),
@@ -181,7 +181,7 @@ i32 renderer_get_primitive_gpu_index(const std::string &name);
 // after renderer_initialize(). Like the selection outline it's cheap and
 // immediate (a push constant, not a rebake), so it can be toggled every
 // frame if needed.
-void renderer_set_grid_visible(b8 visible);
+KAPI void renderer_set_grid_visible(b8 visible);
 
 // Phase 4: switches the render pass's primary hit-test/normals/contact-AO/
 // shadows from the fixed-cube field every caller has always used onto the
@@ -194,34 +194,34 @@ void renderer_set_grid_visible(b8 visible);
 // position (see VulkanRendererBackend::begin_frame()) -- enabling this
 // without that just samples whatever chunks happen to already be resident
 // (likely none, since nothing streams in on its own).
-void renderer_set_chunked_field_enabled(b8 enabled);
+KAPI void renderer_set_chunked_field_enabled(b8 enabled);
 
 // Marks one primitive as interactively moving, by name; pass an empty name
 // to commit it. While set it is kept out of the chunk bake and drawn
 // analytically instead, so dragging it re-bakes nothing and updates at
 // frame rate. Its shadows, ambient occlusion and GI keep lighting where it
 // used to be until it is committed -- that lag is what makes it free.
-void renderer_set_dynamic_primitive(std::string_view name);
+KAPI void renderer_set_dynamic_primitive(std::string_view name);
 
 // Re-arms chunk cache pre-warming for the geometry currently loaded. Only
 // needed by a caller that swaps scenes through renderer_reconcile_scene()
 // rather than renderer_load_scene(), which re-arms by itself.
-void renderer_request_cache_prewarm();
+KAPI void renderer_request_cache_prewarm();
 
 // Whether renderer_load_scene() re-arms cache pre-warming by itself (on by
 // default) -- see RendererBackend::set_cache_prewarm_on_load().
-void renderer_set_cache_prewarm_on_load(b8 enabled);
+KAPI void renderer_set_cache_prewarm_on_load(b8 enabled);
 
 // How many chunks of the streamed field around the camera are still
 // loading or baking -- 0 once it is complete. A camera cut to somewhere
 // new pushes it up for a few frames; a game can hold a cover over the
 // frame until it drains rather than show the field filling in.
-u32 renderer_streaming_backlog();
+KAPI u32 renderer_streaming_backlog();
 
 // Moves one registered primitive in place -- for interactive dragging, so a
 // mouse-move costs three floats rather than re-saving and re-parsing the
 // whole scene. Only meaningful on a primitive that is currently dynamic.
-void renderer_set_primitive_transform(std::string_view name,
+KAPI void renderer_set_primitive_transform(std::string_view name,
                                       glm::vec3 position,
                                       glm::vec3 rotation_euler);
 
@@ -233,34 +233,34 @@ void renderer_set_primitive_transform(std::string_view name,
 // point cloud, so nothing splats there whatever this is set to. Defaults to
 // Prime, which cannot change the image (only how much empty space each ray
 // has to march); Visibility actually shades the splats and so is opt-in.
-void renderer_set_splat_mode(RendererSplatMode mode);
+KAPI void renderer_set_splat_mode(RendererSplatMode mode);
 
 // Enables or disables temporal anti-aliasing (on by default). See
 // RendererBackend::set_taa_enabled().
-void renderer_set_taa_enabled(b8 enabled);
+KAPI void renderer_set_taa_enabled(b8 enabled);
 
 // Enables or disables the imperfect shadow maps for local point lights (on
 // by default). See RendererBackend::set_ism_enabled().
-void renderer_set_ism_enabled(b8 enabled);
+KAPI void renderer_set_ism_enabled(b8 enabled);
 
 // Enables or disables stochastic ambient occlusion (on by default). See
 // RendererBackend::set_ao_enabled().
-void renderer_set_ao_enabled(b8 enabled);
+KAPI void renderer_set_ao_enabled(b8 enabled);
 
 // Debug: logs what the baked field holds at a world point. See
 // RendererBackend::debug_probe_field().
-void renderer_debug_probe_field(glm::vec3 world_pos);
+KAPI void renderer_debug_probe_field(glm::vec3 world_pos);
 
 // Enables/disables the bloom post-process -- a soft glow bloomed off
 // bright/emissive surfaces (see Material::emissive_intensity), added back
 // on top of the scene. On by default, subtly; call with false to disable
 // entirely (e.g. for a performance-constrained target, or a game whose
 // look doesn't want it).
-void renderer_set_bloom_enabled(b8 enabled);
+KAPI void renderer_set_bloom_enabled(b8 enabled);
 
 // Enables/disables the vignette post-process -- a smooth radial darkening
 // toward the screen edges. On by default, subtly.
-void renderer_set_vignette_enabled(b8 enabled);
+KAPI void renderer_set_vignette_enabled(b8 enabled);
 
 // Enables/disables the pixelation post-process -- quantizes the screen
 // into flat-coloured blocks (the classic "pixel art" mosaic look), except
@@ -269,32 +269,32 @@ void renderer_set_vignette_enabled(b8 enabled);
 // resolution regardless. Off by default -- it's a deliberate stylistic
 // choice, not something every game using this engine would want without
 // asking.
-void renderer_set_pixelation_enabled(b8 enabled);
+KAPI void renderer_set_pixelation_enabled(b8 enabled);
 
 // Sets the pixelation block size (edge length, in full-resolution screen
 // pixels) -- larger blocks read as chunkier/lower-fidelity. Has no visible
 // effect unless pixelation is also enabled (see
 // renderer_set_pixelation_enabled() above). Defaults to 6.
-void renderer_set_pixelation_block_size(u32 block_size);
+KAPI void renderer_set_pixelation_block_size(u32 block_size);
 
 // Luminance above which a pixel starts contributing to bloom -- lower
 // reads as "more of the scene blooms," not just the brightest highlights.
 // Has no visible effect while bloom is disabled (see
 // renderer_set_bloom_enabled() above). Clamped to non-negative. Defaults
 // to 0.85.
-void renderer_set_bloom_threshold(f32 threshold);
+KAPI void renderer_set_bloom_threshold(f32 threshold);
 
 // How strongly the blurred bright-pass adds back on top of the scene --
 // higher reads as a stronger glow. Same mechanics as
 // renderer_set_bloom_threshold() above. Clamped to non-negative. Defaults
 // to 0.35.
-void renderer_set_bloom_intensity(f32 intensity);
+KAPI void renderer_set_bloom_intensity(f32 intensity);
 
 // How much the vignette darkens the screen edges -- 0 = no visible effect
 // even while vignette is enabled, 1 = fully black at the furthest corner.
 // Same mechanics as renderer_set_bloom_threshold() above. Clamped to
 // [0, 1]. Defaults to 0.35.
-void renderer_set_vignette_strength(f32 strength);
+KAPI void renderer_set_vignette_strength(f32 strength);
 
 // Normalized distance from screen center (0 = center, 1 = a full-height/
 // width edge, sqrt(2) = the furthest corner) where the vignette's falloff
@@ -302,7 +302,7 @@ void renderer_set_vignette_strength(f32 strength);
 // pushes it out toward the corners. Same mechanics as
 // renderer_set_bloom_threshold() above. Clamped to [0, sqrt(2)]. Defaults
 // to 0.55.
-void renderer_set_vignette_radius(f32 radius);
+KAPI void renderer_set_vignette_radius(f32 radius);
 
 // Scales the raymarch/post-process passes' internal render resolution
 // relative to the actual framebuffer size -- e.g. 0.75 renders at 75%
@@ -312,7 +312,7 @@ void renderer_set_vignette_radius(f32 radius);
 // large or fullscreen window instead of paying full native-resolution
 // cost unconditionally. Takes effect immediately. Clamped to (0, 1].
 // Defaults to 1.0 (native resolution, unchanged from before this existed).
-void renderer_set_render_scale(f32 scale);
+KAPI void renderer_set_render_scale(f32 scale);
 
 // Rebakes the bitmap font every renderer_draw_text() call uses (SH's Q&A
 // list, HUD text, the debug camera hint, etc.), from
@@ -324,7 +324,7 @@ void renderer_set_render_scale(f32 scale);
 // size change (e.g. once at startup, or from a settings screen), not
 // every frame. Leaves the current font in place (logging an error) if
 // name.ttf can't be baked.
-void renderer_set_font(std::string_view name, f32 pixel_height);
+KAPI void renderer_set_font(std::string_view name, f32 pixel_height);
 
 // Enables an equirectangular (lat/long, NOT a 6-face cubemap) skybox behind
 // all scene geometry, replacing the flat two-colour background gradient
@@ -335,10 +335,10 @@ void renderer_set_font(std::string_view name, f32 pixel_height);
 // etc.) -- a name, not an arbitrary filesystem path. Not cheap (a device-
 // idle wait to safely rewrite a descriptor binding), so call it for a
 // deliberate skybox change (e.g. once per level/scene), not every frame.
-void renderer_enable_sky_box(std::string_view texture_name);
+KAPI void renderer_enable_sky_box(std::string_view texture_name);
 
 // Disables the skybox, falling back to the flat gradient background.
-void renderer_disable_sky_box();
+KAPI void renderer_disable_sky_box();
 
 // Enables/disables floating-origin recentring -- see
 // RendererBackend::set_floating_origin_enabled() for exact semantics. Off by
@@ -346,7 +346,7 @@ void renderer_disable_sky_box();
 // precision loss opts in explicitly. A game that enables this MUST call
 // renderer_consume_origin_shift() once per frame (see below) or its own
 // camera will drift out of sync with the (correctly recentred) scene.
-void renderer_set_floating_origin_enabled(b8 enabled);
+KAPI void renderer_set_floating_origin_enabled(b8 enabled);
 
 // Returns the render-space shift (world units) a floating-origin recenter
 // has applied since the last call, then clears it -- (0,0,0) if none
@@ -356,6 +356,6 @@ void renderer_set_floating_origin_enabled(b8 enabled);
 // returned delta to every such Camera via Camera::shift() -- see
 // RendererBackend::consume_origin_shift()'s comment for why this can't just
 // happen automatically.
-glm::vec3 renderer_consume_origin_shift();
+KAPI glm::vec3 renderer_consume_origin_shift();
 
-b8 renderer_draw_frame(struct render_packet *packet);
+KAPI b8 renderer_draw_frame(struct render_packet *packet);

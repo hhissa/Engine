@@ -1,0 +1,330 @@
+#sdf scene file
+version=0.1
+# Theo's peeping tom -- a row of urinals in a public toilet.
+ambient=0.15
+
+material urinal {
+    id=5e9ceb32934e6a9f
+    base_colour=0.95 0.95 0.93 1
+    roughness=0.1
+    base_map=white
+}
+
+material tiles {
+    id=1b6a98dc6df3c26c
+    base_colour=0.8 0.85 0.82 1
+    base_map=hospitalfloor
+    uv_scale=0.6
+}
+
+material floor {
+    id=1d84f9c2dd407923
+    base_colour=0.4 0.42 0.4 1
+    base_map=hospitalfloor
+    uv_scale=1.2
+}
+
+material divider {
+    id=005867a24b8967a6
+    base_colour=0.35 0.4 0.45 1
+    roughness=0.4
+    base_map=white
+}
+
+material pipe {
+    id=19c829b193bc89ad
+    base_colour=0.82 0.83 0.86 1
+    roughness=0.12
+    metallic=1
+    base_map=white
+}
+
+material strip_light {
+    id=f4b33aa1e2f2509d
+    base_colour=0.9 1 0.95 1
+    emissive_colour=0.9 1 0.95
+    emissive_intensity=2
+    base_map=white
+}
+
+material urinal_cakes {
+    id=693b7060fd6c05a9
+    base_colour=0.3 0.55 0.95 1
+    roughness=0.6
+    base_map=white
+}
+
+material hand_dryer {
+    id=e1e644bb5e6d2fc7
+    base_colour=0.9 0.9 0.9 1
+    roughness=0.3
+    base_map=white
+}
+
+material wet_floor_sign {
+    id=41779ea6eebf1dbd
+    base_colour=0.98 0.82 0.1 1
+    roughness=0.4
+    base_map=white
+}
+
+light light0 {
+    type=point
+    position=0 -2.6 1.6
+    colour=0.88 1 0.92
+    intensity=1.4
+}
+
+layer layer0 {
+    operation=union
+    smoothness=0.05
+
+    primitive p0 {
+        type=round_box
+        position=-1.5 -1 2.75
+        rotation=0 0 0
+        params=0.3 0.42 0.22 0.12
+        material=5e9ceb32934e6a9f
+    }
+
+    primitive p1 {
+        type=round_box
+        position=0 -1 2.75
+        rotation=0 0 0
+        params=0.3 0.42 0.22 0.12
+        material=5e9ceb32934e6a9f
+    }
+
+    primitive p2 {
+        type=round_box
+        position=1.5 -1 2.75
+        rotation=0 0 0
+        params=0.3 0.42 0.22 0.12
+        material=5e9ceb32934e6a9f
+    }
+
+}
+
+layer layer1 {
+    operation=subtraction
+    smoothness=0.06
+
+    primitive p3 {
+        type=ellipsoid
+        position=-1.5 -1.05 2.5
+        rotation=0 0 0
+        params=0.22 0.34 0.2 0
+        material=5e9ceb32934e6a9f
+    }
+
+    primitive p4 {
+        type=ellipsoid
+        position=0 -1.05 2.5
+        rotation=0 0 0
+        params=0.22 0.34 0.2 0
+        material=5e9ceb32934e6a9f
+    }
+
+    primitive p5 {
+        type=ellipsoid
+        position=1.5 -1.05 2.5
+        rotation=0 0 0
+        params=0.22 0.34 0.2 0
+        material=5e9ceb32934e6a9f
+    }
+
+}
+
+layer layer2 {
+    operation=union
+    smoothness=0
+
+    primitive p6 {
+        type=box
+        position=0 0.05 1
+        rotation=0 0 0
+        params=4 0.05 4 0
+        material=1d84f9c2dd407923
+    }
+
+    primitive p7 {
+        type=box
+        position=0 -1.6 3.05
+        rotation=0 0 0
+        params=4 1.6 0.05 0
+        material=1b6a98dc6df3c26c
+    }
+
+    primitive p8 {
+        type=box
+        position=0 -3.1 1
+        rotation=0 0 0
+        params=4 0.05 4 0
+        material=1b6a98dc6df3c26c
+    }
+
+    primitive p9 {
+        type=capsule
+        position=-1.5 -1.825 2.95
+        rotation=3.142 0 0
+        params=0.025 0.375 0 0
+        material=19c829b193bc89ad
+    }
+
+    primitive p10 {
+        type=capsule
+        position=0 -1.825 2.95
+        rotation=3.142 0 0
+        params=0.025 0.375 0 0
+        material=19c829b193bc89ad
+    }
+
+    primitive p11 {
+        type=capsule
+        position=1.5 -1.825 2.95
+        rotation=3.142 0 0
+        params=0.025 0.375 0 0
+        material=19c829b193bc89ad
+    }
+
+    primitive p12 {
+        type=box
+        position=-0.75 -1.15 2.6
+        rotation=0 0 0
+        params=0.025 0.55 0.35 0
+        material=005867a24b8967a6
+    }
+
+    primitive p13 {
+        type=box
+        position=0.75 -1.15 2.6
+        rotation=0 0 0
+        params=0.025 0.55 0.35 0
+        material=005867a24b8967a6
+    }
+
+    primitive p14 {
+        type=box
+        position=0 -3 2
+        rotation=0 0 0
+        params=1.4 0.02 0.1 0
+        material=f4b33aa1e2f2509d
+    }
+
+}
+
+layer layer3 {
+    operation=union
+    smoothness=0.01
+
+    primitive p15 {
+        type=round_box
+        position=-1.5 -1.5 2.93
+        rotation=0 0 0
+        params=0.07 0.06 0.06 0.02
+        material=19c829b193bc89ad
+    }
+
+    primitive p16 {
+        type=capsule
+        position=-1.385 -1.515 2.87
+        rotation=-0.7195 -0.6247 -1.419
+        params=0.015 0.05612 0 0
+        material=19c829b193bc89ad
+    }
+
+    primitive p17 {
+        type=ellipsoid
+        position=-1.5 -0.68 2.62
+        rotation=0 0 0
+        params=0.08 0.025 0.06 0
+        material=693b7060fd6c05a9
+    }
+
+    primitive p18 {
+        type=round_box
+        position=0 -1.5 2.93
+        rotation=0 0 0
+        params=0.07 0.06 0.06 0.02
+        material=19c829b193bc89ad
+    }
+
+    primitive p19 {
+        type=capsule
+        position=0.115 -1.515 2.87
+        rotation=-0.7195 -0.6247 -1.419
+        params=0.015 0.05612 0 0
+        material=19c829b193bc89ad
+    }
+
+    primitive p20 {
+        type=ellipsoid
+        position=0 -0.68 2.62
+        rotation=0 0 0
+        params=0.08 0.025 0.06 0
+        material=693b7060fd6c05a9
+    }
+
+    primitive p21 {
+        type=round_box
+        position=1.5 -1.5 2.93
+        rotation=0 0 0
+        params=0.07 0.06 0.06 0.02
+        material=19c829b193bc89ad
+    }
+
+    primitive p22 {
+        type=capsule
+        position=1.615 -1.515 2.87
+        rotation=-0.7195 -0.6247 -1.419
+        params=0.015 0.05612 0 0
+        material=19c829b193bc89ad
+    }
+
+    primitive p23 {
+        type=ellipsoid
+        position=1.5 -0.68 2.62
+        rotation=0 0 0
+        params=0.08 0.025 0.06 0
+        material=693b7060fd6c05a9
+    }
+
+    primitive p24 {
+        type=round_box
+        position=3.1 -1.25 2.9
+        rotation=0 0 0
+        params=0.22 0.18 0.12 0.05
+        material=e1e644bb5e6d2fc7
+    }
+
+    primitive p25 {
+        type=capped_cylinder
+        position=0 -0.002 1.6
+        rotation=0 0 0
+        params=0.15 0.004 0 0
+        material=19c829b193bc89ad
+    }
+
+}
+
+layer layer4 {
+    operation=union
+    smoothness=0
+
+    primitive p26 {
+        type=box
+        position=-2.4 -0.38 1
+        rotation=0.25 0.4 0
+        params=0.22 0.38 0.012 0
+        material=41779ea6eebf1dbd
+    }
+
+    primitive p27 {
+        type=box
+        position=-2.33 -0.38 1.16
+        rotation=-0.25 0.4 0
+        params=0.22 0.38 0.012 0
+        material=41779ea6eebf1dbd
+    }
+
+}

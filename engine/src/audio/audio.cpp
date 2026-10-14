@@ -2,7 +2,17 @@
 
 #include "../core/logger.h"
 
+#if KPLATFORM_LINUX
 #include <alsa/asoundlib.h>
+#elif KPLATFORM_WINDOWS
+// NOGDI: wingdi.h's `#define ERROR 0` would break KERROR -- see
+// platform_win32.cpp.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#define NOGDI
+#include <windows.h>
+#include <mmsystem.h>
+#endif
 
 #include <atomic>
 #include <algorithm>
@@ -89,6 +99,7 @@ std::optional<SoundClip> load_wav(const std::string &path) {
   return clip;
 }
 
+#if KPLATFORM_LINUX
 // The background player -- see audio.h. Owns the clip cache and the queue;
 // its one thread opens the ALSA device for each clip, plays it until it ends
 // or a newer play() cuts it off, and closes it again, so a mismatched sample rate between two clips is
@@ -230,6 +241,87 @@ AudioPlayer &player() {
   static AudioPlayer instance;
   return instance;
 }
+
+#elif KPLATFORM_WINDOWS
+
+// Rebuilds a canonical 44-byte-header WAV image from a parsed clip --
+// PlaySound(SND_MEMORY) wants a whole RIFF file, and this way the source
+// file's extra chunks (LIST, fact, ...) never reach it.
+std::vector<char> make_wav_image(const SoundClip &clip) {
+  const u32 data_bytes = static_cast<u32>(clip.samples.size() * sizeof(i16));
+  const u16 block_align = static_cast<u16>(clip.channels * sizeof(i16));
+  std::vector<char> image(44 + data_bytes);
+  char *out = image.data();
+  auto put = [&out](const void *src, size_t n) {
+    std::memcpy(out, src, n);
+    out += n;
+  };
+  auto put_u32 = [&put](u32 v) { put(&v, 4); }; // x86/ARM: little-endian
+  auto put_u16 = [&put](u16 v) { put(&v, 2); };
+  put("RIFF", 4);
+  put_u32(36 + data_bytes);
+  put("WAVE", 4);
+  put("fmt ", 4);
+  put_u32(16);
+  put_u16(1); // PCM
+  put_u16(static_cast<u16>(clip.channels));
+  put_u32(clip.sample_rate);
+  put_u32(clip.sample_rate * block_align);
+  put_u16(block_align);
+  put_u16(16);
+  put("data", 4);
+  put_u32(data_bytes);
+  put(clip.samples.data(), data_bytes);
+  return image;
+}
+
+// Windows player -- see audio.h. PlaySound(SND_ASYNC) already has exactly
+// the semantics wanted: it returns immediately, plays on winmm's own
+// thread, and a new call stops whatever the previous one is still playing.
+// So unlike the ALSA player there's no thread or queue here, only the
+// cache. SND_MEMORY reads the image in place while it plays, which is why
+// images are kept for the life of the process.
+class AudioPlayer {
+public:
+  void play(std::string_view name) {
+    std::lock_guard lock(mutex_);
+    std::string key(name);
+    auto it = images_.find(key);
+    if (it == images_.end()) {
+      if (failed_.contains(key)) {
+        return; // already logged why -- see audio.h
+      }
+      std::optional<SoundClip> clip = load_wav("assets/sounds/" + key + ".wav");
+      if (!clip) {
+        failed_.insert(key);
+        return;
+      }
+      it = images_.emplace(key, make_wav_image(*clip)).first;
+    }
+    if (!PlaySoundA(it->second.data(), nullptr,
+                    SND_MEMORY | SND_ASYNC | SND_NODEFAULT) &&
+        !device_warned_) {
+      device_warned_ = true;
+      KWARN("No audio output -- sounds will be silent.");
+    }
+  }
+
+private:
+  std::mutex mutex_;
+  std::unordered_map<std::string, std::vector<char>> images_;
+  std::unordered_set<std::string> failed_;
+  bool device_warned_ = false;
+};
+
+AudioPlayer &player() {
+  // Deliberately never destroyed: winmm may still be reading a playing
+  // image when the engine DLL unloads, and stopping it from a static
+  // destructor would mean calling winmm under the loader lock.
+  static AudioPlayer *instance = new AudioPlayer;
+  return *instance;
+}
+
+#endif
 
 } // namespace
 

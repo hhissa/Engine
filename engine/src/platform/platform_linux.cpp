@@ -1,6 +1,5 @@
 // platform_linux.cpp
 #include "platform.h"
-#include <xcb/xproto.h>
 
 #if KPLATFORM_LINUX
 
@@ -334,6 +333,22 @@ f64 get_absolute_time() {
 
 void sleep(u64 ms) {
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
+
+std::string user_cache_directory() {
+  if (const char *xdg = std::getenv("XDG_CACHE_HOME"); xdg && *xdg) {
+    return xdg;
+  }
+  if (const char *home = std::getenv("HOME"); home && *home) {
+    return std::string(home) + "/.cache";
+  }
+  return {};
+}
+
+void set_environment_variable(std::string_view name, std::string_view value,
+                              b8 overwrite) {
+  setenv(std::string(name).c_str(), std::string(value).c_str(),
+         overwrite ? 1 : 0);
 }
 
 } // namespace Platform

@@ -3455,6 +3455,20 @@ f32 VulkanRaymarchShader::previous_refined_bounding_radius(
              : geometry_bounding_radius(geometry);
 }
 
+namespace {
+
+// material_scalars.x for one material: pixelation_exempt as 0/1 plus
+// metallic folded in at half weight, so the two share the slot (y/z/w are
+// all taken and z is read by half a dozen shaders). Decoded only by
+// Builtin.DeferredShade.comp.glsl -- see ScenePrimitiveMaterialScalars
+// there.
+f32 material_scalar_x(const MaterialDef &def) {
+  return (def.pixelation_exempt ? 1.0f : 0.0f) +
+         0.5f * std::clamp(def.metallic, 0.0f, 1.0f);
+}
+
+} // namespace
+
 void VulkanRaymarchShader::rebuild_static_scene() {
   std::vector<Geometry> all = context_->geometry_system->snapshot();
   const std::vector<SceneLayer> &scene_layers =
@@ -3463,8 +3477,8 @@ void VulkanRaymarchShader::rebuild_static_scene() {
   std::vector<GpuPrimitive> gpu_primitives(kMaxScenePrimitives, GpuPrimitive{});
   std::vector<f32> gpu_colours(static_cast<size_t>(kMaxScenePrimitives) * 4,
                               1.0f);
-  // 4 per primitive: pixelation_exempt, bump_strength, casts_shadow,
-  // roughness -- see material_scalar_buffer_. Pre-filled with the "plain
+  // 4 per primitive: pixelation_exempt + metallic (material_scalar_x()),
+  // bump_strength, casts_shadow, roughness -- see material_scalar_buffer_. Pre-filled with the "plain
   // material" defaults so a slot no primitive below claims still reads
   // sanely.
   std::vector<f32> gpu_material_scalars(static_cast<size_t>(kMaxScenePrimitives) * 4,
@@ -3729,7 +3743,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
           geometry.material->def.uv_scale * geometry.texture_scale_factor;
 
       gpu_material_scalars[index * 4 + 0] =
-          geometry.material->def.pixelation_exempt ? 1.0f : 0.0f;
+          material_scalar_x(geometry.material->def);
       gpu_material_scalars[index * 4 + 1] = geometry.material->def.bump_strength;
       gpu_material_scalars[index * 4 + 2] =
           geometry.material->def.casts_shadow ? 1.0f : 0.0f;
@@ -4104,7 +4118,7 @@ void VulkanRaymarchShader::rebuild_static_scene() {
         geometry.material->def.uv_scale * geometry.texture_scale_factor;
 
     gpu_material_scalars[index * 4 + 0] =
-        geometry.material->def.pixelation_exempt ? 1.0f : 0.0f;
+        material_scalar_x(geometry.material->def);
     gpu_material_scalars[index * 4 + 1] = geometry.material->def.bump_strength;
     gpu_material_scalars[index * 4 + 2] =
         geometry.material->def.casts_shadow ? 1.0f : 0.0f;

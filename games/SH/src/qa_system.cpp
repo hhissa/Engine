@@ -726,8 +726,13 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
       // that stays loaded underneath -- a backdrop quad rather than
       // clearing the scene the way SHGame::show_intertitle() does, so the
       // room the card interrupts doesn't have to be re-baked afterwards.
+      // [invert] swaps the card to black on white -- see script_line.h.
+      const glm::vec4 card_colour = line.invert ? glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)
+                                                : glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+      const glm::vec4 ink = line.invert ? glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)
+                                        : glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
       renderer_draw_backdrop_quad(glm::vec2(0.0f), glm::vec2(width, height),
-                                  glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+                                  card_colour);
       constexpr std::string_view kTitleHint = "[Enter] continue";
       if (line.stack) {
         // A [stack] run (see text_run_): every card's text so far stays
@@ -741,7 +746,7 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
           renderer_draw_text(
               card.text,
               glm::vec2(centered_x(width, card.text.size(), card.size), y),
-              flashed(card, glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)), card.size);
+              flashed(card, ink), card.size);
           previous_bottom = kTextDescent * card.size;
         }
         renderer_draw_text(
@@ -764,7 +769,7 @@ void QASystem::render(u32 screen_width, u32 screen_height) const {
             wrapped[i],
             glm::vec2(centered_x(width, wrapped[i].size(), size),
                       top_y + static_cast<f32>(i) * line_spacing),
-            flashed(line, glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)), size);
+            flashed(line, ink), size);
       }
       renderer_draw_text(
           kTitleHint,

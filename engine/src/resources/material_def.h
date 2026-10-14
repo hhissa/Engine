@@ -130,12 +130,17 @@ struct MaterialDef {
   // uniform texture, so the perturbation comes out to zero).
   std::string bump_map;
   f32 bump_strength = 1.0f;
-  // Dielectric surface roughness, 0 (mirror) to 1 (fully diffuse). Not
-  // yet read by any shader -- the deferred pass is currently pure Lambert
-  // with no specular lobe at all -- but declared here because it is the
-  // input every one of glass, plastic and still liquid needs, and because
-  // the point of this file is that adding it later costs one line.
+  // Surface roughness, 0 (mirror) to 1 (fully diffuse) -- the width of
+  // Builtin.DeferredShade.comp.glsl's specular lobe, and how much of the
+  // sky box a smooth surface reflects.
   f32 roughness = 0.5f;
+  // 0 (the default) is a dielectric: a diffuse substrate under a clear
+  // coat with white highlights. 1 is a bare metal: no diffuse at all, and
+  // highlights and reflections tinted by base_colour/base_map -- what
+  // makes steel read as steel rather than as grey plastic. A metal only
+  // looks like one with something to reflect, so pair it with a sky box
+  // or a nearby light.
+  f32 metallic = 0.0f;
 
   // --- Emission -----------------------------------------------------
   glm::vec3 emissive_colour{1.0f};
@@ -210,6 +215,7 @@ void for_each_material_property(Def &def, Visitor &&visit) {
   visit("bump_map", def.bump_map, MaterialDirty::Shading);
   visit("bump_strength", def.bump_strength, MaterialDirty::Shading);
   visit("roughness", def.roughness, MaterialDirty::Shading);
+  visit("metallic", def.metallic, MaterialDirty::Shading);
 
   visit("emissive_colour", def.emissive_colour, MaterialDirty::Lighting);
   visit("emissive_intensity", def.emissive_intensity, MaterialDirty::Lighting);
