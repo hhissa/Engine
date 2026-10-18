@@ -342,6 +342,24 @@ layout(set = 1, binding = 1) uniform BrushPreviewBuffer {
                          // unused padding.
 } brush_preview;
 
+// TAA-ghosting fix: the preview used to be blended directly into `colour`
+// below, which is exactly what out_image feeds into Builtin.TaaResolve.
+// comp.glsl as `current_colour`. TAA reprojects by DEPTH, and the preview
+// never touches gbuffer_depth (it isn't real geometry), so TAA saw "same
+// surface as last frame, trust history" every frame and crushed the ghost
+// down to history's tiny per-frame blend weight instead of showing it at
+// the strength computed below. Writing it here, into its own image, and
+// compositing it back in AFTER TAA (Builtin.PostComposite.comp.glsl,
+// binding 3) keeps it out of what TAA reprojects entirely -- same reason
+// scene_viewport.cpp's wireframe cursor outline (drawn later still, in the
+// UI render pass over the swapchain image) has always stayed crisp. Same
+// render-target size/lifetime as gbuffer_depth etc (recreate_render_
+// target_images(), vulkan_raymarch_shader.cpp) and, like out_image, written
+// unconditionally every pixel every frame -- vec4(0) when the preview is
+// off or this pixel has no hit -- so a stale previous-frame ghost can never
+// survive into a frame that no longer wants one.
+layout(set = 1, binding = 2, rgba8) uniform writeonly image2D preview_overlay_image;
+
 // Shape/op selectors -- brush_preview.shape_op_slot's x/y values. Must
 // match VulkanRaymarchShader::BrushShape/BrushOp (and SculptBrushShape/
 // SculptBrushOp, renderer_types.inl) exactly -- same lockstep note as
@@ -1769,11 +1787,22 @@ void main() {
     // analytic shape (brush_preview, set = 1 binding = 1 above) against
     // THIS pixel's exact same ray_origin/ray_dir, shades any hit through
     // shade_brush_preview() (the same lighting building blocks the real-
-    // surface block just above used), and blends it over `colour` as a
-    // translucent ghost -- Dreams' own "about to place this" cue, not a
-    // committed edit. Runs unconditionally (not just when travelled <
-    // MAX_DIST above) so the preview still shows over open background/sky,
-    // which is the common case when sculpting into empty space.
+    // surface block just above used), and writes it to preview_overlay_
+    // image as a translucent ghost -- Dreams' own "about to place this"
+    // cue, not a committed edit. Runs unconditionally (not just when
+    // travelled < MAX_DIST above) so the preview still shows over open
+    // background/sky, which is the common case when sculpting into empty
+    // space.
+    //
+    // Deliberately NOT blended into `colour` here any more -- see preview_
+    // overlay_image's own declaration comment above for why (TAA ghosting).
+    // preview_overlay_colour/alpha default to a fully transparent "no
+    // preview this pixel" and are only overwritten below on an actual hit;
+    // the unconditional imageStore after this block is what guarantees a
+    // disabled/missed preview still clears any ghost a previous frame left
+    // in this image.
+    vec3 preview_overlay_colour = vec3(0.0);
+    float preview_overlay_alpha = 0.0;
     if (brush_preview.center_enabled.w > 0.5) {
         // Cheap early-out already happened above (the whole block is
         // skipped once center_enabled.w is 0) -- this is the ONLY cost a
@@ -1872,9 +1901,12 @@ void main() {
             float preview_rim = pow(1.0 - max(dot(preview_normal, -ray_dir), 0.0), 2.0);
             preview_colour = mix(preview_colour, preview_op_tint, preview_rim * 0.35);
 
-            colour = mix(colour, preview_colour, preview_alpha);
+            preview_overlay_colour = preview_colour;
+            preview_overlay_alpha = preview_alpha;
         }
     }
+    imageStore(preview_overlay_image, pixel_coord,
+              vec4(preview_overlay_colour, preview_overlay_alpha));
 
     // The Transmission block (glass refraction/reflection against
     // transmissive CSG primitives, via transmissive_range()/

@@ -1607,6 +1607,17 @@ private:
   // constant -- PushConstants in that shader is already called out, in its
   // own comment, as sitting close to Vulkan's guaranteed 128-byte limit.
   std::optional<VulkanBuffer> brush_preview_buffer_;
+  // M7 polish FIX (TAA-ghosting): render-target-sized (same lifetime as
+  // depth_image_/ao_image_ -- recreate_render_target_images()) rgba8 image
+  // Builtin.DeferredShade.comp.glsl writes the brush preview's shaded
+  // colour+alpha into (paint_read_set_'s NEW binding 2) instead of
+  // blending it straight into out_image/colour. Builtin.PostComposite.
+  // comp.glsl reads it back (post_composite_set_'s NEW binding 3) and
+  // composites it AFTER TAA resolve -- see either shader's binding comment
+  // for why: TAA reprojects by depth, the preview never touches depth, so
+  // blending it in before TAA fed the ghost into TAA's own history and
+  // crushed it down to history's tiny per-frame blend weight every frame.
+  VulkanImage preview_overlay_image_{};
   // Host-visible -- unconditional per-cell demand counter, zeroed before
   // every voxelize dispatch and read back afterward, exactly mirroring
   // brick_counter_buffer_'s overflow-diagnostic role above (see its own

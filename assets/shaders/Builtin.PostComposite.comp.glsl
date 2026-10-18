@@ -27,6 +27,19 @@ layout(binding = 0, rgba8) uniform readonly image2D scene_colour;
 // vertically before adding it on top of scene_colour.
 layout(binding = 1, rgba8) uniform readonly image2D bloom_temp;
 layout(binding = 2, rgba8) uniform writeonly image2D post_process_out;
+// The brush-cursor ghost preview, written by Builtin.DeferredShade.comp.
+// glsl this same frame (rgb = shaded preview colour, a = blend strength,
+// 0 where the preview is off or missed this pixel) -- composited in HERE,
+// after TAA resolve/bloom/vignette/pixelation rather than into DeferredShade's
+// own out_image, specifically so Builtin.TaaResolve.comp.glsl's history
+// buffer never sees it: the preview doesn't move gbuffer_depth, so TAA's
+// depth-based "same surface" test would otherwise read it as unchanged
+// geometry and crush it down to history's tiny per-frame blend weight
+// every frame. Recomputed from scratch here every frame with no temporal
+// feedback at all, same as the wireframe cursor outline the UI render pass
+// draws later still -- see preview_overlay_image's own declaration comment,
+// Builtin.DeferredShade.comp.glsl, for the full story.
+layout(binding = 3, rgba8) uniform readonly image2D brush_preview_overlay;
 
 layout(push_constant) uniform PushConstants {
     int full_width;
@@ -96,6 +109,12 @@ void main() {
     float vignette = 1.0 - push.vignette_strength *
                           smoothstep(push.vignette_radius, 1.4142, dist);
     colour *= vignette;
+
+    // Brush-cursor ghost preview, composited last -- after bloom/vignette/
+    // pixelation, over the final frame, immune to TAA by construction (see
+    // brush_preview_overlay's own binding comment above).
+    vec4 preview = imageLoad(brush_preview_overlay, coord);
+    colour = mix(colour, preview.rgb, preview.a);
 
     imageStore(post_process_out, coord, vec4(colour, 1.0));
 }

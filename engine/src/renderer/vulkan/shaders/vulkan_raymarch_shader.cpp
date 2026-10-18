@@ -2429,7 +2429,12 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // M7 polish ADDS binding 1 = BrushPreviewBuffer (brush_preview_buffer_
   // above) to this SAME set, rather than a third one -- see paint_read_
   // set_layout_'s own header comment (vulkan_raymarch_shader.h) for why.
-  VkDescriptorSetLayoutBinding paint_read_bindings[2]{};
+  // M7 polish's TAA-ghosting FIX further ADDS binding 2 =
+  // preview_overlay_image_ (writeonly -- see its own declaration comment)
+  // to this same set, same reasoning again: this is deferred_shade_
+  // pipeline_'s existing additive set, and new shading-only output belongs
+  // here, not a fourth set.
+  VkDescriptorSetLayoutBinding paint_read_bindings[3]{};
   paint_read_bindings[0].binding = 0;
   paint_read_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_bindings[0].descriptorCount = 1;
@@ -2438,9 +2443,13 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   paint_read_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   paint_read_bindings[1].descriptorCount = 1;
   paint_read_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  paint_read_bindings[2].binding = 2;
+  paint_read_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  paint_read_bindings[2].descriptorCount = 1;
+  paint_read_bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   VkDescriptorSetLayoutCreateInfo paint_read_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  paint_read_layout_info.bindingCount = 2;
+  paint_read_layout_info.bindingCount = 3;
   paint_read_layout_info.pBindings = paint_read_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &paint_read_layout_info,
@@ -2457,17 +2466,21 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // SECOND pool-size entry: brush_preview_buffer_'s binding is a UNIFORM_
   // BUFFER, a different VkDescriptorType than every STORAGE_BUFFER binding
   // already in this pool, and Vulkan requires one VkDescriptorPoolSize
-  // entry per distinct type.
-  VkDescriptorPoolSize paint_pool_sizes[2]{};
+  // entry per distinct type. The TAA-ghosting fix adds a THIRD: binding 2
+  // (preview_overlay_image_) is a STORAGE_IMAGE, a third distinct type.
+  VkDescriptorPoolSize paint_pool_sizes[3]{};
   paint_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_pool_sizes[0].descriptorCount = 3 + 1; // chunk_sculpt_spraypaint_set_
                                               // + paint_read_set_'s binding 0
   paint_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   paint_pool_sizes[1].descriptorCount = 1; // paint_read_set_'s binding 1
                                           // (BrushPreviewBuffer)
+  paint_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  paint_pool_sizes[2].descriptorCount = 1; // paint_read_set_'s binding 2
+                                          // (preview_overlay_image_)
   VkDescriptorPoolCreateInfo paint_pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-  paint_pool_info.poolSizeCount = 2;
+  paint_pool_info.poolSizeCount = 3;
   paint_pool_info.pPoolSizes = paint_pool_sizes;
   paint_pool_info.maxSets = 2;
   VK_CHECK(vkCreateDescriptorPool(context_->device.logical_device,
@@ -2511,7 +2524,9 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       {chunk_brick_paint_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {brush_preview_buffer_->handle(), 0, VK_WHOLE_SIZE},
   };
-  VkWriteDescriptorSet paint_read_writes[2]{};
+  VkDescriptorImageInfo paint_read_preview_image_info{
+      VK_NULL_HANDLE, preview_overlay_image_.view, VK_IMAGE_LAYOUT_GENERAL};
+  VkWriteDescriptorSet paint_read_writes[3]{};
   paint_read_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   paint_read_writes[0].dstSet = paint_read_set_;
   paint_read_writes[0].dstBinding = 0;
@@ -2527,7 +2542,16 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   paint_read_writes[1].descriptorCount = 1;
   paint_read_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   paint_read_writes[1].pBufferInfo = &paint_read_buffer_infos[1];
-  vkUpdateDescriptorSets(context_->device.logical_device, 2, paint_read_writes,
+  // TAA-ghosting fix: binding 2 = preview_overlay_image_, the STORAGE_IMAGE
+  // addition -- also re-pointed by rebind_render_target_descriptors()
+  // whenever this image is recreated on resize (it's a render target).
+  paint_read_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  paint_read_writes[2].dstSet = paint_read_set_;
+  paint_read_writes[2].dstBinding = 2;
+  paint_read_writes[2].descriptorCount = 1;
+  paint_read_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  paint_read_writes[2].pImageInfo = &paint_read_preview_image_info;
+  vkUpdateDescriptorSets(context_->device.logical_device, 3, paint_read_writes,
                         0, nullptr);
 
   VkDescriptorPoolSize chunk_pool_size{};
@@ -2900,10 +2924,11 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        &bloom_blur_h_set_layout_));
 
   // Descriptor set layout for pass 4b (post-composite): reads
-  // output_image_ and bloom_temp_image_, writes post_process_image_ -- see
+  // output_image_ and bloom_temp_image_, writes post_process_image_, and
+  // (M7 polish TAA-ghosting fix) reads preview_overlay_image_ -- see
   // Builtin.PostComposite.comp.glsl.
-  VkDescriptorSetLayoutBinding post_composite_bindings[3]{};
-  for (u32 i = 0; i < 3; ++i) {
+  VkDescriptorSetLayoutBinding post_composite_bindings[4]{};
+  for (u32 i = 0; i < 4; ++i) {
     post_composite_bindings[i].binding = i;
     post_composite_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     post_composite_bindings[i].descriptorCount = 1;
@@ -2912,7 +2937,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
 
   VkDescriptorSetLayoutCreateInfo post_composite_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  post_composite_layout_info.bindingCount = 3;
+  post_composite_layout_info.bindingCount = 4;
   post_composite_layout_info.pBindings = post_composite_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &post_composite_layout_info,
@@ -2982,9 +3007,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // render's 3 (colour + the G-buffer's two halves) + bloom blur h's 2 +
   // post composite's 3 + TAA resolve's 5 x2 sets.
   // render's 4 (colour, the G-buffer's two halves, the AO estimate) + bloom
-  // blur h's 2 + post composite's 3 + TAA resolve's 5 x2 sets + the AO
-  // pass's own 3 images.
-  pool_sizes[1].descriptorCount = 22;
+  // blur h's 2 + post composite's 4 (M7 polish TAA-ghosting fix added its
+  // preview_overlay_image_ read) + TAA resolve's 5 x2 sets + the AO pass's
+  // own 3 images.
+  pool_sizes[1].descriptorCount = 23;
   pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   // scene_textures + scene_bump_textures + skybox_texture.
   pool_sizes[2].descriptorCount = kMaxScenePrimitives * 2 + 1;
@@ -3181,14 +3207,16 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                         0, nullptr);
 
   // Populate post_composite_set_: 0 = output_image_ (read), 1 =
-  // bloom_temp_image_ (read), 2 = post_process_image_ (write).
-  VkDescriptorImageInfo post_composite_image_infos[3] = {
+  // bloom_temp_image_ (read), 2 = post_process_image_ (write), 3 =
+  // preview_overlay_image_ (read -- M7 polish TAA-ghosting fix).
+  VkDescriptorImageInfo post_composite_image_infos[4] = {
       {VK_NULL_HANDLE, taa_output_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, bloom_temp_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, post_process_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, preview_overlay_image_.view, VK_IMAGE_LAYOUT_GENERAL},
   };
-  VkWriteDescriptorSet post_composite_writes[3]{};
-  for (u32 i = 0; i < 3; ++i) {
+  VkWriteDescriptorSet post_composite_writes[4]{};
+  for (u32 i = 0; i < 4; ++i) {
     post_composite_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     post_composite_writes[i].dstSet = post_composite_set_;
     post_composite_writes[i].dstBinding = i;
@@ -3196,7 +3224,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     post_composite_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     post_composite_writes[i].pImageInfo = &post_composite_image_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 3,
+  vkUpdateDescriptorSets(context_->device.logical_device, 4,
                         post_composite_writes, 0, nullptr);
 
   // Everything that points at a render-target image (render_set_'s 0/24,
@@ -3659,6 +3687,7 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   vulkan_image_destroy(context_, &history_images_[1]);
   vulkan_image_destroy(context_, &history_images_[0]);
   vulkan_image_destroy(context_, &ao_image_);
+  vulkan_image_destroy(context_, &preview_overlay_image_);
   vulkan_image_destroy(context_, &normal_material_image_);
   vulkan_image_destroy(context_, &depth_image_);
   vulkan_image_destroy(context_, &post_process_image_);
@@ -3775,6 +3804,20 @@ void VulkanRaymarchShader::recreate_render_target_images() {
                       VK_IMAGE_USAGE_STORAGE_BIT,
                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
                       VK_IMAGE_ASPECT_COLOR_BIT, &ao_image_);
+  // M7 polish (TAA-ghosting fix): the brush preview's shaded colour+alpha,
+  // written by Builtin.DeferredShade.comp.glsl (paint_read_set_ binding 2)
+  // and read back by Builtin.PostComposite.comp.glsl (post_composite_set_
+  // binding 3) -- see preview_overlay_image_'s own header comment. Same
+  // format as output_image_/taa_output_image_/post_process_image_ (the
+  // swapchain's own rgba8-class format, matching every other image these
+  // two shaders already blend together) and same render resolution/
+  // lifetime as the rest of this function's images.
+  vulkan_image_destroy(context_, &preview_overlay_image_);
+  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, render_width_, render_height_,
+                      context_->swapchain.image_format.format,
+                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
+                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
+                      VK_IMAGE_ASPECT_COLOR_BIT, &preview_overlay_image_);
   for (u32 i = 0; i < 2; ++i) {
     vulkan_image_destroy(context_, &history_images_[i]);
     vulkan_image_create(context_, VK_IMAGE_TYPE_2D, render_width_,
@@ -3952,13 +3995,14 @@ void VulkanRaymarchShader::rebind_render_target_descriptors() {
   vkUpdateDescriptorSets(context_->device.logical_device, 2, bloom_blur_h_writes,
                         0, nullptr);
 
-  VkDescriptorImageInfo post_composite_image_infos[3] = {
+  VkDescriptorImageInfo post_composite_image_infos[4] = {
       {VK_NULL_HANDLE, taa_output_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, bloom_temp_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, post_process_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, preview_overlay_image_.view, VK_IMAGE_LAYOUT_GENERAL},
   };
-  VkWriteDescriptorSet post_composite_writes[3]{};
-  for (u32 i = 0; i < 3; ++i) {
+  VkWriteDescriptorSet post_composite_writes[4]{};
+  for (u32 i = 0; i < 4; ++i) {
     post_composite_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     post_composite_writes[i].dstSet = post_composite_set_;
     post_composite_writes[i].dstBinding = i;
@@ -3966,8 +4010,24 @@ void VulkanRaymarchShader::rebind_render_target_descriptors() {
     post_composite_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     post_composite_writes[i].pImageInfo = &post_composite_image_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 3,
+  vkUpdateDescriptorSets(context_->device.logical_device, 4,
                         post_composite_writes, 0, nullptr);
+
+  // M7 polish (TAA-ghosting fix): paint_read_set_'s binding 2 --
+  // preview_overlay_image_ -- also needs re-pointing here: it is recreated
+  // alongside depth_image_/ao_image_ etc above, same as every other
+  // render-target image this function repoints.
+  VkDescriptorImageInfo paint_read_preview_image_info{
+      VK_NULL_HANDLE, preview_overlay_image_.view, VK_IMAGE_LAYOUT_GENERAL};
+  VkWriteDescriptorSet paint_read_preview_write{
+      VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  paint_read_preview_write.dstSet = paint_read_set_;
+  paint_read_preview_write.dstBinding = 2;
+  paint_read_preview_write.descriptorCount = 1;
+  paint_read_preview_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  paint_read_preview_write.pImageInfo = &paint_read_preview_image_info;
+  vkUpdateDescriptorSets(context_->device.logical_device, 1,
+                        &paint_read_preview_write, 0, nullptr);
 }
 
 // Used to deep-copy GeometrySystem's registered CSG primitives into the
@@ -7066,6 +7126,18 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
                    VK_ACCESS_SHADER_READ_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+  // M7 polish (TAA-ghosting fix): preview_overlay_image_ -- discard-and-
+  // write, unconditionally, every frame, same reasoning as ao_image_'s own
+  // unconditional transition above: deferred_shade_pipeline_ writes every
+  // pixel of it regardless of whether the preview is actually visible this
+  // frame (see Builtin.DeferredShade.comp.glsl's own unconditional
+  // imageStore into it), so it must leave this dispatch in GENERAL layout
+  // every frame, not just the frames a preview happens to be showing.
+  transition_image(cmd, preview_overlay_image_.handle,
+                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                   VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
   deferred_shade_pipeline_->bind(command_buffer);
   // M3c: set 0 = render_set_ (unchanged), set 1 = paint_read_set_ (NEW --
@@ -7207,6 +7279,16 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
   transition_image(cmd, post_process_image_.handle, VK_IMAGE_LAYOUT_UNDEFINED,
                    VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_TRANSFER_READ_BIT,
                    VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+  // M7 polish (TAA-ghosting fix): preview_overlay_image_'s write (deferred_
+  // shade_pipeline_, above) -> this pass's read must be visible before
+  // post_composite_pipeline_'s dispatch below touches it. Both compute,
+  // same queue, so a layout-preserving access/stage barrier is enough --
+  // same pattern as depth_image_'s WRITE->READ barrier before the AO pass.
+  transition_image(cmd, preview_overlay_image_.handle, VK_IMAGE_LAYOUT_GENERAL,
+                   VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_WRITE_BIT,
+                   VK_ACCESS_SHADER_READ_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
   PostCompositePushConstants post_composite_push{
