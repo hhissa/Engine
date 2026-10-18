@@ -1870,23 +1870,24 @@ void main() {
             vec3 preview_colour = shade_brush_preview(preview_p, preview_normal,
                                                        -ray_dir, preview_slot);
 
-            // Occlusion choice (documented, not a bug): a preview hit
-            // BEHIND whatever this pixel's real surface already resolved
-            // to (preview_t > travelled) still shows, just at a reduced
-            // alpha, rather than vanishing outright -- Dreams itself
-            // ghosts the about-to-be-placed shape through surrounding
-            // geometry the same way, which is the whole point of a
-            // "ghost" (you need to see a brush preview poking INTO a wall
-            // you're sculpting against, not have it disappear the moment
-            // it would be hidden). A hit in front of the real surface (or
-            // no real surface at all, travelled >= MAX_DIST, i.e. open
-            // background) shows at full preview strength.
-            const float PREVIEW_ALPHA = 0.55;
-            const float PREVIEW_OCCLUDED_ALPHA_SCALE = 0.4;
+            // No occlusion-based dimming: a constant alpha regardless of
+            // preview_t vs. travelled. A dimmed-when-behind-the-surface
+            // heuristic sounds right for "ghost poking into a wall" but is
+            // wrong for a sculpt-brush preview specifically -- the brush is
+            // normally centered AT or very near the existing surface (the
+            // whole point of sculpting onto/into it), so for a normal,
+            // unstretched, modestly-sized brush most of its silhouette sits
+            // almost exactly at the same depth as the real surface it's
+            // touching, and that near-tie resolved to "occluded" far more
+            // often than not -- making an ordinary brush look faint/patchy
+            // (only a heavily stretched shape, poking well out in front,
+            // read clearly). It's also backwards for Subtraction: that op
+            // is meant to CARVE INTO existing geometry, so most of its
+            // volume is by design behind/inside the current surface --
+            // dimming it fights the one case where showing what's about to
+            // be carved away matters most.
+            const float PREVIEW_ALPHA = 0.65;
             float preview_alpha = PREVIEW_ALPHA;
-            if (preview_t > travelled) {
-                preview_alpha *= PREVIEW_OCCLUDED_ALPHA_SCALE;
-            }
 
             // A thin Union(cyan)/Subtraction(orange) rim tint ON TOP of
             // the real shaded fill -- same colours scene_viewport.cpp's

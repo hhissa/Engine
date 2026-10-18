@@ -518,59 +518,25 @@ private:
   // pickup succeeded before setting move_dragging_; see mousePressEvent()).
   void place_move_stamp(glm::vec3 center);
 
-  // M7 (live brush-cursor preview): projects a world-space point into
-  // PHYSICAL screen pixels (the units renderer_draw_line() expects) using
-  // camera_'s own orthonormal basis -- the exact inverse of compute_ray_
-  // center()'s ray construction, adapted from tools/sdf_editor's
-  // project_to_screen() (git history, deleted in M0 along with that tool's
-  // CSG-specific gizmo). Returns std::nullopt if world_point is behind the
-  // camera (dot(v, forward) <= 0), same guard the original had -- a line
-  // endpoint behind the camera has no sane screen position.
-  std::optional<glm::vec2> project_to_screen(glm::vec3 world_point) const;
-
-  // M7: appends the line segments (in physical screen pixels, via
-  // project_to_screen()) of one ellipse ring centered at `center`, spanning
-  // the plane through orthonormal world-space axes u/v, with per-axis radii
-  // ru (along u) and rv (along v) -- a uniform ru==rv circle for a sphere-
-  // like preview, or distinct radii for an ellipsoid-ish approximation of a
-  // non-spherical shape (see update_brush_preview()'s own comment). Segments
-  // whose EITHER endpoint lands behind the camera are simply skipped (not
-  // substituted/clamped) -- consistent with every other projected-line user
-  // in this codebase (tools/sdf_editor's build_gizmo_ring(), git history).
-  void append_wire_ellipse(std::vector<std::pair<glm::vec2, glm::vec2>> &lines,
-                           glm::vec3 center, glm::vec3 u, glm::vec3 v, f32 ru,
-                           f32 rv) const;
-
-  // M7: appends the 12 edges of an axis-aligned wireframe box centered at
-  // `center` with the given per-axis half-extents, in physical screen
-  // pixels. Used for Box/RoundBox/BoxFrame (see update_brush_preview()) --
-  // the actual shapes that most need a flat-edged outline rather than an
-  // ellipsoid approximation to read correctly at a glance.
-  void append_wire_box(std::vector<std::pair<glm::vec2, glm::vec2>> &lines,
-                       glm::vec3 center, glm::vec3 half_extents) const;
-
-  // M7: recomputes preview_lines_/preview_visible_ for the CURRENT brush
-  // panel state (shape/size/stretch) at wherever last_hover_pos_'s ray
-  // currently lands -- called once per tick() (see its own comment) so the
-  // preview tracks both mouse movement AND camera movement (an orbit/zoom
-  // with the mouse otherwise still, without a fresh mouseMoveEvent, should
-  // still move the preview to match the new ray). Hidden (preview_visible_
-  // left false) whenever: the engine isn't initialized yet, the mouse has
-  // left the viewport (mouse_in_window_ false), or ANY drag is in progress
+  // M7: recomputes preview_visible_ and the renderer-side shaded ghost (via
+  // renderer_sculpt_preview_brush()) for the CURRENT brush panel state
+  // (shape/size/stretch) at wherever the cursor's ray currently lands --
+  // called once per tick() (see its own comment) so the preview tracks both
+  // mouse movement AND camera movement (an orbit/zoom with the mouse
+  // otherwise still, without a fresh mouseMoveEvent, should still move the
+  // preview to match the new ray). Hidden (preview_visible_ left false, the
+  // renderer told `enabled=false`) whenever: the engine isn't initialized
+  // yet, the mouse has left the viewport, or ANY drag is in progress
   // (orbiting_/left_dragging_/spray_dragging_/move_dragging_/moving_edit_
   // dragging_) -- the plan's own verification note ("disappears or stays
   // appropriately out of the way during an actual drag/stamp") is read
   // literally here: every drag mode already has its own feedback (the
-  // stamp itself appearing), so the preview outline would only be visual
-  // noise layered on top of it, not additional information.
+  // stamp itself appearing), so the preview ghost would only be visual
+  // noise layered on top of it, not additional information. (This used to
+  // also build a 2D wireframe outline -- append_wire_box()/append_wire_
+  // ellipse()/project_to_screen(), drawn by draw_brush_preview() -- removed
+  // once the shaded ghost alone was confirmed sufficient; git history.)
   void update_brush_preview();
-
-  // M7: issues the actual renderer_draw_line() calls for whatever
-  // update_brush_preview() last computed -- called every tick() right
-  // before renderer_draw_frame(), same "queue this frame, consumed by end_
-  // frame()" discipline tools/sdf_editor's draw_gizmo() documented (git
-  // history).
-  void draw_brush_preview() const;
 
   std::unique_ptr<PlatformLayer> platform_;
   bool initialized_ = false;
@@ -678,10 +644,8 @@ private:
   // own comment for why the pointer position itself is POLLED (QCursor::
   // pos() + mapFromGlobal()) every tick() rather than cached from
   // mouseMoveEvent; only the computed result is kept as a member.
-  // preview_lines_/preview_visible_ are recomputed once per tick() (not
-  // recomputed inline on every mouse move) so a still mouse during an
-  // orbit/zoom still keeps the preview correctly positioned under the ray
-  // that position now casts.
-  std::vector<std::pair<glm::vec2, glm::vec2>> preview_lines_;
+  // preview_visible_ is recomputed once per tick() (not recomputed inline
+  // on every mouse move) so a still mouse during an orbit/zoom still keeps
+  // the preview correctly positioned under the ray that position now casts.
   bool preview_visible_ = false;
 };
