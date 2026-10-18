@@ -81,7 +81,10 @@ layout(std430, binding = 5) buffer ChunkBrickFreeListTopBuffer {
 struct RestoreMeta {
     int change_type; // Unused.
     int material;    // The brick's material id to restore.
-    int pad0;
+    // M3 (Looseness): repurposed from a formerly-unused pad0, same
+    // "value to restore" convention `material` immediately above uses --
+    // see VulkanRaymarchShader::restore_sculpt_checkpoint()'s own comment.
+    float looseness;
     int pad1;
 };
 
@@ -106,6 +109,14 @@ layout(std430, binding = 7) readonly buffer RestoreVoxelBuffer {
 // behind).
 layout(std430, binding = 8) buffer ChunkBrickPaintBuffer {
     float chunk_brick_paint[];
+};
+
+// M3 (Looseness): same per-brick buffer Builtin.SculptStamp.comp.glsl
+// writes (binding 9 there, same chunk_sculpt_stamp_set_layout_ this
+// pipeline reuses wholesale -- see this file's own header comment) --
+// restored alongside chunk_brick_primitive below, same plain-copy contract.
+layout(std430, binding = 9) buffer ChunkBrickLoosenessBuffer {
+    float chunk_brick_looseness[];
 };
 
 // Must match kMaxChunkBricks engine-side exactly -- same cross-check as
@@ -159,6 +170,7 @@ void main() {
     }
 
     chunk_brick_primitive[brick_index] = restore_meta[idx].material;
+    chunk_brick_looseness[brick_index] = restore_meta[idx].looseness;
 
     int base = brick_index * CHUNK_BRICK_VOXEL_COUNT;
     int voxel_base = int(idx) * CHUNK_BRICK_VOXEL_COUNT;

@@ -49,13 +49,16 @@ struct SculptStamp {
   // verification); nothing reads it back yet.
   i32 cells_touched = 0;
   // M3 (Looseness): 0 (uniform/clean, the default) to 1 (maximally loose) --
-  // authored per-stamp, same as every other field here. Pure bookkeeping
-  // right now: nothing GPU-side reads this value, and `stamp_shape()` above
-  // is never even called with it (there is no push-constant/shader change
-  // in this milestone) -- it only exists so a Looseness value an author
-  // sets now survives save/load and Redo, ready for the Fleck evaluator
-  // (M6) to actually consume once that milestone adds a per-voxel
-  // surface-stylization pass. See the plan file's M3/M6 sections.
+  // authored per-stamp, same as every other field here. Now has a real
+  // GPU-side effect: VulkanRendererBackend::apply_stamp_and_record()/
+  // delete_edit()/move_edit() thread this straight through to
+  // VulkanRaymarchShader::stamp_shape(), which writes it into a new per-
+  // BRICK buffer (chunk_brick_looseness_buffer_, parallel to the existing
+  // per-brick material buffer, same UNION-only-overwrites rule) alongside
+  // the stamp's material -- Builtin.DeferredShade.comp.glsl reads it back
+  // at the real-surface shading block to scale the hit brick's effective
+  // Fleck strength/scale (see Builtin.FleckPattern.inc.glsl's entry
+  // points). See the plan file's M3/M6 sections.
   f32 looseness = 0.0f;
 };
 

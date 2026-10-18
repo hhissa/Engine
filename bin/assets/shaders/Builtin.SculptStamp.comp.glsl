@@ -196,7 +196,9 @@ layout(std430, binding = 5) buffer ChunkBrickFreeListTopBuffer {
 struct UndoCaptureMeta {
     int change_type;  // 0 = NOOP, 1 = NEW_BRICK, 2 = MODIFIED.
     int old_material;
-    int pad0;
+    // M3 (Looseness): repurposed from a formerly-unused pad0 -- same
+    // change_type==2-only meaning as old_material immediately above.
+    float old_looseness;
     int pad1;
 };
 
@@ -227,6 +229,18 @@ layout(std430, binding = 7) buffer UndoCaptureVoxelBuffer {
 // paint.
 layout(std430, binding = 8) buffer ChunkBrickPaintBuffer {
     float chunk_brick_paint[];
+};
+
+// M3 (Looseness): one f32 per brick slot, same size/indexing as
+// ChunkBrickPrimitiveBuffer above -- written right alongside the material
+// write below (same UNION-only-overwrites rule: a Subtraction stamp leaves
+// a brick's existing looseness untouched, exactly like material). Read back
+// in Builtin.DeferredShade.comp.glsl to scale a hit surface's effective
+// Fleck strength/scale. Also bound (same layout) by Builtin.
+// SculptCheckpointRestore.comp.glsl, which restores it the same way it
+// restores chunk_brick_primitive.
+layout(std430, binding = 9) buffer ChunkBrickLoosenessBuffer {
+    float chunk_brick_looseness[];
 };
 
 // How many of StampCellBuffer's cells this dispatch can capture undo state
@@ -271,6 +285,12 @@ layout(push_constant) uniform PushConstants {
     int material_slot;  // Indexes the per-primitive material arrays (see
                         // ensure_default_sculpt_material() engine-side).
     int op;             // One of the OP_* constants above.
+    float looseness;    // M3 (Looseness): written into chunk_brick_
+                        // looseness[] alongside material_slot below, same
+                        // UNION-only-overwrites rule. Added at the END of
+                        // this block -- see SculptStampPushConstants'
+                        // engine-side comment for why appending keeps
+                        // every earlier member's offset unchanged.
 } pc;
 
 void main() {
@@ -311,6 +331,7 @@ void main() {
         if (capture_allowed) {
             undo_meta[idx].change_type = 0; // NOOP -- nothing to undo.
             undo_meta[idx].old_material = -1;
+            undo_meta[idx].old_looseness = 0.0;
         }
         return;
     }
@@ -335,6 +356,7 @@ void main() {
             if (capture_allowed) {
                 undo_meta[idx].change_type = 0; // NOOP -- pool was exhausted.
                 undo_meta[idx].old_material = -1;
+                undo_meta[idx].old_looseness = 0.0;
             }
             return;
         }
@@ -344,14 +366,16 @@ void main() {
             // NEW_BRICK -- nothing valid to restore to; Undo just frees it.
             undo_meta[idx].change_type = 1;
             undo_meta[idx].old_material = -1;
+            undo_meta[idx].old_looseness = 0.0;
         }
     } else {
         brick_index = existing_brick;
         if (capture_allowed) {
-            // MODIFIED -- captured BEFORE either this or the material write
-            // below can overwrite it.
+            // MODIFIED -- captured BEFORE either this or the material/
+            // looseness write below can overwrite it.
             undo_meta[idx].change_type = 2;
             undo_meta[idx].old_material = chunk_brick_primitive[brick_index];
+            undo_meta[idx].old_looseness = chunk_brick_looseness[brick_index];
         }
     }
 
@@ -367,6 +391,10 @@ void main() {
     // BrushShapes.inc.glsl's comment).
     if (pc.op == OP_UNION) {
         chunk_brick_primitive[brick_index] = pc.material_slot;
+        // M3 (Looseness): authored alongside material at stamp time,
+        // same UNION-only-overwrites rule as the write immediately above --
+        // see ChunkBrickLoosenessBuffer's own comment.
+        chunk_brick_looseness[brick_index] = pc.looseness;
     }
 
     vec3 brush_center = vec3(pc.center_x, pc.center_y, pc.center_z);

@@ -93,7 +93,9 @@ layout(std430, binding = 9) buffer ChunkClusterFreeTopBuffer {
 struct UndoCaptureMeta {
     int change_type; // 0 = NOOP, 1 = NEW_BRICK, 2 = MODIFIED.
     int old_material;
-    int pad0;
+    // M3 (Looseness): repurposed from a formerly-unused pad0 -- same
+    // change_type==2-only meaning as old_material immediately above.
+    float old_looseness;
     int pad1;
 };
 
@@ -103,6 +105,13 @@ layout(std430, binding = 10) readonly buffer UndoCaptureMetaBuffer {
 
 layout(std430, binding = 11) readonly buffer UndoCaptureVoxelBuffer {
     float undo_voxels[];
+};
+
+// M3 (Looseness): same per-brick buffer Builtin.SculptStamp.comp.glsl
+// writes (binding 9 there) -- restored alongside chunk_brick_primitive
+// below for a MODIFIED cell, same "no blending, plain restore" contract.
+layout(std430, binding = 12) buffer ChunkBrickLoosenessBuffer {
+    float chunk_brick_looseness[];
 };
 
 // Must match kMaxChunkBricks engine-side exactly -- same cross-check as
@@ -169,6 +178,7 @@ void main() {
 
     // change_type == 2 (MODIFIED): plain restore, no blending.
     chunk_brick_primitive[brick_index] = undo_meta[idx].old_material;
+    chunk_brick_looseness[brick_index] = undo_meta[idx].old_looseness;
     int base = brick_index * CHUNK_BRICK_VOXEL_COUNT;
     int voxel_base = int(idx) * CHUNK_BRICK_VOXEL_COUNT;
     for (int i = 0; i < CHUNK_BRICK_VOXEL_COUNT; ++i) {

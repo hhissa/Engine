@@ -334,7 +334,24 @@ struct SculptStampPushConstants {
   i32 cell_count;
   i32 material_slot;
   i32 op; // VulkanRaymarchShader::BrushOp's underlying value.
+  // M3 (Looseness): the per-stamp authored looseness value (SculptStamp::
+  // looseness, 0 = uniform/clean to 1 = maximally loose), written alongside
+  // material_slot into the new per-brick chunk_brick_looseness_buffer_ --
+  // see Builtin.SculptStamp.comp.glsl's identical new `looseness` member
+  // (same UNION-only-overwrites rule as material_slot's own write). Added
+  // at the END of the struct deliberately -- every member above this one
+  // already matches Builtin.SculptStamp.comp.glsl's PushConstants block
+  // exactly; appending keeps every existing member's offset unchanged.
+  f32 looseness;
 };
+// Byte-exact cross-check against Builtin.SculptStamp.comp.glsl's own
+// PushConstants block (14 plain 4-byte scalars, no vec/ivec, so no std430
+// alignment padding on either side) -- see this struct's own header
+// comment and the plan file's M1a postmortem for why this one struct is
+// worth a hard compile-time check instead of just a comment.
+static_assert(sizeof(SculptStampPushConstants) == 14 * 4,
+             "SculptStampPushConstants must stay byte-identical to Builtin."
+             "SculptStamp.comp.glsl's PushConstants block");
 
 // Matches Builtin.SculptSpraypaint.comp.glsl's push constant block EXACTLY
 // -- same scalar-only/no-vec convention as SculptStampPushConstants above,
@@ -362,7 +379,14 @@ struct SculptSplatRegenPushConstants {
 struct GpuUndoCaptureMeta {
   i32 change_type; // 0 = NOOP, 1 = NEW_BRICK, 2 = MODIFIED.
   i32 old_material;
-  i32 pad0;
+  // M3 (Looseness): repurposed from a formerly-unused pad0 -- same
+  // change_type==2-only meaning as old_material immediately above, captured
+  // and restored alongside it (Builtin.SculptStamp.comp.glsl/Builtin.
+  // SculptUndoRestore.comp.glsl's own identical struct). Also reused, same
+  // "repurposed" convention as old_material's own "material to restore"
+  // reuse below, by the checkpoint-restore path (restore_sculpt_
+  // checkpoint()) to carry "the looseness to restore".
+  f32 old_looseness;
   i32 pad1;
 };
 
@@ -1676,6 +1700,14 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  // M3 (Looseness): same size/usage as chunk_brick_primitive_buffer_
+  // immediately above -- one f32 per brick slot, same TRANSFER_SRC for
+  // capture_sculpt_checkpoint()'s own readback. See its own header comment
+  // (vulkan_raymarch_shader.h) for the full data-path story.
+  chunk_brick_looseness_buffer_.emplace(*context_, chunk_brick_primitive_size,
+                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   // M3c (Spraypaint): same size as chunk_brick_pool_buffer_ above -- see
   // chunk_brick_paint_buffer_'s own comment, vulkan_raymarch_shader.h.
   // TRANSFER_DST so reset_chunked_field() can vkCmdFillBuffer() it to all-
@@ -1916,6 +1948,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   if (!chunk_table_buffer_->is_valid() || !chunk_indirection_buffer_->is_valid() ||
       !chunk_brick_pool_buffer_->is_valid() ||
       !chunk_brick_primitive_buffer_->is_valid() ||
+      !chunk_brick_looseness_buffer_->is_valid() ||
       !chunk_brick_demand_buffer_->is_valid() ||
       !chunk_brick_free_list_buffer_->is_valid() ||
       !chunk_brick_free_list_top_buffer_->is_valid() ||
@@ -2192,16 +2225,19 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        context_->allocator,
                                        &chunk_voxel_cascade_set_layout_));
 
-  // M1a/M2b/M3c: chunk_sculpt_stamp_set_: {0=StampCellBuffer,
+  // M1a/M2b/M3c/M3 (Looseness): chunk_sculpt_stamp_set_: {0=StampCellBuffer,
   // 1=chunk_indirection, 2=chunk_brick_pool, 3=chunk_brick_primitive,
   // 4=brick_free_list, 5=brick_free_list_top, 6=UndoCaptureMetaBuffer,
-  // 7=UndoCaptureVoxelBuffer, 8=ChunkBrickPaintBuffer} -- must match
-  // Builtin.SculptStamp.comp.glsl's bindings exactly (6/7 added in M2b for
-  // undo capture; 8 added in M3c purely so a freshly allocated brick's
-  // paint voxels can be zeroed at alloc time -- see that binding's own
-  // comment in the shader).
-  VkDescriptorSetLayoutBinding chunk_sculpt_stamp_bindings[9]{};
-  for (u32 i = 0; i < 9; ++i) {
+  // 7=UndoCaptureVoxelBuffer, 8=ChunkBrickPaintBuffer, 9=
+  // ChunkBrickLoosenessBuffer} -- must match Builtin.SculptStamp.comp.glsl's
+  // AND Builtin.SculptCheckpointRestore.comp.glsl's bindings exactly (both
+  // reuse this one layout -- see chunk_sculpt_checkpoint_restore_pipeline_'s
+  // own comment; 6/7 added in M2b for undo capture, 8 added in M3c purely so
+  // a freshly allocated brick's paint voxels can be zeroed at alloc time,
+  // 9 added for Looseness -- same per-brick write/restore shape as binding
+  // 3's material, see that binding's own comment in each shader).
+  VkDescriptorSetLayoutBinding chunk_sculpt_stamp_bindings[10]{};
+  for (u32 i = 0; i < 10; ++i) {
     chunk_sculpt_stamp_bindings[i].binding = i;
     chunk_sculpt_stamp_bindings[i].descriptorType =
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -2210,7 +2246,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   }
   VkDescriptorSetLayoutCreateInfo chunk_sculpt_stamp_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  chunk_sculpt_stamp_layout_info.bindingCount = 9;
+  chunk_sculpt_stamp_layout_info.bindingCount = 10;
   chunk_sculpt_stamp_layout_info.pBindings = chunk_sculpt_stamp_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &chunk_sculpt_stamp_layout_info,
@@ -2239,14 +2275,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        context_->allocator,
                                        &chunk_sculpt_splat_regen_set_layout_));
 
-  // M2b: chunk_sculpt_undo_restore_set_: {0=StampCellBuffer (same buffer as
-  // the two sets above), 1=chunk_indirection, 2=chunk_brick_pool,
-  // 3=chunk_brick_primitive, 4=brick_free_list, 5=brick_free_list_top,
-  // 6=brick_clusters, 7=chunk_clusters, 8=cluster_free_list,
-  // 9=cluster_free_top, 10=UndoCaptureMetaBuffer, 11=UndoCaptureVoxelBuffer}
-  // -- must match Builtin.SculptUndoRestore.comp.glsl's bindings exactly.
-  VkDescriptorSetLayoutBinding chunk_sculpt_undo_restore_bindings[12]{};
-  for (u32 i = 0; i < 12; ++i) {
+  // M2b/M3 (Looseness): chunk_sculpt_undo_restore_set_: {0=StampCellBuffer
+  // (same buffer as the two sets above), 1=chunk_indirection,
+  // 2=chunk_brick_pool, 3=chunk_brick_primitive, 4=brick_free_list,
+  // 5=brick_free_list_top, 6=brick_clusters, 7=chunk_clusters,
+  // 8=cluster_free_list, 9=cluster_free_top, 10=UndoCaptureMetaBuffer,
+  // 11=UndoCaptureVoxelBuffer, 12=ChunkBrickLoosenessBuffer (NEW)} -- must
+  // match Builtin.SculptUndoRestore.comp.glsl's bindings exactly.
+  VkDescriptorSetLayoutBinding chunk_sculpt_undo_restore_bindings[13]{};
+  for (u32 i = 0; i < 13; ++i) {
     chunk_sculpt_undo_restore_bindings[i].binding = i;
     chunk_sculpt_undo_restore_bindings[i].descriptorType =
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -2256,7 +2293,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   }
   VkDescriptorSetLayoutCreateInfo chunk_sculpt_undo_restore_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  chunk_sculpt_undo_restore_layout_info.bindingCount = 12;
+  chunk_sculpt_undo_restore_layout_info.bindingCount = 13;
   chunk_sculpt_undo_restore_layout_info.pBindings =
       chunk_sculpt_undo_restore_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
@@ -2270,13 +2307,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // hand-added-up descriptorCount term -- see its comment on why a term
   // drifting from its set's real binding count silently under-sizes every
   // set allocated after it). M2b added chunk_sculpt_undo_restore_set_'s own
-  // 12 bindings to the same pool.
+  // 12 bindings to the same pool; M3 (Looseness) added one more binding to
+  // BOTH chunk_sculpt_stamp_set_ (9->10) and chunk_sculpt_undo_restore_set_
+  // (12->13).
   VkDescriptorPoolSize sculpt_pool_size{};
   sculpt_pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   sculpt_pool_size.descriptorCount =
-      9 + 9 + 12; // chunk_sculpt_stamp_set_ (8 -> 9 in M3c, see its own
-                 // comment) + chunk_sculpt_splat_regen_set_ +
-                 // chunk_sculpt_undo_restore_set_
+      10 + 9 + 13; // chunk_sculpt_stamp_set_ (8 -> 9 in M3c -> 10 in M3) +
+                  // chunk_sculpt_splat_regen_set_ +
+                  // chunk_sculpt_undo_restore_set_ (12 -> 13 in M3)
   VkDescriptorPoolCreateInfo sculpt_pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   sculpt_pool_info.poolSizeCount = 1;
@@ -2301,7 +2340,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   chunk_sculpt_splat_regen_set_ = sculpt_sets[1];
   chunk_sculpt_undo_restore_set_ = sculpt_sets[2];
 
-  VkDescriptorBufferInfo chunk_sculpt_stamp_buffer_infos[9] = {
+  VkDescriptorBufferInfo chunk_sculpt_stamp_buffer_infos[10] = {
       {chunk_sculpt_cell_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_indirection_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_brick_pool_buffer_->handle(), 0, VK_WHOLE_SIZE},
@@ -2311,9 +2350,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       {chunk_sculpt_undo_capture_meta_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_sculpt_undo_capture_voxel_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_brick_paint_buffer_->handle(), 0, VK_WHOLE_SIZE}, // M3c, binding 8.
+      {chunk_brick_looseness_buffer_->handle(), 0, VK_WHOLE_SIZE}, // M3, binding 9.
   };
-  VkWriteDescriptorSet chunk_sculpt_stamp_writes[9]{};
-  for (u32 i = 0; i < 9; ++i) {
+  VkWriteDescriptorSet chunk_sculpt_stamp_writes[10]{};
+  for (u32 i = 0; i < 10; ++i) {
     chunk_sculpt_stamp_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     chunk_sculpt_stamp_writes[i].dstSet = chunk_sculpt_stamp_set_;
     chunk_sculpt_stamp_writes[i].dstBinding = i;
@@ -2321,7 +2361,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     chunk_sculpt_stamp_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     chunk_sculpt_stamp_writes[i].pBufferInfo = &chunk_sculpt_stamp_buffer_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 9,
+  vkUpdateDescriptorSets(context_->device.logical_device, 10,
                         chunk_sculpt_stamp_writes, 0, nullptr);
 
   VkDescriptorBufferInfo chunk_sculpt_splat_regen_buffer_infos[9] = {
@@ -2347,7 +2387,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   vkUpdateDescriptorSets(context_->device.logical_device, 9,
                         chunk_sculpt_splat_regen_writes, 0, nullptr);
 
-  VkDescriptorBufferInfo chunk_sculpt_undo_restore_buffer_infos[12] = {
+  VkDescriptorBufferInfo chunk_sculpt_undo_restore_buffer_infos[13] = {
       {chunk_sculpt_cell_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_indirection_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_brick_pool_buffer_->handle(), 0, VK_WHOLE_SIZE},
@@ -2360,9 +2400,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       {chunk_cluster_free_top_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_sculpt_undo_capture_meta_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_sculpt_undo_capture_voxel_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_looseness_buffer_->handle(), 0, VK_WHOLE_SIZE}, // M3, binding 12.
   };
-  VkWriteDescriptorSet chunk_sculpt_undo_restore_writes[12]{};
-  for (u32 i = 0; i < 12; ++i) {
+  VkWriteDescriptorSet chunk_sculpt_undo_restore_writes[13]{};
+  for (u32 i = 0; i < 13; ++i) {
     chunk_sculpt_undo_restore_writes[i].sType =
         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     chunk_sculpt_undo_restore_writes[i].dstSet = chunk_sculpt_undo_restore_set_;
@@ -2373,7 +2414,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     chunk_sculpt_undo_restore_writes[i].pBufferInfo =
         &chunk_sculpt_undo_restore_buffer_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 12,
+  vkUpdateDescriptorSets(context_->device.logical_device, 13,
                         chunk_sculpt_undo_restore_writes, 0, nullptr);
 
   // M3c: chunk_sculpt_spraypaint_set_: {0=StampCellBuffer (same buffer as
@@ -2433,8 +2474,14 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // preview_overlay_image_ (writeonly -- see its own declaration comment)
   // to this same set, same reasoning again: this is deferred_shade_
   // pipeline_'s existing additive set, and new shading-only output belongs
-  // here, not a fourth set.
-  VkDescriptorSetLayoutBinding paint_read_bindings[3]{};
+  // here, not a fourth set. M3 (Looseness) ADDS binding 3 =
+  // chunk_brick_looseness_buffer_ (read-only here -- the write side is
+  // Builtin.SculptStamp.comp.glsl/Builtin.SculptCheckpointRestore.comp.
+  // glsl/Builtin.SculptUndoRestore.comp.glsl's own chunk_sculpt_stamp_set_/
+  // chunk_sculpt_undo_restore_set_ bindings) -- render_set_ is confirmed
+  // already fully packed at 29/29 bindings, so this per-brick buffer goes
+  // on this set instead, same precedent as the three additions above it.
+  VkDescriptorSetLayoutBinding paint_read_bindings[4]{};
   paint_read_bindings[0].binding = 0;
   paint_read_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_bindings[0].descriptorCount = 1;
@@ -2447,9 +2494,13 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   paint_read_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   paint_read_bindings[2].descriptorCount = 1;
   paint_read_bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  paint_read_bindings[3].binding = 3;
+  paint_read_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_read_bindings[3].descriptorCount = 1;
+  paint_read_bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   VkDescriptorSetLayoutCreateInfo paint_read_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  paint_read_layout_info.bindingCount = 3;
+  paint_read_layout_info.bindingCount = 4;
   paint_read_layout_info.pBindings = paint_read_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &paint_read_layout_info,
@@ -2470,8 +2521,9 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // (preview_overlay_image_) is a STORAGE_IMAGE, a third distinct type.
   VkDescriptorPoolSize paint_pool_sizes[3]{};
   paint_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  paint_pool_sizes[0].descriptorCount = 3 + 1; // chunk_sculpt_spraypaint_set_
-                                              // + paint_read_set_'s binding 0
+  paint_pool_sizes[0].descriptorCount =
+      3 + 1 + 1; // chunk_sculpt_spraypaint_set_ + paint_read_set_'s
+                // binding 0 + binding 3 (M3 Looseness, NEW)
   paint_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   paint_pool_sizes[1].descriptorCount = 1; // paint_read_set_'s binding 1
                                           // (BrushPreviewBuffer)
@@ -2520,13 +2572,14 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   vkUpdateDescriptorSets(context_->device.logical_device, 3,
                         chunk_sculpt_spraypaint_writes, 0, nullptr);
 
-  VkDescriptorBufferInfo paint_read_buffer_infos[2] = {
+  VkDescriptorBufferInfo paint_read_buffer_infos[3] = {
       {chunk_brick_paint_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {brush_preview_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_looseness_buffer_->handle(), 0, VK_WHOLE_SIZE}, // M3, binding 3.
   };
   VkDescriptorImageInfo paint_read_preview_image_info{
       VK_NULL_HANDLE, preview_overlay_image_.view, VK_IMAGE_LAYOUT_GENERAL};
-  VkWriteDescriptorSet paint_read_writes[3]{};
+  VkWriteDescriptorSet paint_read_writes[4]{};
   paint_read_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   paint_read_writes[0].dstSet = paint_read_set_;
   paint_read_writes[0].dstBinding = 0;
@@ -2551,7 +2604,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   paint_read_writes[2].descriptorCount = 1;
   paint_read_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   paint_read_writes[2].pImageInfo = &paint_read_preview_image_info;
-  vkUpdateDescriptorSets(context_->device.logical_device, 3, paint_read_writes,
+  // M3 (Looseness): binding 3 = chunk_brick_looseness_buffer_, read-only
+  // here -- same STORAGE_BUFFER type as binding 0, different buffer.
+  paint_read_writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  paint_read_writes[3].dstSet = paint_read_set_;
+  paint_read_writes[3].dstBinding = 3;
+  paint_read_writes[3].descriptorCount = 1;
+  paint_read_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_read_writes[3].pBufferInfo = &paint_read_buffer_infos[2];
+  vkUpdateDescriptorSets(context_->device.logical_device, 4, paint_read_writes,
                         0, nullptr);
 
   VkDescriptorPoolSize chunk_pool_size{};
@@ -3679,6 +3740,7 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   chunk_brick_paint_buffer_.reset();
   brush_preview_buffer_.reset();
   chunk_brick_primitive_buffer_.reset();
+  chunk_brick_looseness_buffer_.reset();
   chunk_brick_pool_buffer_.reset();
   chunk_indirection_buffer_.reset();
   chunk_table_buffer_.reset();
@@ -4434,7 +4496,7 @@ void VulkanRaymarchShader::set_material(i32 slot, glm::vec3 colour,
   material_scalar_buffer_->load_data(offset, sizeof(glm::vec4), 0, &scalars);
 
   // x: the "waxy" second-specular-lobe flag (M5). y/z/w: M6 (Flecks)'s
-  // pattern id (0-15, rounded)/strength/scale -- see this method's own
+  // pattern id (0-16, rounded)/strength/scale -- see this method's own
   // header comment (vulkan_raymarch_shader.h) for the full packing table
   // and why transmission_buffer_, not tex_transform_buffer_, is where
   // these live. A caller that wants no Fleck at all is expected to pass
@@ -4784,7 +4846,8 @@ static f32 sculpt_shape_bounding_radius(VulkanRaymarchShader::BrushShape shape_t
 
 i32 VulkanRaymarchShader::stamp_shape(glm::vec3 center, BrushShape shape_type,
                                       glm::vec4 params, f32 smoothness,
-                                      BrushOp op, i32 material_slot) {
+                                      BrushOp op, i32 material_slot,
+                                      f32 looseness) {
   if (!valid_) {
     return 0;
   }
@@ -4947,7 +5010,7 @@ i32 VulkanRaymarchShader::stamp_shape(glm::vec3 center, BrushShape shape_type,
       params.y,       params.z, params.w, smoothness,
       voxel_size,     static_cast<i32>(shape_type),
       static_cast<i32>(cells.size()), material_slot,
-      static_cast<i32>(op)};
+      static_cast<i32>(op), looseness};
   vkCmdPushConstants(cmd->handle(), chunk_sculpt_stamp_pipeline_->layout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(stamp_push),
                     &stamp_push);
@@ -5052,6 +5115,7 @@ i32 VulkanRaymarchShader::stamp_shape(glm::vec3 center, BrushShape shape_type,
       out.cell_min = glm::vec3(cells[i].cell_min_size);
       out.change_type = metas[i].change_type;
       out.old_material = metas[i].old_material;
+      out.old_looseness = metas[i].old_looseness;
       if (out.change_type == 2 && voxel_data != nullptr) {
         out.old_voxels.assign(voxel_data + static_cast<u64>(i) * kChunkBrickVoxelCount,
                               voxel_data + static_cast<u64>(i + 1) * kChunkBrickVoxelCount);
@@ -5260,7 +5324,7 @@ bool VulkanRaymarchShader::undo_stamp() {
     gpu_cells[i].cell_min_size = glm::vec4(cell.cell_min, kCoarseCellSize);
     gpu_metas[i].change_type = cell.change_type;
     gpu_metas[i].old_material = cell.old_material;
-    gpu_metas[i].pad0 = 0;
+    gpu_metas[i].old_looseness = cell.old_looseness;
     gpu_metas[i].pad1 = 0;
     if (cell.change_type == 2) {
       ++modified_count;
@@ -5454,6 +5518,10 @@ void VulkanRaymarchShader::capture_sculpt_checkpoint(i32 after_edit_index) {
   const u64 voxel_bytes = static_cast<u64>(pending.size()) *
       kChunkBrickVoxelCount * sizeof(f32);
 
+  // M3 (Looseness): same size/layout as material_bytes above -- one f32 per
+  // pending brick.
+  const u64 looseness_bytes = static_cast<u64>(pending.size()) * sizeof(f32);
+
   VulkanBuffer material_staging(*context_, material_bytes,
                                VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -5462,7 +5530,12 @@ void VulkanRaymarchShader::capture_sculpt_checkpoint(i32 after_edit_index) {
                             VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  if (!material_staging.is_valid() || !voxel_staging.is_valid()) {
+  VulkanBuffer looseness_staging(*context_, looseness_bytes,
+                                VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!material_staging.is_valid() || !voxel_staging.is_valid() ||
+      !looseness_staging.is_valid()) {
     KERROR("capture_sculpt_checkpoint(): failed to allocate brick staging "
           "buffers for {} bricks -- checkpoint capture aborted for edit "
           "index {}.",
@@ -5472,6 +5545,7 @@ void VulkanRaymarchShader::capture_sculpt_checkpoint(i32 after_edit_index) {
 
   std::vector<VkBufferCopy> material_regions(pending.size());
   std::vector<VkBufferCopy> voxel_regions(pending.size());
+  std::vector<VkBufferCopy> looseness_regions(pending.size());
   for (size_t i = 0; i < pending.size(); ++i) {
     const u64 brick_index = static_cast<u64>(pending[i].brick_index);
     material_regions[i].srcOffset = brick_index * sizeof(i32);
@@ -5483,6 +5557,10 @@ void VulkanRaymarchShader::capture_sculpt_checkpoint(i32 after_edit_index) {
     voxel_regions[i].dstOffset =
         static_cast<u64>(i) * kChunkBrickVoxelCount * sizeof(f32);
     voxel_regions[i].size = kChunkBrickVoxelCount * sizeof(f32);
+
+    looseness_regions[i].srcOffset = brick_index * sizeof(f32);
+    looseness_regions[i].dstOffset = static_cast<u64>(i) * sizeof(f32);
+    looseness_regions[i].size = sizeof(f32);
   }
   chunk_brick_primitive_buffer_->copy_regions_to(
       material_staging, material_regions, context_->device.graphics_queue,
@@ -5490,9 +5568,13 @@ void VulkanRaymarchShader::capture_sculpt_checkpoint(i32 after_edit_index) {
   chunk_brick_pool_buffer_->copy_regions_to(
       voxel_staging, voxel_regions, context_->device.graphics_queue,
       context_->device.graphics_command_pool);
+  chunk_brick_looseness_buffer_->copy_regions_to(
+      looseness_staging, looseness_regions, context_->device.graphics_queue,
+      context_->device.graphics_command_pool);
 
   std::vector<i32> materials(pending.size());
   std::vector<f32> voxels(pending.size() * kChunkBrickVoxelCount);
+  std::vector<f32> loosenesses(pending.size());
   if (void *mapped = material_staging.lock(0, material_bytes, 0)) {
     std::memcpy(materials.data(), mapped, material_bytes);
     material_staging.unlock();
@@ -5500,6 +5582,10 @@ void VulkanRaymarchShader::capture_sculpt_checkpoint(i32 after_edit_index) {
   if (void *mapped = voxel_staging.lock(0, voxel_bytes, 0)) {
     std::memcpy(voxels.data(), mapped, voxel_bytes);
     voxel_staging.unlock();
+  }
+  if (void *mapped = looseness_staging.lock(0, looseness_bytes, 0)) {
+    std::memcpy(loosenesses.data(), mapped, looseness_bytes);
+    looseness_staging.unlock();
   }
 
   // 4. Group pending[]/materials[]/voxels[] (all three share pending's own
@@ -5523,6 +5609,7 @@ void VulkanRaymarchShader::capture_sculpt_checkpoint(i32 after_edit_index) {
     SculptCheckpointBrick brick;
     brick.local_cell_index = ref.local_cell_index;
     brick.material = materials[i];
+    brick.looseness = loosenesses[i];
     brick.voxels.assign(voxels.begin() +
                            static_cast<std::ptrdiff_t>(i * kChunkBrickVoxelCount),
                        voxels.begin() + static_cast<std::ptrdiff_t>(
@@ -5598,6 +5685,7 @@ void VulkanRaymarchShader::restore_sculpt_checkpoint(
     i32 local_cell_index = 0;
     glm::vec3 cell_min{0.0f};
     i32 material = 0;
+    f32 looseness = 0.0f; // M3 (Looseness): captured alongside material.
     const std::vector<f32> *voxels = nullptr;
   };
   std::vector<PendingCell> pending;
@@ -5628,7 +5716,8 @@ void VulkanRaymarchShader::restore_sculpt_checkpoint(
           static_cast<f32>(chunk.chunk_coord.y * dim + ly) * kCoarseCellSize,
           static_cast<f32>(chunk.chunk_coord.z * dim + lz) * kCoarseCellSize);
       pending.push_back(PendingCell{slot, brick.local_cell_index, cell_min,
-                                    brick.material, &brick.voxels});
+                                    brick.material, brick.looseness,
+                                    &brick.voxels});
     }
   }
 
@@ -5680,7 +5769,10 @@ void VulkanRaymarchShader::restore_sculpt_checkpoint(
       gpu_meta[i].old_material = cell.material; // Repurposed as "material
                                                 // to restore" -- see the
                                                 // shader's own comment.
-      gpu_meta[i].pad0 = 0;
+      // M3 (Looseness): old_looseness is likewise repurposed here as
+      // "looseness to restore" -- same convention as old_material
+      // immediately above.
+      gpu_meta[i].old_looseness = cell.looseness;
       gpu_meta[i].pad1 = 0;
       std::memcpy(voxel_upload.data() + i * kChunkBrickVoxelCount,
                  cell.voxels->data(), kChunkBrickVoxelCount * sizeof(f32));
@@ -6247,7 +6339,12 @@ bool VulkanRaymarchShader::load_crop_outside_file(const std::string &path) {
       gpu_cells[i].cell_min_size = glm::vec4(cell.cell_min, kCoarseCellSize);
       gpu_meta[i].change_type = 0; // Unused by the checkpoint-restore shader.
       gpu_meta[i].old_material = cell.material;
-      gpu_meta[i].pad0 = 0;
+      // M3 (Looseness): the Cutout snapshot format (export_crop_outside())
+      // does not capture looseness -- see this method's own known-
+      // limitation note. Restoring 0.0 (uniform/clean) is the same
+      // documented back-compat default every pre-Looseness brick reads --
+      // not a regression specific to this path.
+      gpu_meta[i].old_looseness = 0.0f;
       gpu_meta[i].pad1 = 0;
       std::memcpy(voxel_upload.data() + i * kChunkBrickVoxelCount,
                  cell.voxels->data(), kChunkBrickVoxelCount * sizeof(f32));

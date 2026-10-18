@@ -458,7 +458,7 @@ public:
   //   material_scalar_buffer_[slot].w   = roughness
   //   transmission_buffer_[slot].x      = waxy ? 1.0 : 0.0
   //   transmission_buffer_[slot].y      = M6 (Flecks): fleck_pattern, a
-  //                                        0-15 preset id written as a
+  //                                        0-16 preset id written as a
   //                                        rounded float (ignored, along
   //                                        with .w, whenever .z is 0)
   //   transmission_buffer_[slot].z      = M6 (Flecks): fleck_strength,
@@ -615,8 +615,16 @@ public:
   // the shape's bounding radius is <= 0, or if every touched cell failed to
   // get a chunk-table slot -- see kMaxResidentChunks), for a caller
   // (SculptSystem) to record.
+  // `looseness` (M3): the per-stamp authored looseness value (0 = uniform/
+  // clean to 1 = maximally loose, see SculptStamp::looseness) -- written
+  // into chunk_brick_looseness_buffer_ alongside material_slot, same UNION-
+  // only-overwrites rule (see Builtin.SculptStamp.comp.glsl's own comment).
+  // Defaults to 0.0f so every pre-M3-Looseness call site (there are several,
+  // e.g. delete_edit()/move_edit()'s replay loops before this milestone)
+  // keeps compiling and behaving identically.
   i32 stamp_shape(glm::vec3 center, BrushShape shape_type, glm::vec4 params,
-                  f32 smoothness, BrushOp op, i32 material_slot = 0);
+                  f32 smoothness, BrushOp op, i32 material_slot = 0,
+                  f32 looseness = 0.0f);
 
   // M2b: reverts the most recent still-undoable stamp_shape() call -- see
   // undo_stack_'s own comment for how far back "still-undoable" reaches.
@@ -883,6 +891,9 @@ private:
                              // restoring it -- see undo_stamp().
     i32 change_type = 0;      // 0 = NOOP, 1 = NEW_BRICK, 2 = MODIFIED.
     i32 old_material = -1;    // Meaningful only for change_type == 2.
+    f32 old_looseness = 0.0f; // M3 (Looseness): same change_type==2-only
+                              // meaning as old_material immediately above --
+                              // captured/restored alongside it.
     std::vector<f32> old_voxels; // Exactly kChunkBrickVoxelCount (5832)
                                  // entries for change_type == 2, empty
                                  // otherwise.
@@ -911,6 +922,9 @@ private:
     i32 local_cell_index = 0; // Into this chunk's CHUNK_CELL_COUNT sub-block
                              // -- see Builtin.ChunkedFieldCommon.inc.glsl.
     i32 material = 0;
+    f32 looseness = 0.0f; // M3 (Looseness): captured/restored alongside
+                          // material immediately above -- same per-brick
+                          // concept, same unconditional-capture shape.
     std::vector<f32> voxels; // Exactly kChunkBrickVoxelCount entries.
   };
   // One resident chunk's worth of captured bricks.
@@ -1583,6 +1597,24 @@ private:
   // why it doesn't share brick_pool_buffer_ above).
   std::optional<VulkanBuffer> chunk_brick_pool_buffer_;
   std::optional<VulkanBuffer> chunk_brick_primitive_buffer_;
+  // M3 (Looseness): exactly the same size/addressing/per-BRICK (not per-
+  // voxel) granularity as chunk_brick_primitive_buffer_ immediately above --
+  // one f32 per brick slot, written at stamp time right alongside the
+  // material write (Builtin.SculptStamp.comp.glsl's `looseness` push-
+  // constant field), same UNION-only-overwrites rule (a Subtraction stamp
+  // leaves a brick's existing looseness untouched, exactly like it leaves
+  // material untouched -- see that shader's own comment on why). Read back
+  // in Builtin.DeferredShade.comp.glsl (paint_read_set_'s new binding 3) to
+  // scale a hit surface's effective Fleck strength/scale -- see that
+  // shader's own comment at the real-surface Fleck call site. Also captured/
+  // restored by capture_sculpt_checkpoint()/restore_sculpt_checkpoint() and
+  // undo_stamp() alongside chunk_brick_primitive_buffer_'s own identical
+  // snapshot, for the same reason: it is authored alongside material at
+  // stamp time and represents the same "what this brick's surface is like"
+  // concept, so it must survive Undo/checkpoint-restore exactly the same
+  // way. TRANSFER_SRC for the same checkpoint-readback reason chunk_brick_
+  // primitive_buffer_ carries it.
+  std::optional<VulkanBuffer> chunk_brick_looseness_buffer_;
   // M3c (Spraypaint): exactly the same size/addressing as chunk_brick_pool_
   // buffer_ above (one f32 per voxel, CHUNK_BRICK_VOXEL_COUNT per brick,
   // same brick-index-based layout) but holds an accumulated PAINT opacity

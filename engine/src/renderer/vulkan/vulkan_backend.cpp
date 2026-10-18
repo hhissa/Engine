@@ -692,15 +692,19 @@ void VulkanRendererBackend::apply_stamp_and_record(
   // backend-agnostic. cells_touched comes straight back from the GPU call
   // so SculptVolume's record can never claim a stamp "happened" more
   // completely than it actually did (e.g. if kMaxResidentChunks ran out
-  // partway through). looseness is NOT passed to the GPU call below -- see
-  // SculptStamp::looseness's own comment (sculpt_volume.h): M3 only
-  // threads it through as an authored, saved/redoable value, with no
-  // shader-side consequence until the Fleck evaluator (M6) exists.
+  // partway through). looseness IS now passed to the GPU call below (M3
+  // Looseness/Fleck wiring) -- it used to be dropped here (see the plan
+  // file's M3 section, and SculptStamp::looseness's own now-stale comment,
+  // sculpt_volume.h), but VulkanRaymarchShader::stamp_shape() now has a
+  // real per-brick effect (chunk_brick_looseness_buffer_, read by Builtin.
+  // DeferredShade.comp.glsl to scale a hit surface's effective Fleck
+  // strength/scale).
   const auto vulkan_shape =
       static_cast<VulkanRaymarchShader::BrushShape>(shape_type);
   const auto vulkan_op = static_cast<VulkanRaymarchShader::BrushOp>(shape_op);
   const i32 cells_touched = context_.raymarch_shader->stamp_shape(
-      center, vulkan_shape, params, smoothness, vulkan_op, material_slot);
+      center, vulkan_shape, params, smoothness, vulkan_op, material_slot,
+      looseness);
   sculpt_system_.apply_stamp(center, shape_type, params, smoothness,
                              shape_op, material_slot, cells_touched,
                              looseness);
@@ -825,7 +829,8 @@ bool VulkanRendererBackend::delete_edit(i32 index) {
     context_.raymarch_shader->stamp_shape(
         s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
         s.params, s.smoothness,
-        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot);
+        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot,
+        s.looseness);
   }
 
   // 3. Skip `index` entirely (the edit being deleted), then replay
@@ -835,7 +840,8 @@ bool VulkanRendererBackend::delete_edit(i32 index) {
     context_.raymarch_shader->stamp_shape(
         s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
         s.params, s.smoothness,
-        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot);
+        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot,
+        s.looseness);
   }
 
   // 4. Only now retract the CPU-side record -- same "GPU first" discipline
@@ -880,7 +886,8 @@ bool VulkanRendererBackend::move_edit(i32 index, glm::vec3 new_center) {
     context_.raymarch_shader->stamp_shape(
         s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
         s.params, s.smoothness,
-        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot);
+        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot,
+        s.looseness);
   }
 
   // 3. The one point this diverges from delete_edit(): `index` itself is
@@ -901,7 +908,7 @@ bool VulkanRendererBackend::move_edit(i32 index, glm::vec3 new_center) {
       static_cast<VulkanRaymarchShader::BrushShape>(moved.shape_type),
       moved.params, moved.smoothness,
       static_cast<VulkanRaymarchShader::BrushOp>(moved.op),
-      moved.material_slot);
+      moved.material_slot, moved.looseness);
 
   // 4. Identical to delete_edit()'s own step 3 (its "replay everything
   // AFTER it" half) -- replay every edit after `index`, UNCHANGED, to
@@ -912,7 +919,8 @@ bool VulkanRendererBackend::move_edit(i32 index, glm::vec3 new_center) {
     context_.raymarch_shader->stamp_shape(
         s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
         s.params, s.smoothness,
-        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot);
+        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot,
+        s.looseness);
   }
 
   // 5. Only now update the CPU-side record -- same "GPU first" discipline
