@@ -699,6 +699,24 @@ public:
                                 f32 looseness);
   void sculpt_stamp_list_erase(i32 index);
 
+  // M5: delete_edit()/move_edit()'s own recompute can free a brick back
+  // onto the shared pool and later hand that SAME index back out to a
+  // completely different cell (e.g. a later recompute, or an ordinary
+  // stamp) -- any undo_stack_ entry still referencing that brick_index by
+  // number (see SculptUndoCell::chunk_slot/local_cell_index, which resolve
+  // to a brick index only indirectly via chunk_indirection, but old_voxels/
+  // old_material/old_looseness are captured against whatever brick INDEX
+  // happened to be resident there at capture time) would restore the wrong
+  // geometry's data on top of whatever now legitimately occupies that
+  // index. The OLD checkpoint-based delete_edit()/move_edit() got this for
+  // free as an (undocumented) side effect of always calling reset_chunked_
+  // field() via restore_sculpt_checkpoint_before() -- the new recompute
+  // path has no equivalent wholesale reset, so VulkanRendererBackend::
+  // delete_edit()/move_edit() call this explicitly instead, same "a
+  // GPU-state rewrite out from under an existing snapshot invalidates it"
+  // hazard crop_volume()'s own undo_stack_.clear() already documents.
+  void invalidate_undo_history() { undo_stack_.clear(); }
+
   // M5: how many of chunk_sculpt_stamp_list_buffer_'s entries are actually
   // valid right now -- always equal to SculptVolume::stamps().size() UNLESS
   // a session has appended more than kMaxGpuSculptStamps stamps total (see

@@ -837,6 +837,16 @@ bool VulkanRendererBackend::delete_edit(i32 index) {
                          target.shape_type),
       target.params, target.smoothness);
 
+  // The recompute above can free brick indices back onto the shared pool
+  // and later hand the SAME index to completely different geometry -- any
+  // undo_stack_ entry still referencing one of those indices would corrupt
+  // unrelated bricks if a later Ctrl+Z tried to restore it. See
+  // VulkanRaymarchShader::invalidate_undo_history()'s own comment (this
+  // redesign's one GPU-side behavior the now-deleted checkpoint ring used
+  // to provide for free, as an undocumented side effect of always calling
+  // reset_chunked_field()).
+  context_.raymarch_shader->invalidate_undo_history();
+
   // A structural edit-list change invalidates any pending redo history --
   // same reasoning stamp_shape() already documents for a fresh stamp (a
   // stale redo_stack_ entry would always re-append at the CURRENT tail via
@@ -901,6 +911,11 @@ bool VulkanRendererBackend::move_edit(i32 index, glm::vec3 new_center) {
   // informational (nothing reads it back).
   sculpt_system_.update_stamp_center(static_cast<size_t>(index), new_center,
                                      cells_touched);
+
+  // Same reasoning as delete_edit()'s own call to this -- the recompute
+  // above can churn brick indices, so any undo_stack_ entry still
+  // referencing one by number is now unsafe to restore.
+  context_.raymarch_shader->invalidate_undo_history();
 
   // A structural edit-list change invalidates any pending redo history --
   // same reasoning delete_edit()'s own tail comment gives.
