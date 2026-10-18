@@ -82,85 +82,6 @@ public:
   // done ahead of time.
   virtual glm::vec2 preload_image(std::string_view path) = 0;
 
-  // Loads sdf_path (an .sdf scene file -- see sdf_scene.h for the format)
-  // and registers every primitive it describes as a static SDF primitive,
-  // then re-bakes the raymarch scene so the result becomes visible.
-  // Multiple scenes can be loaded concurrently -- each returned handle
-  // tracks only the primitives that particular call registered, entirely
-  // independent of any other loaded scene. Returns kInvalidSceneHandle on
-  // failure (missing/malformed file).
-  virtual SceneHandle load_scene(std::string_view sdf_path) = 0;
-
-  // Scene-wide transforms: each applies to every primitive registered by
-  // the load_scene() call that returned handle, then re-bakes (a device-
-  // idle wait, same cost note as load_scene()) -- meant for discrete
-  // post-load placement, not per-frame animation. No-op (logs a warning)
-  // if handle isn't currently loaded. Caveat shared by all three: a params
-  // slot overridden by a param_expression keeps its formula untouched --
-  // only the plain constants are transformed.
-  //
-  // Moves every primitive by delta (world units). A Plane only has a
-  // height (it's always the horizontal y=height plane), so only delta.y
-  // means anything for it.
-  virtual void translate_scene(SceneHandle handle, glm::vec3 delta) = 0;
-
-  // Rotates every primitive about the *world origin* by euler_radians
-  // (XYZ order, same convention as SdfPrimitiveDef::rotation): positions
-  // orbit the origin and each primitive's own orientation is composed with
-  // the scene rotation. Planes are skipped with a warning -- they can't
-  // tilt (see translate_scene()).
-  virtual void rotate_scene(SceneHandle handle, glm::vec3 euler_radians) = 0;
-
-  // Uniformly scales every primitive about the *world origin* by factor:
-  // positions and every length-like parameter (params + extra_param) are
-  // multiplied. Uniform only -- non-uniform scaling would break the SDF
-  // distance metric.
-  virtual void scale_scene(SceneHandle handle, f32 factor) = 0;
-
-  // How many chunks around the camera are still loading or baking -- 0
-  // once the streamed field there is complete. See VulkanRaymarchShader::
-  // streaming_backlog().
-  virtual u32 streaming_backlog() const = 0;
-
-  // Releases every primitive registered by the load_scene() call that
-  // returned handle, then re-bakes. No-op (logs a warning) if handle isn't
-  // currently loaded (e.g. already removed, or never valid).
-  virtual void remove_scene(SceneHandle handle) = 0;
-
-  // Releases every primitive from every currently loaded scene (as if
-  // remove_scene() had been called for each one), then re-bakes once.
-  virtual void clear_scenes() = 0;
-
-  // Re-parses sdf_path and re-syncs handle (as returned by an earlier
-  // load_scene() call) to match it, touching only the primitives/lights/
-  // volumetrics/layers that actually differ from what's currently loaded --
-  // an unchanged primitive is left completely untouched (see
-  // GeometrySystem::reconcile_scene()'s own comment for exactly what that
-  // buys: no forced chunk re-bake, no MaterialSystem churn). Meant for a
-  // caller that repeatedly re-syncs the SAME scene after small edits (e.g.
-  // sdf_editor's live preview) instead of remove_scene()+load_scene()ing
-  // the whole thing every time. No-op (logs a warning, returns false) if
-  // handle isn't currently loaded or sdf_path fails to parse -- a caller
-  // must load_scene() first to get a valid handle to reconcile against.
-  // Returns whether anything actually changed (false means nothing to
-  // re-bake at all this call).
-  virtual bool reconcile_scene(SceneHandle handle, std::string_view sdf_path) = 0;
-
-  // Marks which registered static primitive (its index into the raymarch
-  // field's scene_textures/scene_diffuse_colours arrays -- see
-  // VulkanRaymarchShader::rebuild_static_scene()) the render pass should
-  // draw a selection outline around, or -1 for none. A push constant, not
-  // baked into the field, so it takes effect the very next frame with no
-  // rebake -- see VulkanRaymarchShader::render_to().
-  virtual void set_selected_primitive(i32 index) = 0;
-
-  // Resolves a primitive's name (SdfPrimitiveDef::name) to the same
-  // scene_textures/scene_diffuse_colours index set_selected_primitive()
-  // above takes, or -1 if that name isn't currently uploaded -- see
-  // VulkanRaymarchShader::gpu_index_for_primitive(). A pure query (no
-  // side effects), unlike every other method here.
-  virtual i32 primitive_gpu_index(const std::string &name) const = 0;
-
   // Shows/hides the reference grid -- the subdivided ground plane (y=0)
   // the render pass draws as a modelling aid. Like set_selected_primitive()
   // it's just a push constant (see VulkanRaymarchShader::set_grid_visible()),
@@ -175,41 +96,6 @@ public:
   // very next frame, no rebake needed. Off by default, so nothing currently
   // working changes unless a caller explicitly opts in.
   virtual void set_chunked_field_enabled(b8 enabled) = 0;
-
-  // Marks one primitive as interactively moving, by name (empty commits).
-  // While set, it is excluded from the chunk bake and drawn analytically
-  // instead, so moving it costs no re-baking at all -- see
-  // VulkanRaymarchShader::set_dynamic_primitive() for the trade (its
-  // shadows, AO and GI lag until it is committed).
-  virtual void set_dynamic_primitive(std::string_view name) = 0;
-
-  // Re-arms chunk cache pre-warming for whatever geometry is now loaded.
-  // load_scene() does this itself; this exists for a caller that swaps a
-  // scene through reconcile_scene() instead -- the editor opens every
-  // scene after the first that way, so without it pre-warming only ever
-  // ran for the first scene of a session.
-  virtual void request_cache_prewarm() = 0;
-
-  // Whether load_scene() re-arms cache pre-warming by itself (the default).
-  // Pre-warming blocks until the whole scene is in the disk cache, so a host
-  // that swaps scenes often -- a game cutting between rooms -- turns this
-  // off, warms each scene once up front with request_cache_prewarm(), and
-  // from then on only ever restores from the cache.
-  virtual void set_cache_prewarm_on_load(b8 enabled) = 0;
-
-  // Moves one already-registered primitive in place, by name. Exists so an
-  // interactive drag does not have to round-trip the WHOLE scene through a
-  // file and a text parser on every mouse-move just to change three
-  // floats, which is what reconciling against a re-saved .sdf amounts to.
-  //
-  // Deliberately does NOT mark the geometry dirty: the caller is expected
-  // to have made it dynamic first (see set_dynamic_primitive()), so it is
-  // outside the bake and there is nothing to invalidate. Used on a
-  // non-dynamic primitive it would move the analytic scene while the baked
-  // voxels kept the old shape, so don't.
-  virtual void set_primitive_transform(std::string_view name,
-                                       glm::vec3 position,
-                                       glm::vec3 rotation_euler) = 0;
 
   // Selects how the chunked field's baked point cloud drives primary
   // visibility -- see RendererSplatMode (renderer_types.inl) and
@@ -237,6 +123,159 @@ public:
   // -- see VulkanRaymarchShader::debug_probe_field(). Synchronous and
   // device-stalling; for diagnosis, not for a running game.
   virtual void debug_probe_field(glm::vec3 world_pos) = 0;
+
+  // M5 (Finishes) + M6 (Flecks): configures material slot `slot` (must be
+  // >= 2 -- 0/1 are reserved, see VulkanRaymarchShader::set_material()'s
+  // own comment) with a base colour/roughness/metallic/waxy "Finish" AND a
+  // fleck_pattern (0-15)/fleck_strength (0-1)/fleck_scale "Fleck" -- see
+  // that method for the exact packing. One slot carries both together
+  // (not two independent allocation paths), matching how tools/
+  // modelling_software_v2's apply_finish_and_colour() allocates a slot. A
+  // no-op (logs a warning) if slot is out of range. Synchronous, cheap,
+  // and NOT device-stalling (a direct host-visible buffer write, same as
+  // ensure_default_sculpt_material()) -- meant to be called once per
+  // Finish/Fleck/colour pick in a tool, before the next stamp_shape()/call
+  // that references this slot, not per-frame. Pass fleck_strength 0 (with
+  // any fleck_pattern/fleck_scale -- they are ignored) for "no Fleck".
+  virtual void set_material(i32 slot, glm::vec3 colour, f32 roughness,
+                            f32 metallic, bool waxy, i32 fleck_pattern,
+                            f32 fleck_strength, f32 fleck_scale) = 0;
+
+  // Registers one standing light -- see VulkanRaymarchShader::
+  // add_directional_light()/add_point_light() for exactly what this does
+  // and why it bypasses GeometrySystem::acquire_light() (that CPU-side
+  // registry is currently a dead API: nothing has fed light_snapshot()
+  // into the render pass's GPU light buffer since rebuild_static_scene(),
+  // its only bridge, was deleted in the M0 CSG pass). direction need not
+  // be pre-normalized. Returns the assigned light slot, or -1 if the
+  // fixed light cap is already full (logs a warning). Cheap, synchronous,
+  // NOT device-stalling -- call it once per standing light a tool wants,
+  // not per frame.
+  virtual i32 add_directional_light(glm::vec3 direction, glm::vec3 colour,
+                                    f32 intensity) = 0;
+  virtual i32 add_point_light(glm::vec3 position, glm::vec3 colour,
+                             f32 intensity) = 0;
+
+  // M2a: stamps one analytic brush shape (any of SculptBrushShape's 15
+  // values), blended via shape_op (union or subtraction) with blend radius
+  // smoothness, directly into the chunked field's existing GPU buffers,
+  // and regenerates the splat points it needs to actually render -- see
+  // VulkanRaymarchShader::stamp_shape(). Only meaningful alongside
+  // renderer_set_chunked_field_enabled(true); the fixed-cube field has no
+  // stamp path. Synchronous and device-stalling, like debug_probe_field()
+  // above -- an authoring-time operation, not a per-frame one. params'
+  // meaning depends on shape_type -- see VulkanRaymarchShader::
+  // stamp_shape()'s header comment for the full per-shape layout table.
+  // material_slot indexes the per-primitive material arrays; defaults to
+  // 0, the one material every M1a/M2a stamp uses so far. Brush ROTATION is
+  // out of scope for M2a -- shape_type always stamps in its canonical,
+  // axis-aligned local orientation.
+  virtual void stamp_shape(glm::vec3 center, SculptBrushShape shape_type,
+                           glm::vec4 params, f32 smoothness,
+                           SculptBrushOp shape_op, i32 material_slot = 0,
+                           f32 looseness = 0.0f) = 0;
+
+  // M2b: reverts the most recently applied stamp (GPU voxels/material
+  // restored or its freshly-allocated brick freed, plus the matching
+  // bookkeeping record dropped) -- see VulkanRendererBackend::undo_stamp().
+  // Returns false if there is nothing left to undo.
+  virtual bool undo_stamp() = 0;
+
+  // M2b: re-applies the most recently undone stamp (by re-invoking
+  // stamp_shape() with its original parameters) -- see VulkanRendererBackend
+  // ::redo_stamp(). Returns false if there is nothing to redo (either
+  // nothing has been undone, or a fresh stamp_shape() call since the last
+  // undo has cleared the redo history -- see its own comment for why that
+  // invalidation is correct).
+  virtual bool redo_stamp() = 0;
+
+  // M3c: Spraypaint -- a paint-ONLY brush, see VulkanRaymarchShader::
+  // spray_paint() for the full mechanics. Accumulates opacity_per_pass
+  // (clamped) into a per-voxel paint buffer for every voxel INSIDE the
+  // brush shape's volume, in every touched cell that already has a brick
+  // (no geometry is read or written at all -- unlike stamp_shape(), there
+  // is no `op`/`smoothness`/blend here). Synchronous and device-stalling,
+  // like stamp_shape(). Returns how many coarse cells were actually
+  // touched (0 if the shape's bounding radius is non-positive, or if the
+  // brush's whole AABB falls over chunks nothing has ever been stamped
+  // into -- spraying over empty space is a correct, silent no-op, not an
+  // error). Not currently undoable/redoable -- see spray_paint()'s own
+  // header comment for why, and what a future milestone adding that would
+  // need to extend.
+  virtual i32 spray_paint(glm::vec3 center, SculptBrushShape shape_type,
+                          glm::vec4 params, f32 opacity_per_pass) = 0;
+
+  // M4b: deletes the stamp at `index` (0 = oldest, matching SculptVolume::
+  // stamps()'s own order) WITHOUT discarding anything stamped before or
+  // after it -- the checkpoint/replay counterpart to undo_stamp()'s own
+  // tail-only revert. See VulkanRendererBackend::delete_edit() for the full
+  // restore-then-replay mechanics. Returns false if index is out of range.
+  // Synchronous and device-stalling, like every other sculpt-family call.
+  virtual bool delete_edit(i32 index) = 0;
+
+  // M4c (Move-of-an-arbitrary-edit): re-centers the stamp at `index` to
+  // new_center WITHOUT changing its shape/params/smoothness/op/
+  // material_slot/looseness, and WITHOUT changing its position in
+  // SculptVolume::stamps() -- the in-place counterpart to delete_edit()'s
+  // own restore-then-replay, reusing exactly the same checkpoint/replay
+  // engine (restore the nearest checkpoint strictly before `index`, replay
+  // everything between it and `index` unchanged, re-stamp `index` itself at
+  // new_center instead of skipping it, then replay everything after `index`
+  // unchanged). See VulkanRendererBackend::move_edit() for the full
+  // mechanics. Returns false if index is out of range. Synchronous and
+  // device-stalling, like every other sculpt-family call. Deliberately
+  // additive alongside the tail-only Move (stamp_shape()'s own re-stamp-the-
+  // most-recent-undo path, driven tool-side by SceneViewport's Move mode) --
+  // that path is untouched and remains the quick, no-checkpoint-replay-
+  // needed way to move whatever was JUST stamped.
+  virtual bool move_edit(i32 index, glm::vec3 new_center) = 0;
+
+  // M4 (Crop): a whole-volume boolean filter -- keeps only the geometry
+  // currently inside shape_type/params/center (centered/smoothed exactly
+  // like a stamp's own params -- see VulkanRaymarchShader::crop_volume()'s
+  // own header comment for the keep-inside SDF identity), discarding
+  // everything outside. Unlike every prior tool (stamp_shape()/spray_
+  // paint()/undo_stamp()), this is NOT scoped to the shape's own AABB --
+  // it enumerates and filters EVERY resident brick in the whole volume.
+  // Synchronous and device-stalling, like every other sculpt-family call.
+  //
+  // Deliberately NOT integrated into SculptVolume/the checkpoint-replay
+  // engine, and NOT undoable/redoable this pass -- same documented,
+  // accepted scope Spraypaint shipped with (see VulkanRaymarchShader::
+  // crop_volume()'s own header comment for the full writeup, including
+  // what that means for a LATER delete_edit()/move_edit() targeting an
+  // edit that landed before a Crop ran). Returns how many resident bricks
+  // were actually touched (0 if the volume is empty, or the shape's
+  // bounding radius is non-positive).
+  virtual i32 crop_volume(glm::vec3 center, SculptBrushShape shape_type,
+                          glm::vec4 params, f32 smoothness) = 0;
+
+  // M4 (Cutout): identical live effect to crop_volume() above (the kept-
+  // inside geometry ends up the same), but FIRST captures everything the
+  // crop is about to discard and writes it to `removed_path` as a
+  // standalone snapshot file a FRESH tool session can open separately
+  // (see VulkanRaymarchShader::export_crop_outside()/load_crop_outside_
+  // file() for the file format and why it is not the tool's ordinary
+  // .stamps format). There is no live second sculpt volume in this process
+  // -- "preserved as a new separate sculpture" means a second FILE, opened
+  // in a second session, not simultaneous live rendering of both halves
+  // (see the plan file's own explicitly-accepted scoping note, /home/h-i/
+  // .claude/plans/joyful-skipping-giraffe.md's §4 table). Returns false
+  // (and does NOT modify the live volume) if the file write failed;
+  // otherwise performs the same live crop crop_volume() does and returns
+  // true.
+  virtual bool cutout_volume(glm::vec3 center, SculptBrushShape shape_type,
+                             glm::vec4 params, f32 smoothness,
+                             const std::string &removed_path) = 0;
+
+  // M4 (Cutout): opens a snapshot file export_sculpt_cutout()/cutout_
+  // volume() wrote and injects every brick in it into the LIVE volume --
+  // see VulkanRaymarchShader::load_crop_outside_file()'s own comment.
+  // ADDITIVE onto whatever the volume currently holds (same documented
+  // limitation the ordinary .stamps Load path already carries -- there is
+  // still no "clear the chunked field" API). Returns false if the file
+  // couldn't be read or is malformed.
+  virtual bool load_cutout_file(const std::string &path) = 0;
 
   // Post-process toggles/params -- see VulkanRaymarchShader::
   // set_bloom_enabled()/set_vignette_enabled()/set_pixelation_enabled()/

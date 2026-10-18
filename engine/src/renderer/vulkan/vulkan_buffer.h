@@ -41,6 +41,17 @@ public:
   void copy_to(VulkanBuffer &dest, u64 source_offset, u64 dest_offset,
               u64 size, VkQueue queue, VkCommandPool pool);
 
+  // M4b (sculpt checkpoint capture/restore): like copy_to() above, but takes
+  // MULTIPLE (possibly non-contiguous) regions and issues them as ONE
+  // vkCmdCopyBuffer call inside ONE single-use command buffer/submission --
+  // added for VulkanRaymarchShader::capture_sculpt_checkpoint(), which needs
+  // to read back a scattered set of resident bricks (each one's own offset
+  // into a device-local pool) without paying a separate fence-waited round
+  // trip per brick (the exact "one bulk copy, not one round-trip per brick"
+  // batching the plan calls for). A no-op if regions is empty.
+  void copy_regions_to(VulkanBuffer &dest, const std::vector<VkBufferCopy> &regions,
+                       VkQueue queue, VkCommandPool pool);
+
   VkBuffer handle() const noexcept { return handle_; }
   u64 size() const noexcept { return total_size_; }
 

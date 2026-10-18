@@ -182,49 +182,6 @@ void renderer_draw_camera_overlay(glm::vec2 position, glm::vec2 size,
   }
 }
 
-SceneRef renderer_load_scene(std::string_view sdf_path) {
-  if (!backend) {
-    KWARN("renderer backend does not exist to accept a scene load request.");
-    return SceneRef(kInvalidSceneHandle);
-  }
-  return SceneRef(backend->load_scene(sdf_path));
-}
-
-SceneRef &SceneRef::translate(glm::vec3 delta) {
-  if (!backend) {
-    KWARN("renderer backend does not exist to accept a scene translate "
-         "request.");
-  } else if (handle_ != kInvalidSceneHandle) {
-    // Invalid handle: quiet no-op -- the failed load already logged why.
-    backend->translate_scene(handle_, delta);
-  }
-  return *this;
-}
-
-SceneRef &SceneRef::rotate(glm::vec3 euler_radians) {
-  if (!backend) {
-    KWARN("renderer backend does not exist to accept a scene rotate request.");
-  } else if (handle_ != kInvalidSceneHandle) {
-    backend->rotate_scene(handle_, euler_radians);
-  }
-  return *this;
-}
-
-SceneRef &SceneRef::scale(f32 factor) {
-  if (!backend) {
-    KWARN("renderer backend does not exist to accept a scene scale request.");
-  } else if (handle_ != kInvalidSceneHandle) {
-    backend->scale_scene(handle_, factor);
-  }
-  return *this;
-}
-
-void renderer_set_cache_prewarm_on_load(b8 enabled) {
-  if (backend) {
-    backend->set_cache_prewarm_on_load(enabled);
-  }
-}
-
 void renderer_draw_image(std::string_view path, glm::vec2 position,
                          glm::vec2 size) {
   if (backend) {
@@ -234,48 +191,6 @@ void renderer_draw_image(std::string_view path, glm::vec2 position,
 
 glm::vec2 renderer_preload_image(std::string_view path) {
   return backend ? backend->preload_image(path) : glm::vec2(0.0f);
-}
-
-u32 renderer_streaming_backlog() {
-  return backend ? backend->streaming_backlog() : 0;
-}
-
-void renderer_remove_scene(SceneHandle handle) {
-  if (backend) {
-    backend->remove_scene(handle);
-  } else {
-    KWARN("renderer backend does not exist to accept a scene remove request.");
-  }
-}
-
-void renderer_clear_scenes() {
-  if (backend) {
-    backend->clear_scenes();
-  } else {
-    KWARN("renderer backend does not exist to accept a scene clear request.");
-  }
-}
-
-bool renderer_reconcile_scene(SceneHandle handle, std::string_view sdf_path) {
-  if (!backend) {
-    KWARN("renderer backend does not exist to accept a scene reconcile "
-         "request.");
-    return false;
-  }
-  return backend->reconcile_scene(handle, sdf_path);
-}
-
-void renderer_set_selected_primitive(i32 index) {
-  if (backend) {
-    backend->set_selected_primitive(index);
-  } else {
-    KWARN("renderer backend does not exist to accept a selected-primitive "
-         "request.");
-  }
-}
-
-i32 renderer_get_primitive_gpu_index(const std::string &name) {
-  return backend ? backend->primitive_gpu_index(name) : -1;
 }
 
 void renderer_set_grid_visible(b8 visible) {
@@ -293,29 +208,6 @@ void renderer_set_chunked_field_enabled(b8 enabled) {
   } else {
     KWARN("renderer backend does not exist to accept a chunked-field "
          "request.");
-  }
-}
-
-void renderer_set_dynamic_primitive(std::string_view name) {
-  if (backend) {
-    backend->set_dynamic_primitive(name);
-  } else {
-    KWARN("renderer backend does not exist to accept a dynamic-primitive "
-         "request.");
-  }
-}
-
-void renderer_request_cache_prewarm() {
-  if (backend) {
-    backend->request_cache_prewarm();
-  }
-}
-
-void renderer_set_primitive_transform(std::string_view name,
-                                      glm::vec3 position,
-                                      glm::vec3 rotation_euler) {
-  if (backend) {
-    backend->set_primitive_transform(name, position, rotation_euler);
   }
 }
 
@@ -341,6 +233,131 @@ void renderer_debug_probe_field(glm::vec3 world_pos) {
   if (backend) {
     backend->debug_probe_field(world_pos);
   }
+}
+
+void renderer_sculpt_set_material(i32 slot, glm::vec3 colour, f32 roughness,
+                                  f32 metallic, bool waxy, i32 fleck_pattern,
+                                  f32 fleck_strength, f32 fleck_scale) {
+  if (backend) {
+    backend->set_material(slot, colour, roughness, metallic, waxy,
+                          fleck_pattern, fleck_strength, fleck_scale);
+  } else {
+    KWARN("renderer backend does not exist to accept a sculpt-set-material "
+         "request.");
+  }
+}
+
+i32 renderer_add_directional_light(glm::vec3 direction, glm::vec3 colour,
+                                   f32 intensity) {
+  if (backend) {
+    return backend->add_directional_light(direction, colour, intensity);
+  }
+  KWARN("renderer backend does not exist to accept an add-directional-light "
+       "request.");
+  return -1;
+}
+
+i32 renderer_add_point_light(glm::vec3 position, glm::vec3 colour,
+                             f32 intensity) {
+  if (backend) {
+    return backend->add_point_light(position, colour, intensity);
+  }
+  KWARN("renderer backend does not exist to accept an add-point-light "
+       "request.");
+  return -1;
+}
+
+void renderer_sculpt_stamp_shape(glm::vec3 center,
+                            SculptBrushShape shape_type, glm::vec4 params,
+                            f32 smoothness, SculptBrushOp shape_op,
+                            i32 material_slot, f32 looseness) {
+  if (backend) {
+    backend->stamp_shape(center, shape_type, params, smoothness, shape_op,
+                         material_slot, looseness);
+  } else {
+    KWARN("renderer backend does not exist to accept a sculpt-stamp "
+         "request.");
+  }
+}
+
+void renderer_sculpt_stamp_sphere(glm::vec3 center, f32 radius,
+                             i32 material_slot) {
+  renderer_sculpt_stamp_shape(center, SculptBrushShape::Sphere,
+                              glm::vec4(radius, 0.0f, 0.0f, 0.0f), 0.0f,
+                              SculptBrushOp::Union, material_slot);
+}
+
+bool renderer_sculpt_undo() {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a sculpt-undo request.");
+    return false;
+  }
+  return backend->undo_stamp();
+}
+
+bool renderer_sculpt_redo() {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a sculpt-redo request.");
+    return false;
+  }
+  return backend->redo_stamp();
+}
+
+i32 renderer_sculpt_spray(glm::vec3 center, SculptBrushShape shape_type,
+                          glm::vec4 params, f32 opacity_per_pass) {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a spraypaint request.");
+    return 0;
+  }
+  return backend->spray_paint(center, shape_type, params, opacity_per_pass);
+}
+
+bool renderer_sculpt_delete_edit(i32 index) {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a sculpt-delete-edit "
+         "request.");
+    return false;
+  }
+  return backend->delete_edit(index);
+}
+
+bool renderer_sculpt_move_edit(i32 index, glm::vec3 new_center) {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a sculpt-move-edit "
+         "request.");
+    return false;
+  }
+  return backend->move_edit(index, new_center);
+}
+
+i32 renderer_sculpt_crop(glm::vec3 center, SculptBrushShape shape_type,
+                         glm::vec4 params, f32 smoothness) {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a sculpt-crop request.");
+    return 0;
+  }
+  return backend->crop_volume(center, shape_type, params, smoothness);
+}
+
+bool renderer_sculpt_cutout(glm::vec3 center, SculptBrushShape shape_type,
+                            glm::vec4 params, f32 smoothness,
+                            const std::string &removed_path) {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a sculpt-cutout "
+         "request.");
+    return false;
+  }
+  return backend->cutout_volume(center, shape_type, params, smoothness,
+                                removed_path);
+}
+
+bool renderer_sculpt_load_cutout(const std::string &path) {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a sculpt-load-cutout "
+         "request.");
+    return false;
+  }
+  return backend->load_cutout_file(path);
 }
 
 void renderer_set_splat_mode(RendererSplatMode mode) {

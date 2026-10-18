@@ -18,16 +18,15 @@ b8 TestbedGame::initialize() {
   KDEBUG("TestbedGame::initialize() called!");
   camera_.set_position(glm::vec3(0.0f, 1.1f, -2.6f));
 
-  // Example scene load -- see renderer_load_scene()'s doc comment.
-  // Multiple scenes can be loaded concurrently; each renderer_load_scene()
-  // call returns its own independent handle.
-  demo_scene_ = renderer_load_scene("assets/scenes/man_sitting.sdf");
-
-#ifdef TESTBED_STREAM_BENCH
+  // M1a smoke test: prove a brush can stamp a sphere directly into the
+  // renderer's existing chunked-field GPU buffers and have it actually
+  // render through the splat pipeline -- see /home/h-i/.claude/plans/
+  // joyful-skipping-giraffe.md. renderer_set_chunked_field_enabled(true) is
+  // required first: render_to() only records the splat prepass and samples
+  // the chunked field at all once this is on (off by default so nothing
+  // else -- tools/sdf_editor, games/SH -- is affected).
   renderer_set_chunked_field_enabled(true);
-  demo_scene_ = renderer_load_scene("assets/scenes/DiegosOffice.sdf");
-  camera_.set_position(glm::vec3(0.0f, -2.0f, 0.0f));
-#endif
+  renderer_sculpt_stamp_sphere(glm::vec3(0.0f, 0.0f, 0.0f), 1.0f);
 
   return true;
 }
@@ -121,18 +120,6 @@ b8 TestbedGame::update(f32 dt) {
   }
 
   renderer_set_camera(camera_);
-
-  // Example remove/clear calls -- edge-detected (is_key_down() &&
-  // !was_key_down()) since each one triggers a full scene rebake (a
-  // device-idle wait), so holding the key down must not repeat it.
-  if (input::is_key_down(input::Key::R) && !input::was_key_down(input::Key::R)) {
-    renderer_remove_scene(demo_scene_);
-    demo_scene_ = kInvalidSceneHandle;
-  }
-  if (input::is_key_down(input::Key::C) && !input::was_key_down(input::Key::C)) {
-    renderer_clear_scenes();
-    demo_scene_ = kInvalidSceneHandle;
-  }
 
   // Render-scale demo keybinds -- Minus/Plus step render_scale_ by 0.1
   // (clamped to [0.25, 1.0]) and push it to the renderer. Edge-detected

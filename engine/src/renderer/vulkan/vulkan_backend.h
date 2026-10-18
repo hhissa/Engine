@@ -1,6 +1,7 @@
 #pragma once
 #include "../../core/application.h"
 #include "../../systems/geometry_system.h"
+#include "../../systems/sculpt_system.h"
 #include "../renderer_backend.h"
 #include "vulkan_commandbuffer.h"
 #include "vulkan_fence.h"
@@ -35,28 +36,35 @@ public:
   void draw_image(std::string_view path, glm::vec2 position,
                   glm::vec2 size) override;
   glm::vec2 preload_image(std::string_view path) override;
-  SceneHandle load_scene(std::string_view sdf_path) override;
-  void translate_scene(SceneHandle handle, glm::vec3 delta) override;
-  void rotate_scene(SceneHandle handle, glm::vec3 euler_radians) override;
-  void scale_scene(SceneHandle handle, f32 factor) override;
-  u32 streaming_backlog() const override;
-  void remove_scene(SceneHandle handle) override;
-  void clear_scenes() override;
-  bool reconcile_scene(SceneHandle handle, std::string_view sdf_path) override;
-  void set_selected_primitive(i32 index) override;
-  i32 primitive_gpu_index(const std::string &name) const override;
   void set_grid_visible(b8 visible) override;
   void set_chunked_field_enabled(b8 enabled) override;
-  void set_dynamic_primitive(std::string_view name) override;
-  void request_cache_prewarm() override;
-  void set_cache_prewarm_on_load(b8 enabled) override;
-  void set_primitive_transform(std::string_view name, glm::vec3 position,
-                               glm::vec3 rotation_euler) override;
   void set_splat_mode(RendererSplatMode mode) override;
   void set_taa_enabled(b8 enabled) override;
   void set_ism_enabled(b8 enabled) override;
   void set_ao_enabled(b8 enabled) override;
   void debug_probe_field(glm::vec3 world_pos) override;
+  void set_material(i32 slot, glm::vec3 colour, f32 roughness, f32 metallic,
+                    bool waxy, i32 fleck_pattern, f32 fleck_strength,
+                    f32 fleck_scale) override;
+  i32 add_directional_light(glm::vec3 direction, glm::vec3 colour,
+                            f32 intensity) override;
+  i32 add_point_light(glm::vec3 position, glm::vec3 colour,
+                      f32 intensity) override;
+  void stamp_shape(glm::vec3 center, SculptBrushShape shape_type,
+                   glm::vec4 params, f32 smoothness, SculptBrushOp shape_op,
+                   i32 material_slot = 0, f32 looseness = 0.0f) override;
+  bool undo_stamp() override;
+  bool redo_stamp() override;
+  i32 spray_paint(glm::vec3 center, SculptBrushShape shape_type,
+                  glm::vec4 params, f32 opacity_per_pass) override;
+  bool delete_edit(i32 index) override;
+  bool move_edit(i32 index, glm::vec3 new_center) override;
+  i32 crop_volume(glm::vec3 center, SculptBrushShape shape_type,
+                  glm::vec4 params, f32 smoothness) override;
+  bool cutout_volume(glm::vec3 center, SculptBrushShape shape_type,
+                     glm::vec4 params, f32 smoothness,
+                     const std::string &removed_path) override;
+  bool load_cutout_file(const std::string &path) override;
   void set_bloom_enabled(b8 enabled) override;
   void set_vignette_enabled(b8 enabled) override;
   void set_pixelation_enabled(b8 enabled) override;
@@ -103,12 +111,62 @@ private:
     glm::vec4 colour;
   };
 
+  // M2b: the common body of a "fresh" (user-driven) stamp AND of redo_
+  // stamp()'s replay -- drives both VulkanRaymarchShader::stamp_shape()
+  // (GPU work, which also captures its own undo snapshot -- see that
+  // method's own comment) and sculpt_system_.apply_stamp() (CPU
+  // bookkeeping), side by side, exactly like stamp_shape() always has.
+  // Deliberately does NOT touch redo_stack_ -- stamp_shape() (the public,
+  // RendererBackend-facing override) clears it after calling this (a fresh
+  // edit invalidates redo history); redo_stamp() must NOT clear it (it
+  // already popped the one entry it's replaying, and clearing here would
+  // wipe out any further pending redos).
+  void apply_stamp_and_record(glm::vec3 center, SculptBrushShape shape_type,
+                              glm::vec4 params, f32 smoothness,
+                              SculptBrushOp shape_op, i32 material_slot,
+                              f32 looseness = 0.0f);
+
   VulkanContext context_{};
   PlatformLayer *plat_state_ = nullptr;
 
   // Set via set_camera() each frame (by the game, through the renderer
   // frontend), consumed by end_frame() when it calls the raymarch shader.
   Camera camera_;
+
+  // M1a/M2a: the CPU-side record of every stamp stamp_shape() has applied --
+  // see SculptSystem's own header comment for why the GPU-side chunk-
+  // table-slot/brick bookkeeping is NOT duplicated here (it lives inside
+  // VulkanRaymarchShader, which owns the actual buffers). Owned here
+  // (rather than as a separate globally-registered system, the way
+  // GeometrySystem/TextureSystem/MaterialSystem are) since M1a has exactly
+  // one call site that needs it; promote it if a later milestone's tool
+  // needs to reach it from somewhere else.
+  SculptSystem sculpt_system_;
+
+  // M2b: stamps popped by undo_stamp(), most-recently-undone last --
+  // redo_stamp() pops from the back (LIFO), so consecutive redos restore
+  // stamps in the reverse order they were undone, matching standard
+  // undo/redo semantics. Cleared by stamp_shape() (never by redo_stamp()
+  // itself -- see apply_stamp_and_record()'s own comment) whenever a fresh
+  // stamp is applied, since diverging after an undo must discard forward
+  // history. Naturally bounded by VulkanRaymarchShader::undo_stack_'s own
+  // depth cap (kMaxSculptUndoDepth) -- this can never hold more entries
+  // than that allows undoing in the first place, so no separate cap is
+  // needed here.
+  std::vector<SculptStamp> redo_stack_;
+
+  // M4b: how many stamps have landed (fresh OR replayed -- see apply_
+  // stamp_and_record()) since the last full-volume checkpoint capture --
+  // see kSculptCheckpointInterval's own comment (vulkan_backend.cpp) for
+  // the chosen cadence. Deliberately counts every apply_stamp_and_record()
+  // call uniformly (redo included) rather than distinguishing "fresh" from
+  // "replayed" stamps -- a checkpoint is just as valid either way, and the
+  // distinction would add bookkeeping for no benefit. NOT incremented by
+  // delete_edit()'s own internal replay (which calls VulkanRaymarchShader::
+  // stamp_shape() directly, bypassing apply_stamp_and_record() -- see its
+  // own comment for why) -- the ring is allowed to stay sparse for a while
+  // after a delete and simply refill from ordinary stamping going forward.
+  i32 stamps_since_checkpoint_ = 0;
 
   // Queued via draw_text()/draw_ui_quad() (by the game, through the
   // renderer frontend) during its render() step; flushed into actual draw
@@ -120,26 +178,17 @@ private:
   std::vector<SolidQuadDrawRequest> queued_solid_quad_draws_;
   std::vector<BackdropDrawRequest> queued_backdrop_quad_draws_;
 
-  // See set_cache_prewarm_on_load(). On by default -- every load_scene()
-  // re-arms pre-warming, which is what an editor wants.
-  b8 prewarm_on_load_ = true;
-
-  // Tracks every currently loaded scene (see load_scene()): each handle
-  // maps to the names of exactly the primitives/lights that load_scene()
-  // call registered with GeometrySystem (see LoadedSceneNames), so
-  // remove_scene() can release just those and leave every other
-  // concurrently loaded scene untouched.
-  std::unordered_map<SceneHandle, LoadedSceneNames> loaded_scenes_;
-  SceneHandle next_scene_handle_ = 1; // 0 is kInvalidSceneHandle
-
-  // Set by load_scene()/translate_scene()/rotate_scene()/scale_scene()/
-  // remove_scene()/clear_scenes() instead of rebaking immediately -- a
-  // single scene load is typically followed by several chained transform
-  // calls (see SceneRef's .translate()/.rotate()/.scale()), and rebake() is
-  // a full synchronous re-voxelize + GI probe bake, expensive enough that
-  // paying it once per mutation instead of once per batch made scene setup
-  // take an order of magnitude longer than necessary. begin_frame() checks
-  // this and rebakes at most once before the next frame actually draws.
+  // The scene-authoring members that used to live here (prewarm_on_load_,
+  // loaded_scenes_/next_scene_handle_) were removed in the M0 CSG deletion
+  // pass (see /home/h-i/.claude/plans/joyful-skipping-giraffe.md) along
+  // with the CSG primitive-list API they backed. scene_dirty_ stays --
+  // maybe_recenter_origin() (floating origin, CSG-independent) still needs
+  // a deferred-rebake flag.
+  //
+  // Set by maybe_recenter_origin() instead of rebaking immediately -- a
+  // recenter and any other same-frame mutation should coalesce into one
+  // rebake, not pay for each separately. begin_frame() checks this and
+  // rebakes at most once before the next frame actually draws.
   b8 scene_dirty_ = false;
 
   // Floating origin (see set_floating_origin_enabled()/consume_origin_shift()

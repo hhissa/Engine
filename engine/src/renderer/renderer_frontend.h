@@ -85,94 +85,14 @@ KAPI void renderer_draw_camera_overlay(glm::vec2 position, glm::vec2 size,
                                   f32 blink_time_seconds,
                                   std::string_view caption = {});
 
-// Thin chainable wrapper around a SceneHandle, returned by
-// renderer_load_scene() below. Implicitly converts to SceneHandle, so
-// existing code that stores the handle keeps working unchanged. The
-// transform methods apply to every primitive the scene registered and
-// each one re-bakes the raymarch scene (a device-idle wait -- same cost
-// note as renderer_load_scene()), so they're for discrete post-load
-// placement, chained fluent-style:
-//
-//   demo_scene_ = renderer_load_scene("assets/scenes/demo_scene.sdf")
-//                     .translate(glm::vec3(0.0f, 1.0f, 0.0f))
-//                     .rotate(glm::vec3(0.0f, glm::radians(45.0f), 0.0f))
-//                     .scale(0.5f);
-//
-// All three are safe no-ops on an invalid handle (a failed load), so a
-// chain never needs a validity check in the middle. See the matching
-// RendererBackend::translate_scene()/rotate_scene()/scale_scene() doc
-// comments for exact semantics (rotation/scale are about the world
-// origin -- so scale() also scales any translation applied before it in
-// the chain: scale first, then translate, to place a resized model at an
-// exact spot; planes can only translate vertically; param_expression
-// formulas scale correctly via Geometry::param_expr_scale).
-class KAPI SceneRef {
-public:
-  explicit SceneRef(SceneHandle handle) : handle_(handle) {}
-
-  operator SceneHandle() const { return handle_; }
-  SceneHandle handle() const { return handle_; }
-
-  // Moves the scene by delta (world units).
-  SceneRef &translate(glm::vec3 delta);
-  // Rotates the scene about the world origin by Euler angles (radians,
-  // XYZ order -- same convention as .sdf "rotation=" lines).
-  SceneRef &rotate(glm::vec3 euler_radians);
-  // Uniformly scales the scene about the world origin. Uniform only --
-  // non-uniform scaling would break the SDF distance metric.
-  SceneRef &scale(f32 factor);
-
-private:
-  SceneHandle handle_;
-};
-
-// Loads sdf_path (an .sdf scene file -- see engine/src/resources/
-// sdf_scene.h for the file format) and registers every primitive it
-// describes as a static SDF primitive, then re-bakes the raymarch scene
-// so the result becomes visible immediately (see RendererBackend::
-// load_scene() -- this call is not cheap, a full device-idle wait, so
-// call it for discrete scene loads, not every frame). Multiple scenes can
-// be loaded at the same time -- each one is an independent "model": the
-// returned handle tracks only the primitives that particular call
-// registered, so removing one scene never affects any other. Returns a
-// SceneRef holding kInvalidSceneHandle on failure (missing/malformed
-// file); see SceneRef above for the chainable post-load transforms.
-KAPI SceneRef renderer_load_scene(std::string_view sdf_path);
-
-// Unloads exactly the scene identified by handle (as returned by an
-// earlier renderer_load_scene() call), releasing every primitive it
-// registered and re-baking. No-op (logs a warning) if handle isn't
-// currently loaded.
-KAPI void renderer_remove_scene(SceneHandle handle);
-
-// Unloads every currently loaded scene (as if renderer_remove_scene() had
-// been called for each one), then re-bakes once.
-KAPI void renderer_clear_scenes();
-
-// Re-parses sdf_path and re-syncs handle (as returned by an earlier
-// renderer_load_scene() call) to match it, touching only the primitives/
-// lights/volumetrics/layers that actually differ from what's currently
-// loaded -- see RendererBackend::reconcile_scene()'s own comment for
-// exactly what that buys over remove+load again. Meant for a caller that
-// repeatedly re-syncs the SAME scene after small edits (e.g. sdf_editor's
-// live preview) instead of renderer_clear_scenes()+renderer_load_scene()ing
-// the whole thing on every change. Returns whether anything actually
-// changed (false means nothing to re-bake this call); logs a warning and
-// returns false if handle isn't currently loaded or sdf_path fails to
-// parse.
-KAPI bool renderer_reconcile_scene(SceneHandle handle, std::string_view sdf_path);
-
-// Marks which registered static primitive to draw a selection outline
-// around this frame (see RendererBackend::set_selected_primitive() for what
-// `index` means), or -1 for none. Cheap and immediate (a push constant, not
-// a rebake) -- call every time the selection changes, not once at startup.
-KAPI void renderer_set_selected_primitive(i32 index);
-
-// Resolves a primitive's name (SdfPrimitiveDef::name) to the index
-// renderer_set_selected_primitive() above takes, or -1 if that name isn't
-// currently uploaded/no backend exists yet -- see
-// RendererBackend::primitive_gpu_index().
-KAPI i32 renderer_get_primitive_gpu_index(const std::string &name);
+// The scene-authoring API that used to live here (SceneRef,
+// renderer_load_scene()/renderer_remove_scene()/renderer_clear_scenes()/
+// renderer_reconcile_scene()/renderer_set_selected_primitive()/
+// renderer_get_primitive_gpu_index()) was removed in the M0 CSG deletion
+// pass (see /home/h-i/.claude/plans/joyful-skipping-giraffe.md) along with
+// the CSG primitive scene graph it authored -- a future sculpt-volume
+// milestone gets its own, differently-shaped load/save API rather than
+// reusing this one.
 
 // Shows/hides the reference grid: the ground plane (y=0) subdivided into
 // 1-unit cells (heavier lines every 10 units, world X/Z axes tinted),
@@ -196,34 +116,11 @@ KAPI void renderer_set_grid_visible(b8 visible);
 // (likely none, since nothing streams in on its own).
 KAPI void renderer_set_chunked_field_enabled(b8 enabled);
 
-// Marks one primitive as interactively moving, by name; pass an empty name
-// to commit it. While set it is kept out of the chunk bake and drawn
-// analytically instead, so dragging it re-bakes nothing and updates at
-// frame rate. Its shadows, ambient occlusion and GI keep lighting where it
-// used to be until it is committed -- that lag is what makes it free.
-KAPI void renderer_set_dynamic_primitive(std::string_view name);
-
-// Re-arms chunk cache pre-warming for the geometry currently loaded. Only
-// needed by a caller that swaps scenes through renderer_reconcile_scene()
-// rather than renderer_load_scene(), which re-arms by itself.
-KAPI void renderer_request_cache_prewarm();
-
-// Whether renderer_load_scene() re-arms cache pre-warming by itself (on by
-// default) -- see RendererBackend::set_cache_prewarm_on_load().
-KAPI void renderer_set_cache_prewarm_on_load(b8 enabled);
-
-// How many chunks of the streamed field around the camera are still
-// loading or baking -- 0 once it is complete. A camera cut to somewhere
-// new pushes it up for a few frames; a game can hold a cover over the
-// frame until it drains rather than show the field filling in.
-KAPI u32 renderer_streaming_backlog();
-
-// Moves one registered primitive in place -- for interactive dragging, so a
-// mouse-move costs three floats rather than re-saving and re-parsing the
-// whole scene. Only meaningful on a primitive that is currently dynamic.
-KAPI void renderer_set_primitive_transform(std::string_view name,
-                                      glm::vec3 position,
-                                      glm::vec3 rotation_euler);
+// renderer_set_dynamic_primitive()/renderer_request_cache_prewarm()/
+// renderer_set_cache_prewarm_on_load()/renderer_streaming_backlog()/
+// renderer_set_primitive_transform() -- the CSG-primitive-specific disk
+// cache/dynamic-drag API -- were removed in the M0 CSG deletion pass (see
+// /home/h-i/.claude/plans/joyful-skipping-giraffe.md).
 
 // Selects how the chunked field's baked surface-point cloud drives primary
 // visibility -- the Dreams-style point-splatting technique. See
@@ -250,6 +147,221 @@ KAPI void renderer_set_ao_enabled(b8 enabled);
 // Debug: logs what the baked field holds at a world point. See
 // RendererBackend::debug_probe_field().
 KAPI void renderer_debug_probe_field(glm::vec3 world_pos);
+
+// M5 (Finishes) + M6 (Flecks): configures material slot `slot` (must be >=
+// 2 -- 0 and 1 are reserved for the default/Spraypaint materials, see
+// VulkanRaymarchShader::ensure_default_sculpt_material()) with a base
+// colour, a dielectric roughness (0 = mirror-sharp, 1 = fully diffuse),
+// metallic (0 = dielectric, 1 = metal -- tints the specular reflection by
+// `colour` and removes the diffuse substrate, see Builtin.DeferredShade.
+// comp.glsl's final combine), `waxy` (adds a second, fixed-low-roughness
+// specular highlight on top -- see the shader's WAXY_LOBE_* constants),
+// and a Fleck: `fleck_pattern` (0-15, one of Square/Circle/Triangle/
+// Hexagon/Dots/Straight/Heavy/Hatching/Streaky/Scribble/Veins/Splat/
+// Cubist/Impressionist/Expressive/Baroque, in that order -- see Builtin.
+// FleckPattern.inc.glsl's own header comment for the family each maps to),
+// `fleck_strength` (0 = no Fleck at all, regardless of `fleck_pattern`;
+// clamped to [0, 1] otherwise) and `fleck_scale` (world units per pattern
+// cycle -- larger reads as coarser/bigger features). This is how tools/
+// modelling_software_v2's Finish presets (Default/Plastic/Shiny/Rough/
+// Metal/Wax/Shiny Metal/Shiny Wax/Rough Metal/Rough Wax) and its Fleck
+// presets (the 16 named above) are both actually realized: ONE freshly
+// allocated slot carries both, via one call here -- not two independent
+// allocation paths. A no-op (logs a warning) if slot is out of
+// [2, kMaxScenePrimitives) -- see VulkanRaymarchShader::set_material()'s
+// own comment for the full packing. Cheap and synchronous (a direct
+// host-visible buffer write, NOT device-stalling like the sculpt-stamp
+// family below) -- call it once per Finish/Fleck/colour pick, before the
+// next renderer_sculpt_stamp_shape() call that references `slot`, not
+// every frame. Pass fleck_strength 0.0f (fleck_pattern/fleck_scale are
+// then ignored -- 0/1.0f is the conventional "don't care" value) for a
+// slot that should carry a Finish with no Fleck, exactly what every M5
+// Finish preset still does.
+KAPI void renderer_sculpt_set_material(i32 slot, glm::vec3 colour,
+                                       f32 roughness, f32 metallic,
+                                       bool waxy, i32 fleck_pattern,
+                                       f32 fleck_strength, f32 fleck_scale);
+
+// Registers one standing directional/point light for the raymarch render
+// pass's per-pixel lighting loop -- e.g. renderer_add_directional_light(
+// glm::vec3(-0.4f, -0.8f, -0.3f), glm::vec3(1.0f, 0.96f, 0.9f), 2.5f) for a
+// simple warm-white "sun". direction need not be pre-normalized. There is
+// currently no live path from GeometrySystem::acquire_light() to the GPU
+// (that bridge, rebuild_static_scene(), was deleted in the M0 CSG pass) --
+// this writes the render pass's light buffer directly instead, the same
+// "direct host-visible buffer write" idiom renderer_sculpt_set_material()
+// above already uses. Returns the assigned light slot (0-based, in
+// registration order), or -1 if the fixed 128-light cap is already full
+// (logs a warning, otherwise a no-op). Cheap, synchronous, NOT device-
+// stalling -- call it once per standing light a tool wants (e.g. once at
+// startup for a default "sun"), not every frame. With zero lights
+// registered (the engine's own default), every surface renders governed
+// only by ambient_ (a flat 0.15 factor) and any skybox reflection -- see
+// renderer_enable_sky_box() below -- which is why a tool that wants a
+// visibly lit scene needs at least one of these.
+KAPI i32 renderer_add_directional_light(glm::vec3 direction, glm::vec3 colour,
+                                        f32 intensity);
+KAPI i32 renderer_add_point_light(glm::vec3 position, glm::vec3 colour,
+                                  f32 intensity);
+
+// M2a: stamps one analytic brush shape, blended via union or subtraction
+// with a given smoothness, directly into the chunked field and
+// regenerates its splat points -- see RendererBackend::stamp_shape()/
+// VulkanRaymarchShader::stamp_shape() for the full params-per-shape
+// layout. Only meaningful alongside renderer_set_chunked_field_enabled(true)
+// (and, to actually see it, renderer_set_splat_mode() left at its Prime/
+// Visibility default -- the splat pipeline is what reads the points this
+// call generates). Synchronous and device-stalling -- an authoring-time
+// call, not a per-frame one. Brush ROTATION is out of scope for M2a.
+// M3 (Looseness): looseness is pure CPU-side bookkeeping (saved/redoable,
+// see SculptStamp::looseness's own comment) -- it has no GPU-side effect
+// yet and does not change how this stamp is blended or shaded. Defaults to
+// 0 (clean/uniform), matching every call site before M3 added the
+// parameter.
+KAPI void renderer_sculpt_stamp_shape(glm::vec3 center,
+                                 SculptBrushShape shape_type,
+                                 glm::vec4 params, f32 smoothness,
+                                 SculptBrushOp shape_op,
+                                 i32 material_slot = 0,
+                                 f32 looseness = 0.0f);
+
+// M1a back-compat convenience wrapper, kept so testbed's own M1a smoke test
+// (TestbedGame::initialize(), which only ever wants a hard-union sphere)
+// doesn't need updating for M2a's generalization -- thin sugar over
+// renderer_sculpt_stamp_shape(center, SculptBrushShape::Sphere,
+// {radius,0,0,0}, /*smoothness=*/0.0f, SculptBrushOp::Union,
+// material_slot). New call sites (tools/modelling_software_v2) should
+// prefer renderer_sculpt_stamp_shape() directly.
+KAPI void renderer_sculpt_stamp_sphere(glm::vec3 center, f32 radius,
+                                  i32 material_slot = 0);
+
+// M2b: reverts the most recently applied stamp -- see RendererBackend::
+// undo_stamp()/VulkanRaymarchShader::undo_stamp() for the full mechanics
+// (GPU voxels/material restored, or a freshly-allocated brick freed, plus
+// the matching SculptSystem bookkeeping record dropped). Synchronous and
+// device-stalling, like renderer_sculpt_stamp_shape() -- an authoring-time
+// call, not a per-frame one. Returns false if there is nothing left to
+// undo (nothing has been stamped yet, or this session's undo depth cap has
+// already been exhausted -- see kMaxSculptUndoDepth).
+KAPI bool renderer_sculpt_undo();
+
+// M2b: re-applies the most recently undone stamp -- see RendererBackend::
+// redo_stamp(). Returns false if there is nothing to redo (nothing has
+// been undone, or a fresh renderer_sculpt_stamp_shape() call since the
+// last undo cleared the redo history).
+KAPI bool renderer_sculpt_redo();
+
+// M3c: Spraypaint -- a paint-ONLY brush. Accumulates `opacity_per_pass`
+// (clamped into [0,1], and added -- not overwritten -- onto whatever
+// opacity a voxel already holds, also clamped) into a per-voxel paint
+// buffer for every voxel INSIDE the brush shape's volume (see Builtin.
+// SculptSpraypaint.comp.glsl's PAINT_THRESHOLD comment for exactly what
+// "inside" covers -- the whole enclosed volume, not just a thin shell
+// around the existing surface, which is what lets it "spray through"
+// geometry instead of only tinting the side facing the brush), in every
+// touched cell that already has a brick -- cells with none (nothing
+// stamped there yet) are silently skipped, same as a chunk nothing has
+// ever been stamped into: there is no surface, and nothing to paint.
+// Never touches chunk_bricks[]/chunk_brick_primitive[] (the SDF distance/
+// per-brick-material data) at all -- see RendererBackend::spray_paint()/
+// VulkanRaymarchShader::spray_paint() for the full mechanics. `params`
+// uses the exact same per-shape layout table as renderer_sculpt_stamp_
+// shape() (see its own comment) -- there is no `smoothness`/`op`/
+// `material_slot` parameter here: paint has no geometry blend to smooth,
+// no union/subtraction concept, and always targets one fixed "paint
+// colour" material slot (see VulkanRaymarchShader::
+// ensure_default_sculpt_material()'s own comment -- no colour-picker UI
+// exists yet, out of scope for this milestone). Synchronous and device-
+// stalling, like renderer_sculpt_stamp_shape() -- an authoring-time call,
+// not a per-frame one. Returns how many coarse cells were actually
+// touched (0 if the shape's bounding radius is non-positive, or if the
+// brush's whole AABB falls over chunks nothing has ever been stamped
+// into -- spraying over empty space is a correct, silent no-op).
+//
+// Known limitation: a Spraypaint stroke is NOT currently undoable/
+// redoable -- renderer_sculpt_undo()/renderer_sculpt_redo() only ever
+// affect geometry stamps (SculptSystem's own bookkeeping, which this call
+// deliberately bypasses -- see VulkanRendererBackend::spray_paint()'s own
+// comment). A future milestone wanting Spraypaint undo should extend
+// VulkanRaymarchShader's undo_stack_ with an optional per-voxel paint
+// snapshot, mirroring SculptUndoCell::old_voxels' own shape.
+KAPI i32 renderer_sculpt_spray(glm::vec3 center, SculptBrushShape shape_type,
+                               glm::vec4 params, f32 opacity_per_pass);
+
+// M4b: deletes the stamp at `index` (0 = oldest, matching the order
+// renderer_sculpt_stamp_shape() calls landed in) WITHOUT discarding
+// anything stamped before or after it -- see RendererBackend::delete_edit()/
+// VulkanRendererBackend::delete_edit() for the full checkpoint-restore-and-
+// replay mechanics (VulkanRaymarchShader::restore_sculpt_checkpoint_before()/
+// capture_sculpt_checkpoint()). Synchronous and device-stalling, like every
+// other sculpt-family call -- an authoring-time call, not a per-frame one.
+// Returns false if index is out of range for however many stamps currently
+// exist.
+KAPI bool renderer_sculpt_delete_edit(i32 index);
+
+// M4c (Move-of-an-arbitrary-edit): re-centers the stamp at `index` (0 =
+// oldest, matching the order renderer_sculpt_stamp_shape() calls landed in)
+// to new_center, WITHOUT changing its shape/params/smoothness/op/
+// material_slot/looseness and WITHOUT changing its position in the stamp
+// list -- see RendererBackend::move_edit()/VulkanRendererBackend::
+// move_edit() for the full restore-then-replay mechanics, which reuse
+// exactly the same checkpoint/replay engine renderer_sculpt_delete_edit()
+// does (VulkanRaymarchShader::restore_sculpt_checkpoint_before()/
+// capture_sculpt_checkpoint()), just re-stamping `index` at the new center
+// instead of skipping it. Synchronous and device-stalling, like every other
+// sculpt-family call -- an authoring-time call, not a per-frame one.
+// Returns false if index is out of range for however many stamps currently
+// exist.
+//
+// Deliberately additive alongside the existing tail-only Move (driven by
+// SceneViewport's Move mode, which undoes the most recent stamp and
+// re-stamps it via renderer_sculpt_stamp_shape() -- no checkpoint/replay
+// involved at all, since there is nothing after it to reconstruct) -- that
+// path is untouched and remains the cheap, common-case way to move
+// whatever was JUST stamped. This call is for moving an ARBITRARY past
+// edit, selected from the tool's edit-history list.
+KAPI bool renderer_sculpt_move_edit(i32 index, glm::vec3 new_center);
+
+// M4 (Crop): a whole-volume boolean filter -- keeps only the geometry
+// currently inside shape_type/params/center (same per-shape params table as
+// renderer_sculpt_stamp_shape()), discarding everything outside. Unlike
+// every other sculpt-family call, this is NOT scoped to the shape's own
+// AABB -- see RendererBackend::crop_volume()/VulkanRaymarchShader::
+// crop_volume() for the whole-volume enumeration and the keep-inside SDF
+// identity. Synchronous and device-stalling, like every other sculpt-
+// family call.
+//
+// Known limitation (documented, not a bug): NOT currently undoable/
+// redoable, and NOT integrated into SculptVolume/the checkpoint-replay
+// engine -- same documented, accepted scope Spraypaint shipped with (see
+// VulkanRaymarchShader::crop_volume()'s own header comment). A later
+// renderer_sculpt_delete_edit()/renderer_sculpt_move_edit() targeting an
+// edit that landed before a Crop ran will reconstruct that edit WITHOUT
+// reapplying the crop. Returns how many resident bricks were actually
+// touched (0 if the volume is empty, or the shape's bounding radius is
+// non-positive).
+KAPI i32 renderer_sculpt_crop(glm::vec3 center, SculptBrushShape shape_type,
+                              glm::vec4 params, f32 smoothness);
+
+// M4 (Cutout): the same live effect as renderer_sculpt_crop() above, but
+// FIRST captures everything the crop is about to discard and writes it to
+// `removed_path` as a standalone snapshot file (NOT the tool's .stamps
+// format) a fresh tool session can open separately via
+// renderer_sculpt_load_cutout() -- see RendererBackend::cutout_volume()'s
+// own comment for why a second FILE, not a second live volume, is this
+// pass's accepted scope for "preserved as a new separate sculpture".
+// Returns false (and leaves the live volume untouched) if the file write
+// failed; otherwise performs the live crop and returns true.
+KAPI bool renderer_sculpt_cutout(glm::vec3 center, SculptBrushShape shape_type,
+                                 glm::vec4 params, f32 smoothness,
+                                 const std::string &removed_path);
+
+// M4 (Cutout): opens a snapshot file renderer_sculpt_cutout() wrote and
+// injects every brick in it into the LIVE volume -- see RendererBackend::
+// load_cutout_file(). ADDITIVE onto whatever the volume currently holds,
+// same documented limitation the ordinary .stamps Load path already
+// carries. Returns false if the file couldn't be read or is malformed.
+KAPI bool renderer_sculpt_load_cutout(const std::string &path);
 
 // Enables/disables the bloom post-process -- a soft glow bloomed off
 // bright/emissive surfaces (see Material::emissive_intensity), added back

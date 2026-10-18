@@ -26,8 +26,13 @@ fi
 # compiler a mountain of unoptimised SPIR-V and lets it do all the work,
 # per pipeline, on every launch. Measured on a Quadro T2000:
 #
-#   Builtin.RaymarchVoxelize   18.9s -> 3.0s
-#   Builtin.ChunkVoxelize     775s   -> 14.8s   (yes, thirteen minutes)
+#   Builtin.RaymarchVoxelize   18.9s -> 3.0s  (removed: the CSG primitive
+#                              fixed-cube bake pass, M0 deletion pass)
+#   Builtin.ChunkVoxelize     775s   -> 14.8s   (yes, thirteen minutes --
+#                              also removed, M0 deletion pass; its splat-
+#                              point generation lives on as reference text
+#                              in Builtin.ChunkVoxelize.comp.glsl.
+#                              SPLAT_REGEN_REFERENCE for a later milestone)
 #
 # The .spv files get BIGGER (spirv-opt inlines aggressively), which is the
 # point: the expensive work moves to build time, once, instead of running
@@ -47,22 +52,6 @@ fi
 
 echo "assets/shaders/Builtin.ObjectShader.frag.glsl -> bin/assets/shaders/Builtin.ObjectShader.frag.spv"
 $GLSLC $GLSLC_ARGS -fshader-stage=frag assets/shaders/Builtin.ObjectShader.frag.glsl -o bin/assets/shaders/Builtin.ObjectShader.frag.spv
-ERRORLEVEL=$?
-if [ $ERRORLEVEL -ne 0 ]
-then
-echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
-fi
-
-echo "assets/shaders/Builtin.RaymarchVoxelize.comp.glsl -> bin/assets/shaders/Builtin.RaymarchVoxelize.comp.spv"
-$GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.RaymarchVoxelize.comp.glsl -o bin/assets/shaders/Builtin.RaymarchVoxelize.comp.spv
-ERRORLEVEL=$?
-if [ $ERRORLEVEL -ne 0 ]
-then
-echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
-fi
-
-echo "assets/shaders/Builtin.ChunkVoxelize.comp.glsl -> bin/assets/shaders/Builtin.ChunkVoxelize.comp.spv"
-$GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.ChunkVoxelize.comp.glsl -o bin/assets/shaders/Builtin.ChunkVoxelize.comp.spv
 ERRORLEVEL=$?
 if [ $ERRORLEVEL -ne 0 ]
 then
@@ -111,6 +100,46 @@ fi
 
 echo "assets/shaders/Builtin.ChunkProbeBake.comp.glsl -> bin/assets/shaders/Builtin.ChunkProbeBake.comp.spv"
 $GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.ChunkProbeBake.comp.glsl -o bin/assets/shaders/Builtin.ChunkProbeBake.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.SculptStamp.comp.glsl -> bin/assets/shaders/Builtin.SculptStamp.comp.spv"
+$GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.SculptStamp.comp.glsl -o bin/assets/shaders/Builtin.SculptStamp.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.SculptSplatRegen.comp.glsl -> bin/assets/shaders/Builtin.SculptSplatRegen.comp.spv"
+$GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.SculptSplatRegen.comp.glsl -o bin/assets/shaders/Builtin.SculptSplatRegen.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.SculptUndoRestore.comp.glsl -> bin/assets/shaders/Builtin.SculptUndoRestore.comp.spv"
+$GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.SculptUndoRestore.comp.glsl -o bin/assets/shaders/Builtin.SculptUndoRestore.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.SculptCheckpointRestore.comp.glsl -> bin/assets/shaders/Builtin.SculptCheckpointRestore.comp.spv"
+$GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.SculptCheckpointRestore.comp.glsl -o bin/assets/shaders/Builtin.SculptCheckpointRestore.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
+echo "assets/shaders/Builtin.SculptCrop.comp.glsl -> bin/assets/shaders/Builtin.SculptCrop.comp.spv"
+$GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.SculptCrop.comp.glsl -o bin/assets/shaders/Builtin.SculptCrop.comp.spv
 ERRORLEVEL=$?
 if [ $ERRORLEVEL -ne 0 ]
 then
@@ -243,28 +272,6 @@ ERRORLEVEL=$?
 if [ $ERRORLEVEL -ne 0 ]
 then
 echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
-fi
-
-# --- Compiled-shader sanity checks -------------------------------------
-# A shader's workgroup shape and its push-constant block are contracts with
-# the engine that nothing on either side validates at runtime: get them wrong
-# and the dispatch silently covers the wrong cells, or every push constant
-# after the missing field shifts by four bytes. Both have happened here, and
-# both presented as "geometry is missing" with no error anywhere.
-#
-# Checking the COMPILED module rather than the source is deliberate -- what
-# matters is what the GPU ends up running.
-if command -v spirv-dis >/dev/null 2>&1; then
-  echo "Verifying compiled shader contracts..."
-  CHUNK_VOX_SPV="bin/assets/shaders/Builtin.ChunkVoxelize.comp.spv"
-  # Must match voxelize_chunk_batch()'s dispatch math (local_size_xy = 8, one
-  # cell row per invocation in Z).
-  if ! spirv-dis "$CHUNK_VOX_SPV" | grep -q "LocalSize 8 8 1"; then
-    echo "ERROR: $CHUNK_VOX_SPV workgroup size is not 8 8 1 -- the engine's"
-    echo "       dispatch assumes it is. See the shader's own comment."
-    exit 1
-  fi
-  echo "  Builtin.ChunkVoxelize.comp.spv: LocalSize 8 8 1 OK"
 fi
 
 echo "Copying assets..."

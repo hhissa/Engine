@@ -17,7 +17,6 @@
 #include "../../systems/shader_system.h"
 #include "../../systems/material_system.h"
 #include "../../systems/geometry_system.h"
-#include "../../resources/sdf_scene.h"
 #include <glm/gtc/quaternion.hpp>
 #include <vulkan/vulkan.h>
 
@@ -449,25 +448,19 @@ b8 VulkanRendererBackend::begin_frame(f32 delta_time) {
   command_buffer->reset();
   command_buffer->begin(FALSE, FALSE, FALSE);
 
-  // Phase 3b: camera-driven chunk streaming -- see VulkanRaymarchShader::
-  // update_streaming()'s own comment for why this replaces rebake()'s
-  // vkDeviceWaitIdle for the chunked field instead of stalling, and for
-  // why it no longer records into this frame's OWN command buffer at all
-  // (it submits its own work to async_compute_queue instead). A no-op
-  // call (cheap: just tick()+update() with an empty Plan, returning
-  // VK_NULL_HANDLE) whenever nothing needs loading/evicting/rebaking this
-  // frame, so this is safe to call unconditionally every frame regardless
-  // of scene_dirty_ above. Nothing is stashed for end_frame() any more:
-  // this frame's graphics submission deliberately does NOT wait on whatever
-  // chunk work was just queued -- see update_streaming()'s own comment for
-  // how an in-flight bake is kept invisible instead of being waited out.
-  context_.raymarch_shader->update_streaming(camera_.position());
+  // VulkanRaymarchShader::update_streaming() -- the camera-driven chunk
+  // streaming core -- was removed in the M0 CSG deletion pass (see
+  // /home/h-i/.claude/plans/joyful-skipping-giraffe.md): it existed to
+  // load/evict/rebake chunks against GeometrySystem's registered CSG
+  // primitives, which no longer exist. Nothing currently populates the
+  // chunked field at all (a future SculptVolume milestone is expected to
+  // give it a new, brush-driven producer), so there is nothing left for a
+  // per-frame streaming tick to do.
 
-  // Phase 5: cascade GI recenter/rebake, recorded AFTER update_streaming()
-  // above -- a cascade bake gathers against the chunked field, so it must
-  // see this frame's chunk load/evict budget already recorded (same
-  // ordering reasoning as update_gi_cascade()'s own comment). A no-op call
-  // most frames, same as update_streaming() above.
+  // Phase 5: cascade GI recenter/rebake -- a cascade bake gathers against
+  // the chunked field, so it must run after any per-frame chunk load/evict
+  // budget would have been recorded (same ordering reasoning as
+  // update_gi_cascade()'s own comment). A no-op call most frames.
   context_.raymarch_shader->update_gi_cascade(*command_buffer, camera_.position());
 
   // Dynamic state
@@ -547,494 +540,21 @@ glm::vec2 VulkanRendererBackend::preload_image(std::string_view path) {
   return glm::vec2(0.0f);
 }
 
-SceneHandle VulkanRendererBackend::load_scene(std::string_view sdf_path) {
-  auto scene = load_sdf_scene(sdf_path);
-  if (!scene) {
-    // load_sdf_scene() already logged why (missing file).
-    return kInvalidSceneHandle;
-  }
-
-  // Namespace every registered name under this load's handle -- two .sdf
-  // files authored by the editor both contain "layer0/layer0_primitive"
-  // etc., and un-prefixed those would collide in GeometrySystem (see
-  // load_scene()'s name_prefix doc comment for what that corrupts).
-  SceneHandle handle = next_scene_handle_++;
-  std::string name_prefix = "scene" + std::to_string(handle) + "/";
-  LoadedSceneNames names = context_.geometry_system->load_scene(
-      *scene, /*auto_release=*/true, name_prefix);
-
-  loaded_scenes_.emplace(handle, std::move(names));
-
-  // Re-arm chunk cache pre-warming for the geometry that just arrived.
-  // Deliberately here and NOT in reconcile_scene(): loading a scene brings
-  // in a whole new set of chunks worth baking up front, while an edit
-  // touches a handful and must not stall the editor for seconds. Without
-  // this, pre-warming ran only for whichever scene happened to be loaded
-  // first in a session. A host can turn this off (see
-  // set_cache_prewarm_on_load()) and arm it itself instead.
-  if (prewarm_on_load_) {
-    context_.raymarch_shader->request_cache_prewarm();
-  }
-
-  // The scene's own backdrop, if it names one. Deliberately only when it
-  // does: an empty SdfScene::skybox means "unspecified", not "off" (see its
-  // comment), so a scene file that predates the field must not switch off a
-  // skybox the game set from code. set_skybox() is a no-op when the named
-  // image is already the one bound, so re-loading a scene costs nothing.
-  if (!scene->skybox.empty()) {
-    context_.raymarch_shader->set_skybox(scene->skybox);
-  }
-
-  // Deferred to begin_frame() -- see scene_dirty_'s comment.
-  scene_dirty_ = true;
-  return handle;
-}
-
-bool VulkanRendererBackend::reconcile_scene(SceneHandle handle,
-                                            std::string_view sdf_path) {
-  auto it = loaded_scenes_.find(handle);
-  if (it == loaded_scenes_.end()) {
-    KWARN("VulkanRendererBackend::reconcile_scene called with a handle that "
-         "isn't currently loaded: {}. Call load_scene() first.",
-         handle);
-    return false;
-  }
-
-  auto scene = load_sdf_scene(sdf_path);
-  if (!scene) {
-    // load_sdf_scene() already logged why (missing/malformed file).
-    return false;
-  }
-
-  // Same hazard remove_scene()/clear_scenes() guard against (see their own
-  // comment): GeometrySystem::reconcile_scene() below can release() a
-  // primitive/light/volumetric that's gone, or swap a still-present one's
-  // material -- either can cascade into MaterialSystem/TextureSystem
-  // dropping a texture's refcount to zero and destroying its VkImage/
-  // VkSampler immediately, synchronously, no wait of its own.
-  //
-  // The wait used to be an unconditional vkDeviceWaitIdle up front, which
-  // made EVERY editor edit -- including a pure add or an in-place gizmo
-  // drag, which destroy nothing -- drain the whole device. Worse than it
-  // sounds: "the whole device" includes the async compute queue, where
-  // chunk bakes now run in submissions that can span many frames, so a
-  // trivial edit could block for the tail of a multi-hundred-ms bake it
-  // had no data dependency on. Deferred instead into reconcile_scene()
-  // itself, fired at most once, only immediately before the first actually-
-  // destructive operation (see before_first_destructive's doc comment) --
-  // and it drains only the GRAPHICS queue: textures are sampled exclusively
-  // by graphics-submitted passes (render/deferred-shade/GI bounces); the
-  // async compute voxelizer evaluates the analytic SDF from plain buffers
-  // and never binds a scene texture, so it cannot be holding the VkImage
-  // being destroyed.
-  auto destructive_wait = [this]() {
-    vkQueueWaitIdle(context_.device.graphics_queue);
-  };
-
-  // Same per-handle name_prefix load_scene() used for this handle -- MUST
-  // match exactly, or reconcile_scene() (engine-side) would diff against
-  // the wrong names entirely (see its own comment).
-  std::string name_prefix = "scene" + std::to_string(handle) + "/";
-  bool changed = context_.geometry_system->reconcile_scene(
-      *scene, it->second, /*auto_release=*/true, name_prefix,
-      destructive_wait);
-
-  // Outside the `changed` check on purpose: GeometrySystem::reconcile_scene()
-  // reports whether any GEOMETRY changed, and the skybox is not geometry --
-  // an edit that only swapped the backdrop would report false and never
-  // reach this. Cheap to run unconditionally, since set_skybox() returns
-  // immediately when the named image is already bound (which is every
-  // reconcile but the one that actually changed it).
-  if (!scene->skybox.empty()) {
-    context_.raymarch_shader->set_skybox(scene->skybox);
-  }
-
-  if (changed) {
-    // Deferred to begin_frame() -- see scene_dirty_'s comment.
-    scene_dirty_ = true;
-  }
-  return changed;
-}
-
-void VulkanRendererBackend::set_cache_prewarm_on_load(b8 enabled) {
-  prewarm_on_load_ = enabled;
-}
-
-void VulkanRendererBackend::request_cache_prewarm() {
-  context_.raymarch_shader->request_cache_prewarm();
-}
-
-void VulkanRendererBackend::set_primitive_transform(std::string_view name,
-                                                    glm::vec3 position,
-                                                    glm::vec3 rotation_euler) {
-  Geometry *geometry = context_.geometry_system->find(name);
-  if (!geometry) {
-    return; // the caller's name did not resolve; nothing to move
-  }
-  geometry->position = position;
-  geometry->rotation = rotation_euler;
-  // Skipping mark_dirty() is sound ONLY for the dynamic primitive. That one
-  // is not in the bake, so there is nothing to invalidate and nothing to
-  // re-voxelize -- which is the entire point of marking it dynamic.
-  //
-  // Any other primitive IS baked where it was. Moving it without dirtying
-  // it writes the new transform into the primitive buffer while the baked
-  // field -- and therefore the splat pass, which draws the image whenever
-  // no primitive is dynamic -- still holds the old one, and nothing else
-  // will ever ask for the correction. The primitive simply does not move.
-  if (!context_.raymarch_shader->is_dynamic_primitive(name)) {
-    context_.geometry_system->mark_dirty(name);
-  }
-  //
-  // Nor scene_dirty_, which would mean rebake() -- a graphics-queue idle
-  // plus a rebuild of every primitive in the scene, per mouse-move, to
-  // change three floats. Write just this primitive's own entry instead;
-  // only if it is not uploaded at all do we fall back to the full path.
-  if (!context_.raymarch_shader->update_primitive_transform(name, position,
-                                                            rotation_euler)) {
-    scene_dirty_ = true;
-  }
-}
-
-void VulkanRendererBackend::translate_scene(SceneHandle handle,
-                                            glm::vec3 delta) {
-  auto it = loaded_scenes_.find(handle);
-  if (it == loaded_scenes_.end()) {
-    KWARN("VulkanRendererBackend::translate_scene called with a handle that "
-         "isn't currently loaded: {}.",
-         handle);
-    return;
-  }
-
-  for (const std::string &name : it->second.primitive_names) {
-    Geometry *geometry = context_.geometry_system->find(name);
-    if (!geometry) {
-      continue;
-    }
-    if (geometry->type == PrimitiveType::Plane) {
-      // A plane has no position -- it's always the horizontal y=height
-      // plane, with height in params.x -- so only vertical translation
-      // means anything for it.
-      geometry->params.x += delta.y;
-    } else {
-      geometry->position += delta;
-    }
-    // See GeometrySystem::mark_dirty()'s comment -- a mutation made through
-    // find()'s returned pointer, like this one, is invisible to
-    // GeometrySystem unless the caller (here) reports it explicitly.
-    context_.geometry_system->mark_dirty(name);
-  }
-  for (const std::string &name : it->second.volumetric_names) {
-    Volumetric *volumetric = context_.geometry_system->find_volumetric(name);
-    if (!volumetric) {
-      continue;
-    }
-    volumetric->position += delta;
-  }
-  for (const std::string &name : it->second.light_names) {
-    Light *light = context_.geometry_system->find_light(name);
-    if (!light) {
-      continue;
-    }
-    // Only a Point light's vector is a world-space position -- a
-    // Directional light's is a pure direction (see LightConfig::vector),
-    // unaffected by translation.
-    if (light->type == LightType::Point) {
-      light->vector += delta;
-    }
-  }
-
-  // Deferred to begin_frame() -- see scene_dirty_'s comment.
-  scene_dirty_ = true;
-}
-
-u32 VulkanRendererBackend::streaming_backlog() const {
-  return context_.raymarch_shader ? context_.raymarch_shader->streaming_backlog()
-                                  : 0;
-}
-
-void VulkanRendererBackend::rotate_scene(SceneHandle handle,
-                                         glm::vec3 euler_radians) {
-  auto it = loaded_scenes_.find(handle);
-  if (it == loaded_scenes_.end()) {
-    KWARN("VulkanRendererBackend::rotate_scene called with a handle that "
-         "isn't currently loaded: {}.",
-         handle);
-    return;
-  }
-
-  // Compose in quaternion space rather than adding Euler angles --
-  // glm::quat(vec3)/glm::eulerAngles() are exact inverses of each other,
-  // and glm::quat(vec3) is also exactly how rebuild_static_scene() turns
-  // Geometry::rotation into the quaternion the voxelize shader consumes,
-  // so the round-trip stays consistent with what the GPU sees.
-  glm::quat scene_rotation(euler_radians);
-
-  for (const std::string &name : it->second.primitive_names) {
-    Geometry *geometry = context_.geometry_system->find(name);
-    if (!geometry) {
-      continue;
-    }
-    if (geometry->type == PrimitiveType::Plane) {
-      KWARN("rotate_scene: plane '{}' skipped -- a plane is always the "
-           "horizontal y=height plane and can't tilt.",
-           name);
-      continue;
-    }
-    geometry->position = scene_rotation * geometry->position;
-    geometry->rotation =
-        glm::eulerAngles(scene_rotation * glm::quat(geometry->rotation));
-    context_.geometry_system->mark_dirty(name);
-  }
-  for (const std::string &name : it->second.volumetric_names) {
-    Volumetric *volumetric = context_.geometry_system->find_volumetric(name);
-    if (!volumetric) {
-      continue;
-    }
-    volumetric->position = scene_rotation * volumetric->position;
-    volumetric->rotation =
-        glm::eulerAngles(scene_rotation * glm::quat(volumetric->rotation));
-  }
-  for (const std::string &name : it->second.light_names) {
-    Light *light = context_.geometry_system->find_light(name);
-    if (!light) {
-      continue;
-    }
-    // A Point light's vector is a position (rotates like a primitive's --
-    // see translate_scene() above); a Directional light's is a direction,
-    // which also needs to turn with the scene, just without the position
-    // semantics (no pivot-relative orbit -- a direction has no origin).
-    light->vector = scene_rotation * light->vector;
-  }
-
-  // Deferred to begin_frame() -- see scene_dirty_'s comment.
-  scene_dirty_ = true;
-}
-
-void VulkanRendererBackend::scale_scene(SceneHandle handle, f32 factor) {
-  auto it = loaded_scenes_.find(handle);
-  if (it == loaded_scenes_.end()) {
-    KWARN("VulkanRendererBackend::scale_scene called with a handle that "
-         "isn't currently loaded: {}.",
-         handle);
-    return;
-  }
-  if (factor <= 0.0f) {
-    KWARN("scale_scene called with a non-positive factor ({}). Ignoring.",
-         factor);
-    return;
-  }
-
-  // Every layer this scene's primitives combine under also needs its
-  // smoothness (a blend-radius length, exactly like the shapes it blends)
-  // scaled in lockstep -- collected into a set first so a layer holding
-  // several of this scene's primitives only gets scaled once, not once per
-  // primitive (scale_layer_smoothness() isn't idempotent -- a second call
-  // would double-apply the factor).
-  std::unordered_set<u32> touched_layers;
-
-  for (const std::string &name : it->second.primitive_names) {
-    Geometry *geometry = context_.geometry_system->find(name);
-    if (!geometry) {
-      continue;
-    }
-    // Every primitive type's params slots are lengths (radii, half-extents,
-    // heights -- see SdfPrimitiveDef::params), as is extra_param (corner
-    // radius / edge thickness), so a uniform scale multiplies all of them.
-    // This also covers Plane: its height lives in params.x.
-    geometry->position *= factor;
-    geometry->params *= factor;
-    geometry->extra_param *= factor;
-    // twist/bend/displace_frequency are rates (radians, or a sin()
-    // argument multiplier, per world-unit) -- dividing by factor keeps the
-    // same *visual* twist/bend/ripple density as the primitive grows or
-    // shrinks, exactly like param_expr_scale below does for a
-    // parametric-attribute formula's own per-world-unit rate.
-    // displace_amplitude is a length (an added distance), so it scales up
-    // like params/extra_param above instead.
-    geometry->twist /= factor;
-    geometry->bend /= factor;
-    geometry->displace_amplitude *= factor;
-    geometry->displace_frequency /= factor;
-    // Slots driven by a param_expression formula ignore the plain constant
-    // scaled above -- their scale accumulates here instead, applied GPU-side
-    // as s*f(p/s) (see Geometry::param_expr_scale). Without this, scaling a
-    // scene left every formula-driven length at its authored size while the
-    // rest of the model scaled -- visibly mangling anything authored with
-    // parametric attributes (e.g. man.sdf's tapered capsule limbs).
-    geometry->param_expr_scale *= factor;
-    // repetition_cell is a length (cell spacing) too, so it must shrink/grow
-    // in lockstep with the primitive -- left alone, scaling a scene down
-    // would leave repeated instances at their old, now-relatively-larger
-    // spacing. repetition_count is a plain instance count and never scales.
-    geometry->repetition_cell *= factor;
-    // The layer fold's cell spacing is a length for exactly the same
-    // reason (see Geometry::layer_repetition_cell). Scaled on the
-    // primitive's own copy, not on the SceneLayer -- a layer holding
-    // several of this scene's primitives would otherwise be scaled once
-    // per primitive.
-    geometry->layer_repetition_cell *= factor;
-    // The texture's own world-space tiling frequency is a length too, and
-    // needs to shrink/grow with the primitive the same way -- accumulated
-    // per-Geometry rather than scaling geometry->material->def.uv_scale
-    // directly, since Material is shared/reference-counted (see
-    // Geometry::texture_scale_factor's comment for why mutating it here
-    // would leak into every other primitive using that same material).
-    geometry->texture_scale_factor *= factor;
-    // The texture's world-space offset is a length too (see
-    // Geometry::texture_offset_scale's comment) -- same accumulation
-    // reasoning as texture_scale_factor immediately above. Rotation needs
-    // no equivalent line here: an angle is scale-invariant.
-    geometry->texture_offset_scale *= factor;
-
-    context_.geometry_system->mark_dirty(name);
-    touched_layers.insert(geometry->layer);
-  }
-  for (const std::string &name : it->second.volumetric_names) {
-    Volumetric *volumetric = context_.geometry_system->find_volumetric(name);
-    if (!volumetric) {
-      continue;
-    }
-    // Same reasoning as the opaque primitives above -- position/params/
-    // extra_param are all lengths.
-    volumetric->position *= factor;
-    volumetric->params *= factor;
-    volumetric->extra_param *= factor;
-    // density is NOT a length -- it's a per-world-unit accumulation rate,
-    // so what a viewer actually sees is the optical depth density * the
-    // distance the ray travels through the medium. Scaling the shape
-    // without it multiplies that path by factor and so multiplies the
-    // optical depth too: a 4x scale turns a light shaft authored as a
-    // gentle haze (depth 0.4, 67% transmittance) into a near-solid slab
-    // (depth 1.7, 18%), which reads as the god rays blowing out. Dividing
-    // by factor cancels the longer path exactly, so a scaled scene's
-    // volumetrics read the same as authored.
-    //
-    // This is the same appearance-preserving rule the Point light block
-    // below applies for the same reason -- it cancels the extra distance^2
-    // in the attenuation denominator with intensity *= factor^2. Scaling a
-    // whole authored scene means "show this at a different size", not "this
-    // fog bank is physically bigger", so every term that would otherwise
-    // shift the look gets compensated here rather than left to the caller.
-    volumetric->density /= factor;
-  }
-  for (const std::string &name : it->second.light_names) {
-    Light *light = context_.geometry_system->find_light(name);
-    if (!light) {
-      continue;
-    }
-    // Only a Point light's vector is a position (a length, scales like any
-    // other -- see the primitive loop above); a Directional light's is a
-    // direction, whose magnitude is meaningless, so scaling it would be a
-    // silent no-op at best -- skip it instead of pretending it matters.
-    if (light->type == LightType::Point) {
-      light->vector *= factor;
-      // A Point light's brightness at a given surface falls off as
-      // intensity/distance^2 (see the render shader's attenuation term).
-      // Scaling position without also scaling intensity by factor^2 changes
-      // how bright the light reads at every surface around it: growing a
-      // scene (factor > 1) pushes the light farther from everything it was
-      // authored to illuminate, so its apparent brightness silently drops
-      // by factor^2 (e.g. a 3x scale makes it 9x dimmer -- easily enough to
-      // read as "the light doesn't work at all"); shrinking a scene
-      // (factor < 1) does the reverse, making it implausibly bright.
-      // Scaling intensity by factor^2 here exactly cancels the extra
-      // distance^2 in the denominator, so the light reads the same
-      // brightness at every correspondingly-scaled point it did before.
-      light->intensity *= factor * factor;
-    }
-  }
-
-  for (u32 layer_index : touched_layers) {
-    context_.geometry_system->scale_layer_smoothness(layer_index, factor);
-  }
-
-  // Deferred to begin_frame() -- see scene_dirty_'s comment.
-  scene_dirty_ = true;
-}
-
-void VulkanRendererBackend::remove_scene(SceneHandle handle) {
-  auto it = loaded_scenes_.find(handle);
-  if (it == loaded_scenes_.end()) {
-    KWARN("VulkanRendererBackend::remove_scene called with a handle that "
-         "isn't currently loaded: {}.",
-         handle);
-    return;
-  }
-
-  // Wait for the device to go idle *before* releasing anything below --
-  // release() can cascade into MaterialSystem/TextureSystem dropping a
-  // texture's refcount to zero and destroying its VkImage/VkSampler
-  // immediately (synchronously, no wait of its own). rebake()'s own
-  // device-idle wait happens too late for that: a still-in-flight (or
-  // even currently executing) dispatch could still be reading that exact
-  // sampler through the render descriptor set, which is exactly what
-  // produced VUID-vkDestroySampler-sampler-01082 here.
-  vkDeviceWaitIdle(context_.device.logical_device);
-
-  for (const std::string &name : it->second.primitive_names) {
-    context_.geometry_system->release(name);
-  }
-  for (const std::string &name : it->second.light_names) {
-    context_.geometry_system->release_light(name);
-  }
-  for (const std::string &name : it->second.volumetric_names) {
-    context_.geometry_system->release_volumetric(name);
-  }
-  loaded_scenes_.erase(it);
-
-  // Deferred to begin_frame() -- see scene_dirty_'s comment. The
-  // vkDeviceWaitIdle above already happened (required before release()),
-  // so this is only about not paying for the re-voxelize/GI-bake twice if
-  // more scene calls follow before the next frame.
-  scene_dirty_ = true;
-}
-
-void VulkanRendererBackend::clear_scenes() {
-  // See remove_scene()'s comment -- must happen before any release() below.
-  vkDeviceWaitIdle(context_.device.logical_device);
-
-  for (auto &[handle, names] : loaded_scenes_) {
-    for (const std::string &name : names.primitive_names) {
-      context_.geometry_system->release(name);
-    }
-    for (const std::string &name : names.light_names) {
-      context_.geometry_system->release_light(name);
-    }
-    for (const std::string &name : names.volumetric_names) {
-      context_.geometry_system->release_volumetric(name);
-    }
-  }
-  loaded_scenes_.clear();
-
-  // Deferred to begin_frame() -- see scene_dirty_'s comment.
-  scene_dirty_ = true;
-}
-
-void VulkanRendererBackend::set_selected_primitive(i32 index) {
-  context_.raymarch_shader->set_selected_primitive(index);
-}
-
-i32 VulkanRendererBackend::primitive_gpu_index(const std::string &name) const {
-  return context_.raymarch_shader->gpu_index_for_primitive(name);
-}
-
+// The CSG-primitive scene-authoring methods that used to live here
+// (load_scene()/reconcile_scene()/set_cache_prewarm_on_load()/
+// request_cache_prewarm()/set_primitive_transform()/translate_scene()/
+// streaming_backlog()/rotate_scene()/scale_scene()/remove_scene()/
+// clear_scenes()/set_selected_primitive()/primitive_gpu_index()/
+// set_dynamic_primitive()) were removed in the M0 CSG deletion pass (see
+// /home/h-i/.claude/plans/joyful-skipping-giraffe.md) along with
+// GeometrySystem's primitive-authoring surface and VulkanRaymarchShader's
+// matching GPU plumbing.
 void VulkanRendererBackend::set_grid_visible(b8 visible) {
   context_.raymarch_shader->set_grid_visible(visible);
 }
 
 void VulkanRendererBackend::set_chunked_field_enabled(b8 enabled) {
   context_.raymarch_shader->set_chunked_field_enabled(enabled);
-}
-
-void VulkanRendererBackend::set_dynamic_primitive(std::string_view name) {
-  // A rebuild is what re-resolves the name to an index and rebuilds the
-  // bounds list that excludes it, so the change only takes effect through
-  // one. Deferred to begin_frame() like every other scene edit -- see
-  // scene_dirty_'s comment.
-  if (context_.raymarch_shader->set_dynamic_primitive(std::string(name))) {
-    scene_dirty_ = true;
-  }
 }
 
 // The two enums are declared separately (RendererSplatMode in the shared
@@ -1065,6 +585,381 @@ void VulkanRendererBackend::set_ao_enabled(b8 enabled) {
 
 void VulkanRendererBackend::debug_probe_field(glm::vec3 world_pos) {
   context_.raymarch_shader->debug_probe_field(world_pos, camera_.position());
+}
+
+// The two pairs of enums below are declared separately (SculptBrushShape/
+// SculptBrushOp in the shared renderer_types.inl so the frontend/backend
+// interface can name them without pulling in Vulkan headers;
+// VulkanRaymarchShader::BrushShape/BrushOp alongside the shader that
+// actually consumes them) but MUST agree value-for-value, since both casts
+// below are straight casts -- and the Vulkan-side values additionally have
+// to match SHAPE_*/OP_* in Builtin.SculptStamp.comp.glsl, which nothing in
+// C++ can check. Same pattern as RendererSplatMode/SplatMode's own
+// static_assert just above set_chunked_field_enabled().
+static_assert(
+    static_cast<i32>(SculptBrushShape::Sphere) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::Sphere) &&
+    static_cast<i32>(SculptBrushShape::Box) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::Box) &&
+    static_cast<i32>(SculptBrushShape::Plane) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::Plane) &&
+    static_cast<i32>(SculptBrushShape::Torus) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::Torus) &&
+    static_cast<i32>(SculptBrushShape::CappedCylinder) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::CappedCylinder) &&
+    static_cast<i32>(SculptBrushShape::CappedCone) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::CappedCone) &&
+    static_cast<i32>(SculptBrushShape::RoundBox) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::RoundBox) &&
+    static_cast<i32>(SculptBrushShape::BoxFrame) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::BoxFrame) &&
+    static_cast<i32>(SculptBrushShape::Octahedron) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::Octahedron) &&
+    static_cast<i32>(SculptBrushShape::Pyramid) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::Pyramid) &&
+    static_cast<i32>(SculptBrushShape::HexPrism) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::HexPrism) &&
+    static_cast<i32>(SculptBrushShape::RoundCone) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::RoundCone) &&
+    static_cast<i32>(SculptBrushShape::Capsule) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::Capsule) &&
+    static_cast<i32>(SculptBrushShape::Link) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::Link) &&
+    static_cast<i32>(SculptBrushShape::Ellipsoid) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushShape::Ellipsoid),
+    "SculptBrushShape and VulkanRaymarchShader::BrushShape must stay in "
+    "lockstep.");
+static_assert(
+    static_cast<i32>(SculptBrushOp::Union) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushOp::Union) &&
+    static_cast<i32>(SculptBrushOp::Subtraction) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushOp::Subtraction),
+    "SculptBrushOp and VulkanRaymarchShader::BrushOp must stay in "
+    "lockstep.");
+
+// M4b: how many landed stamps between each full-volume checkpoint capture
+// (VulkanRaymarchShader::capture_sculpt_checkpoint()) -- see apply_stamp_
+// and_record()'s own call site. 10 matches the plan file's own suggestion
+// and is a reasonable middle ground for a hand-sized sculpture: frequent
+// enough that delete_edit()'s own replay (restore-nearest-checkpoint, then
+// re-stamp everything after it) never has to redo more than ~9 stamps'
+// worth of work even on a long session, while infrequent enough that the
+// kMaxSculptCheckpoints-deep ring (below) covers a reasonable span of
+// history (50 stamps) before its oldest entry drops off. VERIFIED WITH: this
+// was temporarily lowered to 3 during this milestone's own manual
+// verification pass (to actually exercise a checkpoint-restore within one
+// short test session without stamping 10+ shapes first) and restored to 10
+// before landing -- see the task's own verification notes.
+constexpr i32 kSculptCheckpointInterval = 10;
+
+void VulkanRendererBackend::set_material(i32 slot, glm::vec3 colour,
+                                         f32 roughness, f32 metallic,
+                                         bool waxy, i32 fleck_pattern,
+                                         f32 fleck_strength,
+                                         f32 fleck_scale) {
+  // Straight pass-through, same "no SculptSystem bookkeeping, no undo
+  // involvement" shape as spray_paint()'s own pass-through below -- a
+  // material slot's configuration is not an undoable edit, it is a
+  // standing piece of renderer state a LATER stamp_shape() call references
+  // by index (see VulkanRaymarchShader::set_material()'s own header
+  // comment).
+  context_.raymarch_shader->set_material(slot, colour, roughness, metallic,
+                                         waxy, fleck_pattern, fleck_strength,
+                                         fleck_scale);
+}
+
+i32 VulkanRendererBackend::add_directional_light(glm::vec3 direction,
+                                                  glm::vec3 colour,
+                                                  f32 intensity) {
+  return context_.raymarch_shader->add_directional_light(direction, colour,
+                                                          intensity);
+}
+
+i32 VulkanRendererBackend::add_point_light(glm::vec3 position,
+                                           glm::vec3 colour, f32 intensity) {
+  return context_.raymarch_shader->add_point_light(position, colour,
+                                                    intensity);
+}
+
+void VulkanRendererBackend::apply_stamp_and_record(
+    glm::vec3 center, SculptBrushShape shape_type, glm::vec4 params,
+    f32 smoothness, SculptBrushOp shape_op, i32 material_slot,
+    f32 looseness) {
+  // The GPU-side work (chunk-table-slot/brick allocation, the actual
+  // voxel/splat writes, and -- M2b -- its own undo snapshot) and the CPU-
+  // side record are driven side by side here rather than one calling the
+  // other -- see SculptSystem's own header comment for why it stays
+  // backend-agnostic. cells_touched comes straight back from the GPU call
+  // so SculptVolume's record can never claim a stamp "happened" more
+  // completely than it actually did (e.g. if kMaxResidentChunks ran out
+  // partway through). looseness is NOT passed to the GPU call below -- see
+  // SculptStamp::looseness's own comment (sculpt_volume.h): M3 only
+  // threads it through as an authored, saved/redoable value, with no
+  // shader-side consequence until the Fleck evaluator (M6) exists.
+  const auto vulkan_shape =
+      static_cast<VulkanRaymarchShader::BrushShape>(shape_type);
+  const auto vulkan_op = static_cast<VulkanRaymarchShader::BrushOp>(shape_op);
+  const i32 cells_touched = context_.raymarch_shader->stamp_shape(
+      center, vulkan_shape, params, smoothness, vulkan_op, material_slot);
+  sculpt_system_.apply_stamp(center, shape_type, params, smoothness,
+                             shape_op, material_slot, cells_touched,
+                             looseness);
+
+  // M4b: every ~kSculptCheckpointInterval landed stamps, snapshot the whole
+  // volume so a future delete_edit() targeting an edit near here never has
+  // to replay all the way from empty -- see capture_sculpt_checkpoint()'s
+  // own comment for the full mechanics. after_edit_index is this stamp's
+  // own position in the (just-updated) stamp list.
+  ++stamps_since_checkpoint_;
+  if (stamps_since_checkpoint_ >= kSculptCheckpointInterval) {
+    stamps_since_checkpoint_ = 0;
+    const i32 after_edit_index =
+        static_cast<i32>(sculpt_system_.volume().stamps().size()) - 1;
+    context_.raymarch_shader->capture_sculpt_checkpoint(after_edit_index);
+  }
+}
+
+void VulkanRendererBackend::stamp_shape(glm::vec3 center,
+                                        SculptBrushShape shape_type,
+                                        glm::vec4 params, f32 smoothness,
+                                        SculptBrushOp shape_op,
+                                        i32 material_slot, f32 looseness) {
+  apply_stamp_and_record(center, shape_type, params, smoothness, shape_op,
+                         material_slot, looseness);
+  // A fresh, user-driven stamp invalidates any pending redo history -- see
+  // redo_stack_'s own comment.
+  redo_stack_.clear();
+}
+
+bool VulkanRendererBackend::undo_stamp() {
+  // GPU first: only drop the CPU-side bookkeeping record (and make it
+  // available to Redo) if VulkanRaymarchShader confirms an undo actually
+  // happened -- the same "never claim more than actually occurred"
+  // discipline apply_stamp_and_record() already follows for a fresh stamp.
+  if (!context_.raymarch_shader->undo_stamp()) {
+    return false;
+  }
+  if (std::optional<SculptStamp> popped = sculpt_system_.pop_last_stamp()) {
+    redo_stack_.push_back(*popped);
+  }
+  return true;
+}
+
+i32 VulkanRendererBackend::spray_paint(glm::vec3 center,
+                                       SculptBrushShape shape_type,
+                                       glm::vec4 params,
+                                       f32 opacity_per_pass) {
+  // Straight pass-through, same shape-enum cast stamp_shape() uses (the
+  // static_assert pinning SculptBrushShape/VulkanRaymarchShader::BrushShape
+  // together, above, covers this call too) -- see VulkanRaymarchShader::
+  // spray_paint() for the actual mechanics. Deliberately does NOT go
+  // through apply_stamp_and_record()/sculpt_system_ or touch redo_stack_:
+  // Spraypaint has no SculptSystem bookkeeping/undo entry to keep in step
+  // with (see spray_paint()'s own header comment on why it isn't undoable
+  // yet), so there is nothing here for a CPU-side record to stay
+  // consistent with.
+  return context_.raymarch_shader->spray_paint(
+      center, static_cast<VulkanRaymarchShader::BrushShape>(shape_type),
+      params, opacity_per_pass);
+}
+
+bool VulkanRendererBackend::redo_stamp() {
+  if (redo_stack_.empty()) {
+    return false;
+  }
+  const SculptStamp stamp = redo_stack_.back();
+  redo_stack_.pop_back();
+  // Re-invoking the exact same stamp path is safe/deterministic here
+  // because undo/redo is a strictly linear stack -- nothing else could
+  // have touched the same voxels between this stamp being undone and this
+  // redo (see RendererBackend::redo_stamp()'s own comment). Deliberately
+  // does NOT go through stamp_shape() (which would clear redo_stack_ and
+  // destroy any further pending redos) -- see apply_stamp_and_record()'s
+  // own comment.
+  apply_stamp_and_record(stamp.center, stamp.shape_type, stamp.params,
+                         stamp.smoothness, stamp.op, stamp.material_slot,
+                         stamp.looseness);
+  return true;
+}
+
+bool VulkanRendererBackend::delete_edit(i32 index) {
+  const std::vector<SculptStamp> stamps = sculpt_system_.volume().stamps();
+  if (index < 0 || static_cast<size_t>(index) >= stamps.size()) {
+    return false;
+  }
+
+  // 1. Restore the nearest checkpoint strictly before `index` (or an empty
+  // field, if none exists) -- see VulkanRaymarchShader::restore_sculpt_
+  // checkpoint_before()'s own comment. restored_after is the index of the
+  // last edit that restore actually reproduced (-1 means "nothing -- empty
+  // field").
+  const i32 restored_after =
+      context_.raymarch_shader->restore_sculpt_checkpoint_before(index);
+
+  // 2. Replay every edit from (restored_after + 1) up to (index - 1)
+  // inclusive -- these are edits the checkpoint didn't already cover, and
+  // which must still exist in the final state. Straight to
+  // VulkanRaymarchShader::stamp_shape() -- deliberately NOT through apply_
+  // stamp_and_record() (that would re-append each one onto sculpt_system_'s
+  // volume_, which already HAS these entries; this replay is only
+  // reconstructing GPU state, not CPU bookkeeping) and NOT counted toward
+  // stamps_since_checkpoint_/eligible for a fresh capture_sculpt_checkpoint()
+  // call either -- see that member's own comment for why the ring is simply
+  // allowed to stay sparse for a while after a delete.
+  for (i32 i = restored_after + 1; i < index; ++i) {
+    const SculptStamp &s = stamps[static_cast<size_t>(i)];
+    context_.raymarch_shader->stamp_shape(
+        s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
+        s.params, s.smoothness,
+        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot);
+  }
+
+  // 3. Skip `index` entirely (the edit being deleted), then replay
+  // everything AFTER it to reconstruct the rest of the current state.
+  for (size_t i = static_cast<size_t>(index) + 1; i < stamps.size(); ++i) {
+    const SculptStamp &s = stamps[i];
+    context_.raymarch_shader->stamp_shape(
+        s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
+        s.params, s.smoothness,
+        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot);
+  }
+
+  // 4. Only now retract the CPU-side record -- same "GPU first" discipline
+  // undo_stamp() already follows.
+  sculpt_system_.remove_stamp_at(static_cast<size_t>(index));
+
+  // 5. Every checkpoint at or after `index` now refers to a state (and an
+  // index) that no longer corresponds to anything in the rebuilt list --
+  // see invalidate_sculpt_checkpoints_from()'s own comment. Checkpoints
+  // strictly before `index` are untouched and still correct.
+  context_.raymarch_shader->invalidate_sculpt_checkpoints_from(index);
+
+  // A structural edit-list change invalidates any pending redo history --
+  // same reasoning stamp_shape() already documents for a fresh stamp (a
+  // stale redo_stack_ entry would always re-append at the CURRENT tail via
+  // apply_stamp_and_record(), which is no longer where it originally sat
+  // relative to the rest of the (now reshuffled) history).
+  redo_stack_.clear();
+
+  return true;
+}
+
+bool VulkanRendererBackend::move_edit(i32 index, glm::vec3 new_center) {
+  const std::vector<SculptStamp> stamps = sculpt_system_.volume().stamps();
+  if (index < 0 || static_cast<size_t>(index) >= stamps.size()) {
+    return false;
+  }
+
+  // 1. Identical to delete_edit()'s own step 1 -- restore the nearest
+  // checkpoint strictly before `index` (or an empty field, if none exists).
+  const i32 restored_after =
+      context_.raymarch_shader->restore_sculpt_checkpoint_before(index);
+
+  // 2. Identical to delete_edit()'s own step 2 -- replay every edit from
+  // (restored_after + 1) up to (index - 1) inclusive, UNCHANGED (original
+  // center, original everything), straight to VulkanRaymarchShader::
+  // stamp_shape() -- not through apply_stamp_and_record(), for the same
+  // reason delete_edit() avoids it (this is only reconstructing GPU state;
+  // sculpt_system_'s volume_ already has every one of these entries).
+  for (i32 i = restored_after + 1; i < index; ++i) {
+    const SculptStamp &s = stamps[static_cast<size_t>(i)];
+    context_.raymarch_shader->stamp_shape(
+        s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
+        s.params, s.smoothness,
+        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot);
+  }
+
+  // 3. The one point this diverges from delete_edit(): `index` itself is
+  // NOT skipped -- it is replayed at new_center instead, with every other
+  // field (shape_type/params/smoothness/op/material_slot) read verbatim
+  // from its EXISTING record (captured above, before anything in this
+  // function has touched sculpt_system_'s volume_) -- exactly the "same
+  // shape/params/smoothness/op/material/looseness, only the center
+  // changes" contract this method promises. cells_touched is captured from
+  // this call's own return value (not the original stamp's stale count) so
+  // SculptVolume's record never claims a cell count that belonged to the
+  // shape's OLD position -- same "never claim more than actually
+  // happened" discipline apply_stamp_and_record() already follows for a
+  // fresh stamp.
+  const SculptStamp &moved = stamps[static_cast<size_t>(index)];
+  const i32 moved_cells_touched = context_.raymarch_shader->stamp_shape(
+      new_center,
+      static_cast<VulkanRaymarchShader::BrushShape>(moved.shape_type),
+      moved.params, moved.smoothness,
+      static_cast<VulkanRaymarchShader::BrushOp>(moved.op),
+      moved.material_slot);
+
+  // 4. Identical to delete_edit()'s own step 3 (its "replay everything
+  // AFTER it" half) -- replay every edit after `index`, UNCHANGED, to
+  // reconstruct the rest of the current state on top of the just-moved
+  // shape.
+  for (size_t i = static_cast<size_t>(index) + 1; i < stamps.size(); ++i) {
+    const SculptStamp &s = stamps[i];
+    context_.raymarch_shader->stamp_shape(
+        s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
+        s.params, s.smoothness,
+        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot);
+  }
+
+  // 5. Only now update the CPU-side record -- same "GPU first" discipline
+  // delete_edit()/undo_stamp() already follow. Unlike delete_edit()'s
+  // remove_stamp_at(), this leaves the list's size/order untouched -- see
+  // SculptVolume::update_stamp_center()'s own comment.
+  sculpt_system_.update_stamp_center(static_cast<size_t>(index), new_center,
+                                     moved_cells_touched);
+
+  // 6. Every checkpoint at or after `index` captured a GPU state built on
+  // top of this edit's OLD center -- same staleness delete_edit()'s own
+  // step 5 documents, just for a changed-in-place entry rather than a
+  // removed one. Checkpoints strictly before `index` are untouched (their
+  // own captured state never depended on this edit's center at all, since
+  // they were taken before it was replayed-to in either case).
+  context_.raymarch_shader->invalidate_sculpt_checkpoints_from(index);
+
+  // A structural edit-list change (moving a shape changes what every later
+  // checkpoint/replay would reconstruct) invalidates any pending redo
+  // history -- same reasoning delete_edit()'s own tail comment gives.
+  redo_stack_.clear();
+
+  return true;
+}
+
+i32 VulkanRendererBackend::crop_volume(glm::vec3 center,
+                                       SculptBrushShape shape_type,
+                                       glm::vec4 params, f32 smoothness) {
+  // Straight pass-through, same shape-enum cast stamp_shape() uses --
+  // deliberately does NOT go through sculpt_system_/redo_stack_ (Crop is
+  // not a brush stamp and is not undoable/redoable this pass -- see
+  // VulkanRaymarchShader::crop_volume()'s own header comment for the full
+  // documented scope decision).
+  return context_.raymarch_shader->crop_volume(
+      center, static_cast<VulkanRaymarchShader::BrushShape>(shape_type),
+      params, smoothness, /*keep_outside=*/false);
+}
+
+bool VulkanRendererBackend::cutout_volume(glm::vec3 center,
+                                          SculptBrushShape shape_type,
+                                          glm::vec4 params, f32 smoothness,
+                                          const std::string &removed_path) {
+  const auto vulkan_shape =
+      static_cast<VulkanRaymarchShader::BrushShape>(shape_type);
+  // Capture-and-save the REMOVED portion FIRST, from the pre-crop state --
+  // see VulkanRaymarchShader::export_crop_outside()'s own comment for why
+  // this must run before the live crop below, not after. If the file write
+  // fails, bail WITHOUT touching the live volume at all (same "never claim
+  // more than actually happened" discipline every other sculpt-family call
+  // in this backend already follows).
+  if (!context_.raymarch_shader->export_crop_outside(
+          removed_path, center, vulkan_shape, params, smoothness)) {
+    return false;
+  }
+  context_.raymarch_shader->crop_volume(center, vulkan_shape, params,
+                                        smoothness, /*keep_outside=*/false);
+  return true;
+}
+
+bool VulkanRendererBackend::load_cutout_file(const std::string &path) {
+  return context_.raymarch_shader->load_crop_outside_file(path);
 }
 
 void VulkanRendererBackend::set_splat_mode(RendererSplatMode mode) {

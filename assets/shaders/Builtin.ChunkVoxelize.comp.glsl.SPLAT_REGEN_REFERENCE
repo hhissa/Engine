@@ -1,0 +1,256 @@
+// Reference copy of generate_splat_points() from the now-deleted
+// Builtin.ChunkVoxelize.comp.glsl (M0 CSG deletion pass, see
+// /home/h-i/.claude/plans/joyful-skipping-giraffe.md). Preserved verbatim
+// (not compiled -- this file has no .comp.glsl extension and is not in
+// post-build.sh) because a later milestone (M1, Builtin.SculptStamp.comp.glsl
+// / Builtin.SculptSplatRegen.comp.glsl) needs to lift this function's body
+// near-verbatim: it already takes exactly the parameters a brush-stamp
+// splat-regen pass needs (brick index, cell min, voxel size) with no
+// streaming-manager dependency, and is what the kept splat/cluster
+// rendering pipeline reads to render anything -- a brick's raw SDF voxels
+// alone are not what final rendering samples.
+//
+// Original location: Builtin.ChunkVoxelize.comp.glsl, lines 429-660 (as of
+// the commit immediately preceding the M0 deletion pass). Depends on
+// symbols still defined elsewhere and KEPT by M0 (not primitive/streaming
+// specific): CHUNK_MAX_CLUSTERS_PER_BRICK, CHUNK_POINT_LOD_COUNT,
+// chunk_point_lod_stride(), CHUNK_BRICK_DIM, CHUNK_BRICK_VOXEL_COUNT,
+// CHUNK_BRICK_APRON_DIM, CHUNK_POINTS_PER_BRICK, CHUNK_CLUSTER_POINTS,
+// CLUSTER_FIRST_PAGE_RESERVE, CLUSTER_SECOND_PAGE_RESERVE, MAX_CLUSTERS,
+// cluster_free_top/cluster_free_list/cluster_points/chunk_clusters buffers,
+// pack_point_normal(), COARSE_CELL_SIZE, chunk_bricks buffer,
+// chunk_brick_demand stats buffer. The caller also passed `stats` (bool)
+// to gate the demand-counter atomics (debug/overflow-telemetry only).
+
+void generate_splat_points(int brick_index, int chunk_slot, vec3 cell_min,
+                           float chunk_cell_size, float voxel_size, bool stats) {
+    // --- Splat point generation into cluster pages. ---
+    // Builds the progressive LOD pyramid described by CHUNK_POINTS_
+    // PER_BRICK (Builtin.SdfFieldConfig.inc.glsl): one pass per
+    // level, coarsest stride first, each pass adding only the sample
+    // positions its stride introduces that a COARSER stride didn't
+    // already emit (that "already covered" test is just `every axis
+    // index is a multiple of the previous, coarser stride`). Level
+    // L's point set is then the brick's first lod_counts[L] points,
+    // wherever across this brick's pages they fall.
+    //
+    // Distances come straight from the voxels the loop above just
+    // wrote (same invocation, program order -- no barrier needed),
+    // and each kept candidate is projected onto the isosurface by a
+    // single Newton step along the central-difference gradient --
+    // the apron guarantees every +-1 neighbor read stays in bounds.
+    // That same gradient is the point's baked normal, so normals
+    // cost nothing here and save the shading pass from re-evaluating
+    // the field per splatted pixel.
+    //
+    // The keep test scales with the LEVEL's own spacing, so a coarse
+    // level still finds the surface everywhere a fine one does (it
+    // just describes it with fewer, wider-spaced points) -- and
+    // because that threshold SHRINKS with the stride, a position a
+    // coarse level rejected can never be one a finer level wanted,
+    // which is what makes skipping "already covered" positions safe
+    // rather than a hole in the finer set.
+    //
+    // A LEVEL THAT DOESN'T FIT IS ROLLED BACK WHOLE, never left half
+    // emitted -- whether it ran out of this brick's cluster budget
+    // or the shared pool ran dry. Emitting a level partway leaves a
+    // contiguous slab of the brick (the tail of this z-major walk)
+    // with no points while the rest has them, and neither consumer
+    // can recover from that: both trust the nearest splat on a
+    // pixel, so a patch that lost its points is shaded, or primed
+    // past, by whatever splatted BEHIND it -- the near surface just
+    // disappears. Rolling back returns the pages that level claimed
+    // and leaves the brick with a complete, gap-free point set at a
+    // coarser spacing, which the splat pass reads off lod_counts.
+    int page_ids[CHUNK_MAX_CLUSTERS_PER_BRICK];
+    int page_count = 0;
+    int point_count = 0;
+    uvec4 lod_counts = uvec4(0);
+    vec3 normal_sum = vec3(0.0);
+
+    for (int level = 0; level < CHUNK_POINT_LOD_COUNT; ++level) {
+        int stride = chunk_point_lod_stride(level);
+        // What the previous (coarser) pass already covered; for the
+        // first pass nothing has been, which `stride * 2` beyond
+        // the brick can never match.
+        int covered = stride * 2;
+        float level_spacing = voxel_size * float(stride);
+        int level_start = point_count;   // rollback point
+        int level_start_pages = page_count;
+        bool overflowed = false;
+        for (int pz = 0; pz < CHUNK_BRICK_DIM && !overflowed; pz += stride) {
+            for (int py = 0; py < CHUNK_BRICK_DIM && !overflowed; py += stride) {
+                for (int px = 0; px < CHUNK_BRICK_DIM && !overflowed; px += stride) {
+                    if (level > 0 && (px % covered) == 0 && (py % covered) == 0 &&
+                        (pz % covered) == 0) {
+                        continue; // a coarser level already emitted this position
+                    }
+                    if (stats) { atomicAdd(chunk_brick_demand[5], 1u); }
+                    ivec3 s = ivec3(px, py, pz) + ivec3(1);
+                    int base = brick_index * CHUNK_BRICK_VOXEL_COUNT;
+                    #define BRICK_AT(ix, iy, iz) chunk_bricks[base + (ix) + \
+                        (iy) * CHUNK_BRICK_APRON_DIM + \
+                        (iz) * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM]
+                    float d = BRICK_AT(s.x, s.y, s.z);
+                    if (abs(d) > level_spacing * 0.8660254) {
+                        continue;
+                    }
+                    if (point_count >= CHUNK_POINTS_PER_BRICK) {
+                        overflowed = true; // this brick's own budget
+                        break;
+                    }
+                    if ((point_count % CHUNK_CLUSTER_POINTS) == 0) {
+                        // Time for another page. Same top-down pop as
+                        // the brick free list above, including the
+                        // undo of the wraparound decrement when the
+                        // stack is already empty -- plus the reserve
+                        // that keeps a first page available for every
+                        // brick (see CLUSTER_FIRST_PAGE_RESERVE).
+                        // Tiered, cheapest-degradation-first -- see
+                        // CLUSTER_SECOND_PAGE_RESERVE.
+                        uint floor_count =
+                            point_count == 0 ? 0u
+                            : (page_count == 1 ? uint(CLUSTER_SECOND_PAGE_RESERVE)
+                                               : uint(CLUSTER_FIRST_PAGE_RESERVE));
+                        uint free_before = atomicAdd(cluster_free_top, 0xFFFFFFFFu);
+                        if (free_before == 0u || free_before > uint(MAX_CLUSTERS) ||
+                            free_before <= floor_count) {
+                            atomicAdd(cluster_free_top, 1u);
+                            // Cluster-pool pressure specifically, as opposed
+                            // to the brick's own budget below -- this is the
+                            // one that silently costs the scene its splat
+                            // density, so it gets counted and reported (see
+                            // kChunkStatSplatRollbackWord engine-side).
+                            atomicAdd(chunk_brick_demand[9], 1u);
+                            if (point_count == 0) {
+                                // FIRST page refused: this brick emits no
+                                // points at all, so its surface is simply
+                                // absent from the splat pass -- a malformed
+                                // hole, not merely a coarser one. Counted
+                                // apart because the two read completely
+                                // differently on screen and have different
+                                // fixes.
+                                atomicAdd(chunk_brick_demand[10], 1u);
+                            }
+                            overflowed = true; // pool dry, or this
+                                              // brick already has
+                                              // its guaranteed page
+                            break;
+                        }
+                        page_ids[page_count] = cluster_free_list[free_before - 1u];
+                        ++page_count;
+                    }
+                    vec3 grad = vec3(
+                        BRICK_AT(s.x + 1, s.y, s.z) - BRICK_AT(s.x - 1, s.y, s.z),
+                        BRICK_AT(s.x, s.y + 1, s.z) - BRICK_AT(s.x, s.y - 1, s.z),
+                        BRICK_AT(s.x, s.y, s.z + 1) - BRICK_AT(s.x, s.y, s.z - 1));
+                    #undef BRICK_AT
+                    vec3 p = cell_min + (vec3(px, py, pz) + 0.5) * voxel_size;
+                    float grad_len = length(grad);
+                    vec3 normal = vec3(0.0, 1.0, 0.0);
+                    if (grad_len > 1e-6) {
+                        normal = grad / grad_len;
+                        p -= normal * d;
+                    }
+                    // Pack as a 3x10-bit fraction of the cell -- the
+                    // projection can step slightly outside it, so
+                    // clamp; the splat pass's own conservative
+                    // margins absorb the clamp error.
+                    vec3 frac = clamp((p - cell_min) / chunk_cell_size, 0.0, 1.0);
+                    uvec3 q = uvec3(frac * 1023.0 + 0.5);
+                    int page = page_ids[point_count / CHUNK_CLUSTER_POINTS];
+                    int slot = page * CHUNK_CLUSTER_POINTS +
+                        (point_count % CHUNK_CLUSTER_POINTS);
+                    cluster_points[slot] = uvec2(
+                        q.x | (q.y << 10) | (q.z << 20),
+                        pack_point_normal(normal));
+                    normal_sum += normal;
+                    ++point_count;
+                }
+            }
+        }
+        if (overflowed) {
+            // Hand back only the pages THIS level claimed; earlier
+            // levels' points (and the partially filled page they may
+            // sit in) stay exactly as they were.
+            while (page_count > level_start_pages) {
+                --page_count;
+                uint slot = atomicAdd(cluster_free_top, 1u);
+                if (slot < uint(MAX_CLUSTERS)) {
+                    cluster_free_list[slot] = page_ids[page_count];
+                }
+            }
+            point_count = level_start;
+            for (int rest = level; rest < CHUNK_POINT_LOD_COUNT; ++rest) {
+                lod_counts[rest] = uint(level_start);
+            }
+            break;
+        }
+        lod_counts[level] = uint(point_count);
+    }
+
+    // Normal cone over the brick's points, shared by all its
+    // pages: the axis is the mean normal, accumulated as the points
+    // were generated.
+    //
+    // The half angle is NOT measured. Doing so needs a second pass
+    // over the points that were just written, and those live in a
+    // HOST-VISIBLE buffer -- so that pass reads a few hundred
+    // scattered dwords back across PCIe per brick, hundreds of
+    // bricks per chunk. Measured, that read-back was most of a bake
+    // that ran 100-300ms per chunk and stalled the async queue for
+    // seconds at a time on every chunk boundary.
+    //
+    // A cone of -1 means "spans every direction", which the cull
+    // pass reads as "never cull this cluster" (its slack exceeds 90
+    // degrees, and the test is guarded for exactly that). So the
+    // trade is: give up backface rejection of whole clusters, keep
+    // the per-POINT backface test that already runs in the splat
+    // pass, and get the bake back. Restore this the day the point
+    // pool is device-local -- then the read is cheap and the cone
+    // is worth measuring again.
+    vec3 cone_axis = normal_sum;
+    float cone_len = length(cone_axis);
+    cone_axis = cone_len > 1e-6 ? cone_axis / cone_len : vec3(0.0, 1.0, 0.0);
+    float cone_cos = -1.0;
+
+    // meta.w carries BOTH this cluster's clip level (low 16 bits)
+    // and the gpu_slot of the chunk that owns it (high 16). The
+    // slot is what Builtin.ChunkClusterCull.comp.glsl needs to
+    // answer "has this chunk's bake actually finished and been
+    // published?" -- the whole cluster pool is swept flat every
+    // frame, with no residency structure, so without a back
+    // reference to the owning chunk there is no way for the cull
+    // to tell a finished page from one this very bake is still
+    // filling in. See CHUNK_MAX_SLOTS there. The clip level was
+    // already stored here and is kept (nothing reads it yet, but
+    // it costs nothing to preserve); slot fits easily, the pool is
+    // NUM_CHUNK_LEVELS * kMaxResidentChunks entries.
+    int clip_level = int(round(log2(chunk_cell_size / COARSE_CELL_SIZE)));
+    uint level_and_slot =
+        uint(clip_level) | (uint(chunk_slot) << 16);
+    for (int i = 0; i < CHUNK_MAX_CLUSTERS_PER_BRICK; ++i) {
+        int page = i < page_count ? page_ids[i] : -1;
+        brick_clusters[brick_index * CHUNK_MAX_CLUSTERS_PER_BRICK + i] = page;
+        if (page < 0) {
+            continue;
+        }
+        int first = i * CHUNK_CLUSTER_POINTS;
+        chunk_clusters[page].bbox_min_cell = vec4(cell_min, chunk_cell_size);
+        chunk_clusters[page].normal_cone = vec4(cone_axis, cone_cos);
+        chunk_clusters[page].lod_counts = lod_counts;
+        // meta LAST, behind a barrier: meta.y != 0 is what marks a
+        // page live to every consumer, and the cull/splat passes
+        // now read this pool WHILE a bake is still writing it (the
+        // graphics queue no longer stalls on the bake -- see
+        // VulkanRaymarchShader::publish_completed_bakes()). Without
+        // the barrier a reader could see the "live" flag land
+        // before the bbox and point counts it depends on, and splat
+        // a cluster described by whatever the page held before.
+        memoryBarrierBuffer();
+        chunk_clusters[page].meta = uvec4(
+            uint(first),
+            uint(min(CHUNK_CLUSTER_POINTS, point_count - first)),
+            uint(brick_index), level_and_slot);
+    }
+}

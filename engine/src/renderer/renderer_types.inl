@@ -45,3 +45,43 @@ enum class RendererSplatMode : i32 {
   // complete with no temporal accumulation needed.
   Visibility = 2,
 };
+
+// M2a: the 15 analytic brush shapes a sculpt stamp can evaluate -- see
+// Builtin.BrushShapes.inc.glsl for each shape's underlying *_sdf() and
+// Builtin.SculptStamp.comp.glsl's SHAPE_* constants, which these values
+// must match exactly (nothing in C++ checks that half of the lockstep).
+// Lives here, in the shared types header, rather than inside
+// VulkanRaymarchShader, for the same reason RendererSplatMode does (so the
+// frontend/backend interface can name it without pulling in Vulkan
+// headers) -- VulkanRaymarchShader::BrushShape mirrors these values
+// exactly, with a static_assert in vulkan_backend.cpp pinning them
+// together, matching RendererSplatMode/SplatMode's own established
+// pattern. Brush ROTATION is out of scope for M2a -- every shape stamps in
+// its canonical, axis-aligned local orientation.
+enum class SculptBrushShape : i32 {
+  Sphere = 0,
+  Box,
+  Plane,
+  Torus,
+  CappedCylinder,
+  CappedCone,
+  RoundBox,
+  BoxFrame,
+  Octahedron,
+  Pyramid,
+  HexPrism,
+  RoundCone,
+  Capsule,
+  Link,
+  Ellipsoid,
+};
+
+// M2a: how a sculpt stamp blends its shape against whatever a touched
+// voxel already holds -- see smooth_union()/smooth_subtraction() in
+// Builtin.BrushShapes.inc.glsl. Must match Builtin.SculptStamp.comp.glsl's
+// OP_* constants and VulkanRaymarchShader::BrushOp's mirror exactly (same
+// lockstep note as SculptBrushShape above).
+enum class SculptBrushOp : i32 {
+  Union = 0,
+  Subtraction = 1,
+};

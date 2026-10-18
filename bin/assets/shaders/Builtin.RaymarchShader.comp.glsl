@@ -80,18 +80,6 @@ layout(binding = 6) uniform sampler2D scene_textures[MAX_SCENE_PRIMITIVES];
 // material with no bump map set reads as exactly zero bump perturbation.
 layout(binding = 14) uniform sampler2D scene_bump_textures[MAX_SCENE_PRIMITIVES];
 
-// The analytic scene SDF (shared with the voxelize pass -- one copy, so
-// the baked field and this pass's per-pixel material provenance can never
-// disagree about what the scene is). Only scene_map()'s nearest_primitive
-// out-param is used here: the *distance* still comes from the baked field
-// (that's the whole point of baking), but the *material* at a hit is
-// re-derived analytically at the exact hit point, because the per-brick
-// index above quantizes provenance to whole 0.25-unit cells.
-#define SDF_PRIMITIVE_BUFFER_BINDING 7
-#define SDF_LAYER_BUFFER_BINDING 8
-#define SDF_PARAM_EXPR_BUFFER_BINDING 9
-#include "Builtin.SdfSceneCommon.inc.glsl"
-
 // Per-frame camera/model state, uploaded by VulkanRaymarchShader::render_to()
 // each dispatch. A push constant rather than a UBO/descriptor binding: it's
 // recorded directly into the command buffer, so there's no separate buffer
@@ -105,19 +93,7 @@ layout(push_constant) uniform PushConstants {
     int light_count;    // How many of LightBuffer's entries to sum, below.
     float ambient;        // Scene-wide ambient factor, added once regardless
                          // of light_count -- see GeometrySystem::ambient().
-    int selected_primitive_index; // scene_textures/scene_diffuse_colours
-                                  // index to draw a selection outline
-                                  // around, or -1 for none.
     int flags;                    // RENDER_FLAG_* bits -- see below.
-    int layer_count;              // How many LayerBuffer entries scene_map()
-                                  // folds -- same value the voxelize pass
-                                  // baked with.
-    int volumetric_start;         // First index (into primitives[]/
-                                  // scene_textures/scene_diffuse_colours) of
-                                  // the registered-volumetrics tail range --
-                                  // see accumulate_volumetrics() below.
-    int volumetric_count;         // How many contiguous entries starting
-                                  // there are volumetrics.
     float time;                  // Seconds since the shader was constructed
                                   // -- drives accumulate_volumetrics()'s
                                   // scrolling texture animation.
@@ -152,10 +128,6 @@ layout(push_constant) uniform PushConstants {
                                   // push-constant bytes, and a vec2's
                                   // 8-byte alignment mid-block would pad it
                                   // over that limit.
-    // Index into primitives[] of the one primitive being interactively
-    // moved, or -1. Excluded from the bake and unioned in analytically
-    // below instead, so dragging it re-bakes nothing. 124 of 128 bytes.
-    int dynamic_primitive;
 } push;
 
 // Bits of push.flags. Four independent booleans packed into one scalar --
@@ -288,33 +260,11 @@ void sample_active_field(vec3 p, vec3 ray_dir, out float dist, out float skip_di
     } else {
         sample_field(p, ray_dir, dist, skip_dist, material_index);
     }
-
-    // The interactively-moved primitive is not in the baked field at all
-    // (that is the whole point -- moving it re-bakes nothing), so it is
-    // unioned in here, evaluated analytically, one primitive per step.
-    //
-    // The subtlety is skip_dist. It is a "trust dist" flag, not a
-    // magnitude: nonzero means the field has nothing here and the ray may
-    // jump that far. Taking that jump unchanged would sail straight
-    // through the dynamic primitive, which occupies space the baked field
-    // has never heard of. So a skip is CLAMPED to the analytic distance,
-    // and becomes a real hit once the analytic surface is the nearer of
-    // the two.
-    if (push.dynamic_primitive >= 0) {
-        float dynamic_dist = primitive_sdf(push.dynamic_primitive, p);
-        if (skip_dist != 0.0) {
-            if (dynamic_dist < skip_dist) {
-                // Inside the region the field wanted to skip: the analytic
-                // surface is what the ray must march against from here.
-                dist = dynamic_dist;
-                skip_dist = 0.0;
-                material_index = push.dynamic_primitive;
-            }
-        } else if (dynamic_dist < dist) {
-            dist = dynamic_dist;
-            material_index = push.dynamic_primitive;
-        }
-    }
+    // The interactively-dragged-primitive analytic union that used to live
+    // here (push.dynamic_primitive/primitive_sdf()) was CSG-primitive-
+    // specific and removed along with the rest of Builtin.SdfSceneCommon.
+    // inc.glsl's scene graph -- see /home/h-i/.claude/plans/
+    // joyful-skipping-giraffe.md's M0 deletion pass.
 }
 
 // Baked indirect-light probe grid -- a dense regular grid of GI samples

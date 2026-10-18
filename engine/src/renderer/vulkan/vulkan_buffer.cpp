@@ -205,6 +205,24 @@ void VulkanBuffer::copy_to(VulkanBuffer &dest, u64 source_offset,
           pool);
 }
 
+void VulkanBuffer::copy_regions_to(VulkanBuffer &dest,
+                                   const std::vector<VkBufferCopy> &regions,
+                                   VkQueue queue, VkCommandPool pool) {
+  if (regions.empty()) {
+    return;
+  }
+  vkQueueWaitIdle(queue);
+
+  auto command_buffer =
+      VulkanCommandBuffer::allocate_and_begin_single_use(*context_, pool);
+
+  vkCmdCopyBuffer(command_buffer->handle(), handle_, dest.handle_,
+                 static_cast<u32>(regions.size()), regions.data());
+
+  VulkanCommandBuffer::end_single_use(*context_, pool, std::move(command_buffer),
+                                      queue);
+}
+
 void VulkanBuffer::copy_raw(VkBuffer source, u64 source_offset, VkBuffer dest,
                            u64 dest_offset, u64 size, VkQueue queue,
                            VkCommandPool pool) const {

@@ -49,6 +49,13 @@ layout(binding = 25, rgba16f) uniform readonly image2D gbuffer_normal_material;
 
 #include "Builtin.SdfFieldConfig.inc.glsl"
 
+// M6 (Flecks): the procedural surface-stylization evaluator -- self-
+// contained (own hashing/noise, no dependency on anything else in this
+// file), so it can be included this early. See its own header comment for
+// the 16-presets/3-families mapping and fleck_perturb_normal()/fleck_
+// modulate_albedo()'s own comments for where/how they are called below.
+#include "Builtin.FleckPattern.inc.glsl"
+
 // One entry per registered light (see GeometrySystem::Light,
 // engine-side). vector_type.xyz is a direction (Directional) or
 // world-space position (Point), vector_type.w its LightType as a float
@@ -87,6 +94,15 @@ layout(binding = 5) readonly buffer ScenePrimitiveColours {
 // Vulkan requires every element of a bound sampler array to reference a
 // real image regardless of whether the shader ever reads that index.
 const int MAX_SCENE_PRIMITIVES = 1000;
+
+// M3c (Spraypaint): which scene_diffuse_colours[]/material_scalars[] slot
+// stands in for "the paint colour" -- VulkanRaymarchShader::
+// ensure_default_sculpt_material() sets this one index up (a fixed, clearly
+// visible colour) once, alongside index 0's plain-white default sculpt
+// material; see this file's blend site (search "paint_opacity") for where
+// it's actually used. Not a per-stroke colour -- no colour-picker UI exists
+// yet (out of scope for this milestone, see the plan's M3c section).
+const int PAINT_MATERIAL_SLOT = 1;
 layout(binding = 6) uniform sampler2D scene_textures[MAX_SCENE_PRIMITIVES];
 // Mirrors scene_textures above, one bump-map texture per primitive (see
 // Material::bump_texture, engine-side) -- sampled purely for luminance by
@@ -95,18 +111,6 @@ layout(binding = 6) uniform sampler2D scene_textures[MAX_SCENE_PRIMITIVES];
 // flat_texture()), not the checkerboard scene_textures falls back to, so a
 // material with no bump map set reads as exactly zero bump perturbation.
 layout(binding = 14) uniform sampler2D scene_bump_textures[MAX_SCENE_PRIMITIVES];
-
-// The analytic scene SDF (shared with the voxelize pass -- one copy, so
-// the baked field and this pass's per-pixel material provenance can never
-// disagree about what the scene is). Only scene_map()'s nearest_primitive
-// out-param is used here: the *distance* still comes from the baked field
-// (that's the whole point of baking), but the *material* at a hit is
-// re-derived analytically at the exact hit point, because the per-brick
-// index above quantizes provenance to whole 0.25-unit cells.
-#define SDF_PRIMITIVE_BUFFER_BINDING 7
-#define SDF_LAYER_BUFFER_BINDING 8
-#define SDF_PARAM_EXPR_BUFFER_BINDING 9
-#include "Builtin.SdfSceneCommon.inc.glsl"
 
 // Per-frame camera/model state, uploaded by VulkanRaymarchShader::render_to()
 // each dispatch. A push constant rather than a UBO/descriptor binding: it's
@@ -121,19 +125,7 @@ layout(push_constant) uniform PushConstants {
     int light_count;    // How many of LightBuffer's entries to sum, below.
     float ambient;        // Scene-wide ambient factor, added once regardless
                          // of light_count -- see GeometrySystem::ambient().
-    int selected_primitive_index; // scene_textures/scene_diffuse_colours
-                                  // index to draw a selection outline
-                                  // around, or -1 for none.
     int flags;                    // RENDER_FLAG_* bits -- see below.
-    int layer_count;              // How many LayerBuffer entries scene_map()
-                                  // folds -- same value the voxelize pass
-                                  // baked with.
-    int volumetric_start;         // First index (into primitives[]/
-                                  // scene_textures/scene_diffuse_colours) of
-                                  // the registered-volumetrics tail range --
-                                  // see accumulate_volumetrics() below.
-    int volumetric_count;         // How many contiguous entries starting
-                                  // there are volumetrics.
     float time;                  // Seconds since the shader was constructed
                                   // -- drives accumulate_volumetrics()'s
                                   // scrolling texture animation.
@@ -199,11 +191,6 @@ const float SURF_DIST = 0.001;
 // the floor below which nothing should fall.
 const float INDIRECT_AO_FLOOR = 0.35;
 const float AMBIENT_AO_FLOOR = 0.5;
-
-// Cull radius for the per-pixel analytic re-evaluation at a hit point --
-// see its call site in main() for why a bound this tight is valid there.
-// Raise it only if a scene ever authors a layer smoothness above it.
-const float ANALYTIC_HIT_CULL_RADIUS = 2.0;
 
 // Shadow ray tuning (see shadow_march() in Builtin.BakedFieldCommon.inc.
 // glsl, included below). SHADOW_NORMAL_BIAS offsets a shadow ray's origin
@@ -298,6 +285,98 @@ void sample_active_field(vec3 p, vec3 ray_dir, out float dist, out float skip_di
     } else {
         sample_field(p, ray_dir, dist, skip_dist, material_index);
     }
+}
+
+// M3c (Spraypaint): the per-voxel paint-opacity accumulator Builtin.
+// SculptSpraypaint.comp.glsl writes (see its own header comment for the
+// accumulation formula) -- same size/addressing as ChunkBrickPoolBuffer
+// (CHUNKED_FIELD_BRICKPOOL_BINDING above), one float per voxel.
+//
+// A NEW, SEPARATE descriptor set (set = 1), not a 30th binding on this
+// shader's set 0 -- set 0 is render_set_ (VulkanRaymarchShader), confirmed
+// fully packed at 29/29 bindings and shared, as the identical layout, with
+// Builtin.RaymarchShader.comp.glsl's own pipeline (the visibility pass,
+// which has no use for paint data at all). VulkanComputePipeline already
+// takes a vector of descriptor-set layouts, so deferred_shade_pipeline_ alone
+// (not render_pipeline_) binds a second, tiny, dedicated set here -- see
+// VulkanRaymarchShader's constructor (paint_read_set_layout_/
+// paint_read_set_) -- leaving render_set_'s own 29-binding layout, and the
+// visibility pass that also uses it, completely untouched. This is the same
+// "new work gets its own dedicated set" precedent M1a/M2b already
+// established for Builtin.SculptStamp.comp.glsl/Builtin.SculptUndoRestore.
+// comp.glsl, just applied to an EXISTING shader's SECOND set instead of a
+// brand new pipeline's only set.
+layout(set = 1, binding = 0) readonly buffer ChunkBrickPaintBuffer {
+    float chunk_brick_paint[];
+};
+
+// Resolves the paint accumulator at world point p, LEVEL 0 ONLY -- every
+// sculpt brush (Stamp/Smear/Clone/Spraypaint) only ever touches level 0 of
+// the chunked field (see VulkanRaymarchShader::spray_paint()'s own comment),
+// so there is no multi-level clipmap fallback to replicate here the way
+// sample_clipmap_field() has for distance. Reuses chunk_table_slot_at()/
+// chunk_indirection[]/CHUNK_* constants already in scope from Builtin.
+// ChunkedFieldCommon.inc.glsl's #include above (set 0, bindings 15/16,
+// always bound) -- only the final trilinear sample reads the new set-1
+// buffer, so no chunk-table/indirection duplication is needed beyond the
+// address math itself, which otherwise exactly mirrors sample_chunked_field_
+// at_level_slot()'s own brick-resolve + trilinear block (see its comment
+// for the i0/s0/t derivation). Returns 0.0 (unpainted) wherever no chunk or
+// no brick is resident -- the same "nothing here" default every other
+// chunked-field query uses -- so a hit on ordinary, never-sprayed geometry,
+// or a game/testbed scene that never sprays at all, is completely
+// unaffected.
+float sample_chunk_paint_at_point(vec3 p) {
+    const int level = 0;
+    float chunk_world_size = chunk_level_world_size(level);
+    float cell_size = chunk_world_size / float(CHUNK_COARSE_DIM);
+
+    int slot = chunk_table_slot_at(p, level);
+    if (slot < 0) {
+        return 0.0;
+    }
+
+    ivec3 chunk_coord = ivec3(floor(p / chunk_world_size));
+    vec3 chunk_world_min = vec3(chunk_coord) * chunk_world_size;
+    vec3 local = (p - chunk_world_min) / cell_size;
+    ivec3 cell = clamp(ivec3(floor(local)), ivec3(0), ivec3(CHUNK_COARSE_DIM - 1));
+
+    int local_cell_index = cell.x + cell.y * CHUNK_COARSE_DIM +
+        cell.z * CHUNK_COARSE_DIM * CHUNK_COARSE_DIM;
+    int brick_index = chunk_indirection[slot * CHUNK_CELL_COUNT + local_cell_index];
+    if (brick_index < 0) {
+        return 0.0;
+    }
+
+    vec3 cell_min = chunk_world_min + vec3(cell) * cell_size;
+    float voxel_size = cell_size / float(CHUNK_BRICK_DIM);
+    vec3 f = (p - cell_min) / voxel_size - 0.5;
+    ivec3 i0 = clamp(ivec3(floor(f)), ivec3(-1), ivec3(CHUNK_BRICK_DIM));
+    ivec3 i1 = clamp(i0 + ivec3(1), ivec3(-1), ivec3(CHUNK_BRICK_DIM));
+    vec3 t = clamp(f - vec3(i0), 0.0, 1.0);
+
+    ivec3 s0 = i0 + ivec3(1);
+    ivec3 s1 = i1 + ivec3(1);
+
+    int base = brick_index * CHUNK_BRICK_VOXEL_COUNT;
+    float c000 = chunk_brick_paint[base + s0.x + s0.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c100 = chunk_brick_paint[base + s1.x + s0.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c010 = chunk_brick_paint[base + s0.x + s1.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c110 = chunk_brick_paint[base + s1.x + s1.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c001 = chunk_brick_paint[base + s0.x + s0.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c101 = chunk_brick_paint[base + s1.x + s0.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c011 = chunk_brick_paint[base + s0.x + s1.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+    float c111 = chunk_brick_paint[base + s1.x + s1.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+
+    float c00 = mix(c000, c100, t.x);
+    float c10 = mix(c010, c110, t.x);
+    float c01 = mix(c001, c101, t.x);
+    float c11 = mix(c011, c111, t.x);
+
+    float c0 = mix(c00, c10, t.y);
+    float c1 = mix(c01, c11, t.y);
+
+    return clamp(mix(c0, c1, t.z), 0.0, 1.0);
 }
 
 // Baked indirect-light probe grid -- a dense regular grid of GI samples
@@ -941,6 +1020,22 @@ float f0_from_ior(float ior) {
     return r * r;
 }
 
+// M5 (Finishes) -- "Wax"/"Shiny Wax"/"Rough Wax": a real wax or polished
+// surface shows two highlights at once -- a broad one from its own bulk
+// roughness, and a small tight one from a thin, much smoother top coat.
+// There is no true two-layer BSDF here; the cheap, honest approximation is
+// a SECOND specular_ggx() evaluation at a fixed, small roughness, blended
+// in at a fixed, modest weight on top of the ordinary roughness-driven
+// lobe below -- see the per-light accumulation sites (search
+// "waxy_strength") for where this is actually added in. Fixed rather than
+// authored per-material: a bool "waxy" flag (VulkanRaymarchShader::
+// set_material()'s own parameter) is all ten Finishes need, so there is no
+// per-material strength/roughness to read here. WEIGHT is deliberately
+// < 1 so a waxy material still reads primarily as its own base roughness,
+// with the sheen as an accent, not a second dominant highlight.
+const float WAXY_LOBE_ROUGHNESS = 0.08;
+const float WAXY_LOBE_WEIGHT = 0.5;
+
 // Cook-Torrance GGX, Smith height-correlated visibility folded in.
 // Returns the specular response for one light, WITHOUT the light colour or
 // attenuation, and without any albedo -- specular does not tint by the
@@ -976,256 +1071,19 @@ float specular_ggx(vec3 normal, vec3 view_dir, vec3 light_dir,
     return d * vis * f * n_dot_l;
 }
 
-// --- Transmission ---------------------------------------------------
-//
-// Transmissive primitives are registered like any other but deliberately
-// excluded from the voxel bake (see rebuild_static_scene(), engine-side),
-// so the primary ray passed straight through them. That is not an
-// approximation, it is what makes this affordable: by the time this block
-// runs, `colour` and `travelled` already describe the opaque surface
-// BEHIND the glass, which is exactly the backdrop refraction needs to
-// distort. No depth peel, no second visibility pass, no sorted blending.
-//
-// They live in a contiguous tail range that no GpuLayer covers, appended
-// immediately after the volumetric range -- which is why the start is
-// derived here rather than pushed (the push block is full).
-
-const int TRANSMISSIVE_MAX_COUNT = 16;
-const int TRANSMISSIVE_MARCH_STEPS = 96;
-const int TRANSMISSIVE_INTERIOR_STEPS = 48;
-const float TRANSMISSIVE_SURF_DIST = 0.002;
-const float TRANSMISSIVE_MAX_DIST = 64.0;
-// Sphere tracing through a NON-EUCLIDEAN field over-steps, and the
-// interior of a smooth blend or a subtraction is the worst case for it --
-// max(a, -b) can report more distance than there really is, so a full-
-// length step walks through the surface and the thickness comes back too
-// short. Too-short thickness goes straight into an exp(), so the symptom
-// is absorption that is wildly too weak in exactly the places the model is
-// most interesting. Same reasoning, and the same value, as
-// SPLAT_SNAP_RELAXATION in Builtin.RaymarchShader.comp.glsl.
-const float TRANSMISSIVE_RELAXATION = 0.7;
-
-// [start, end) of the transmissive tail range.
-//
-// Self-terminating rather than counted: every transmissive primitive has a
-// non-zero IOR and every slot outside the range is zeroed, so scanning
-// until w == 0 recovers the count exactly. That is what lets this feature
-// add no push constant at all to a block already at 128 bytes.
-void transmissive_range(out int start, out int end) {
-    start = push.volumetric_start + push.volumetric_count;
-    end = start;
-    for (int i = 0; i < TRANSMISSIVE_MAX_COUNT; ++i) {
-        if (transmission[start + i].w == 0.0) {
-            break;
-        }
-        end = start + i + 1;
-    }
-}
-
-// Nearest transmissive surface at p, and which primitive it belongs to.
-// Reuses primitive_sdf() -- the same analytic evaluator the opaque scene
-// and the volumetrics go through, so the full shape catalogue, rotation,
-// repetition and deformation all come along for free.
-float transmissive_sdf(vec3 p, int start, int end, out int nearest) {
-    float d = TRANSMISSIVE_MAX_DIST;
-    nearest = -1;
-    for (int i = start; i < end; ++i) {
-        float di = primitive_sdf(i, p);
-        if (di < d) {
-            d = di;
-            nearest = i;
-        }
-    }
-    return d;
-}
-
-// Central-difference gradient of the transmissive union. Analytic, not the
-// field's trilinear brick gradient -- a brick normal is far too coarse for
-// a mirror-grade interface, and this is one of the reasons transmissive
-// primitives are better off unbaked.
-vec3 transmissive_normal(vec3 p, int start, int end) {
-    const float e = 0.0015;
-    int ignored;
-    vec2 k = vec2(1.0, -1.0);
-    return normalize(
-        k.xyy * transmissive_sdf(p + k.xyy * e, start, end, ignored) +
-        k.yyx * transmissive_sdf(p + k.yyx * e, start, end, ignored) +
-        k.yxy * transmissive_sdf(p + k.yxy * e, start, end, ignored) +
-        k.xxx * transmissive_sdf(p + k.xxx * e, start, end, ignored));
-}
-
-// First transmissive surface along the ray within max_t. Returns false if
-// the ray reaches the opaque backdrop without meeting one.
-bool transmissive_march(vec3 origin, vec3 dir, float max_t, int start, int end,
-                        out float t_hit, out int hit_index) {
-    float t = 0.0;
-    t_hit = 0.0;
-    hit_index = -1;
-    for (int i = 0; i < TRANSMISSIVE_MARCH_STEPS; ++i) {
-        vec3 p = origin + dir * t;
-        int nearest;
-        float d = transmissive_sdf(p, start, end, nearest);
-        if (d < TRANSMISSIVE_SURF_DIST) {
-            t_hit = t;
-            hit_index = nearest;
-            return true;
-        }
-        t += max(d * TRANSMISSIVE_RELAXATION, TRANSMISSIVE_SURF_DIST);
-        if (t >= max_t) {
-            return false;
-        }
-    }
-    return false;
-}
-
-// How far the ray travels before leaving the medium it is currently
-// inside. THE reason an SDF renderer is well-placed for this: the field is
-// signed, so marching -d from just inside the surface gives the exit
-// distance exactly. Everywhere else that thickness has to be baked into a
-// texture or guessed from a depth difference; here it is measured.
-float transmissive_interior_distance(vec3 origin, vec3 dir, int start,
-                                     int end) {
-    float t = TRANSMISSIVE_SURF_DIST * 2.0;
-    for (int i = 0; i < TRANSMISSIVE_INTERIOR_STEPS; ++i) {
-        int nearest;
-        float d = transmissive_sdf(origin + dir * t, start, end, nearest);
-        if (d > -TRANSMISSIVE_SURF_DIST) {
-            return t; // back outside -- this is the exit interface
-        }
-        t += max(-d * TRANSMISSIVE_RELAXATION, TRANSMISSIVE_SURF_DIST);
-        if (t >= TRANSMISSIVE_MAX_DIST) {
-            break;
-        }
-    }
-    // Did not converge. Reporting the distance travelled so far would feed
-    // a wrong (too large) thickness into an exponential and read as a
-    // near-black surface, so the honest fallback is "thin".
-    return TRANSMISSIVE_SURF_DIST * 2.0;
-}
-
-// A cheap shade for whatever a refracted or reflected ray lands on:
-// albedo times baked indirect plus ambient, with no shadow rays and no
-// specular. Full shading of a secondary hit would roughly double the cost
-// of the frame for something seen through a distorting interface.
-vec3 shade_secondary_hit(vec3 p, vec3 normal) {
-    int material;
-    scene_map(p, push.layer_count, ANALYTIC_HIT_CULL_RADIUS, material);
-    if (material < 0) {
-        return vec3(0.0);
-    }
-    float texture_scale = max(scene_diffuse_colours[material].a, 0.01);
-    vec3 tri_p = (p + scene_tex_transform[material].xyz) / texture_scale;
-    vec3 blend = abs(normal);
-    blend /= (blend.x + blend.y + blend.z);
-    float rot = scene_tex_transform[material].w;
-    vec3 tex =
-        sample_scene_texture(material, rotate_uv(tri_p.yz, rot)) * blend.x +
-        sample_scene_texture(material, rotate_uv(tri_p.xz, rot)) * blend.y +
-        sample_scene_texture(material, rotate_uv(tri_p.xy, rot)) * blend.z;
-    vec3 indirect = (push.flags & RENDER_FLAG_CHUNKED_FIELD) != 0
-        ? sample_gi_cascade(p)
-        : sample_probe_grid(p);
-    return tex * scene_diffuse_colours[material].rgb *
-          (indirect + vec3(push.ambient)) +
-          primitives[material].expr_scale.yzw;
-}
-
-// What a secondary ray sees: the opaque scene if it hits anything, the
-// environment if it escapes.
-//
-// Marched rather than resolved in screen space. A screen-space lookup
-// would be cheaper, but it would read `out_image` while this same dispatch
-// is still writing it -- the backdrop pixel may not have been shaded yet,
-// which is a race, not an approximation. Marching also sees what is
-// offscreen or hidden behind other geometry, which is most of what makes a
-// refraction look attached to its surroundings.
-const int SECONDARY_MAX_STEPS = 96;
-vec3 trace_secondary(vec3 origin, vec3 dir) {
-    float t = 0.02;
-    // Its own, much smaller step budget than a shadow ray's: this runs
-    // only on transmissive pixels, but it runs up to twice on each of them
-    // (a reflected branch and a transmitted one), and a secondary ray seen
-    // through a distorting interface does not need to resolve fine detail.
-    for (int i = 0; i < SECONDARY_MAX_STEPS; ++i) {
-        vec3 p = origin + dir * t;
-        float dist, skip;
-        int material;
-        sample_active_field(p, dir, dist, skip, material);
-        if (skip != 0.0) {
-            t += skip;
-        } else {
-            if (dist < SURF_DIST) {
-                return shade_secondary_hit(p, calc_static_normal(p));
-            }
-            t += dist;
-        }
-        if (t > MAX_DIST) {
-            break;
-        }
-    }
-    return (push.flags & RENDER_FLAG_SKYBOX) != 0 ? sample_skybox(dir)
-                                                  : vec3(0.02, 0.02, 0.05);
-}
-
-// Secondary analytic pass, run once per pixel after raymarch() has already
-// resolved the opaque hit: marches the *same* primary ray a second time,
-// but through GeometrySystem's registered volumetrics instead of the baked
-// field -- these were never baked into it (see rebuild_static_scene()), so
-// a primary ray always passes straight through one, exactly like a fog
-// volume rather than a solid surface. Reuses primitive_sdf() (shared with
-// the opaque scene, see Builtin.SdfSceneCommon.inc.glsl) directly against
-// primitives[push.volumetric_start + i] -- the full 15-type shape catalogue,
-// rotation, and per-type params all come for free from that reuse. Returns
-// an additive glow contribution (never subtracts/occludes -- a light shaft
-// brightens whatever is behind it, it doesn't block it), textured/tinted by
-// each shape's own material exactly like an opaque primitive's triplanar
-// shading, but projected as a single planar UV across the shape's local XZ
-// footprint (a light shaft has no meaningful "surface normal" to blend
-// triplanar sampling by, since a ray marching through it never actually
-// hits it) and scrolling along local Y over time for a drifting look.
-// max_march_dist is min(the primary ray's own travel distance, MAX_DIST) --
-// clamped again internally by VOLUMETRIC_MAX_DIST so this stays cheap even
-// on a total miss (background) ray.
-vec3 accumulate_volumetrics(vec3 ray_origin, vec3 ray_dir, float max_march_dist, float dither) {
-    vec3 accum = vec3(0.0);
-    if (push.volumetric_count <= 0) {
-        return accum;
-    }
-
-    float march_dist = min(max_march_dist, VOLUMETRIC_MAX_DIST);
-    if (march_dist <= 0.0) {
-        return accum;
-    }
-    float step_size = march_dist / float(VOLUMETRIC_STEPS);
-    float t = step_size * dither; // dithered start offset -- breaks banding
-
-    for (int s = 0; s < VOLUMETRIC_STEPS; ++s) {
-        vec3 p = ray_origin + ray_dir * t;
-
-        for (int i = 0; i < push.volumetric_count; ++i) {
-            int idx = push.volumetric_start + i;
-            if (primitive_sdf(idx, p) >= 0.0) {
-                continue; // outside this shaft -- no contribution here
-            }
-
-            vec3 local = primitive_local_space(idx, p) + scene_tex_transform[idx].xyz;
-            float texture_scale = max(scene_diffuse_colours[idx].a, 0.01);
-            vec2 uv = local.xz / texture_scale +
-                     vec2(0.0, local.y / texture_scale - push.time * VOLUMETRIC_SCROLL_SPEED);
-            uv = rotate_uv(uv, scene_tex_transform[idx].w);
-
-            vec3 tex_colour = sample_scene_texture(idx, uv);
-            vec3 tint = scene_diffuse_colours[idx].rgb;
-            float density = max(primitives[idx].expr_scale.x, 0.0);
-
-            accum += tex_colour * tint * density * step_size;
-        }
-
-        t += step_size;
-    }
-
-    return accum;
-}
+// Transmissive-glass rendering (transmissive_range()/transmissive_sdf()/
+// transmissive_normal()/transmissive_march()/transmissive_interior_
+// distance()), the shade_secondary_hit()/trace_secondary() helpers it alone
+// used, and accumulate_volumetrics() were all removed here (M0 CSG
+// deletion pass, see /home/h-i/.claude/plans/joyful-skipping-giraffe.md):
+// every one of them evaluated primitive_sdf()/scene_map()/primitives[]
+// directly against the deleted CSG primitive list (Builtin.SdfSceneCommon.
+// inc.glsl's scene graph), with no other data source. The ScenePrimitive
+// Transmission buffer declaration above is left in place, unused, for the
+// same reason the rest of this pass's otherwise-primitive-keyed SSBOs
+// (ScenePrimitiveColours, ScenePrimitiveMaterialScalars, etc.) are: a
+// structurally-intact-but-currently-unreachable GPU pipeline object, not a
+// hard dependency on anything just removed.
 
 // Spatially filtered ambient occlusion.
 //
@@ -1331,44 +1189,12 @@ void main() {
         // computed.
         vec3 normal = gbuffer_normal;
 
-        // Re-derive the material at the exact hit point from the analytic
-        // scene, replacing the baked per-brick guess raymarch() returned --
-        // the brick index quantizes material provenance to whole coarse
-        // cells, which bleeds each primitive's texture up to a full
-        // 0.25-unit cell onto whatever it touches. Falls back to the brick
-        // material only if the analytic scene is somehow empty here (e.g.
-        // a stale field mid-edit).
-        // A BOUNDED cull radius, not UNBOUNDED_BOUNDING_RADIUS.
-        //
-        // scene_map()'s pre-check needs the caller's radius to be a genuine
-        // upper bound on the scene's true nearest distance at p. This call
-        // used to pass UNBOUNDED on the grounds that a single per-pixel
-        // query has no such guarantee -- but that is only true of an
-        // arbitrary point. p is a HIT point: the visibility pass put it on
-        // the isosurface, so the scene's nearest distance there is within
-        // SURF_DIST of zero by construction. That is the strongest bound
-        // the pre-check could ask for.
-        //
-        // The margin covers the one way a far primitive can still matter:
-        // a smooth blend reaches beyond its operands by up to the layer's
-        // smoothness, so anything within that distance has to stay in the
-        // loop. It is a fixed conservative constant rather than the scene's
-        // real max_smoothness only because this pass's push block is at
-        // 124 of Vulkan's guaranteed 128 bytes; any authored smoothness
-        // below it is handled correctly, and cutters are never culled at
-        // all (see scene_map()'s own note), so subtraction is unaffected
-        // either way.
-        //
-        // This matters because the loop it shortens runs at every shaded
-        // pixel against every primitive in the scene. Measured at 20-34ms
-        // for this pass on a large scene -- three times everything else in
-        // the frame combined.
-        int analytic_material;
-        scene_map(p, push.layer_count, ANALYTIC_HIT_CULL_RADIUS,
-                  analytic_material);
-        if (analytic_material >= 0) {
-            hit_material = analytic_material;
-        }
+        // The per-pixel analytic material re-derivation that used to run
+        // here (scene_map() against the CSG primitive list, replacing the
+        // baked per-brick guess raymarch() returned) was removed along with
+        // that scene graph (M0 CSG deletion pass, see /home/h-i/.claude/
+        // plans/joyful-skipping-giraffe.md) -- hit_material is now exactly
+        // what the G-buffer carried, unrefined.
         // x packs the exempt flag and half the metallic -- see
         // ScenePrimitiveMaterialScalars.
         float scalar_x = material_scalars[hit_material].x;
@@ -1404,6 +1230,43 @@ void main() {
                           sample_scene_texture(hit_material, uv_xy) * blend.z;
         vec3 tint = scene_diffuse_colours[hit_material].rgb;
 
+        // M3c (Spraypaint): blend in whatever opacity has accumulated at
+        // this exact hit point -- see sample_chunk_paint_at_point()'s own
+        // comment for the chunk-table/brick resolve this does, and Builtin.
+        // SculptSpraypaint.comp.glsl for how that opacity got there. mix(),
+        // not an overwrite: 0 opacity (every surface that's never been
+        // sprayed -- i.e. almost all of them) leaves tint completely
+        // unchanged, and partial opacity genuinely blends toward the paint
+        // colour rather than hard-cutting between "painted"/"not" -- which
+        // is what lets repeated passes read as the colour visibly building
+        // up instead of only ever being fully on or fully off.
+        float paint_opacity = sample_chunk_paint_at_point(p);
+        tint = mix(tint, scene_diffuse_colours[PAINT_MATERIAL_SLOT].rgb,
+                  paint_opacity);
+
+        // M6 (Flecks): this material's Fleck pattern/strength/scale --
+        // packed into transmission[]'s otherwise-free .y/.z/.w (see
+        // transmission_buffer_'s own header comment in vulkan_raymarch_
+        // shader.h for why those 3 components were free here, and why
+        // tex_transform_buffer_'s own apparently-free components turned out
+        // NOT to be safe to reuse instead -- VulkanRaymarchShader::
+        // set_material()'s own comment has the full story). .y is the 0-15
+        // preset id (rounded to the nearest int -- written as a plain
+        // float, like every other packed scalar in this buffer), .z is
+        // strength in [0,1] (0 -- the default for every material that
+        // existed before this milestone -- means "no Fleck", see fleck_
+        // modulate_albedo()/fleck_perturb_normal()'s own gating), .w is the
+        // world-units-per-pattern-cycle scale.
+        int fleck_pattern = int(round(transmission[hit_material].y));
+        float fleck_strength = clamp(transmission[hit_material].z, 0.0, 1.0);
+        float fleck_scale = transmission[hit_material].w;
+        // Modulates the tint BEFORE albedo = tex_colour * tint combines it
+        // with the triplanar-sampled texture further down -- so a Fleck's
+        // darkening affects the same quantity the checkerboard default
+        // texture already multiplies into, exactly like Spraypaint's mix()
+        // just above affects it, not a separate downstream term.
+        tint *= fleck_modulate_albedo(p, normal, fleck_pattern, fleck_scale, fleck_strength);
+
         // This primitive's authored bump magnitude (see material_scalars
         // above). A material with no bump map reads flat_texture() and
         // comes out to zero perturbation whatever this is; a strength of
@@ -1419,6 +1282,15 @@ void main() {
         vec3 bump_z = bump_from_heights(h_centre, h_u, h_v, bump_strength);
 
         normal = apply_triplanar_bump(normal, blend, bump_x, bump_y, bump_z);
+
+        // M6 (Flecks): runs right after bump mapping, perturbing whatever
+        // normal bump mapping already produced -- the two stack naturally
+        // (a Finish's bump map and a Fleck are both just "add surface
+        // relief", one texture-sampled and one procedural). No-op (returns
+        // `normal` unchanged, not even sampling the field) when fleck_
+        // strength is 0 -- see fleck_perturb_normal()'s own gating comment.
+        normal = fleck_perturb_normal(p, normal, fleck_pattern, fleck_scale,
+                                      fleck_strength);
 
         // Sum every registered light's direct diffuse contribution on top
         // of this point's baked indirect/bounce light (see
@@ -1467,8 +1339,15 @@ void main() {
         // contact-scale detail no 16^3 probe grid can -- it just darkens
         // rather than erases.
         float occlusion = mix(INDIRECT_AO_FLOOR, 1.0, ao);
-        vec3 lighting = indirect * occlusion +
+        // Captured separately from `lighting` below (which the per-light
+        // loop goes on to add direct Lambertian diffuse into) because the
+        // metal-ambient-floor fix further down (search "METAL_AMBIENT_
+        // SCALE") needs exactly this piece -- indirect GI + the flat
+        // ambient floor, NOT the direct n.L diffuse term, which is not a
+        // metal behaviour at all and must stay excluded from it.
+        vec3 ambient_indirect = indirect * occlusion +
             vec3(push.ambient) * mix(AMBIENT_AO_FLOOR, 1.0, ao);
+        vec3 lighting = ambient_indirect;
 
         // Specular is accumulated SEPARATELY from `lighting` because the
         // two are combined differently: diffuse is modulated by the
@@ -1483,6 +1362,17 @@ void main() {
         // f0 -> 1), and tints what it reflects by its own colour -- see
         // the final combine below.
         float f0 = mix(DEFAULT_DIELECTRIC_F0, 1.0, metallic);
+        // M5 (Finishes): the "waxy" second-specular-lobe flag -- see
+        // transmission_buffer_'s own header comment (vulkan_raymarch_
+        // shader.h) for why this component is free to repurpose for an
+        // opaque material (the glass/transmission block that used to read
+        // it was removed in the M0 CSG deletion pass, so nothing else in
+        // this shader touches transmission[] at all). 0.0 for every
+        // material this flag was never set on, which is every material
+        // that existed before this milestone -- so a non-waxy stamp's
+        // shading is bit-for-bit what it always was (see the accumulation
+        // sites below, all gated by `> 0.0`).
+        float waxy_strength = clamp(transmission[hit_material].x, 0.0, 1.0);
 
         for (int i = 0; i < push.light_count; ++i) {
             Light light = lights[i];
@@ -1538,6 +1428,16 @@ void main() {
                     specular += light_colour * attenuation * ism_shadow *
                                 specular_ggx(normal, view_dir, light_dir,
                                              roughness, f0);
+                    // M5 (Finishes): the waxy top-coat sheen -- see
+                    // WAXY_LOBE_ROUGHNESS/WAXY_LOBE_WEIGHT's own comment.
+                    // Same shadow/attenuation gating as the base lobe just
+                    // above; only the roughness (fixed, low) differs.
+                    if (waxy_strength > 0.0) {
+                        specular += light_colour * attenuation * ism_shadow *
+                                    waxy_strength * WAXY_LOBE_WEIGHT *
+                                    specular_ggx(normal, view_dir, light_dir,
+                                                 WAXY_LOBE_ROUGHNESS, f0);
+                    }
                     continue;
                 }
                 float shadow = (push.flags & RENDER_FLAG_CHUNKED_FIELD) != 0
@@ -1555,6 +1455,14 @@ void main() {
                 specular += light_colour * attenuation * shadow *
                             specular_ggx(normal, view_dir, light_dir,
                                          roughness, f0);
+                // M5 (Finishes): the waxy top-coat sheen -- see this
+                // branch's ISM counterpart above for the full comment.
+                if (waxy_strength > 0.0) {
+                    specular += light_colour * attenuation * shadow *
+                                waxy_strength * WAXY_LOBE_WEIGHT *
+                                specular_ggx(normal, view_dir, light_dir,
+                                             WAXY_LOBE_ROUGHNESS, f0);
+                }
             }
             lighting += light_colour * diffuse * attenuation;
         }
@@ -1587,8 +1495,39 @@ void main() {
         // colour instead. A dielectric (metallic 0) is exactly the old
         // albedo * lighting + white specular.
         vec3 albedo = tex_colour * tint;
+
+        // M5 (Finishes) fix -- "Rough Metal near-black": a metal's only
+        // brightness sources are its per-light GGX lobe and the env-
+        // reflection term just above, and BOTH collapse at high roughness
+        // in a single-key-light scene -- the direct lobe because a point/
+        // directional light's energy is a delta function spread over a wide
+        // cone (dim everywhere instead of bright in one place), and env_
+        // strength because it is deliberately faded by (1 - roughness) (a
+        // rough surface should not mirror a sharp, undistorted skybox).
+        // That second fade is correct for a focused MIRROR reflection, but
+        // wrong for what it leaves behind: real rough metal still visibly
+        // picks up a soft, unfocused tint of its surroundings (brushed
+        // steel in a room is not black), which this engine has no
+        // prefiltered/blurred environment map to render properly. The
+        // cheap, honest stand-in is this: give metallic surfaces a second,
+        // roughness-INDEPENDENT ambient term, built from the exact same
+        // indirect-GI + flat-ambient floor a dielectric's diffuse already
+        // gets (`ambient_indirect`, captured before the per-light loop
+        // added direct diffuse into `lighting`), tinted by the metal's own
+        // albedo (so a gold Rough Metal still reads gold, never grey) and
+        // scaled down by METAL_AMBIENT_SCALE so a ROUGH metal gains the
+        // most relative brightness from it (its other two terms are nearly
+        // zero) while a SHINY metal -- already bright from its tight direct
+        // + env highlights -- is barely affected proportionally. Zero for
+        // every non-metallic material (scaled by `metallic`), so plastic/
+        // wax finishes are bit-for-bit unaffected.
+        const float METAL_AMBIENT_SCALE = 0.6;
+        vec3 metal_ambient = albedo * ambient_indirect * metallic *
+                              METAL_AMBIENT_SCALE;
+
         colour = albedo * lighting * (1.0 - metallic) +
-                 specular * mix(vec3(1.0), albedo, metallic);
+                 specular * mix(vec3(1.0), albedo, metallic) +
+                 metal_ambient;
 
         // Self-illumination: added straight in, independent of every light/
         // ambient/GI term above -- an emissive primitive (Material::
@@ -1602,161 +1541,20 @@ void main() {
         // rest of the scene too (see the direct-lighting loop above and
         // Builtin.ProbeBake.comp.glsl, which both read the same light
         // buffer).
-        colour += primitives[hit_material].expr_scale.yzw;
-
-        // Selection outline: a rim-light glow, brightest where the surface
-        // grazes away from the camera (silhouette edges) and fading toward
-        // the center of the shape when viewed face-on -- the standard "glow
-        // outline" look editors use to show what's selected, without
-        // needing a second geometry pass or edge-detection post-process.
-        if (hit_material == push.selected_primitive_index) {
-            float facing = max(dot(normal, -ray_dir), 0.0);
-            float rim = pow(1.0 - facing, 3.0);
-            const vec3 HIGHLIGHT_COLOUR = vec3(1.0, 0.55, 0.1);
-            colour += HIGHLIGHT_COLOUR * rim * 1.5;
-        }
+        // The emissive add (primitives[hit_material].expr_scale.yzw) and
+        // the selection outline (push.selected_primitive_index) that used
+        // to live here were both CSG-primitive-specific and removed along
+        // with the rest of the scene graph (M0 CSG deletion pass).
     }
 
-    // --- Transmission -------------------------------------------------
-    //
-    // Composited over the opaque result, which at this point IS the
-    // backdrop: the primary ray passed straight through any transmissive
-    // surface, because those are excluded from the bake.
-    {
-        int tm_start, tm_end;
-        transmissive_range(tm_start, tm_end);
-        float reach = travelled < MAX_DIST ? travelled : TRANSMISSIVE_MAX_DIST;
-        float t_enter;
-        int tm_prim;
-        if (tm_end > tm_start &&
-            transmissive_march(ray_origin, ray_dir, reach, tm_start, tm_end,
-                               t_enter, tm_prim)) {
-            vec3 p_in = ray_origin + ray_dir * t_enter;
-            vec3 n_in = transmissive_normal(p_in, tm_start, tm_end);
-            // The gradient points out of the solid; the ray is coming in,
-            // so if they agree the ray started inside and the interface
-            // has to be flipped to stay facing the incoming direction.
-            if (dot(n_in, ray_dir) > 0.0) {
-                n_in = -n_in;
-            }
-
-            vec4 tm = transmission[tm_prim];
-            // Belt and braces with the engine-side clamp: an IOR below 1
-            // makes f0_from_ior() approach 1 AND makes eta = 1/ior total-
-            // internal-reflect every ray, so the surface renders as a
-            // perfect mirror. Two independent paths to the same wrong
-            // image is worth guarding on both sides of the upload.
-            float ior = max(abs(tm.w), 1.0);
-            bool thin_walled = tm.w < 0.0;
-            vec3 absorption = tm.xyz;
-            float tm_f0 = f0_from_ior(ior);
-            float cos_in = max(dot(-ray_dir, n_in), 0.0);
-            float fresnel = fresnel_schlick(cos_in, tm_f0);
-
-            // Reflected branch. This is the cue that matters most: a pane
-            // with a correct Fresnel reflection and no refraction reads as
-            // glass, while one with perfect refraction and no reflection
-            // reads as a warped hole. The climb toward 1 at grazing
-            // incidence is what makes a still liquid mirror the far shore
-            // while showing you the bottom at your feet.
-            vec3 reflected =
-                trace_secondary(p_in + n_in * 0.004, reflect(ray_dir, n_in));
-
-            vec3 transmitted;
-            float thickness;
-            if (thin_walled) {
-                // Two parallel interfaces a few millimetres apart displace
-                // the ray by less than a pixel. Simulating that adds noise,
-                // not fidelity -- so a windowpane keeps the backdrop
-                // exactly where it already is, and only gets tinted.
-                thickness = 0.0;
-                transmitted = colour;
-            } else {
-                vec3 dir_in = refract(ray_dir, n_in, 1.0 / ior);
-                if (dot(dir_in, dir_in) < 1e-6) {
-                    // Total internal reflection at the entry interface --
-                    // rare, but free to handle correctly here.
-                    thickness = 0.0;
-                    transmitted = reflected;
-                } else {
-                    thickness = transmissive_interior_distance(
-                        p_in, dir_in, tm_start, tm_end);
-                    vec3 p_out = p_in + dir_in * thickness;
-                    vec3 n_out = -transmissive_normal(p_out, tm_start, tm_end);
-                    if (dot(n_out, dir_in) > 0.0) {
-                        n_out = -n_out;
-                    }
-                    vec3 dir_out = refract(dir_in, n_out, ior);
-                    if (dot(dir_out, dir_out) < 1e-6) {
-                        // TOTAL INTERNAL REFLECTION at the exit interface,
-                        // past the critical angle (41 degrees for glass,
-                        // 49 for water). This is what draws the bright rim
-                        // on a tumbler and what stops the silhouette
-                        // reading as a hole -- three lines for a
-                        // disproportionate amount of credibility.
-                        transmitted = trace_secondary(
-                            p_out - n_out * 0.004, reflect(dir_in, n_out));
-                    } else {
-                        transmitted =
-                            trace_secondary(p_out + dir_out * 0.004, dir_out);
-                    }
-                }
-            }
-
-            // Beer-Lambert. This is what makes thick glass green at its
-            // edges and deep water blue, and it is exact here because the
-            // thickness above was MEASURED against a signed field rather
-            // than baked into a texture or guessed from a depth
-            // difference.
-            transmitted *= exp(-absorption * thickness);
-
-            colour = mix(transmitted, reflected, fresnel);
-
-            // Direct highlights, on top: a glass still catches the scene's
-            // lights itself, independently of what it transmits, and
-            // that highlight is most of what tells you there is a surface
-            // there at all where the transmission happens to match the
-            // backdrop.
-            //
-            // Roughness comes from the material like any other surface, so
-            // frosted glass and polished glass differ here as well as in
-            // what they transmit. Unshadowed, deliberately -- a
-            // transmissive surface is normally authored with
-            // casts_shadow=false, so there is nothing coherent to test
-            // against, and a highlight is a reflection off the near face
-            // rather than light that had to reach the far one.
-            float tm_roughness =
-                clamp(material_scalars[tm_prim].w, 0.0, 1.0);
-            for (int i = 0; i < push.light_count; ++i) {
-                Light light = lights[i];
-                vec3 light_dir;
-                float attenuation;
-                if (int(light.vector_type.w) == 1) {
-                    vec3 to_light = light.vector_type.xyz - p_in;
-                    float dist = length(to_light);
-                    light_dir = to_light / max(dist, 0.0001);
-                    attenuation =
-                        light.colour_intensity.a / max(dist * dist, 0.0001);
-                } else {
-                    light_dir = normalize(light.vector_type.xyz);
-                    attenuation = light.colour_intensity.a;
-                }
-                colour += light.colour_intensity.rgb * attenuation *
-                          specular_ggx(n_in, -ray_dir, light_dir,
-                                       tm_roughness, tm_f0);
-            }
-        }
-    }
-
-    // Volumetric light shafts -- see accumulate_volumetrics()'s comment.
-    // Additive, and unconditional on whether the primary ray hit anything:
-    // a shaft crossing empty space (in front of the background gradient)
-    // should glow just as much as one crossing in front of solid geometry.
-    // The dither offset is derived from pixel_coord (not a per-frame seed),
-    // so it's stable frame-to-frame -- the moving element is the texture
-    // scroll (push.time) below, not this noise pattern re-randomizing.
-    float dither = hash12(vec2(pixel_coord));
-    colour += accumulate_volumetrics(ray_origin, ray_dir, min(travelled, MAX_DIST), dither);
+    // The Transmission block (glass refraction/reflection against
+    // transmissive CSG primitives, via transmissive_range()/
+    // transmissive_march()/transmissive_normal()/transmissive_interior_
+    // distance()/trace_secondary()/shade_secondary_hit()) and the
+    // Volumetric-light-shaft block (accumulate_volumetrics()) that used to
+    // run here were both removed (M0 CSG deletion pass, see /home/h-i/
+    // .claude/plans/joyful-skipping-giraffe.md) -- see the comment above
+    // specular_ggx() for the full removal list and why.
 
     if ((push.flags & RENDER_FLAG_GRID) != 0) {
         // travelled is >= MAX_DIST on a miss, which apply_reference_grid()
