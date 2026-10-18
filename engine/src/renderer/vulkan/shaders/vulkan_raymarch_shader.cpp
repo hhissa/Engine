@@ -4496,7 +4496,7 @@ void VulkanRaymarchShader::set_material(i32 slot, glm::vec3 colour,
   material_scalar_buffer_->load_data(offset, sizeof(glm::vec4), 0, &scalars);
 
   // x: the "waxy" second-specular-lobe flag (M5). y/z/w: M6 (Flecks)'s
-  // pattern id (0-17, rounded)/strength/scale -- see this method's own
+  // pattern id (0-18, rounded)/strength/scale -- see this method's own
   // header comment (vulkan_raymarch_shader.h) for the full packing table
   // and why transmission_buffer_, not tex_transform_buffer_, is where
   // these live. A caller that wants no Fleck at all is expected to pass

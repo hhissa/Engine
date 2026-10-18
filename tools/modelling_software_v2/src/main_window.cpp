@@ -109,6 +109,7 @@ constexpr FleckPreset kFleckPresets[] = {
     {"Baroque", 15, 0.50f},       // organic
     {"Impasto", 16, 0.55f},       // impasto (its own family -- see Builtin.FleckPattern.inc.glsl)
     {"Clay", 17, 0.60f},          // clay (its own family -- concave press-marks, see Builtin.FleckPattern.inc.glsl)
+    {"Fuzzy", 18, 0.15f},         // fuzzy (its own family -- dense anisotropic strands, see Builtin.FleckPattern.inc.glsl)
 };
 } // namespace
 

@@ -77,8 +77,29 @@
 // preset -- clay's own colour barely varies; the moulded relief is what
 // has to sell it.
 //
-// Every preset maps to exactly one of 5 families, selected by simple range
-// checks on the 0-17 preset id (no separate "pattern_family" value is ever
+// POST-CLAY ADDITION: Fuzzy (preset 18) -- a 6th family, built for dense,
+// fine STRANDS (fur/grass/hair), which none of the other 5 families can
+// produce by tuning alone. Directional's stripes are ONE continuous warped
+// wave -- however fine, that reads as corduroy/fabric, not fur, because
+// real strands are many independent, individually-placed blades, not one
+// field. Splat/Clay place discrete per-cell marks already (the right
+// placement idea), but their marks are round/blobby, not elongated and
+// directional. Fuzzy reuses Splat/Clay's per-cell Worley jitter + coin-flip
+// placement (a 3rd family to borrow that machinery -- see fleck_splat_
+// value()'s own comment for why it's worth sharing), but each placed
+// "blade" is a tapered CAPSULE anchored at its cell's jittered point and
+// extending along a fixed growth axis, PER-CELL ROTATED by a small random
+// angle (so blades aren't perfectly parallel -- the thing that would make
+// this read as Hatching rather than fur) with an asymmetric root-to-tip
+// height ramp (long soft rise, short sharp peak right at the tip -- the
+// same "shaped height field, no special shading code" trick Impasto's
+// sawtooth ridge profile uses, just mapped along a finite blade instead of
+// a periodic wave). See fleck_fuzzy_value()'s own comment for the full
+// technique and why its presence probability is much higher than Splat/
+// Clay's (dense coverage, not sparse scattered marks).
+//
+// Every preset maps to exactly one of 6 families, selected by simple range
+// checks on the 0-18 preset id (no separate "pattern_family" value is ever
 // stored -- it is always derived from the id, here and on the C++ side):
 //   0-4  Square/Circle/Triangle/Hexagon/Dots   -- cellular  (Square/Circle/
 //        Dots: true 3D Worley/Voronoi, metric/threshold varies the cell
@@ -94,11 +115,14 @@
 //        stroke coherence + an asymmetric sawtooth ridge profile (see above)
 //   17   Clay                                  -- its own family: soft,
 //        irregularly-placed CONCAVE press-marks (see above)
+//   18   Fuzzy                                 -- its own family: dense,
+//        per-cell-jittered, tapered strand capsules with an asymmetric
+//        root/tip height ramp (see above)
 //
 // Entry points (the only two symbols anything outside this file calls):
 //   fleck_perturb_normal(world_pos, normal, pattern_family, scale, strength)
 //   fleck_modulate_albedo(world_pos, normal, pattern_family, scale, strength)
-// `pattern_family` in both signatures is literally the 0-17 preset id, not
+// `pattern_family` in both signatures is literally the 0-18 preset id, not
 // a pre-reduced family index -- the name is kept as specified; the family
 // switch happens internally (fleck_pattern_value() below), together with a
 // per-preset "local index" (id minus its family's base) that drives the
@@ -127,8 +151,8 @@
 // sample_scene_heights() needs), a win a true 3D field gets for free that a
 // 2D texture-per-plane technique cannot. Hexagon/Triangle spend a bit more
 // (3 plane lookups per field sample instead of 1) in exchange for actually
-// looking like their names -- see point 3 above. Clay (see below) is a
-// genuine 3D field too, so it takes the same cheap 4-sample path.
+// looking like their names -- see point 3 above. Clay and Fuzzy (see below)
+// are genuine 3D fields too, so they both take the same cheap 4-sample path.
 
 // --- Hashing / base value noise -------------------------------------------
 
@@ -693,20 +717,160 @@ float fleck_clay_value(vec3 p) {
     return clamp(1.0 - best_dip, 0.0, 1.0);
 }
 
+// --- Family 5 (new): Fuzzy (18) -- dense anisotropic strands -------------
+//
+// Fur/grass/hair is mechanically distinct from every family above it:
+//   - NOT Directional's continuous stripes -- real strands are many
+//     separate, individually-placed blades, not one warped wave. However
+//     fine a stripe field gets, it reads as corduroy/fabric, not fur,
+//     because it has no per-strand independence (position/length/angle
+//     all move together).
+//   - NOT Splat/Clay's round blobs/dimples -- strands are elongated and
+//     directional, not round marks. But Splat/Clay's PLACEMENT idea (an
+//     irregular per-cell Worley jitter + coin-flip presence test) is
+//     exactly right for "many independent, randomly-positioned features",
+//     so it is reused here too -- a 3rd family built on that machinery.
+//   - Needs implied root/tip VOLUME the way Impasto's asymmetric sawtooth
+//     gives paint ridges a believable raised, light-catching look purely
+//     from the height field's own shape, with zero extra shading code (the
+//     existing generic finite-difference gradient in fleck_perturb_
+//     normal() just picks it up).
+//
+// Each occupied cell gets one tapered CAPSULE: anchored at the cell's own
+// jittered point (the "root", fixed in the surface) and extending length
+// `len` along a FIXED oblique growth axis (kFuzzAxis -- same "oblique, not
+// axis-aligned" convention every other directional-feeling family here
+// uses, so strands read across all 3 triplanar planes) rotated by a SMALL
+// per-cell random angle in the axis's own local plane (+/- kFuzzMaxAngle,
+// about 20 degrees) -- enough to break strict parallelism (the thing that
+// would make this read as Hatching) without destroying the overall "grain"
+// a real coat of fur/grass still has. The per-cell jittered root position
+// (not a regular grid) is what mainly keeps otherwise near-parallel blades
+// from reading as continuous lines.
+//
+// Cross-section uses fleck_clay_dip() UNCHANGED (not reimplemented) --
+// that function is already exactly "a rounded, zero-derivative-at-both-
+// ends radial falloff", which is precisely what a thin round strand's
+// cross-section needs; only the sign/usage differs from Clay's (Clay
+// treats it as a dimple depth to subtract from a flat background, Fuzzy
+// treats it as a presence mask to raise one). The capsule's width tapers
+// from `width_root` at the anchor to a narrower `width_root * 0.3` at the
+// tip (blades/hairs come to a point, they are not uniform cylinders).
+//
+// The LENGTHWISE height profile is the deliberately asymmetric part, built
+// the same way Impasto's sawtooth is (a long, soft segment plus one short,
+// sharp segment -- just mapped along a finite capsule instead of a
+// periodic wave): from root (t=0) to most of the way up the blade, height
+// rises gradually and softly (the base of a real strand is anchored/
+// shadowed, not an attention-grabbing feature); only in the final
+// `kFuzzTipRiseFrac` of the length does it rise sharply up to the peak --
+// the tip, oriented consistently (always the end reached by walking along
+// +kFuzzAxis from the root, never randomized per cell), is the one place
+// each strand should visibly catch the light. fleck_perturb_normal() needs
+// no special-casing to turn this into "strands with real lying-down
+// volume" -- same "just hand it the right height field" trick as Impasto/
+// Clay above.
+//
+// Presence probability is deliberately much HIGHER than Splat/Clay's (kept
+// to 0.58/0.46 "mostly empty, a few individual marks") -- fur/grass is
+// dense, near-continuous coverage, not a scattering of isolated marks, so
+// most cells here get a strand; the per-cell position/angle/length jitter
+// is what keeps dense coverage from reading as a regular grid.
+//
+// Frequency/density: deliberately denser than any preset above (even
+// Scribble, the busiest organic preset) -- grass/fur strands are small and
+// numerous. Capsule length/width are kept small relative to the lattice
+// cell (well under 1 cell unit, same regime Splat/Clay's own radii use)
+// specifically so individual strands stay geometrically resolvable rather
+// than overlapping into noise mush -- the same bar the organic family's
+// own changelog comment above holds "distinct painterly style" to; tuned
+// by reasoning about world-scale strand size (a few centimetres per
+// strand at a realistic `scale`), not picked blind.
+const float FLECK_FUZZY_MAX_ANGLE = 0.349; // ~20 degrees, per-cell angle jitter
+const float FLECK_FUZZY_TIP_RISE_FRAC = 0.22; // final fraction of the blade's length that rises sharply to the tip
+
+float fleck_fuzzy_value(vec3 p) {
+    const vec3 kFuzzAxis = vec3(0.4082, 0.8165, 0.4082); // fixed oblique growth axis -- consistent tip direction, not per-cell
+    vec3 u = normalize(kFuzzAxis);
+    vec3 arbitrary = (abs(u.y) > 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+    vec3 v = normalize(cross(u, arbitrary));
+    vec3 w = cross(u, v);
+
+    vec3 cell = floor(p);
+    float best = 0.0;
+    for (int dz = -1; dz <= 1; ++dz) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                vec3 neighbor = cell + vec3(float(dx), float(dy), float(dz));
+                float present = fleck_hash13(neighbor + vec3(6.7, 3.1, 8.4));
+                if (present > 0.82) {
+                    continue; // ~82% of cells grow a strand -- dense coverage, not sparse marks.
+                }
+                vec3 jitter = fleck_hash33(neighbor);
+                vec3 root = neighbor + jitter;
+
+                // Small per-cell rotation of the growth axis within the
+                // (u, v) plane only -- w (the third, cross-grain axis)
+                // stays fixed, so the tilt always happens "sideways" along
+                // a consistent plane rather than randomly in 3D, which
+                // keeps the overall grain readable.
+                float angle = (fleck_hash13(neighbor + vec3(4.1, 9.7, 2.2)) - 0.5) *
+                              2.0 * FLECK_FUZZY_MAX_ANGLE;
+                float ca = cos(angle);
+                float sa = sin(angle);
+                vec3 u_rot = u * ca + v * sa;
+
+                float len = 0.50 + 0.35 * fleck_hash13(neighbor + vec3(1.3, 5.9, 7.2));
+                float width_root = 0.085 + 0.05 * fleck_hash13(neighbor + vec3(8.8, 2.4, 6.1));
+
+                vec3 d = p - root;
+                float t = clamp(dot(d, u_rot), 0.0, len);
+                float t_norm = t / max(len, 1e-4);
+                vec3 closest = root + u_rot * t;
+                float cross_dist = length(p - closest);
+
+                // Width tapers to a point toward the tip, like a real
+                // blade/hair, not a uniform-radius cylinder.
+                float width = mix(width_root, width_root * 0.3, t_norm);
+                float cross_mask = fleck_clay_dip(cross_dist, width);
+
+                // Asymmetric lengthwise ramp: long soft rise from the
+                // (shadowed, anchored) root, then a short sharp rise to
+                // the tip -- the same sawtooth-style asymmetry Impasto
+                // uses, mapped along a finite blade instead of a periodic
+                // wave.
+                float height;
+                if (t_norm < 1.0 - FLECK_FUZZY_TIP_RISE_FRAC) {
+                    height = mix(0.12, 0.55, t_norm / (1.0 - FLECK_FUZZY_TIP_RISE_FRAC));
+                } else {
+                    height = mix(0.55, 1.0,
+                                (t_norm - (1.0 - FLECK_FUZZY_TIP_RISE_FRAC)) / FLECK_FUZZY_TIP_RISE_FRAC);
+                }
+
+                best = max(best, cross_mask * height);
+            }
+        }
+    }
+    return clamp(best, 0.0, 1.0);
+}
+
 // --- The single dispatcher every entry point below goes through ----------
 //
-// `pattern` is the raw 0-17 preset id; the family is derived here with a
+// `pattern` is the raw 0-18 preset id; the family is derived here with a
 // plain range check (0-4 cellular, 5-8 directional, 9-15 organic, 16
-// Impasto, 17 Clay), exactly as the plan's own §6 specifies (extended for
-// Impasto and Clay), rather than being a separately stored value -- see
-// this file's own header comment. `blend` is only consumed by the cellular
-// family's Triangle/Hexagon branches (see fleck_cellular_value()); every
-// other branch ignores it, so passing it unconditionally here costs
-// nothing extra for the other presets. `pattern > 16` (not `== 17`) is the
-// Clay test so any accidental future id past 17 degrades to Clay (the new
-// "last" preset) rather than Impasto or an out-of-range organic
-// local_index -- the same forward-compatible convention Impasto's own
-// `pattern > 15` test established.
+// Impasto, 17 Clay, 18 Fuzzy), exactly as the plan's own §6 specifies
+// (extended for Impasto, Clay and Fuzzy), rather than being a separately
+// stored value -- see this file's own header comment. `blend` is only
+// consumed by the cellular family's Triangle/Hexagon branches (see fleck_
+// cellular_value()); every other branch ignores it, so passing it
+// unconditionally here costs nothing extra for the other presets. Clay's
+// own `pattern <= 17` bound is now explicit (it used to be the open-ended
+// terminal branch, back when 17 was the last preset) so Fuzzy gets its own
+// branch below it; `pattern > 17` (not `== 18`) is the new Fuzzy test, so
+// any accidental future id past 18 degrades to Fuzzy (the new "last"
+// preset) rather than Clay or an out-of-range organic local_index -- the
+// same forward-compatible convention Impasto's own `pattern > 15` test
+// (and then Clay's own `pattern > 16` test) established.
 float fleck_pattern_value(vec3 p, int pattern, vec3 blend) {
     if (pattern <= 4) {
         return fleck_cellular_value(p, pattern, blend);
@@ -716,8 +880,10 @@ float fleck_pattern_value(vec3 p, int pattern, vec3 blend) {
         return fleck_organic_value(p, pattern - 9);
     } else if (pattern <= 16) {
         return fleck_impasto_value(p);
+    } else if (pattern <= 17) {
+        return fleck_clay_value(p);
     }
-    return fleck_clay_value(p);
+    return fleck_fuzzy_value(p);
 }
 
 // --- Public entry point 1: normal perturbation ----------------------------
@@ -769,7 +935,7 @@ vec3 fleck_apply_triplanar(vec3 base_normal, vec3 blend, vec3 bump_x, vec3 bump_
 // bit as it did before this milestone.
 //
 // Needs only 4 field samples (centre + one tap along each world axis) for
-// 16 of the 18 presets -- Triangle/Hexagon's plane-projected lookups (see
+// 17 of the 19 presets -- Triangle/Hexagon's plane-projected lookups (see
 // fleck_cellular_value()) cost a bit more per sample, but the sampling
 // STRUCTURE here (centre + 3 axis taps, reused across all 3 triplanar
 // planes) is unchanged -- a genuine win unique to this being a true field
@@ -857,9 +1023,12 @@ vec3 fleck_modulate_albedo(vec3 world_pos, vec3 normal, int pattern_family,
     // mask -- v is HIGH on the undisturbed flat clay and LOW at the centre
     // of each press-mark, the opposite sense every other preset's v has
     // (high v = "the feature is here", be it a raised blob, a stroke
-    // crest, or a ridge). Darken by how DENTED a point is (1 - v), or the
-    // flat background would darken instead of the dimples.
-    float pattern_amount = (pattern_family > 16) ? (1.0 - v) : v;
+    // crest, a ridge, or -- Fuzzy (18) -- a strand). Darken by how DENTED a
+    // point is (1 - v) for Clay specifically, or the flat background would
+    // darken instead of the dimples; every other preset, including Fuzzy
+    // (whose field is background-0/strand-high, the same sense as Splat),
+    // darkens by plain v.
+    float pattern_amount = (pattern_family == 17) ? (1.0 - v) : v;
     float darken = s * pattern_amount;
 
     vec3 bias;
@@ -876,7 +1045,7 @@ vec3 fleck_modulate_albedo(vec3 world_pos, vec3 normal, int pattern_family,
         // ridge reads as denser/more pigmented than a thin painted stroke)
         // -- distinct from organic's bias, not a copy of it.
         bias = vec3(1.08, 0.70, 0.42);
-    } else {
+    } else if (pattern_family <= 17) {
         // Clay (17): deliberately RESTRAINED relative to every preset
         // above, per the brief -- real damp clay barely varies in colour
         // at all; what has to sell "clay" is the moulded RELIEF (the
@@ -891,6 +1060,24 @@ vec3 fleck_modulate_albedo(vec3 world_pos, vec3 normal, int pattern_family,
         // pattern fighting it for attention.
         bias = vec3(0.96, 0.97, 1.0);
         min_brightness = 0.84;
+    } else {
+        // Fuzzy (18): LOW-TO-MODERATE, like Impasto/Clay's own reasoning --
+        // the strand shape itself (the root/tip relief fleck_perturb_
+        // normal() produces from fleck_fuzzy_value()'s asymmetric height
+        // ramp) should do most of the work selling "fur/grass/hair", not a
+        // forced saturated tint standing in for it. Unlike Clay, though,
+        // strands DO have real per-strand shading (a root genuinely sits
+        // in more shadow than a tip under the lighting model, once the
+        // relief is there), so this sits moderately between Clay's near-
+        // neutral restraint and the generic family's saturated default --
+        // a touch deeper than Clay's 0.84, nowhere near organic/Impasto's
+        // 0.22. The colour bias is deliberately close to neutral with only
+        // a faint warm lean (fur/grass/hair's actual colour has to come
+        // from whatever base material colour the user picks -- a forced
+        // green/brown/grey cast here would fight that on every material,
+        // not just the ones meant to look like grass).
+        bias = vec3(1.03, 0.99, 0.93);
+        min_brightness = 0.55;
     }
 
     float brightness = mix(1.0, min_brightness, darken);

@@ -156,16 +156,16 @@ KAPI void renderer_debug_probe_field(glm::vec3 world_pos);
 // `colour` and removes the diffuse substrate, see Builtin.DeferredShade.
 // comp.glsl's final combine), `waxy` (adds a second, fixed-low-roughness
 // specular highlight on top -- see the shader's WAXY_LOBE_* constants),
-// and a Fleck: `fleck_pattern` (0-17, one of Square/Circle/Triangle/
+// and a Fleck: `fleck_pattern` (0-18, one of Square/Circle/Triangle/
 // Hexagon/Dots/Straight/Heavy/Hatching/Streaky/Scribble/Veins/Splat/
-// Cubist/Impressionist/Expressive/Baroque/Impasto/Clay, in that order -- see
-// Builtin.FleckPattern.inc.glsl's own header comment for the family each
-// maps to), `fleck_strength` (0 = no Fleck at all, regardless of
+// Cubist/Impressionist/Expressive/Baroque/Impasto/Clay/Fuzzy, in that order
+// -- see Builtin.FleckPattern.inc.glsl's own header comment for the family
+// each maps to), `fleck_strength` (0 = no Fleck at all, regardless of
 // `fleck_pattern`; clamped to [0, 1] otherwise) and `fleck_scale` (world
 // units per pattern cycle -- larger reads as coarser/bigger features). This
 // is how tools/modelling_software_v2's Finish presets (Default/Plastic/
 // Shiny/Rough/Metal/Wax/Shiny Metal/Shiny Wax/Rough Metal/Rough Wax/Clay)
-// and its Fleck presets (the 18 named above) are both actually realized:
+// and its Fleck presets (the 19 named above) are both actually realized:
 // ONE freshly allocated slot carries both, via one call here -- not two independent
 // allocation paths. A no-op (logs a warning) if slot is out of
 // [2, kMaxScenePrimitives) -- see VulkanRaymarchShader::set_material()'s
