@@ -1536,7 +1536,7 @@ void main() {
         // shader.h for why those 3 components were free here, and why
         // tex_transform_buffer_'s own apparently-free components turned out
         // NOT to be safe to reuse instead -- VulkanRaymarchShader::
-        // set_material()'s own comment has the full story). .y is the 0-16
+        // set_material()'s own comment has the full story). .y is the 0-17
         // preset id (rounded to the nearest int -- written as a plain
         // float, like every other packed scalar in this buffer), .z is
         // strength in [0,1] (0 -- the default for every material that

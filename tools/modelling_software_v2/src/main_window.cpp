@@ -61,6 +61,15 @@ constexpr FinishPreset kFinishPresets[] = {
     {"Shiny Wax", 0.08f, 0.0f, true},
     {"Rough Metal", 0.9f, 1.0f, false},
     {"Rough Wax", 0.9f, 0.0f, true},
+    // Clay: soft, hand-worked damp clay -- matte-leaning (rougher than Wax's
+    // 0.6, so it doesn't glow) but not as flat/chalky as Rough's 0.9. Waxy
+    // is on for the same reason Wax's own second specular lobe exists: damp
+    // clay still catches a faint, soft sheen at grazing angles, just far
+    // more muted than Wax's at 0.6 roughness -- the waxy lobe's own
+    // roughness-dependent falloff does the "subtler, not glossier" work
+    // here, not a separate parameter. Appended at the end -- see this
+    // array's own "ORDER IS LOAD-BEARING" header comment above.
+    {"Clay", 0.78f, 0.0f, true},
 };
 } // namespace
 
@@ -99,6 +108,7 @@ constexpr FleckPreset kFleckPresets[] = {
     {"Expressive", 14, 0.45f},    // organic
     {"Baroque", 15, 0.50f},       // organic
     {"Impasto", 16, 0.55f},       // impasto (its own family -- see Builtin.FleckPattern.inc.glsl)
+    {"Clay", 17, 0.60f},          // clay (its own family -- concave press-marks, see Builtin.FleckPattern.inc.glsl)
 };
 } // namespace
 

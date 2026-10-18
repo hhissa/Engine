@@ -9,7 +9,8 @@
 // architecture). A 17th preset, Impasto (id 16), was added after M6 -- see
 // its own dedicated family below (fleck_impasto_value()) and the dispatcher
 // comment for why it is NOT shoehorned into the organic family despite
-// looking superficially similar on paper.
+// looking superficially similar on paper. An 18th preset, Clay (id 17), was
+// added after that -- see fleck_clay_value()'s own dedicated family below.
 //
 // POST-LAUNCH VISUAL PASS (this revision): M6 landed and ran correctly, but
 // direct user feedback on the live result was "the flecks look too similar
@@ -61,8 +62,23 @@
 // impasto_value()'s own comment for the sawtooth-ramp technique that fixes
 // this.
 //
-// Every preset maps to exactly one of 4 families, selected by simple range
-// checks on the 0-16 preset id (no separate "pattern_family" value is ever
+// POST-IMPASTO ADDITION: Clay (preset 17) -- a 5th family, not a parameter
+// variant of Splat despite reusing its per-cell jitter/coin-flip placement
+// machinery (see fleck_splat_value() above). "Soft clay molded into flecks"
+// needs ROUNDED, CONCAVE press-marks -- the surface pushed IN at each mark
+// with a smooth, fully-rounded gradient from rim to centre, like a thumb or
+// a soft tool dabbed into damp clay -- the opposite sign, and a softer,
+// full-radius falloff, from every other organic/Impasto preset (all of
+// which read as raised material: paint, veins, ridges). See fleck_clay_
+// value()'s own comment for the technique and why its field is a literal
+// height map (background-high, dimple-low) rather than a "feature
+// presence" mask, and fleck_modulate_albedo()'s Clay branch for why its
+// albedo contribution is deliberately restrained relative to every other
+// preset -- clay's own colour barely varies; the moulded relief is what
+// has to sell it.
+//
+// Every preset maps to exactly one of 5 families, selected by simple range
+// checks on the 0-17 preset id (no separate "pattern_family" value is ever
 // stored -- it is always derived from the id, here and on the C++ side):
 //   0-4  Square/Circle/Triangle/Hexagon/Dots   -- cellular  (Square/Circle/
 //        Dots: true 3D Worley/Voronoi, metric/threshold varies the cell
@@ -76,11 +92,13 @@
 //        see above)
 //   16   Impasto                               -- its own family: directional
 //        stroke coherence + an asymmetric sawtooth ridge profile (see above)
+//   17   Clay                                  -- its own family: soft,
+//        irregularly-placed CONCAVE press-marks (see above)
 //
 // Entry points (the only two symbols anything outside this file calls):
 //   fleck_perturb_normal(world_pos, normal, pattern_family, scale, strength)
 //   fleck_modulate_albedo(world_pos, normal, pattern_family, scale, strength)
-// `pattern_family` in both signatures is literally the 0-16 preset id, not
+// `pattern_family` in both signatures is literally the 0-17 preset id, not
 // a pre-reduced family index -- the name is kept as specified; the family
 // switch happens internally (fleck_pattern_value() below), together with a
 // per-preset "local index" (id minus its family's base) that drives the
@@ -109,7 +127,8 @@
 // sample_scene_heights() needs), a win a true 3D field gets for free that a
 // 2D texture-per-plane technique cannot. Hexagon/Triangle spend a bit more
 // (3 plane lookups per field sample instead of 1) in exchange for actually
-// looking like their names -- see point 3 above.
+// looking like their names -- see point 3 above. Clay (see below) is a
+// genuine 3D field too, so it takes the same cheap 4-sample path.
 
 // --- Hashing / base value noise -------------------------------------------
 
@@ -608,18 +627,86 @@ float fleck_impasto_value(vec3 p) {
     return clamp(ridge, 0.0, 1.0);
 }
 
+// --- Family 4 (new): Clay (17) -- soft, concave press-marks --------------
+//
+// Splat (fleck_splat_value() above) places discrete RAISED blobs with a
+// narrow-band edge (smoothstep(radius*0.55, radius, dist) -- flat interior,
+// sharp-ish rim) -- it reads as paint flicked at a surface. Clay needs the
+// opposite sign and a completely different falloff shape: a real press-
+// mark (a thumb or a soft tool pushed into damp clay) is a DENT, not a
+// blob -- the surface recedes smoothly from the surrounding flat level
+// down to a rounded low point at the mark's centre, with NO flat plateau
+// and NO defined rim (an actual press is a continuous, fully-smooth
+// gradient the entire way from rim to centre -- a soft paraboloid/rounded-
+// cone profile, not a Voronoi cell boundary or Splat's raised-disc edge).
+//
+// fleck_clay_dip() is a FULL-RADIUS smoothstep (zero derivative at BOTH
+// the centre and the rim), unlike Splat's narrow band -- that is what
+// removes the plateau/hard-edge look and makes every mark read as a
+// single smooth, rounded dimple instead of a flat-topped raised disc.
+// fleck_clay_value() reuses the SAME per-cell Worley jitter + coin-flip
+// presence test fleck_splat_value() introduced (irregular, non-grid
+// placement -- the one piece of machinery genuinely worth sharing rather
+// than re-deriving), but with a lower presence probability and a wider,
+// larger radius range: a worked clay surface shows individual dabs you
+// can see the shape of, not fine grain, so marks here are deliberately
+// bigger and sparser than Splat's.
+//
+// The value returned is a literal HEIGHT field, not an inverted blob mask:
+// 1.0 (the undisturbed flat clay level) minus the deepest dip found at
+// this point, so background is high/flat and a dimple's centre is the
+// lowest point nearby. fleck_perturb_normal() needs no special-casing to
+// read this as concave -- it already just differentiates whatever height
+// field fleck_pattern_value() hands it (same philosophy as fleck_impasto_
+// value()'s asymmetric ridge -- see its own comment); a point at a
+// dimple's centre simply sits lower than its neighbours, and the ordinary
+// finite-difference normal does the rest. fleck_modulate_albedo() has to
+// invert this (dark where the field is LOW, not high) precisely because
+// of that same sign flip -- see its own Clay branch.
+float fleck_clay_dip(float dist, float radius) {
+    float t = clamp(dist / max(radius, 1e-4), 0.0, 1.0);
+    return 1.0 - smoothstep(0.0, 1.0, t);
+}
+
+float fleck_clay_value(vec3 p) {
+    vec3 cell = floor(p);
+    float best_dip = 0.0;
+    for (int dz = -1; dz <= 1; ++dz) {
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                vec3 neighbor = cell + vec3(float(dx), float(dy), float(dz));
+                float present = fleck_hash13(neighbor + vec3(5.3, 8.9, 1.1));
+                if (present > 0.46) {
+                    continue; // sparser than Splat -- fewer, bigger, individually-readable dabs.
+                }
+                vec3 jitter = fleck_hash33(neighbor);
+                // Bigger and more size-varied than Splat's 0.14-0.48 -- real
+                // thumb presses are large enough to read individually, and
+                // uneven in size.
+                float radius = 0.30 + 0.45 * fleck_hash13(neighbor + vec3(2.9, 7.1, 4.4));
+                vec3 d = (neighbor + jitter) - p;
+                float dist = length(d);
+                best_dip = max(best_dip, fleck_clay_dip(dist, radius));
+            }
+        }
+    }
+    return clamp(1.0 - best_dip, 0.0, 1.0);
+}
+
 // --- The single dispatcher every entry point below goes through ----------
 //
-// `pattern` is the raw 0-16 preset id; the family is derived here with a
+// `pattern` is the raw 0-17 preset id; the family is derived here with a
 // plain range check (0-4 cellular, 5-8 directional, 9-15 organic, 16
-// Impasto), exactly as the plan's own §6 specifies (extended for Impasto),
-// rather than being a separately stored value -- see this file's own header
-// comment. `blend` is only consumed by the cellular family's Triangle/
-// Hexagon branches (see fleck_cellular_value()); every other branch
-// ignores it, so passing it unconditionally here costs nothing extra for
-// the other presets. `pattern > 15` (not `== 16`) is the Impasto test so
-// any accidental future id past 16 degrades to Impasto rather than an
-// out-of-range organic local_index.
+// Impasto, 17 Clay), exactly as the plan's own §6 specifies (extended for
+// Impasto and Clay), rather than being a separately stored value -- see
+// this file's own header comment. `blend` is only consumed by the cellular
+// family's Triangle/Hexagon branches (see fleck_cellular_value()); every
+// other branch ignores it, so passing it unconditionally here costs
+// nothing extra for the other presets. `pattern > 16` (not `== 17`) is the
+// Clay test so any accidental future id past 17 degrades to Clay (the new
+// "last" preset) rather than Impasto or an out-of-range organic
+// local_index -- the same forward-compatible convention Impasto's own
+// `pattern > 15` test established.
 float fleck_pattern_value(vec3 p, int pattern, vec3 blend) {
     if (pattern <= 4) {
         return fleck_cellular_value(p, pattern, blend);
@@ -627,8 +714,10 @@ float fleck_pattern_value(vec3 p, int pattern, vec3 blend) {
         return fleck_directional_value(p, pattern - 5);
     } else if (pattern <= 15) {
         return fleck_organic_value(p, pattern - 9);
+    } else if (pattern <= 16) {
+        return fleck_impasto_value(p);
     }
-    return fleck_impasto_value(p);
+    return fleck_clay_value(p);
 }
 
 // --- Public entry point 1: normal perturbation ----------------------------
@@ -680,7 +769,7 @@ vec3 fleck_apply_triplanar(vec3 base_normal, vec3 blend, vec3 bump_x, vec3 bump_
 // bit as it did before this milestone.
 //
 // Needs only 4 field samples (centre + one tap along each world axis) for
-// 14 of the 16 presets -- Triangle/Hexagon's plane-projected lookups (see
+// 16 of the 18 presets -- Triangle/Hexagon's plane-projected lookups (see
 // fleck_cellular_value()) cost a bit more per sample, but the sampling
 // STRUCTURE here (centre + 3 axis taps, reused across all 3 triplanar
 // planes) is unchanged -- a genuine win unique to this being a true field
@@ -762,24 +851,49 @@ vec3 fleck_modulate_albedo(vec3 world_pos, vec3 normal, int pattern_family,
 
     float v = clamp(fleck_pattern_value(world_pos / safe_scale, pattern_family, blend), 0.0, 1.0);
     float s = clamp(strength, 0.0, 1.0);
-    float darken = s * v;
+
+    // Clay (17) is the one preset whose field is a literal height map (see
+    // fleck_clay_value()'s own comment) rather than a "feature presence"
+    // mask -- v is HIGH on the undisturbed flat clay and LOW at the centre
+    // of each press-mark, the opposite sense every other preset's v has
+    // (high v = "the feature is here", be it a raised blob, a stroke
+    // crest, or a ridge). Darken by how DENTED a point is (1 - v), or the
+    // flat background would darken instead of the dimples.
+    float pattern_amount = (pattern_family > 16) ? (1.0 - v) : v;
+    float darken = s * pattern_amount;
 
     vec3 bias;
+    float min_brightness = FLECK_MIN_BRIGHTNESS;
     if (pattern_family <= 4) {
         bias = vec3(0.80, 0.86, 1.02); // cellular: cool grey-blue (grout/ink)
     } else if (pattern_family <= 8) {
         bias = vec3(1.04, 0.90, 0.74); // directional: warm sepia (pen/charcoal)
     } else if (pattern_family <= 15) {
         bias = vec3(1.0, 0.80, 0.58); // organic: warm umber (oil paint)
-    } else {
+    } else if (pattern_family <= 16) {
         // Impasto: a more saturated, richer warm cast than organic's umber
         // (thick loaded oil paint pooling in the shadow trough of each
         // ridge reads as denser/more pigmented than a thin painted stroke)
         // -- distinct from organic's bias, not a copy of it.
         bias = vec3(1.08, 0.70, 0.42);
+    } else {
+        // Clay (17): deliberately RESTRAINED relative to every preset
+        // above, per the brief -- real damp clay barely varies in colour
+        // at all; what has to sell "clay" is the moulded RELIEF (the
+        // concave dimples fleck_perturb_normal() produces, shaded by the
+        // actual lighting model) not a strongly darkened/tinted pattern
+        // stamped on top of it. A near-neutral, very faintly cool-grey
+        // cast (unfired/damp clay reads a touch cooler and greyer in its
+        // shadowed dents, not warmer like pigment pooling) combined with a
+        // much shallower minimum brightness (0.84 vs. the generic 0.22 --
+        // at most ~16% darkening here, not ~80%) keeps this a subtle
+        // assist to the real shading instead of a second, competing
+        // pattern fighting it for attention.
+        bias = vec3(0.96, 0.97, 1.0);
+        min_brightness = 0.84;
     }
 
-    float brightness = mix(1.0, FLECK_MIN_BRIGHTNESS, darken);
+    float brightness = mix(1.0, min_brightness, darken);
     vec3 colour_mult = mix(vec3(1.0), bias, darken);
     return brightness * colour_mult;
 }

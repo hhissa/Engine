@@ -127,7 +127,7 @@ public:
   // M5 (Finishes) + M6 (Flecks): configures material slot `slot` (must be
   // >= 2 -- 0/1 are reserved, see VulkanRaymarchShader::set_material()'s
   // own comment) with a base colour/roughness/metallic/waxy "Finish" AND a
-  // fleck_pattern (0-16)/fleck_strength (0-1)/fleck_scale "Fleck" -- see
+  // fleck_pattern (0-17)/fleck_strength (0-1)/fleck_scale "Fleck" -- see
   // that method for the exact packing. One slot carries both together
   // (not two independent allocation paths), matching how tools/
   // modelling_software_v2's apply_finish_and_colour() allocates a slot. A

@@ -458,7 +458,7 @@ public:
   //   material_scalar_buffer_[slot].w   = roughness
   //   transmission_buffer_[slot].x      = waxy ? 1.0 : 0.0
   //   transmission_buffer_[slot].y      = M6 (Flecks): fleck_pattern, a
-  //                                        0-16 preset id written as a
+  //                                        0-17 preset id written as a
   //                                        rounded float (ignored, along
   //                                        with .w, whenever .z is 0)
   //   transmission_buffer_[slot].z      = M6 (Flecks): fleck_strength,

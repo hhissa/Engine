@@ -227,7 +227,7 @@ private:
   // M6 (Flecks) panel widgets -- see build_brush_panel()'s own additions
   // and apply_finish_and_colour(). fleck_combo_'s row index maps 1:1 onto
   // kFleckPresets (main_window.cpp) by position, and in turn onto Builtin.
-  // FleckPattern.inc.glsl's 0-16 pattern id by the SAME position -- same
+  // FleckPattern.inc.glsl's 0-17 pattern id by the SAME position -- same
   // "enum/array order is load-bearing" convention shape_combo_/
   // kBrushShapeNames and finish_combo_/kFinishPresets already use.
   QComboBox *fleck_combo_ = nullptr;
