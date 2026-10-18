@@ -67,6 +67,10 @@ constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_SCULPT_CHECKPOINT_RESTORE =
 // M4 (Crop/Cutout): see crop_volume().
 constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_SCULPT_CROP =
     "Builtin.SculptCrop";
+// M5 (checkpoint-removal redesign): see recompute_region()/recompute_
+// moved_region().
+constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_SCULPT_RECOMPUTE =
+    "Builtin.SculptChunkRecompute";
 
 // Matches the `push_constant` block in Builtin.RaymarchShader.comp.glsl.
 // std430 (push constants use the same rules as std430, not std140) still
@@ -256,14 +260,11 @@ struct ChunkEvictPushConstants {
                    // buffers' creation comment.
 };
 
-// Mirrors Builtin.SculptStamp.comp.glsl/Builtin.SculptSplatRegen.comp.glsl's
-// identical StampCell struct exactly -- see their shared comment for why
-// it's vec4-only (std430 array-stride safety). Uploaded host-side (chunk_
-// sculpt_cell_buffer_ is host-visible) by stamp_shape() every call.
-struct GpuSculptStampCell {
-  glm::ivec4 slot_cell;    // x = chunk-table slot, y = local cell index.
-  glm::vec4 cell_min_size; // xyz = cell world-space min corner, w = size.
-};
+// GpuSculptStampCell moved to vulkan_raymarch_shader.h (M5) -- see its own
+// comment there for why: VulkanRaymarchShader's new private recompute
+// helpers (collect_recompute_cells()/recompute_cells()) need it in their
+// header-declared signatures, which a type local to this anonymous
+// namespace couldn't satisfy.
 
 // How many touched coarse cells one stamp_shape() call can record in
 // chunk_sculpt_cell_buffer_ -- a sphere wanting more than this is
@@ -308,6 +309,56 @@ constexpr u32 kMaxSculptUndoCellsPerStamp = 1024;
 // no voxel data at all, so the practical cost is far below this). Oldest
 // entries are simply dropped once this is exceeded (see stamp_shape()).
 constexpr size_t kMaxSculptUndoDepth = 64;
+
+// M5 (checkpoint-removal redesign): one entry per CPU-side SculptStamp
+// (engine/src/resources/sculpt_volume.h), mirrored into chunk_sculpt_
+// stamp_list_buffer_ at the exact same list position -- see
+// VulkanRaymarchShader::sculpt_stamp_list_append()/_update()/_erase() for
+// how the two stay in lockstep, and Builtin.SculptChunkRecompute.comp.
+// glsl's own StampEntry struct (must match this byte-for-byte). 4 vec4s
+// (64 bytes) -- same "vec4-only for std430 array-stride safety" convention
+// GpuSculptStampCell's own comment documents, PLUS one extra vec4 beyond
+// the plan's originally-sketched {center, shape_type, params, smoothness,
+// op, material_slot, looseness} (48 bytes) to carry a precomputed
+// bounding_radius (sculpt_shape_bounding_radius()'s own result, computed
+// ONCE here on the CPU at append/update time). That avoids porting that
+// 15-way shape-dependent formula a second time into GLSL purely to answer
+// "does stamp i's AABB overlap cell c", which Builtin.SculptChunkRecompute.
+// comp.glsl must ask for EVERY (stamp, cell) pair; yzw of that fourth vec4
+// are reserved (always 0) for future growth.
+struct GpuSculptStampListEntry {
+  glm::vec4 center_shape;   // xyz = stamp center, w = shape_type (as a
+                            // float -- a small integer 0..14, exactly
+                            // representable, cast back via int(round(w))
+                            // in the shader).
+  glm::vec4 params;         // The stamp's own params.xyzw verbatim.
+  glm::vec4 smoothness_op_material_looseness; // x=smoothness, y=op (as a
+                            // float, same int(round()) convention), z=
+                            // material_slot (ditto), w=looseness.
+  glm::vec4 bounding_radius_pad; // x = sculpt_shape_bounding_radius()'s
+                            // result; y/z/w reserved (0).
+};
+static_assert(sizeof(GpuSculptStampListEntry) == 4 * 4 * sizeof(f32),
+             "GpuSculptStampListEntry must stay byte-identical to Builtin."
+             "SculptChunkRecompute.comp.glsl's StampEntry struct");
+
+// M5: how many stamps chunk_sculpt_stamp_list_buffer_ can mirror -- see
+// VulkanRaymarchShader::gpu_stamp_mirror_count()'s own header comment
+// (vulkan_raymarch_shader.h) for what happens if a session's stamp count
+// ever exceeds this (a documented, loud, non-silent degrade: ordinary
+// stamping keeps working fully; only Delete/Move on a stamp past this
+// point gets refused). 262144 is a deliberately enormous multiple of
+// anything a real hand-sculpting session produces -- even a continuous
+// Smear stroke firing one stamp every single frame for a FULL HOUR at
+// 60fps is only 216,000 stamps, comfortably under this -- while costing
+// only 262144 * sizeof(GpuSculptStampListEntry) (64 bytes) =~ 16MB, trivial
+// next to the ~1.9GB the chunked field's own brick/cluster pools already
+// reserve. Matches this file's own established convention for "could this
+// overflow" sculpt-family constants (kMaxSculptStampCellsPerCall/
+// kMaxSculptUndoCellsPerStamp/kMaxSculptUndoDepth above all use the same
+// "generous fixed cap + documented degrade" shape rather than a
+// dynamically growable buffer) -- see those constants' own comments.
+constexpr u32 kMaxGpuSculptStamps = 262144;
 
 // Must match both Builtin.SculptStamp.comp.glsl's and Builtin.
 // SculptSplatRegen.comp.glsl's local_size_x exactly -- one invocation per
@@ -394,6 +445,23 @@ struct GpuUndoCaptureMeta {
 struct SculptUndoRestorePushConstants {
   i32 cell_count;
 };
+
+// M5 (checkpoint-removal redesign): matches Builtin.SculptChunkRecompute.
+// comp.glsl's push constant block EXACTLY -- same scalar-only convention
+// as every other sculpt-family block above (see SculptStampPushConstants's
+// own comment for why).
+struct SculptChunkRecomputePushConstants {
+  i32 cell_count;  // How many of chunk_sculpt_cell_buffer_'s entries are
+                   // valid this dispatch.
+  i32 stamp_count; // gpu_stamp_mirror_count_ at dispatch time -- see
+                   // recompute_cells().
+  f32 cell_size;
+  f32 voxel_size;
+};
+static_assert(sizeof(SculptChunkRecomputePushConstants) == 4 * 4,
+             "SculptChunkRecomputePushConstants must stay byte-identical "
+             "to Builtin.SculptChunkRecompute.comp.glsl's PushConstants "
+             "block");
 
 // Matches Builtin.SculptCrop.comp.glsl's push constant block EXACTLY -- same
 // scalar-only convention as every other sculpt-family block above (see
@@ -1574,7 +1642,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
           context, BUILTIN_SHADER_NAME_CHUNK_SCULPT_CHECKPOINT_RESTORE, "comp",
           VK_SHADER_STAGE_COMPUTE_BIT),
       chunk_sculpt_crop_stage_(context, BUILTIN_SHADER_NAME_CHUNK_SCULPT_CROP,
-                              "comp", VK_SHADER_STAGE_COMPUTE_BIT) {
+                              "comp", VK_SHADER_STAGE_COMPUTE_BIT),
+      chunk_sculpt_recompute_stage_(
+          context, BUILTIN_SHADER_NAME_CHUNK_SCULPT_RECOMPUTE, "comp",
+          VK_SHADER_STAGE_COMPUTE_BIT) {
   if (!chunk_debug_query_stage_.is_valid() || !chunk_evict_stage_.is_valid() ||
       !chunk_probe_bake_stage_.is_valid() ||
       !chunk_cluster_cull_stage_.is_valid() ||
@@ -1591,7 +1662,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       !chunk_sculpt_undo_restore_stage_.is_valid() ||
       !chunk_sculpt_spraypaint_stage_.is_valid() ||
       !chunk_sculpt_checkpoint_restore_stage_.is_valid() ||
-      !chunk_sculpt_crop_stage_.is_valid()) {
+      !chunk_sculpt_crop_stage_.is_valid() ||
+      !chunk_sculpt_recompute_stage_.is_valid()) {
     KERROR("Unable to create shader module(s) for the raymarch field "
           "pipeline.");
     return;
@@ -1787,6 +1859,19 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   chunk_sculpt_cell_buffer_.emplace(
       *context_,
       static_cast<u64>(kMaxSculptStampCellsPerCall) * sizeof(GpuSculptStampCell),
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  // M5 (checkpoint-removal redesign): the GPU mirror of SculptVolume::
+  // stamps() -- see GpuSculptStampListEntry/kMaxGpuSculptStamps' own
+  // comments for the entry layout and sizing rationale. Host-visible, same
+  // reasoning as chunk_sculpt_cell_buffer_ just above: sculpt_stamp_list_
+  // append()/_update()/_erase() mutate it directly from the CPU, no
+  // staging buffer or compute dispatch needed just to keep it in lockstep
+  // with the CPU list.
+  chunk_sculpt_stamp_list_buffer_.emplace(
+      *context_,
+      static_cast<u64>(kMaxGpuSculptStamps) * sizeof(GpuSculptStampListEntry),
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
@@ -2301,6 +2386,34 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        context_->allocator,
                                        &chunk_sculpt_undo_restore_set_layout_));
 
+  // M5 (checkpoint-removal redesign): chunk_sculpt_recompute_set_:
+  // {0=StampCellBuffer (same buffer as every sculpt set above),
+  // 1=chunk_indirection, 2=chunk_brick_pool, 3=chunk_brick_primitive,
+  // 4=brick_free_list, 5=brick_free_list_top, 6=brick_clusters,
+  // 7=chunk_clusters, 8=cluster_free_list, 9=cluster_free_top,
+  // 10=ChunkBrickLoosenessBuffer, 11=ChunkBrickPaintBuffer,
+  // 12=StampListBuffer (NEW -- the GPU stamp-list mirror)} -- must match
+  // Builtin.SculptChunkRecompute.comp.glsl's bindings exactly. Same 13-
+  // binding shape as chunk_sculpt_undo_restore_set_ just above (same
+  // buffers, reordered slightly, minus the two undo-capture buffers, plus
+  // StampListBuffer and ChunkBrickPaintBuffer).
+  VkDescriptorSetLayoutBinding chunk_sculpt_recompute_bindings[13]{};
+  for (u32 i = 0; i < 13; ++i) {
+    chunk_sculpt_recompute_bindings[i].binding = i;
+    chunk_sculpt_recompute_bindings[i].descriptorType =
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    chunk_sculpt_recompute_bindings[i].descriptorCount = 1;
+    chunk_sculpt_recompute_bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+  VkDescriptorSetLayoutCreateInfo chunk_sculpt_recompute_layout_info{
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  chunk_sculpt_recompute_layout_info.bindingCount = 13;
+  chunk_sculpt_recompute_layout_info.pBindings = chunk_sculpt_recompute_bindings;
+  VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
+                                       &chunk_sculpt_recompute_layout_info,
+                                       context_->allocator,
+                                       &chunk_sculpt_recompute_set_layout_));
+
   // M1a's own small, dedicated pool -- deliberately NOT chunk_descriptor_
   // pool_ above (same "fully decoupled descriptor lifetime" reasoning its
   // own comment gives, and it avoids touching that pool's own fragile,
@@ -2309,36 +2422,39 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // set allocated after it). M2b added chunk_sculpt_undo_restore_set_'s own
   // 12 bindings to the same pool; M3 (Looseness) added one more binding to
   // BOTH chunk_sculpt_stamp_set_ (9->10) and chunk_sculpt_undo_restore_set_
-  // (12->13).
+  // (12->13). M5 (checkpoint-removal redesign) added chunk_sculpt_
+  // recompute_set_'s own 13 bindings and raised maxSets 3->4.
   VkDescriptorPoolSize sculpt_pool_size{};
   sculpt_pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   sculpt_pool_size.descriptorCount =
-      10 + 9 + 13; // chunk_sculpt_stamp_set_ (8 -> 9 in M3c -> 10 in M3) +
-                  // chunk_sculpt_splat_regen_set_ +
-                  // chunk_sculpt_undo_restore_set_ (12 -> 13 in M3)
+      10 + 9 + 13 + 13; // chunk_sculpt_stamp_set_ (8 -> 9 in M3c -> 10 in
+                       // M3) + chunk_sculpt_splat_regen_set_ +
+                       // chunk_sculpt_undo_restore_set_ (12 -> 13 in M3) +
+                       // chunk_sculpt_recompute_set_ (M5, NEW)
   VkDescriptorPoolCreateInfo sculpt_pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   sculpt_pool_info.poolSizeCount = 1;
   sculpt_pool_info.pPoolSizes = &sculpt_pool_size;
-  sculpt_pool_info.maxSets = 3;
+  sculpt_pool_info.maxSets = 4;
   VK_CHECK(vkCreateDescriptorPool(context_->device.logical_device,
                                   &sculpt_pool_info, context_->allocator,
                                   &sculpt_descriptor_pool_));
 
-  VkDescriptorSetLayout sculpt_layouts[3] = {
+  VkDescriptorSetLayout sculpt_layouts[4] = {
       chunk_sculpt_stamp_set_layout_, chunk_sculpt_splat_regen_set_layout_,
-      chunk_sculpt_undo_restore_set_layout_};
-  VkDescriptorSet sculpt_sets[3];
+      chunk_sculpt_undo_restore_set_layout_, chunk_sculpt_recompute_set_layout_};
+  VkDescriptorSet sculpt_sets[4];
   VkDescriptorSetAllocateInfo sculpt_alloc_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   sculpt_alloc_info.descriptorPool = sculpt_descriptor_pool_;
-  sculpt_alloc_info.descriptorSetCount = 3;
+  sculpt_alloc_info.descriptorSetCount = 4;
   sculpt_alloc_info.pSetLayouts = sculpt_layouts;
   VK_CHECK(vkAllocateDescriptorSets(context_->device.logical_device,
                                     &sculpt_alloc_info, sculpt_sets));
   chunk_sculpt_stamp_set_ = sculpt_sets[0];
   chunk_sculpt_splat_regen_set_ = sculpt_sets[1];
   chunk_sculpt_undo_restore_set_ = sculpt_sets[2];
+  chunk_sculpt_recompute_set_ = sculpt_sets[3];
 
   VkDescriptorBufferInfo chunk_sculpt_stamp_buffer_infos[10] = {
       {chunk_sculpt_cell_buffer_->handle(), 0, VK_WHOLE_SIZE},
@@ -2416,6 +2532,38 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   }
   vkUpdateDescriptorSets(context_->device.logical_device, 13,
                         chunk_sculpt_undo_restore_writes, 0, nullptr);
+
+  // M5 (checkpoint-removal redesign): chunk_sculpt_recompute_set_ -- see
+  // chunk_sculpt_recompute_set_layout_'s own binding-list comment above.
+  VkDescriptorBufferInfo chunk_sculpt_recompute_buffer_infos[13] = {
+      {chunk_sculpt_cell_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_indirection_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_pool_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_primitive_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_free_list_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_free_list_top_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_cluster_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_cluster_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_cluster_free_list_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_cluster_free_top_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_looseness_buffer_->handle(), 0, VK_WHOLE_SIZE}, // binding 10.
+      {chunk_brick_paint_buffer_->handle(), 0, VK_WHOLE_SIZE}, // binding 11.
+      {chunk_sculpt_stamp_list_buffer_->handle(), 0, VK_WHOLE_SIZE}, // binding 12.
+  };
+  VkWriteDescriptorSet chunk_sculpt_recompute_writes[13]{};
+  for (u32 i = 0; i < 13; ++i) {
+    chunk_sculpt_recompute_writes[i].sType =
+        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    chunk_sculpt_recompute_writes[i].dstSet = chunk_sculpt_recompute_set_;
+    chunk_sculpt_recompute_writes[i].dstBinding = i;
+    chunk_sculpt_recompute_writes[i].descriptorCount = 1;
+    chunk_sculpt_recompute_writes[i].descriptorType =
+        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    chunk_sculpt_recompute_writes[i].pBufferInfo =
+        &chunk_sculpt_recompute_buffer_infos[i];
+  }
+  vkUpdateDescriptorSets(context_->device.logical_device, 13,
+                        chunk_sculpt_recompute_writes, 0, nullptr);
 
   // M3c: chunk_sculpt_spraypaint_set_: {0=StampCellBuffer (same buffer as
   // every sculpt set above), 1=chunk_indirection (read-only -- spray_paint()
@@ -3366,6 +3514,12 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       *context_, chunk_sculpt_crop_stage_,
       std::vector<VkDescriptorSetLayout>{chunk_sculpt_undo_restore_set_layout_},
       sizeof(SculptCropPushConstants));
+  // M5 (checkpoint-removal redesign): see recompute_region()/recompute_
+  // moved_region().
+  chunk_sculpt_recompute_pipeline_.emplace(
+      *context_, chunk_sculpt_recompute_stage_,
+      std::vector<VkDescriptorSetLayout>{chunk_sculpt_recompute_set_layout_},
+      sizeof(SculptChunkRecomputePushConstants));
   render_pipeline_.emplace(*context_, render_stage_,
                            std::vector<VkDescriptorSetLayout>{render_set_layout_},
                            sizeof(PushConstants));
@@ -3408,7 +3562,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       !chunk_sculpt_stamp_pipeline_->is_valid() ||
       !chunk_sculpt_splat_regen_pipeline_->is_valid() ||
       !chunk_sculpt_undo_restore_pipeline_->is_valid() ||
-      !chunk_sculpt_spraypaint_pipeline_->is_valid()) {
+      !chunk_sculpt_spraypaint_pipeline_->is_valid() ||
+      !chunk_sculpt_recompute_pipeline_->is_valid()) {
     KERROR("Failed to create compute pipeline(s) for the raymarch field.");
     return;
   }
@@ -3551,6 +3706,7 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
 
   // Destroy pipelines before the descriptor set layouts they were created
   // with.
+  chunk_sculpt_recompute_pipeline_.reset();
   chunk_sculpt_spraypaint_pipeline_.reset();
   chunk_sculpt_crop_pipeline_.reset();
   chunk_sculpt_checkpoint_restore_pipeline_.reset();
@@ -3602,6 +3758,12 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
                                  chunk_sculpt_undo_restore_set_layout_,
                                  context_->allocator);
     chunk_sculpt_undo_restore_set_layout_ = VK_NULL_HANDLE;
+  }
+  if (chunk_sculpt_recompute_set_layout_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(context_->device.logical_device,
+                                 chunk_sculpt_recompute_set_layout_,
+                                 context_->allocator);
+    chunk_sculpt_recompute_set_layout_ = VK_NULL_HANDLE;
   }
   if (chunk_sculpt_splat_regen_set_layout_ != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(context_->device.logical_device,
@@ -4355,6 +4517,13 @@ void VulkanRaymarchShader::reset_chunked_field() {
   // M2b: every captured undo entry refers to chunk slots/brick indices that
   // just got wiped above -- none of them mean anything post-reset.
   undo_stack_.clear();
+
+  // M5 (checkpoint-removal redesign): the GPU stamp-list mirror's contents
+  // are harmless garbage past index 0 the moment the count drops to 0 --
+  // nothing ever reads past gpu_stamp_mirror_count_ entries, so there is no
+  // need to also zero the buffer itself, only the count.
+  gpu_stamp_mirror_count_ = 0;
+  gpu_stamp_mirror_overflow_warned_ = false;
 }
 
 void VulkanRaymarchShader::ensure_default_sculpt_material() {
@@ -5142,6 +5311,340 @@ i32 VulkanRaymarchShader::stamp_shape(glm::vec3 center, BrushShape shape_type,
         cells.size(), stamp_ms);
 
   return static_cast<i32>(cells.size());
+}
+
+namespace {
+// Builds one GpuSculptStampListEntry from a stamp's own fields -- shared by
+// sculpt_stamp_list_append()/_update() so the float-encoding convention
+// (shape_type/op/material_slot as floats, see GpuSculptStampListEntry's own
+// comment) lives in exactly one place.
+GpuSculptStampListEntry build_stamp_list_entry(
+    glm::vec3 center, VulkanRaymarchShader::BrushShape shape_type,
+    glm::vec4 params, f32 smoothness, VulkanRaymarchShader::BrushOp op,
+    i32 material_slot, f32 looseness) {
+  GpuSculptStampListEntry entry{};
+  entry.center_shape =
+      glm::vec4(center, static_cast<f32>(static_cast<i32>(shape_type)));
+  entry.params = params;
+  entry.smoothness_op_material_looseness =
+      glm::vec4(smoothness, static_cast<f32>(static_cast<i32>(op)),
+               static_cast<f32>(material_slot), looseness);
+  entry.bounding_radius_pad = glm::vec4(
+      sculpt_shape_bounding_radius(shape_type, params, smoothness), 0.0f,
+      0.0f, 0.0f);
+  return entry;
+}
+} // namespace
+
+void VulkanRaymarchShader::sculpt_stamp_list_append(
+    glm::vec3 center, BrushShape shape_type, glm::vec4 params,
+    f32 smoothness, BrushOp op, i32 material_slot, f32 looseness) {
+  if (!valid_ || !chunk_sculpt_stamp_list_buffer_.has_value()) {
+    return;
+  }
+  if (gpu_stamp_mirror_count_ >= kMaxGpuSculptStamps) {
+    if (!gpu_stamp_mirror_overflow_warned_) {
+      KERROR("Sculpt GPU stamp-list mirror is full (kMaxGpuSculptStamps = "
+            "{}) -- ordinary stamping keeps working normally, but Delete/"
+            "Move on any stamp at or past this point in SculptVolume::"
+            "stamps() can no longer be serviced by the checkpoint-free "
+            "recompute path and will be refused (see gpu_stamp_mirror_"
+            "count()'s own header comment).",
+            kMaxGpuSculptStamps);
+      gpu_stamp_mirror_overflow_warned_ = true;
+    }
+    return;
+  }
+  const GpuSculptStampListEntry entry = build_stamp_list_entry(
+      center, shape_type, params, smoothness, op, material_slot, looseness);
+  chunk_sculpt_stamp_list_buffer_->load_data(
+      static_cast<u64>(gpu_stamp_mirror_count_) * sizeof(GpuSculptStampListEntry),
+      sizeof(GpuSculptStampListEntry), 0, &entry);
+  ++gpu_stamp_mirror_count_;
+}
+
+void VulkanRaymarchShader::sculpt_stamp_list_update(
+    i32 index, glm::vec3 center, BrushShape shape_type, glm::vec4 params,
+    f32 smoothness, BrushOp op, i32 material_slot, f32 looseness) {
+  if (!valid_ || !chunk_sculpt_stamp_list_buffer_.has_value()) {
+    return;
+  }
+  if (index < 0 || static_cast<u32>(index) >= gpu_stamp_mirror_count_) {
+    // Past the mirror's cap (or otherwise out of sync) -- see gpu_stamp_
+    // mirror_count()'s own comment; the caller (VulkanRendererBackend::
+    // move_edit()) is responsible for having already refused the
+    // higher-level Move in that case.
+    return;
+  }
+  const GpuSculptStampListEntry entry = build_stamp_list_entry(
+      center, shape_type, params, smoothness, op, material_slot, looseness);
+  chunk_sculpt_stamp_list_buffer_->load_data(
+      static_cast<u64>(index) * sizeof(GpuSculptStampListEntry),
+      sizeof(GpuSculptStampListEntry), 0, &entry);
+}
+
+void VulkanRaymarchShader::sculpt_stamp_list_erase(i32 index) {
+  if (!valid_ || !chunk_sculpt_stamp_list_buffer_.has_value()) {
+    return;
+  }
+  if (index < 0 || static_cast<u32>(index) >= gpu_stamp_mirror_count_) {
+    return;
+  }
+  const u32 idx = static_cast<u32>(index);
+  const u32 tail_count = gpu_stamp_mirror_count_ - idx - 1;
+  if (tail_count > 0) {
+    // Shift every later entry down by one slot -- std::vector::erase's own
+    // shape, just against host-visible GPU memory instead of a CPU vector.
+    if (void *mapped = chunk_sculpt_stamp_list_buffer_->lock(
+            0,
+            static_cast<u64>(gpu_stamp_mirror_count_) *
+                sizeof(GpuSculptStampListEntry),
+            0)) {
+      auto *entries = static_cast<GpuSculptStampListEntry *>(mapped);
+      std::memmove(&entries[idx], &entries[idx + 1],
+                  static_cast<size_t>(tail_count) *
+                      sizeof(GpuSculptStampListEntry));
+      chunk_sculpt_stamp_list_buffer_->unlock();
+    }
+  }
+  --gpu_stamp_mirror_count_;
+}
+
+void VulkanRaymarchShader::collect_recompute_cells(
+    glm::vec3 center, BrushShape shape_type, glm::vec4 params,
+    f32 smoothness, std::unordered_set<u64> &seen,
+    std::vector<GpuSculptStampCell> &out_cells, std::vector<u32> &new_slots) {
+  const f32 bounding_radius =
+      sculpt_shape_bounding_radius(shape_type, params, smoothness);
+  if (!(bounding_radius > 0.0f)) {
+    return;
+  }
+
+  const f32 cell_size = kCoarseCellSize;
+
+  // IDENTICAL cell-enumeration math to stamp_shape()'s own (see its own
+  // comment for the floor-divide reasoning) -- this must stay in lockstep
+  // with it, since the whole point of recompute is to touch EXACTLY the
+  // cells a live stamp_shape() call at this center/shape/params/smoothness
+  // would have touched, no more, no fewer.
+  const glm::ivec3 cell_min_idx(
+      glm::floor((center - glm::vec3(bounding_radius)) / cell_size));
+  const glm::ivec3 cell_max_idx(
+      glm::floor((center + glm::vec3(bounding_radius)) / cell_size));
+
+  auto floor_div = [](i32 a, i32 b) {
+    return (a >= 0) ? (a / b) : -(((-a) + b - 1) / b);
+  };
+
+  bool truncated = false;
+  for (i32 gz = cell_min_idx.z; gz <= cell_max_idx.z && !truncated; ++gz) {
+    for (i32 gy = cell_min_idx.y; gy <= cell_max_idx.y && !truncated; ++gy) {
+      for (i32 gx = cell_min_idx.x; gx <= cell_max_idx.x; ++gx) {
+        if (out_cells.size() >= kMaxSculptStampCellsPerCall) {
+          truncated = true;
+          break;
+        }
+
+        const glm::ivec3 chunk_coord(
+            floor_div(gx, static_cast<i32>(kChunkCoarseDim)),
+            floor_div(gy, static_cast<i32>(kChunkCoarseDim)),
+            floor_div(gz, static_cast<i32>(kChunkCoarseDim)));
+        const glm::ivec3 local_cell(
+            gx - chunk_coord.x * static_cast<i32>(kChunkCoarseDim),
+            gy - chunk_coord.y * static_cast<i32>(kChunkCoarseDim),
+            gz - chunk_coord.z * static_cast<i32>(kChunkCoarseDim));
+
+        // Allocate-if-needed, exactly like stamp_shape() -- NOT skipped for
+        // a chunk this call hasn't seen before. Delete's own target cells
+        // are always already resident (the stamp being deleted claimed them
+        // the moment it first landed, and nothing in this sculpt-family ever
+        // releases a whole CHUNK's slot once claimed -- only individual
+        // bricks), so this is a harmless idempotent lookup for that case.
+        // Move's NEW-position cells are the case that actually NEEDS the
+        // allocating behaviour: the destination may be virgin territory no
+        // stamp has ever touched, and skipping it here would silently drop
+        // geometry at the new location.
+        bool is_new_slot = false;
+        const i32 slot = acquire_sculpt_chunk_slot(chunk_coord, is_new_slot);
+        if (slot < 0) {
+          KWARN("Sculpt recompute ran out of level-0 chunk-table slots "
+               "(kMaxResidentChunks exceeded) -- part of this region will "
+               "not be recomputed.");
+          continue;
+        }
+        if (is_new_slot) {
+          new_slots.push_back(static_cast<u32>(slot));
+        }
+
+        const i32 local_cell_index =
+            local_cell.x + local_cell.y * static_cast<i32>(kChunkCoarseDim) +
+            local_cell.z * static_cast<i32>(kChunkCoarseDim) *
+                static_cast<i32>(kChunkCoarseDim);
+
+        // Dedupe across BOTH calls a Move makes (old center, new center) --
+        // see recompute_moved_region()'s own comment for why a duplicate
+        // cell in one dispatch would be an actual data race, not just
+        // wasted work.
+        const u64 key = (static_cast<u64>(static_cast<u32>(slot)) << 32) |
+            static_cast<u32>(local_cell_index);
+        if (!seen.insert(key).second) {
+          continue;
+        }
+
+        GpuSculptStampCell cell{};
+        cell.slot_cell = glm::ivec4(slot, local_cell_index, 0, 0);
+        const glm::vec3 cell_min(static_cast<f32>(gx) * cell_size,
+                                 static_cast<f32>(gy) * cell_size,
+                                 static_cast<f32>(gz) * cell_size);
+        cell.cell_min_size = glm::vec4(cell_min, cell_size);
+        out_cells.push_back(cell);
+      }
+    }
+  }
+  if (truncated) {
+    KWARN("Sculpt recompute at ({:.3f}, {:.3f}, {:.3f}) bounding_r={:.3f} "
+         "touches more than kMaxSculptStampCellsPerCall ({}) coarse cells "
+         "-- truncating.",
+         center.x, center.y, center.z, bounding_radius,
+         kMaxSculptStampCellsPerCall);
+  }
+}
+
+i32 VulkanRaymarchShader::recompute_cells(
+    const std::vector<GpuSculptStampCell> &cells,
+    const std::vector<u32> &new_slots) {
+  if (!valid_ || cells.empty()) {
+    return 0;
+  }
+
+  // Same conservative "about to rewrite shared chunk/brick/cluster state a
+  // still-in-flight render dispatch could be reading" reasoning stamp_
+  // shape() itself documents.
+  vkDeviceWaitIdle(context_->device.logical_device);
+
+  const f32 cell_size = kCoarseCellSize;
+  const f32 voxel_size = cell_size / static_cast<f32>(kChunkBrickDim);
+
+  chunk_sculpt_cell_buffer_->load_data(
+      0, cells.size() * sizeof(GpuSculptStampCell), 0, cells.data());
+
+  auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
+      *context_, context_->device.graphics_command_pool);
+
+  // Brand-new chunk slots (Move's new position, most commonly) start with
+  // whatever garbage device memory last held -- same reasoning/same fill
+  // stamp_shape() itself performs for its own new_slots.
+  for (u32 slot : new_slots) {
+    const VkDeviceSize offset =
+        static_cast<VkDeviceSize>(slot) * kChunkCellCount * sizeof(i32);
+    const VkDeviceSize size = static_cast<VkDeviceSize>(kChunkCellCount) * sizeof(i32);
+    vkCmdFillBuffer(cmd->handle(), chunk_indirection_buffer_->handle(), offset,
+                    size, 0xFFFFFFFFu);
+  }
+  if (!new_slots.empty()) {
+    VkBufferMemoryBarrier fill_barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    fill_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    fill_barrier.dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    fill_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    fill_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    fill_barrier.buffer = chunk_indirection_buffer_->handle();
+    fill_barrier.offset = 0;
+    fill_barrier.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(cmd->handle(), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1,
+                        &fill_barrier, 0, nullptr);
+  }
+
+  const u32 groups =
+      (static_cast<u32>(cells.size()) + kSculptLocalSize - 1) / kSculptLocalSize;
+
+  chunk_sculpt_recompute_pipeline_->bind(*cmd);
+  vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                         chunk_sculpt_recompute_pipeline_->layout(), 0, 1,
+                         &chunk_sculpt_recompute_set_, 0, nullptr);
+  SculptChunkRecomputePushConstants recompute_push{
+      static_cast<i32>(cells.size()), static_cast<i32>(gpu_stamp_mirror_count_),
+      cell_size, voxel_size};
+  vkCmdPushConstants(cmd->handle(), chunk_sculpt_recompute_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(recompute_push),
+                    &recompute_push);
+  vkCmdDispatch(cmd->handle(), groups, 1, 1);
+
+  // The splat-regen pass below reads chunk_indirection_buffer_/chunk_brick_
+  // pool_buffer_ (to resolve each cell's brick index and its voxels), both
+  // just written above -- same handoff stamp_shape() itself uses.
+  VkBufferMemoryBarrier recompute_barriers[2]{};
+  const VkBuffer recompute_written[2] = {chunk_indirection_buffer_->handle(),
+                                        chunk_brick_pool_buffer_->handle()};
+  for (u32 i = 0; i < 2; ++i) {
+    recompute_barriers[i].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    recompute_barriers[i].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    recompute_barriers[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    recompute_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    recompute_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    recompute_barriers[i].buffer = recompute_written[i];
+    recompute_barriers[i].offset = 0;
+    recompute_barriers[i].size = VK_WHOLE_SIZE;
+  }
+  vkCmdPipelineBarrier(cmd->handle(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2,
+                      recompute_barriers, 0, nullptr);
+
+  chunk_sculpt_splat_regen_pipeline_->bind(*cmd);
+  vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                         chunk_sculpt_splat_regen_pipeline_->layout(), 0, 1,
+                         &chunk_sculpt_splat_regen_set_, 0, nullptr);
+  SculptSplatRegenPushConstants splat_push{static_cast<i32>(cells.size()),
+                                           bake_stats_enabled_ ? 1 : 0,
+                                           cell_size, voxel_size};
+  vkCmdPushConstants(cmd->handle(), chunk_sculpt_splat_regen_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push),
+                    &splat_push);
+  vkCmdDispatch(cmd->handle(), groups, 1, 1);
+
+  VulkanCommandBuffer::end_single_use(*context_,
+                                      context_->device.graphics_command_pool,
+                                      std::move(cmd),
+                                      context_->device.graphics_queue);
+
+  // Recomputed geometry just changed -- any accumulated TAA history
+  // predates it, same reasoning stamp_shape() itself documents.
+  invalidate_temporal_history();
+
+  return static_cast<i32>(cells.size());
+}
+
+i32 VulkanRaymarchShader::recompute_region(glm::vec3 center,
+                                           BrushShape shape_type,
+                                           glm::vec4 params, f32 smoothness) {
+  if (!valid_) {
+    return 0;
+  }
+  std::unordered_set<u64> seen;
+  std::vector<GpuSculptStampCell> cells;
+  std::vector<u32> new_slots;
+  collect_recompute_cells(center, shape_type, params, smoothness, seen, cells,
+                          new_slots);
+  return recompute_cells(cells, new_slots);
+}
+
+i32 VulkanRaymarchShader::recompute_moved_region(glm::vec3 old_center,
+                                                 glm::vec3 new_center,
+                                                 BrushShape shape_type,
+                                                 glm::vec4 params,
+                                                 f32 smoothness) {
+  if (!valid_) {
+    return 0;
+  }
+  std::unordered_set<u64> seen;
+  std::vector<GpuSculptStampCell> cells;
+  std::vector<u32> new_slots;
+  collect_recompute_cells(old_center, shape_type, params, smoothness, seen,
+                          cells, new_slots);
+  collect_recompute_cells(new_center, shape_type, params, smoothness, seen,
+                          cells, new_slots);
+  return recompute_cells(cells, new_slots);
 }
 
 i32 VulkanRaymarchShader::spray_paint(glm::vec3 center, BrushShape shape_type,

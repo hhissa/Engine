@@ -132,6 +132,20 @@ enum class SplatMode : i32 {
   Visibility = 2,
 };
 
+// Mirrors Builtin.SculptStamp.comp.glsl/Builtin.SculptSplatRegen.comp.glsl/
+// Builtin.SculptChunkRecompute.comp.glsl's identical StampCell struct
+// exactly -- see their shared comment for why it's vec4-only (std430
+// array-stride safety). Uploaded host-side (chunk_sculpt_cell_buffer_ is
+// host-visible) by stamp_shape()/collect_recompute_cells() every call.
+// Declared here (not file-local to the .cpp, the way it started in M1a) so
+// VulkanRaymarchShader's own private recompute helpers (collect_recompute_
+// cells()/recompute_cells()) can use it in their header-declared
+// signatures.
+struct GpuSculptStampCell {
+  glm::ivec4 slot_cell;    // x = chunk-table slot, y = local cell index.
+  glm::vec4 cell_min_size; // xyz = cell world-space min corner, w = size.
+};
+
 class VulkanRaymarchShader {
 public:
   // M2a: mirrors SculptBrushShape (engine/src/renderer/renderer_types.inl)
@@ -650,6 +664,92 @@ public:
   // else can have touched the same voxels in between. See the plan file's
   // M2b section for why re-stamping, not replaying this capture forward,
   // is the simplest correct Redo.
+  // M5 (checkpoint-removal redesign -- see /home/h-i/.claude/plans/
+  // joyful-skipping-giraffe.md's M4 section for the ORIGINAL checkpoint/
+  // replay design this REPLACES, and VulkanRendererBackend::delete_edit()/
+  // move_edit() for the call sites): the three ways the GPU stamp-list
+  // mirror (chunk_sculpt_stamp_list_buffer_ -- see GpuSculptStampListEntry,
+  // .cpp) stays in lockstep with SculptVolume::stamps(), one per kind of
+  // mutation that list itself can undergo:
+  //   append  -- a fresh stamp, Redo, or a .stamps Load replay (every one
+  //              of these lands via VulkanRendererBackend::apply_stamp_
+  //              and_record(), which calls this right after sculpt_
+  //              system_.apply_stamp()).
+  //   update  -- move_edit(): the stamp at `index` keeps its list position,
+  //              only its center (and everything passed here, read back
+  //              verbatim from the pre-move record) changes.
+  //   erase   -- delete_edit() (an arbitrary index) AND undo_stamp() (the
+  //              backend's own override, which always erases the current
+  //              tail -- see its own .cpp comment for why the GPU mirror
+  //              must track that pop too, even though undo/redo's OWN
+  //              voxel-level revert mechanics are untouched by this
+  //              milestone) -- shifts every later entry down by one
+  //              position, exactly like std::vector::erase on the CPU-side
+  //              list it mirrors.
+  // All three silently no-op (after an KERROR the first time, for append)
+  // once gpu_stamp_mirror_count() has hit kMaxGpuSculptStamps -- see that
+  // method's own comment for the documented, non-silent degrade this
+  // implies for delete_edit()/move_edit() on any index at or past the cap.
+  void sculpt_stamp_list_append(glm::vec3 center, BrushShape shape_type,
+                                glm::vec4 params, f32 smoothness, BrushOp op,
+                                i32 material_slot, f32 looseness);
+  void sculpt_stamp_list_update(i32 index, glm::vec3 center,
+                                BrushShape shape_type, glm::vec4 params,
+                                f32 smoothness, BrushOp op, i32 material_slot,
+                                f32 looseness);
+  void sculpt_stamp_list_erase(i32 index);
+
+  // M5: how many of chunk_sculpt_stamp_list_buffer_'s entries are actually
+  // valid right now -- always equal to SculptVolume::stamps().size() UNLESS
+  // a session has appended more than kMaxGpuSculptStamps stamps total (see
+  // that constant's own comment, .cpp, for just how large a margin that
+  // is), in which case this stops growing at the cap while the CPU list
+  // keeps going. VulkanRendererBackend::delete_edit()/move_edit() check an
+  // index against this BEFORE touching anything, and refuse (loudly logged,
+  // same "a missing patch, not a crash" tone the rest of this file already
+  // uses for a degraded-but-bounded failure) rather than recomputing from
+  // an incomplete mirror, which would silently produce wrong geometry --
+  // exactly the failure mode a silent truncation would risk and this
+  // instead avoids by refusing outright.
+  i32 gpu_stamp_mirror_count() const {
+    return static_cast<i32>(gpu_stamp_mirror_count_);
+  }
+
+  // M5: recomputes every cell touched by ONE shape's own conservative AABB
+  // (identical bounding-radius/cell-enumeration math to stamp_shape()'s own
+  // -- see collect_recompute_cells(), .cpp) entirely from the CURRENT GPU
+  // stamp-list mirror, in list order -- see Builtin.SculptChunkRecompute.
+  // comp.glsl's own header comment for the full per-cell algorithm. Used by
+  // delete_edit() for the single AABB of the stamp being removed -- the
+  // caller MUST have already mutated both SculptVolume and the stamp-list
+  // mirror (sculpt_stamp_list_erase()) to reflect the deletion BEFORE
+  // calling this, since the recompute reads the mirror as ground truth.
+  // Allocates (via acquire_sculpt_chunk_slot(), same as stamp_shape()) a
+  // chunk-table slot for every touched cell exactly like a live stamp
+  // would -- NOT skipped for "non-resident" cells, since every cell within
+  // a stamp's own original AABB was already resident from the moment that
+  // stamp first landed (acquire_sculpt_chunk_slot() is idempotent for an
+  // already-resident chunk, so this never double-allocates). Returns how
+  // many cells were recomputed (purely informational, same convention as
+  // stamp_shape()'s own return value), 0 if the shape's bounding radius is
+  // non-positive.
+  i32 recompute_region(glm::vec3 center, BrushShape shape_type,
+                       glm::vec4 params, f32 smoothness);
+
+  // M5: the move_edit() counterpart -- recomputes the UNION of the cells
+  // touched by the shape's OLD center AND its NEW center (deduplicated, so
+  // a cell both positions happen to share is only ever recomputed once --
+  // see this method's own .cpp comment for why a duplicate in one dispatch
+  // would be a genuine data race, not just wasted work). `shape_type`/
+  // `params`/`smoothness` are read verbatim from the moved stamp's
+  // EXISTING record (move_edit() never changes them) -- only the center
+  // differs between the two AABBs. Same caller contract as recompute_
+  // region() (mutate SculptVolume + the stamp-list mirror first) and same
+  // return convention.
+  i32 recompute_moved_region(glm::vec3 old_center, glm::vec3 new_center,
+                             BrushShape shape_type, glm::vec4 params,
+                             f32 smoothness);
+
   bool undo_stamp();
 
   // M3c: Spraypaint -- a paint-ONLY brush. Unlike stamp_shape(), this never
@@ -1258,6 +1358,17 @@ private:
   VkDescriptorSet chunk_sculpt_undo_restore_set_ = VK_NULL_HANDLE;
   std::optional<VulkanComputePipeline> chunk_sculpt_undo_restore_pipeline_;
 
+  // M5 (checkpoint-removal redesign): Builtin.SculptChunkRecompute.comp.
+  // glsl -- see recompute_region()/recompute_moved_region(). Own descriptor
+  // set/layout (added to sculpt_descriptor_pool_ below, not a new pool --
+  // same lifetime as every other sculpt-family dispatch) since its binding
+  // list (the brick/cluster free-list buffers PLUS StampListBuffer, binding
+  // 12) matches none of the three sets above exactly.
+  VulkanShaderModule chunk_sculpt_recompute_stage_;
+  VkDescriptorSetLayout chunk_sculpt_recompute_set_layout_ = VK_NULL_HANDLE;
+  VkDescriptorSet chunk_sculpt_recompute_set_ = VK_NULL_HANDLE;
+  std::optional<VulkanComputePipeline> chunk_sculpt_recompute_pipeline_;
+
   VkDescriptorPool sculpt_descriptor_pool_ = VK_NULL_HANDLE;
 
   // M4b: Builtin.SculptCheckpointRestore.comp.glsl -- restores one batch of
@@ -1344,6 +1455,53 @@ private:
   // in the voxel buffer are actually meaningful.
   std::optional<VulkanBuffer> chunk_sculpt_undo_capture_meta_buffer_;
   std::optional<VulkanBuffer> chunk_sculpt_undo_capture_voxel_buffer_;
+
+  // M5 (checkpoint-removal redesign): the GPU-side mirror of SculptVolume::
+  // stamps() -- see GpuSculptStampListEntry/kMaxGpuSculptStamps (.cpp) for
+  // the entry layout and sizing rationale, and sculpt_stamp_list_append()/
+  // _update()/_erase() for how the two lists stay in lockstep. Host-visible/
+  // host-coherent, same reasoning as chunk_sculpt_cell_buffer_ above -- the
+  // CPU mutates it directly (no staging buffer, no compute dispatch needed
+  // just to append/erase/update one entry), and Builtin.
+  // SculptChunkRecompute.comp.glsl reads it as an ordinary SSBO.
+  std::optional<VulkanBuffer> chunk_sculpt_stamp_list_buffer_;
+  // How many of that buffer's entries are currently valid -- see gpu_
+  // stamp_mirror_count()'s own header comment for what this tracks and why
+  // it can (rarely, and loudly) fall behind SculptVolume::stamps().size().
+  u32 gpu_stamp_mirror_count_ = 0;
+  // Only ever logs the kMaxGpuSculptStamps-exceeded KERROR once per session
+  // -- see sculpt_stamp_list_append()'s own .cpp comment.
+  b8 gpu_stamp_mirror_overflow_warned_ = false;
+
+  // M5: shared tail of recompute_region()/recompute_moved_region() --
+  // enumerates one shape's touched cells with the IDENTICAL bounding-
+  // radius/cell-grid math stamp_shape() itself uses (see its own .cpp
+  // comment for the derivation), resolving (allocating if necessary, via
+  // acquire_sculpt_chunk_slot()) each one's chunk-table slot and appending
+  // a GpuSculptStampCell into `out_cells` -- but ONLY if that (slot, local_
+  // cell_index) pair isn't already in `seen` (shared across BOTH calls a
+  // Move makes, old-center and new-center, so a cell touched by both AABBs
+  // is recomputed exactly once -- see recompute_moved_region()'s own
+  // comment for why a duplicate would be an actual data race, not just
+  // wasted work). Newly-claimed chunk slots are appended to `new_slots` so
+  // the caller can fill their indirection sub-block to -1 before dispatch,
+  // same as stamp_shape()'s own new_slots handling.
+  void collect_recompute_cells(glm::vec3 center, BrushShape shape_type,
+                               glm::vec4 params, f32 smoothness,
+                               std::unordered_set<u64> &seen,
+                               std::vector<GpuSculptStampCell> &out_cells,
+                               std::vector<u32> &new_slots);
+
+  // M5: the shared GPU dispatch tail of recompute_region()/recompute_
+  // moved_region() -- uploads `cells` into chunk_sculpt_cell_buffer_, fills
+  // any brand-new chunk slots' indirection sub-blocks to -1 (same as
+  // stamp_shape()), dispatches Builtin.SculptChunkRecompute.comp.glsl once
+  // (stamp_count = gpu_stamp_mirror_count_) then Builtin.SculptSplatRegen.
+  // comp.glsl over the same cell list (with a buffer barrier in between),
+  // all on one synchronous command buffer -- same self-contained/
+  // synchronous shape as stamp_shape() itself. Returns cells.size().
+  i32 recompute_cells(const std::vector<GpuSculptStampCell> &cells,
+                      const std::vector<u32> &new_slots);
 
   // See acquire_sculpt_chunk_slot()'s comment. sculpt_chunk_slot_used_ is
   // sized kMaxResidentChunks (one bool per level-0 slot); sculpt_chunk_

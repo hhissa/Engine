@@ -146,6 +146,14 @@ then
 echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
 fi
 
+echo "assets/shaders/Builtin.SculptChunkRecompute.comp.glsl -> bin/assets/shaders/Builtin.SculptChunkRecompute.comp.spv"
+$GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.SculptChunkRecompute.comp.glsl -o bin/assets/shaders/Builtin.SculptChunkRecompute.comp.spv
+ERRORLEVEL=$?
+if [ $ERRORLEVEL -ne 0 ]
+then
+echo "Error:"$ERRORLEVEL && exit $ERRORLEVEL
+fi
+
 echo "assets/shaders/Builtin.ProbeBake.comp.glsl -> bin/assets/shaders/Builtin.ProbeBake.comp.spv"
 $GLSLC $GLSLC_ARGS -fshader-stage=compute assets/shaders/Builtin.ProbeBake.comp.glsl -o bin/assets/shaders/Builtin.ProbeBake.comp.spv
 ERRORLEVEL=$?

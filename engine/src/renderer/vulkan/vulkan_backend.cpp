@@ -709,6 +709,18 @@ void VulkanRendererBackend::apply_stamp_and_record(
                              shape_op, material_slot, cells_touched,
                              looseness);
 
+  // M5 (checkpoint-removal redesign): append this stamp onto the GPU
+  // stamp-list mirror too -- see VulkanRaymarchShader::sculpt_stamp_list_
+  // append()'s own comment for why this, not the (now-deleted) periodic
+  // checkpoint, is what delete_edit()/move_edit() reconstruct GPU state
+  // from. Covers every call site that lands here: a fresh user stamp,
+  // Redo, and a .stamps Load replay (tools/modelling_software_v2/src/
+  // main_window.cpp's on_load_triggered(), via replay_stamp() ->
+  // renderer_sculpt_stamp_shape() -> stamp_shape() -> this function).
+  context_.raymarch_shader->sculpt_stamp_list_append(
+      center, vulkan_shape, params, smoothness, vulkan_op, material_slot,
+      looseness);
+
   // M4b: every ~kSculptCheckpointInterval landed stamps, snapshot the whole
   // volume so a future delete_edit() targeting an edit near here never has
   // to replay all the way from empty -- see capture_sculpt_checkpoint()'s
@@ -745,6 +757,15 @@ bool VulkanRendererBackend::undo_stamp() {
   }
   if (std::optional<SculptStamp> popped = sculpt_system_.pop_last_stamp()) {
     redo_stack_.push_back(*popped);
+    // M5 (checkpoint-removal redesign): Undo always pops the CPU list's
+    // TAIL, so the GPU stamp-list mirror must drop its own tail entry too,
+    // or a later delete_edit()/move_edit() would recompute against a
+    // mirror that still includes a stamp Undo already reverted GPU-side.
+    // The CPU list's size() right now (AFTER the pop above) is exactly the
+    // tail index that needs erasing -- see sculpt_stamp_list_erase()'s own
+    // comment for why erasing the tail needs no shifting.
+    context_.raymarch_shader->sculpt_stamp_list_erase(
+        static_cast<i32>(sculpt_system_.volume().stamps().size()));
   }
   return true;
 }
@@ -801,58 +822,48 @@ bool VulkanRendererBackend::redo_stamp() {
 }
 
 bool VulkanRendererBackend::delete_edit(i32 index) {
+  // M5 (checkpoint-removal redesign -- see /home/h-i/.claude/plans/joyful-
+  // skipping-giraffe.md's M4 section for the ORIGINAL checkpoint/replay
+  // design this REPLACES). The GPU voxel/brick field is now a pure,
+  // cheaply-recomputable CACHE of the ordered stamp list, not the
+  // authoritative state -- so deleting an arbitrary stamp no longer needs
+  // a full-volume checkpoint restore plus a replay of every edit between
+  // it and the current end of the list. Only the chunks the deleted
+  // stamp's OWN AABB touches can possibly change (nothing else in the
+  // sculpture was ever influenced by it), so this:
+  //   1. Mutates BOTH the GPU stamp-list mirror AND the CPU SculptVolume
+  //      list FIRST (erase-compact, same shape as std::vector::erase on
+  //      the CPU side) -- recompute reads the mirror as ground truth, so
+  //      it must already reflect the deletion before it runs.
+  //   2. Dispatches ONE recompute over just `target`'s own touched cells.
+  // No checkpoint snapshot/readback, no per-stamp replay loop.
   const std::vector<SculptStamp> stamps = sculpt_system_.volume().stamps();
   if (index < 0 || static_cast<size_t>(index) >= stamps.size()) {
     return false;
   }
-
-  // 1. Restore the nearest checkpoint strictly before `index` (or an empty
-  // field, if none exists) -- see VulkanRaymarchShader::restore_sculpt_
-  // checkpoint_before()'s own comment. restored_after is the index of the
-  // last edit that restore actually reproduced (-1 means "nothing -- empty
-  // field").
-  const i32 restored_after =
-      context_.raymarch_shader->restore_sculpt_checkpoint_before(index);
-
-  // 2. Replay every edit from (restored_after + 1) up to (index - 1)
-  // inclusive -- these are edits the checkpoint didn't already cover, and
-  // which must still exist in the final state. Straight to
-  // VulkanRaymarchShader::stamp_shape() -- deliberately NOT through apply_
-  // stamp_and_record() (that would re-append each one onto sculpt_system_'s
-  // volume_, which already HAS these entries; this replay is only
-  // reconstructing GPU state, not CPU bookkeeping) and NOT counted toward
-  // stamps_since_checkpoint_/eligible for a fresh capture_sculpt_checkpoint()
-  // call either -- see that member's own comment for why the ring is simply
-  // allowed to stay sparse for a while after a delete.
-  for (i32 i = restored_after + 1; i < index; ++i) {
-    const SculptStamp &s = stamps[static_cast<size_t>(i)];
-    context_.raymarch_shader->stamp_shape(
-        s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
-        s.params, s.smoothness,
-        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot,
-        s.looseness);
+  // Refuse (loudly, via gpu_stamp_mirror_count()'s own KERROR at the
+  // point the mirror first overflowed) rather than recompute from an
+  // incomplete mirror, which would silently produce wrong geometry -- see
+  // that method's own header comment for the documented, non-silent
+  // degrade this implies in an extremely long session.
+  if (index >= context_.raymarch_shader->gpu_stamp_mirror_count()) {
+    KWARN("delete_edit({}) refused -- past the GPU stamp-list mirror's "
+         "cap (see VulkanRaymarchShader::gpu_stamp_mirror_count()'s own "
+         "comment); this edit can no longer be deleted via the recompute "
+         "path.",
+         index);
+    return false;
   }
 
-  // 3. Skip `index` entirely (the edit being deleted), then replay
-  // everything AFTER it to reconstruct the rest of the current state.
-  for (size_t i = static_cast<size_t>(index) + 1; i < stamps.size(); ++i) {
-    const SculptStamp &s = stamps[i];
-    context_.raymarch_shader->stamp_shape(
-        s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
-        s.params, s.smoothness,
-        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot,
-        s.looseness);
-  }
+  const SculptStamp target = stamps[static_cast<size_t>(index)];
 
-  // 4. Only now retract the CPU-side record -- same "GPU first" discipline
-  // undo_stamp() already follows.
+  context_.raymarch_shader->sculpt_stamp_list_erase(index);
   sculpt_system_.remove_stamp_at(static_cast<size_t>(index));
 
-  // 5. Every checkpoint at or after `index` now refers to a state (and an
-  // index) that no longer corresponds to anything in the rebuilt list --
-  // see invalidate_sculpt_checkpoints_from()'s own comment. Checkpoints
-  // strictly before `index` are untouched and still correct.
-  context_.raymarch_shader->invalidate_sculpt_checkpoints_from(index);
+  context_.raymarch_shader->recompute_region(
+      target.center, static_cast<VulkanRaymarchShader::BrushShape>(
+                         target.shape_type),
+      target.params, target.smoothness);
 
   // A structural edit-list change invalidates any pending redo history --
   // same reasoning stamp_shape() already documents for a fresh stamp (a
@@ -865,82 +876,62 @@ bool VulkanRendererBackend::delete_edit(i32 index) {
 }
 
 bool VulkanRendererBackend::move_edit(i32 index, glm::vec3 new_center) {
+  // M5 (checkpoint-removal redesign) -- see delete_edit()'s own comment
+  // for the full picture. Only the UNION of the stamp's OLD and NEW AABBs
+  // can possibly change: nothing outside the old position ever held this
+  // stamp's geometry, and nothing outside the new position will.
   const std::vector<SculptStamp> stamps = sculpt_system_.volume().stamps();
   if (index < 0 || static_cast<size_t>(index) >= stamps.size()) {
     return false;
   }
-
-  // 1. Identical to delete_edit()'s own step 1 -- restore the nearest
-  // checkpoint strictly before `index` (or an empty field, if none exists).
-  const i32 restored_after =
-      context_.raymarch_shader->restore_sculpt_checkpoint_before(index);
-
-  // 2. Identical to delete_edit()'s own step 2 -- replay every edit from
-  // (restored_after + 1) up to (index - 1) inclusive, UNCHANGED (original
-  // center, original everything), straight to VulkanRaymarchShader::
-  // stamp_shape() -- not through apply_stamp_and_record(), for the same
-  // reason delete_edit() avoids it (this is only reconstructing GPU state;
-  // sculpt_system_'s volume_ already has every one of these entries).
-  for (i32 i = restored_after + 1; i < index; ++i) {
-    const SculptStamp &s = stamps[static_cast<size_t>(i)];
-    context_.raymarch_shader->stamp_shape(
-        s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
-        s.params, s.smoothness,
-        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot,
-        s.looseness);
+  if (index >= context_.raymarch_shader->gpu_stamp_mirror_count()) {
+    KWARN("move_edit({}) refused -- past the GPU stamp-list mirror's cap "
+         "(see VulkanRaymarchShader::gpu_stamp_mirror_count()'s own "
+         "comment); this edit can no longer be moved via the recompute "
+         "path.",
+         index);
+    return false;
   }
 
-  // 3. The one point this diverges from delete_edit(): `index` itself is
-  // NOT skipped -- it is replayed at new_center instead, with every other
-  // field (shape_type/params/smoothness/op/material_slot) read verbatim
-  // from its EXISTING record (captured above, before anything in this
-  // function has touched sculpt_system_'s volume_) -- exactly the "same
+  // Captured BEFORE any mutation below -- everything except the center
+  // (shape_type/params/smoothness/op/material_slot/looseness) is read
+  // verbatim from this EXISTING record, matching move_edit()'s own "same
   // shape/params/smoothness/op/material/looseness, only the center
-  // changes" contract this method promises. cells_touched is captured from
-  // this call's own return value (not the original stamp's stale count) so
-  // SculptVolume's record never claims a cell count that belonged to the
-  // shape's OLD position -- same "never claim more than actually
-  // happened" discipline apply_stamp_and_record() already follows for a
-  // fresh stamp.
-  const SculptStamp &moved = stamps[static_cast<size_t>(index)];
-  const i32 moved_cells_touched = context_.raymarch_shader->stamp_shape(
-      new_center,
-      static_cast<VulkanRaymarchShader::BrushShape>(moved.shape_type),
-      moved.params, moved.smoothness,
-      static_cast<VulkanRaymarchShader::BrushOp>(moved.op),
-      moved.material_slot, moved.looseness);
+  // changes" contract.
+  const SculptStamp original = stamps[static_cast<size_t>(index)];
+  const auto vulkan_shape =
+      static_cast<VulkanRaymarchShader::BrushShape>(original.shape_type);
+  const auto vulkan_op =
+      static_cast<VulkanRaymarchShader::BrushOp>(original.op);
 
-  // 4. Identical to delete_edit()'s own step 3 (its "replay everything
-  // AFTER it" half) -- replay every edit after `index`, UNCHANGED, to
-  // reconstruct the rest of the current state on top of the just-moved
-  // shape.
-  for (size_t i = static_cast<size_t>(index) + 1; i < stamps.size(); ++i) {
-    const SculptStamp &s = stamps[i];
-    context_.raymarch_shader->stamp_shape(
-        s.center, static_cast<VulkanRaymarchShader::BrushShape>(s.shape_type),
-        s.params, s.smoothness,
-        static_cast<VulkanRaymarchShader::BrushOp>(s.op), s.material_slot,
-        s.looseness);
-  }
+  // Mutate the GPU mirror in place FIRST (recompute reads it as ground
+  // truth) -- unlike delete_edit()'s erase-compact, this leaves the
+  // mirror's size/order untouched, same as SculptVolume::update_stamp_
+  // center()'s own CPU-side shape.
+  context_.raymarch_shader->sculpt_stamp_list_update(
+      index, new_center, vulkan_shape, original.params, original.smoothness,
+      vulkan_op, original.material_slot, original.looseness);
 
-  // 5. Only now update the CPU-side record -- same "GPU first" discipline
-  // delete_edit()/undo_stamp() already follow. Unlike delete_edit()'s
-  // remove_stamp_at(), this leaves the list's size/order untouched -- see
-  // SculptVolume::update_stamp_center()'s own comment.
+  // One combined dispatch over the UNION of the old-center and new-center
+  // cell sets (deduplicated -- see VulkanRaymarchShader::
+  // recompute_moved_region()'s own comment for why a cell both positions
+  // happen to share must only be recomputed once, not twice).
+  const i32 cells_touched = context_.raymarch_shader->recompute_moved_region(
+      original.center, new_center, vulkan_shape, original.params,
+      original.smoothness);
+
+  // Only now update the CPU-side record -- same "GPU first" discipline
+  // delete_edit()/undo_stamp() already follow. cells_touched here is
+  // "however many cells this recompute touched around the move" (which can
+  // include cells OTHER stamps also happen to overlap), a slightly
+  // different meaning than the live stamp_shape() path's own return value
+  // -- harmless, since SculptStamp::cells_touched is documented as purely
+  // informational (nothing reads it back).
   sculpt_system_.update_stamp_center(static_cast<size_t>(index), new_center,
-                                     moved_cells_touched);
+                                     cells_touched);
 
-  // 6. Every checkpoint at or after `index` captured a GPU state built on
-  // top of this edit's OLD center -- same staleness delete_edit()'s own
-  // step 5 documents, just for a changed-in-place entry rather than a
-  // removed one. Checkpoints strictly before `index` are untouched (their
-  // own captured state never depended on this edit's center at all, since
-  // they were taken before it was replayed-to in either case).
-  context_.raymarch_shader->invalidate_sculpt_checkpoints_from(index);
-
-  // A structural edit-list change (moving a shape changes what every later
-  // checkpoint/replay would reconstruct) invalidates any pending redo
-  // history -- same reasoning delete_edit()'s own tail comment gives.
+  // A structural edit-list change invalidates any pending redo history --
+  // same reasoning delete_edit()'s own tail comment gives.
   redo_stack_.clear();
 
   return true;
