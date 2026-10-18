@@ -98,6 +98,7 @@ constexpr FleckPreset kFleckPresets[] = {
     {"Impressionist", 13, 0.40f}, // organic
     {"Expressive", 14, 0.45f},    // organic
     {"Baroque", 15, 0.50f},       // organic
+    {"Impasto", 16, 0.55f},       // impasto (its own family -- see Builtin.FleckPattern.inc.glsl)
 };
 } // namespace
 

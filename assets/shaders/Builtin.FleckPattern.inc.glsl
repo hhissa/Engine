@@ -1,12 +1,15 @@
 // Builtin.FleckPattern.inc.glsl
-// M6 (Flecks): Dreams-style painterly surface-stroke styles -- 16 named
-// presets (Square, Circle, Triangle, Hexagon, Dots, Straight, Heavy,
+// M6 (Flecks): Dreams-style painterly surface-stroke styles -- originally 16
+// named presets (Square, Circle, Triangle, Hexagon, Dots, Straight, Heavy,
 // Hatching, Streaky, Scribble, Veins, Splat, Cubist, Impressionist,
 // Expressive, Baroque), realized as ONE parameterized procedural evaluator
 // rather than 16 distinct algorithms (see /home/h-i/.claude/plans/
 // joyful-skipping-giraffe.md's own §6 -- an honest architectural
 // simplification, not a cop-out: visual-fidelity risk here is tuning, not
-// architecture).
+// architecture). A 17th preset, Impasto (id 16), was added after M6 -- see
+// its own dedicated family below (fleck_impasto_value()) and the dispatcher
+// comment for why it is NOT shoehorned into the organic family despite
+// looking superficially similar on paper.
 //
 // POST-LAUNCH VISUAL PASS (this revision): M6 landed and ran correctly, but
 // direct user feedback on the live result was "the flecks look too similar
@@ -45,8 +48,21 @@
 //      see fleck_organic_value()'s own comment for the specific reasoning
 //      per preset.
 //
-// Every preset maps to exactly one of 3 families, selected by simple range
-// checks on the 0-15 preset id (no separate "pattern_family" value is ever
+// POST-M6 ADDITION: Impasto (preset 16) -- a 4th family, not a parameter
+// variant of organic. Real impasto (thick oil/acrylic dragged by a palette
+// knife or loaded brush) has a very specific signature organic's isotropic
+// domain-warped fBm cannot produce by tuning alone: directionally-coherent
+// ridges (paint gets DRAGGED, so strokes have a dominant local direction,
+// like the directional family) that are physically raised, so each ridge
+// has an ASYMMETRIC cross-section -- a steep catch-light flank and a soft
+// shadow flank -- not the symmetric `ridged` fold (1-abs(2v-1)) organic
+// uses, which is mirror-symmetric across its crest by construction and so
+// can only ever shade both flanks of a ridge identically. See fleck_
+// impasto_value()'s own comment for the sawtooth-ramp technique that fixes
+// this.
+//
+// Every preset maps to exactly one of 4 families, selected by simple range
+// checks on the 0-16 preset id (no separate "pattern_family" value is ever
 // stored -- it is always derived from the id, here and on the C++ side):
 //   0-4  Square/Circle/Triangle/Hexagon/Dots   -- cellular  (Square/Circle/
 //        Dots: true 3D Worley/Voronoi, metric/threshold varies the cell
@@ -58,12 +74,14 @@
 //        Impressionist/Expressive/Baroque      -- organic (domain-warped
 //        fBm for 6 of the 7, Splat is a distinct blob-placement technique --
 //        see above)
+//   16   Impasto                               -- its own family: directional
+//        stroke coherence + an asymmetric sawtooth ridge profile (see above)
 //
 // Entry points (the only two symbols anything outside this file calls):
 //   fleck_perturb_normal(world_pos, normal, pattern_family, scale, strength)
 //   fleck_modulate_albedo(world_pos, normal, pattern_family, scale, strength)
-// `pattern_family` in both signatures is literally the 0-15 preset id, not
-// a pre-reduced 0/1/2 value -- the name is kept as specified; the family
+// `pattern_family` in both signatures is literally the 0-16 preset id, not
+// a pre-reduced family index -- the name is kept as specified; the family
 // switch happens internally (fleck_pattern_value() below), together with a
 // per-preset "local index" (id minus its family's base) that drives the
 // preset's own metric/threshold/warp tuning. Both are no-ops (return the
@@ -533,22 +551,84 @@ float fleck_organic_value(vec3 p, int local_index) {
     return clamp(v, 0.0, 1.0);
 }
 
+// --- Family 3 (new): Impasto (16) -- directional ridges, asymmetric profile
+//
+// The organic family's `ridged` fold (fleck_organic_value(): v =
+// 1-abs(2v-1)) is SYMMETRIC around each ridge crest by construction -- walk
+// away from a crest in either direction and the value falls off identically,
+// so the finite-difference normal fleck_perturb_normal() derives from it is
+// mirror-symmetric too: both flanks of every ridge shade the same way. Real
+// impasto cannot look like that -- paint physically raised by a palette
+// knife or loaded brush has one flank the knife/brush pushed up steeply
+// (catches the key light hard, a sharp bright highlight) and one flank it
+// trailed off into gradually (a soft shadow trough). The fix is a sawtooth-
+// style ramp instead of a triangle wave: within each period, a SHORT steep
+// rise (0 -> 1 over `rise_frac` of the period) followed by a LONG gradual
+// fall (1 -> 0 over the rest) -- asymmetric by construction, so the two
+// flanks' finite-difference slopes differ in magnitude and the lighting
+// naturally follows (no special-casing needed in fleck_perturb_normal()
+// itself; it just differentiates whatever height field it's handed).
+//
+// Direction coherence comes from the SAME oblique-axis technique the
+// directional family uses (a fixed 3D direction dotted with p, not an
+// axis-aligned stripe, so it reads across all 3 triplanar planes) --
+// "paint gets dragged" means a dominant local direction, like Heavy/
+// Streaky, not organic's isotropic warp. A much MILDER domain warp than
+// organic's (0.35 vs. organic's 0.8-2.6) lets ridges meander like an actual
+// knife stroke without destroying that directionality into blobbiness.
+// Frequency is low (1.8) for deliberately chunky, thick-looking ridges, not
+// fine-grained strokes. A second, lower-frequency cross-grain modulation
+// (a different oblique direction) breaks otherwise-perfectly-parallel
+// ridges into shorter dragged segments with a value break partway along
+// each one -- the "brush lifts and re-touches" look real impasto shows,
+// and exactly the per-stroke "value/colour break" called for. The final
+// pow(.., 0.6) broadens/rounds the crest into a flattish plateau (a thick
+// raised BEAD of paint) rather than a knife-thin spike.
+float fleck_impasto_value(vec3 p) {
+    const vec3 kImpastoDir = vec3(0.8018, 0.2673, 0.5345); // same fixed-oblique-axis convention as the directional family
+    const vec3 kImpastoCrossDir = vec3(-0.5345, 0.8018, 0.2673); // a different oblique axis, for the cross-grain break
+
+    const float freq = 1.8;          // low -- chunky, thick ridges, not fine strokes
+    const float warp_amount = 0.35;  // mild -- meanders without losing direction coherence
+    const float rise_frac = 0.22;    // short steep flank / long soft flank, per period
+
+    float warp = fleck_fbm(p * 0.35, 2) - 0.5;
+    float coord = dot(p, kImpastoDir) * freq + warp * warp_amount;
+    float t = fract(coord);
+
+    float ridge = (t < rise_frac)
+        ? t / rise_frac                                    // steep rise -> sharp bright flank
+        : 1.0 - (t - rise_frac) / (1.0 - rise_frac);        // gradual fall -> soft shadow flank
+    ridge = pow(clamp(ridge, 0.0, 1.0), 0.6);                // broaden the crest into a thick plateau
+
+    float cross_coord = dot(p, kImpastoCrossDir) * (freq * 0.6);
+    float cross_mod = fleck_value_noise(vec3(cross_coord, cross_coord * 0.7, 0.0) * 1.3);
+    ridge *= mix(0.72, 1.0, cross_mod); // per-stroke value break (brush lift/re-touch)
+
+    return clamp(ridge, 0.0, 1.0);
+}
+
 // --- The single dispatcher every entry point below goes through ----------
 //
-// `pattern` is the raw 0-15 preset id; the family is derived here with a
-// plain range check (0-4 cellular, 5-8 directional, 9-15 organic), exactly
-// as the plan's own §6 specifies, rather than being a separately stored
-// value -- see this file's own header comment. `blend` is only consumed by
-// the cellular family's Triangle/Hexagon branches (see fleck_cellular_
-// value()); every other branch ignores it, so passing it unconditionally
-// here costs nothing extra for the other 14 presets.
+// `pattern` is the raw 0-16 preset id; the family is derived here with a
+// plain range check (0-4 cellular, 5-8 directional, 9-15 organic, 16
+// Impasto), exactly as the plan's own §6 specifies (extended for Impasto),
+// rather than being a separately stored value -- see this file's own header
+// comment. `blend` is only consumed by the cellular family's Triangle/
+// Hexagon branches (see fleck_cellular_value()); every other branch
+// ignores it, so passing it unconditionally here costs nothing extra for
+// the other presets. `pattern > 15` (not `== 16`) is the Impasto test so
+// any accidental future id past 16 degrades to Impasto rather than an
+// out-of-range organic local_index.
 float fleck_pattern_value(vec3 p, int pattern, vec3 blend) {
     if (pattern <= 4) {
         return fleck_cellular_value(p, pattern, blend);
     } else if (pattern <= 8) {
         return fleck_directional_value(p, pattern - 5);
+    } else if (pattern <= 15) {
+        return fleck_organic_value(p, pattern - 9);
     }
-    return fleck_organic_value(p, pattern - 9);
+    return fleck_impasto_value(p);
 }
 
 // --- Public entry point 1: normal perturbation ----------------------------
@@ -689,8 +769,14 @@ vec3 fleck_modulate_albedo(vec3 world_pos, vec3 normal, int pattern_family,
         bias = vec3(0.80, 0.86, 1.02); // cellular: cool grey-blue (grout/ink)
     } else if (pattern_family <= 8) {
         bias = vec3(1.04, 0.90, 0.74); // directional: warm sepia (pen/charcoal)
-    } else {
+    } else if (pattern_family <= 15) {
         bias = vec3(1.0, 0.80, 0.58); // organic: warm umber (oil paint)
+    } else {
+        // Impasto: a more saturated, richer warm cast than organic's umber
+        // (thick loaded oil paint pooling in the shadow trough of each
+        // ridge reads as denser/more pigmented than a thin painted stroke)
+        // -- distinct from organic's bias, not a copy of it.
+        bias = vec3(1.08, 0.70, 0.42);
     }
 
     float brightness = mix(1.0, FLECK_MIN_BRIGHTNESS, darken);
