@@ -937,9 +937,20 @@ void ModellingWindow::refresh_edit_history_list() {
                                         sizeof(kBrushShapeNames[0])))
             ? kBrushShapeNames[shape_index]
             : "?";
-    history_list_->addItem(QString("%1: %2 @ (%3, %4, %5)")
+    // M7 (edit-history UI polish): added the (Sub) suffix on top of the
+    // shape/position info this list already had -- Union is overwhelmingly
+    // the common case (it's the default and what every other tool but
+    // explicit op-toggling produces), so it's left unmarked to keep a
+    // normal stamp's row uncluttered; only the less-common Subtraction
+    // case gets an explicit marker, the same "don't over-engineer, just
+    // make the uncommon/surprising case legible at a glance" scope the
+    // task's own guidance asks for.
+    const QString op_suffix =
+        stamp.op == SculptBrushOp::Subtraction ? " (Sub)" : "";
+    history_list_->addItem(QString("%1: %2%3 @ (%4, %5, %6)")
                                .arg(i)
                                .arg(shape_name)
+                               .arg(op_suffix)
                                .arg(stamp.center.x, 0, 'f', 2)
                                .arg(stamp.center.y, 0, 'f', 2)
                                .arg(stamp.center.z, 0, 'f', 2));
