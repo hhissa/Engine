@@ -61,7 +61,9 @@ constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_SCULPT_UNDO_RESTORE =
 // M3c: see spray_paint().
 constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_SCULPT_SPRAYPAINT =
     "Builtin.SculptSpraypaint";
-// M4b: see restore_sculpt_checkpoint().
+// Originally M4b's periodic-checkpoint restore path (see chunk_sculpt_
+// checkpoint_restore_pipeline_'s own header comment, vulkan_raymarch_
+// shader.h, for why it's kept); now used by load_crop_outside_file().
 constexpr std::string_view BUILTIN_SHADER_NAME_CHUNK_SCULPT_CHECKPOINT_RESTORE =
     "Builtin.SculptCheckpointRestore";
 // M4 (Crop/Cutout): see crop_volume().
@@ -435,8 +437,9 @@ struct GpuUndoCaptureMeta {
   // and restored alongside it (Builtin.SculptStamp.comp.glsl/Builtin.
   // SculptUndoRestore.comp.glsl's own identical struct). Also reused, same
   // "repurposed" convention as old_material's own "material to restore"
-  // reuse below, by the checkpoint-restore path (restore_sculpt_
-  // checkpoint()) to carry "the looseness to restore".
+  // reuse below, by load_crop_outside_file()'s own batched-restore
+  // dispatch (Builtin.SculptCheckpointRestore.comp.glsl) to carry "the
+  // looseness to restore".
   f32 old_looseness;
   i32 pad1;
 };
@@ -1748,33 +1751,42 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // stamp shader writes real brick indices into the cells it actually
   // touches -- VUID-vkCmdFillBuffer-dstBuffer-00029 requires the
   // destination buffer to have been created with this bit. TRANSFER_SRC,
-  // on top of that: M4b's VulkanRaymarchShader::capture_sculpt_checkpoint()
-  // reads this buffer's level-0 sub-range back to the CPU (to learn which
-  // cells hold a brick at all) via a device-local-to-staging vkCmdCopyBuffer
-  // -- see its own comment.
+  // on top of that: crop_volume()/export_crop_outside() both read this
+  // buffer's level-0 sub-range back to the CPU (to learn which cells hold
+  // a brick at all) via a device-local-to-staging vkCmdCopyBuffer -- see
+  // their own comments. (Originally also read by the now-deleted M4b
+  // periodic checkpoint ring -- see /home/h-i/.claude/plans/joyful-
+  // skipping-giraffe.md's M4 section -- replaced by Builtin.
+  // SculptChunkRecompute.comp.glsl's bounded per-cell recompute, M5.)
   chunk_indirection_buffer_.emplace(*context_, chunk_indirection_size,
                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  // TRANSFER_SRC: M4b's capture_sculpt_checkpoint() reads every resident
-  // brick's full voxel array back to the CPU (batched into one multi-region
-  // copy -- see VulkanBuffer::copy_regions_to()) so a checkpoint can later
-  // be replayed from regular process memory, exactly like undo_stack_
-  // already keeps its own (smaller, per-stamp) snapshots there.
+  // TRANSFER_SRC: export_crop_outside() (Cutout's "save the removed
+  // geometry" half) reads every resident brick's full voxel array back to
+  // the CPU (batched into one multi-region copy -- see VulkanBuffer::
+  // copy_regions_to()) so the snapshot it writes can include real voxel
+  // data, not just which cells are occupied. (Originally also read by the
+  // now-deleted M4b periodic checkpoint ring -- see /home/h-i/.claude/
+  // plans/joyful-skipping-giraffe.md's M4 section -- replaced by Builtin.
+  // SculptChunkRecompute.comp.glsl's bounded per-cell recompute, M5.)
   chunk_brick_pool_buffer_.emplace(*context_, chunk_brick_pool_size,
                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  // TRANSFER_SRC: same reasoning as chunk_brick_pool_buffer_ above -- a
-  // checkpoint also needs each resident brick's material id.
+  // TRANSFER_SRC: same reasoning as chunk_brick_pool_buffer_ above --
+  // export_crop_outside() also needs each resident brick's material id.
   chunk_brick_primitive_buffer_.emplace(*context_, chunk_brick_primitive_size,
                                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   // M3 (Looseness): same size/usage as chunk_brick_primitive_buffer_
-  // immediately above -- one f32 per brick slot, same TRANSFER_SRC for
-  // capture_sculpt_checkpoint()'s own readback. See its own header comment
+  // immediately above -- one f32 per brick slot. TRANSFER_SRC here is
+  // currently unused (export_crop_outside() does not carry looseness
+  // through a Cutout snapshot -- a pre-existing, documented limitation,
+  // not touched by M5); kept for symmetry with chunk_brick_primitive_
+  // buffer_'s own identical per-brick shape. See its own header comment
   // (vulkan_raymarch_shader.h) for the full data-path story.
   chunk_brick_looseness_buffer_.emplace(*context_, chunk_brick_primitive_size,
                                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
@@ -5921,430 +5933,6 @@ bool VulkanRaymarchShader::undo_stamp() {
   return true;
 }
 
-void VulkanRaymarchShader::capture_sculpt_checkpoint(i32 after_edit_index) {
-  if (!valid_) {
-    return;
-  }
-  vkDeviceWaitIdle(context_->device.logical_device);
-
-  SculptCheckpoint checkpoint;
-  checkpoint.after_edit_index = after_edit_index;
-
-  auto push_checkpoint = [this](SculptCheckpoint &&cp) {
-    sculpt_checkpoints_.push_back(std::move(cp));
-    if (sculpt_checkpoints_.size() > kMaxSculptCheckpoints) {
-      // Oldest drops off -- see sculpt_checkpoints_'s own comment.
-      sculpt_checkpoints_.erase(sculpt_checkpoints_.begin());
-    }
-  };
-
-  if (sculpt_chunk_slot_by_coord_.empty()) {
-    // Nothing resident -- a valid ("empty") checkpoint, same as what
-    // restore_sculpt_checkpoint_before() falls back to when none exists at
-    // all. Still worth recording: a later delete_edit() targeting an index
-    // shortly after this one can restore straight to empty instead of
-    // replaying everything from scratch.
-    push_checkpoint(std::move(checkpoint));
-    return;
-  }
-
-  // 1. One bulk copy of level 0's ENTIRE indirection sub-range (the only
-  // range sculpting ever touches -- see the plan's "level 0 only"
-  // architecture note). Cheap (kMaxResidentChunks * kChunkCellCount i32s =
-  // 1MB) even though most of it reads -1 (unused) -- a single flat scan is
-  // simpler and just as fast as restricting the copy to only the slots
-  // sculpt_chunk_slot_by_coord_ already knows about.
-  const u64 level0_entries =
-      static_cast<u64>(kMaxResidentChunks) * kChunkCellCount;
-  const u64 level0_bytes = level0_entries * sizeof(i32);
-  std::vector<i32> indirection(static_cast<size_t>(level0_entries));
-  {
-    VulkanBuffer staging(*context_, level0_bytes,
-                        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    if (!staging.is_valid()) {
-      KERROR("capture_sculpt_checkpoint(): failed to allocate the "
-            "indirection staging buffer -- checkpoint capture aborted for "
-            "edit index {}.",
-            after_edit_index);
-      return;
-    }
-    chunk_indirection_buffer_->copy_to(staging, 0, 0, level0_bytes,
-                                      context_->device.graphics_queue,
-                                      context_->device.graphics_command_pool);
-    if (void *mapped = staging.lock(0, level0_bytes, 0)) {
-      std::memcpy(indirection.data(), mapped, level0_bytes);
-      staging.unlock();
-    }
-  }
-
-  // 2. Scan: for every chunk this session has a slot for, walk its
-  // CHUNK_CELL_COUNT local cells and collect every occupied one's brick
-  // index, grouped per chunk so step 4 below can rebuild SculptCheckpoint
-  // Chunk entries directly.
-  struct PendingCellRef {
-    glm::ivec3 chunk_coord;
-    i32 local_cell_index;
-    i32 brick_index;
-  };
-  std::vector<PendingCellRef> pending;
-  for (const auto &entry : sculpt_chunk_slot_by_coord_) {
-    const ChunkKey &key = entry.first;
-    const u32 slot = entry.second;
-    const u64 base = static_cast<u64>(slot) * kChunkCellCount;
-    for (u32 local = 0; local < kChunkCellCount; ++local) {
-      const i32 brick_index = indirection[static_cast<size_t>(base + local)];
-      if (brick_index < 0) {
-        continue;
-      }
-      pending.push_back(PendingCellRef{
-          glm::ivec3(static_cast<i32>(key.cx), static_cast<i32>(key.cy),
-                    static_cast<i32>(key.cz)),
-          static_cast<i32>(local), brick_index});
-    }
-  }
-
-  if (pending.empty()) {
-    // Every known chunk slot is actually empty (shouldn't normally happen --
-    // acquire_sculpt_chunk_slot() is only ever called right before a cell
-    // gets a brick -- but harmless either way: an empty checkpoint is still
-    // a correct, if trivial, restore target).
-    push_checkpoint(std::move(checkpoint));
-    return;
-  }
-
-  // 3. One multi-region copy PER SOURCE BUFFER, covering every pending
-  // cell's own (scattered) brick offset -- never one round trip per brick.
-  // See VulkanBuffer::copy_regions_to()'s own comment.
-  const u64 material_bytes = static_cast<u64>(pending.size()) * sizeof(i32);
-  const u64 voxel_bytes = static_cast<u64>(pending.size()) *
-      kChunkBrickVoxelCount * sizeof(f32);
-
-  // M3 (Looseness): same size/layout as material_bytes above -- one f32 per
-  // pending brick.
-  const u64 looseness_bytes = static_cast<u64>(pending.size()) * sizeof(f32);
-
-  VulkanBuffer material_staging(*context_, material_bytes,
-                               VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  VulkanBuffer voxel_staging(*context_, voxel_bytes,
-                            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  VulkanBuffer looseness_staging(*context_, looseness_bytes,
-                                VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  if (!material_staging.is_valid() || !voxel_staging.is_valid() ||
-      !looseness_staging.is_valid()) {
-    KERROR("capture_sculpt_checkpoint(): failed to allocate brick staging "
-          "buffers for {} bricks -- checkpoint capture aborted for edit "
-          "index {}.",
-          pending.size(), after_edit_index);
-    return;
-  }
-
-  std::vector<VkBufferCopy> material_regions(pending.size());
-  std::vector<VkBufferCopy> voxel_regions(pending.size());
-  std::vector<VkBufferCopy> looseness_regions(pending.size());
-  for (size_t i = 0; i < pending.size(); ++i) {
-    const u64 brick_index = static_cast<u64>(pending[i].brick_index);
-    material_regions[i].srcOffset = brick_index * sizeof(i32);
-    material_regions[i].dstOffset = static_cast<u64>(i) * sizeof(i32);
-    material_regions[i].size = sizeof(i32);
-
-    voxel_regions[i].srcOffset =
-        brick_index * kChunkBrickVoxelCount * sizeof(f32);
-    voxel_regions[i].dstOffset =
-        static_cast<u64>(i) * kChunkBrickVoxelCount * sizeof(f32);
-    voxel_regions[i].size = kChunkBrickVoxelCount * sizeof(f32);
-
-    looseness_regions[i].srcOffset = brick_index * sizeof(f32);
-    looseness_regions[i].dstOffset = static_cast<u64>(i) * sizeof(f32);
-    looseness_regions[i].size = sizeof(f32);
-  }
-  chunk_brick_primitive_buffer_->copy_regions_to(
-      material_staging, material_regions, context_->device.graphics_queue,
-      context_->device.graphics_command_pool);
-  chunk_brick_pool_buffer_->copy_regions_to(
-      voxel_staging, voxel_regions, context_->device.graphics_queue,
-      context_->device.graphics_command_pool);
-  chunk_brick_looseness_buffer_->copy_regions_to(
-      looseness_staging, looseness_regions, context_->device.graphics_queue,
-      context_->device.graphics_command_pool);
-
-  std::vector<i32> materials(pending.size());
-  std::vector<f32> voxels(pending.size() * kChunkBrickVoxelCount);
-  std::vector<f32> loosenesses(pending.size());
-  if (void *mapped = material_staging.lock(0, material_bytes, 0)) {
-    std::memcpy(materials.data(), mapped, material_bytes);
-    material_staging.unlock();
-  }
-  if (void *mapped = voxel_staging.lock(0, voxel_bytes, 0)) {
-    std::memcpy(voxels.data(), mapped, voxel_bytes);
-    voxel_staging.unlock();
-  }
-  if (void *mapped = looseness_staging.lock(0, looseness_bytes, 0)) {
-    std::memcpy(loosenesses.data(), mapped, looseness_bytes);
-    looseness_staging.unlock();
-  }
-
-  // 4. Group pending[]/materials[]/voxels[] (all three share pending's own
-  // index order) back into per-chunk SculptCheckpointChunk entries.
-  std::unordered_map<ChunkKey, size_t, ChunkKeyHash> chunk_index_of;
-  for (size_t i = 0; i < pending.size(); ++i) {
-    const PendingCellRef &ref = pending[i];
-    const ChunkKey key{/*level=*/0, ref.chunk_coord.x, ref.chunk_coord.y,
-                      ref.chunk_coord.z};
-    auto it = chunk_index_of.find(key);
-    size_t chunk_idx;
-    if (it == chunk_index_of.end()) {
-      chunk_idx = checkpoint.chunks.size();
-      checkpoint.chunks.push_back(
-          SculptCheckpointChunk{ref.chunk_coord, {}});
-      chunk_index_of.emplace(key, chunk_idx);
-    } else {
-      chunk_idx = it->second;
-    }
-
-    SculptCheckpointBrick brick;
-    brick.local_cell_index = ref.local_cell_index;
-    brick.material = materials[i];
-    brick.looseness = loosenesses[i];
-    brick.voxels.assign(voxels.begin() +
-                           static_cast<std::ptrdiff_t>(i * kChunkBrickVoxelCount),
-                       voxels.begin() + static_cast<std::ptrdiff_t>(
-                                            (i + 1) * kChunkBrickVoxelCount));
-    checkpoint.chunks[chunk_idx].bricks.push_back(std::move(brick));
-  }
-
-  push_checkpoint(std::move(checkpoint));
-}
-
-i32 VulkanRaymarchShader::restore_sculpt_checkpoint_before(i32 edit_index) {
-  if (!valid_) {
-    return -1;
-  }
-  // Conservative device-wide wait, same reasoning as stamp_shape()/undo_
-  // stamp()'s own -- about to rewrite every chunk/brick/cluster buffer from
-  // underneath whatever a still-in-flight render_to() dispatch might be
-  // reading. Everything restore_sculpt_checkpoint()/reset_chunked_field()
-  // do below is itself synchronous and self-fenced, so one wait here is
-  // enough -- nothing after this point needs to wait again.
-  vkDeviceWaitIdle(context_->device.logical_device);
-
-  const SculptCheckpoint *best = nullptr;
-  for (const SculptCheckpoint &cp : sculpt_checkpoints_) {
-    if (cp.after_edit_index < edit_index &&
-        (best == nullptr || cp.after_edit_index > best->after_edit_index)) {
-      best = &cp;
-    }
-  }
-
-  if (best == nullptr) {
-    // No checkpoint old enough to help -- "state before edit_index" is the
-    // empty volume (either edit_index is small, or this session simply
-    // hasn't captured one yet -- see kMaxSculptCheckpoints' cadence).
-    reset_chunked_field();
-    return -1;
-  }
-
-  // Copied out rather than kept as a dangling reference across
-  // restore_sculpt_checkpoint() -- that call's own reset_chunked_field()
-  // doesn't touch sculpt_checkpoints_ today, but copying this small struct
-  // is cheap insurance against a future change silently invalidating `best`
-  // out from under this function.
-  const SculptCheckpoint snapshot = *best;
-  const i32 restored_index = snapshot.after_edit_index;
-  restore_sculpt_checkpoint(snapshot);
-  return restored_index;
-}
-
-void VulkanRaymarchShader::invalidate_sculpt_checkpoints_from(i32 edit_index) {
-  sculpt_checkpoints_.erase(
-      std::remove_if(sculpt_checkpoints_.begin(), sculpt_checkpoints_.end(),
-                    [edit_index](const SculptCheckpoint &cp) {
-                      return cp.after_edit_index >= edit_index;
-                    }),
-      sculpt_checkpoints_.end());
-}
-
-void VulkanRaymarchShader::restore_sculpt_checkpoint(
-    const SculptCheckpoint &checkpoint) {
-  // Clean slate first -- also clears undo_stack_ (every entry in it refers
-  // to chunk slots/brick indices this is about to reshuffle) and the M1a/
-  // M2a sculpt-chunk-slot bookkeeping (sculpt_chunk_slot_used_/sculpt_
-  // chunk_slot_by_coord_), exactly like a fresh session start.
-  reset_chunked_field();
-
-  if (checkpoint.chunks.empty()) {
-    return; // Truly empty state -- nothing further to populate.
-  }
-
-  struct PendingCell {
-    i32 slot = 0;
-    i32 local_cell_index = 0;
-    glm::vec3 cell_min{0.0f};
-    i32 material = 0;
-    f32 looseness = 0.0f; // M3 (Looseness): captured alongside material.
-    const std::vector<f32> *voxels = nullptr;
-  };
-  std::vector<PendingCell> pending;
-  std::vector<u32> new_slots;
-
-  for (const SculptCheckpointChunk &chunk : checkpoint.chunks) {
-    bool is_new = false;
-    const i32 slot = acquire_sculpt_chunk_slot(chunk.chunk_coord, is_new);
-    if (slot < 0) {
-      KWARN("restore_sculpt_checkpoint(): ran out of level-0 chunk-table "
-           "slots while restoring a checkpoint -- some geometry will be "
-           "missing from the restored state.");
-      continue;
-    }
-    if (is_new) {
-      new_slots.push_back(static_cast<u32>(slot));
-    }
-    for (const SculptCheckpointBrick &brick : chunk.bricks) {
-      // Decode local_cell_index back into (lx, ly, lz) -- exact inverse of
-      // stamp_shape()'s own local_cell.x + local_cell.y*DIM +
-      // local_cell.z*DIM*DIM packing.
-      const i32 dim = static_cast<i32>(kChunkCoarseDim);
-      const i32 lx = brick.local_cell_index % dim;
-      const i32 ly = (brick.local_cell_index / dim) % dim;
-      const i32 lz = brick.local_cell_index / (dim * dim);
-      const glm::vec3 cell_min(
-          static_cast<f32>(chunk.chunk_coord.x * dim + lx) * kCoarseCellSize,
-          static_cast<f32>(chunk.chunk_coord.y * dim + ly) * kCoarseCellSize,
-          static_cast<f32>(chunk.chunk_coord.z * dim + lz) * kCoarseCellSize);
-      pending.push_back(PendingCell{slot, brick.local_cell_index, cell_min,
-                                    brick.material, brick.looseness,
-                                    &brick.voxels});
-    }
-  }
-
-  if (pending.empty()) {
-    return;
-  }
-
-  // Fill every newly-claimed slot's indirection sub-block to -1 FIRST, in
-  // one command buffer, before any batch below writes a real brick index
-  // into it -- exact same reasoning as stamp_shape()'s own new_slots
-  // handling.
-  if (!new_slots.empty()) {
-    auto fill_cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
-        *context_, context_->device.graphics_command_pool);
-    for (u32 slot : new_slots) {
-      const VkDeviceSize offset =
-          static_cast<VkDeviceSize>(slot) * kChunkCellCount * sizeof(i32);
-      const VkDeviceSize size =
-          static_cast<VkDeviceSize>(kChunkCellCount) * sizeof(i32);
-      vkCmdFillBuffer(fill_cmd->handle(), chunk_indirection_buffer_->handle(),
-                      offset, size, 0xFFFFFFFFu);
-    }
-    VulkanCommandBuffer::end_single_use(*context_,
-                                        context_->device.graphics_command_pool,
-                                        std::move(fill_cmd),
-                                        context_->device.graphics_queue);
-  }
-
-  // Batched at kMaxSculptUndoCellsPerStamp entries per dispatch -- reuses
-  // chunk_sculpt_cell_buffer_/chunk_sculpt_undo_capture_meta_buffer_/
-  // chunk_sculpt_undo_capture_voxel_buffer_'s EXISTING fixed-size scratch
-  // rather than allocating new, checkpoint-sized buffers: a checkpoint can
-  // easily cover far more cells in total than either of those buffers'
-  // single-call capacity, so this loops batches the same way a stamp
-  // touching an unusually large area would have to, rather than truncating.
-  const f32 voxel_size = kCoarseCellSize / static_cast<f32>(kChunkBrickDim);
-  const size_t batch_cap = kMaxSculptUndoCellsPerStamp;
-  for (size_t start = 0; start < pending.size(); start += batch_cap) {
-    const size_t count = std::min(batch_cap, pending.size() - start);
-
-    std::vector<GpuSculptStampCell> gpu_cells(count);
-    std::vector<GpuUndoCaptureMeta> gpu_meta(count);
-    std::vector<f32> voxel_upload(count * kChunkBrickVoxelCount);
-    for (size_t i = 0; i < count; ++i) {
-      const PendingCell &cell = pending[start + i];
-      gpu_cells[i].slot_cell = glm::ivec4(cell.slot, cell.local_cell_index, 0, 0);
-      gpu_cells[i].cell_min_size = glm::vec4(cell.cell_min, kCoarseCellSize);
-      gpu_meta[i].change_type = 0; // Unused by the checkpoint-restore shader.
-      gpu_meta[i].old_material = cell.material; // Repurposed as "material
-                                                // to restore" -- see the
-                                                // shader's own comment.
-      // M3 (Looseness): old_looseness is likewise repurposed here as
-      // "looseness to restore" -- same convention as old_material
-      // immediately above.
-      gpu_meta[i].old_looseness = cell.looseness;
-      gpu_meta[i].pad1 = 0;
-      std::memcpy(voxel_upload.data() + i * kChunkBrickVoxelCount,
-                 cell.voxels->data(), kChunkBrickVoxelCount * sizeof(f32));
-    }
-
-    chunk_sculpt_cell_buffer_->load_data(
-        0, count * sizeof(GpuSculptStampCell), 0, gpu_cells.data());
-    chunk_sculpt_undo_capture_meta_buffer_->load_data(
-        0, count * sizeof(GpuUndoCaptureMeta), 0, gpu_meta.data());
-    chunk_sculpt_undo_capture_voxel_buffer_->load_data(
-        0, voxel_upload.size() * sizeof(f32), 0, voxel_upload.data());
-
-    auto cmd = VulkanCommandBuffer::allocate_and_begin_single_use(
-        *context_, context_->device.graphics_command_pool);
-    const u32 groups =
-        (static_cast<u32>(count) + kSculptLocalSize - 1) / kSculptLocalSize;
-
-    chunk_sculpt_checkpoint_restore_pipeline_->bind(*cmd);
-    vkCmdBindDescriptorSets(
-        cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
-        chunk_sculpt_checkpoint_restore_pipeline_->layout(), 0, 1,
-        &chunk_sculpt_stamp_set_, 0, nullptr);
-    SculptUndoRestorePushConstants restore_push{static_cast<i32>(count)};
-    vkCmdPushConstants(cmd->handle(),
-                      chunk_sculpt_checkpoint_restore_pipeline_->layout(),
-                      VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(restore_push),
-                      &restore_push);
-    vkCmdDispatch(cmd->handle(), groups, 1, 1);
-
-    // The splat-regen pass below reads chunk_indirection_buffer_/chunk_
-    // brick_pool_buffer_, both just written above.
-    VkBufferMemoryBarrier barriers[2]{};
-    const VkBuffer written[2] = {chunk_indirection_buffer_->handle(),
-                                 chunk_brick_pool_buffer_->handle()};
-    for (u32 i = 0; i < 2; ++i) {
-      barriers[i].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-      barriers[i].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-      barriers[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      barriers[i].buffer = written[i];
-      barriers[i].offset = 0;
-      barriers[i].size = VK_WHOLE_SIZE;
-    }
-    vkCmdPipelineBarrier(cmd->handle(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2,
-                        barriers, 0, nullptr);
-
-    chunk_sculpt_splat_regen_pipeline_->bind(*cmd);
-    vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
-                           chunk_sculpt_splat_regen_pipeline_->layout(), 0, 1,
-                           &chunk_sculpt_splat_regen_set_, 0, nullptr);
-    SculptSplatRegenPushConstants splat_push{static_cast<i32>(count),
-                                             bake_stats_enabled_ ? 1 : 0,
-                                             kCoarseCellSize, voxel_size};
-    vkCmdPushConstants(cmd->handle(), chunk_sculpt_splat_regen_pipeline_->layout(),
-                      VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push),
-                      &splat_push);
-    vkCmdDispatch(cmd->handle(), groups, 1, 1);
-
-    VulkanCommandBuffer::end_single_use(*context_,
-                                        context_->device.graphics_command_pool,
-                                        std::move(cmd),
-                                        context_->device.graphics_queue);
-  }
-
-  invalidate_temporal_history();
-}
-
 i32 VulkanRaymarchShader::crop_volume(glm::vec3 center, BrushShape shape_type,
                                       glm::vec4 params, f32 smoothness,
                                       bool keep_outside) {
@@ -6368,9 +5956,10 @@ i32 VulkanRaymarchShader::crop_volume(glm::vec3 center, BrushShape shape_type,
   // pool_buffer_/the brick+cluster free lists directly.
   vkDeviceWaitIdle(context_->device.logical_device);
 
-  // 1. One bulk copy of level 0's ENTIRE indirection sub-range -- identical
-  // first step to capture_sculpt_checkpoint()'s own (see its comment for
-  // why a flat scan is simpler and just as fast as restricting the copy).
+  // 1. One bulk copy of level 0's ENTIRE indirection sub-range -- a flat
+  // scan is simpler and just as fast as restricting the copy to only the
+  // crop shape's own AABB (export_crop_outside()'s own readback, below,
+  // uses the identical shape).
   const u64 level0_entries =
       static_cast<u64>(kMaxResidentChunks) * kChunkCellCount;
   const u64 level0_bytes = level0_entries * sizeof(i32);
@@ -6430,10 +6019,10 @@ i32 VulkanRaymarchShader::crop_volume(glm::vec3 center, BrushShape shape_type,
     return 0;
   }
 
-  // 3. Batched at kMaxSculptStampCellsPerCall entries per dispatch, same
-  // "a whole-volume operation can easily exceed one dispatch's fixed
-  // scratch capacity" reasoning restore_sculpt_checkpoint() already
-  // documents for its own batching loop.
+  // 3. Batched at kMaxSculptStampCellsPerCall entries per dispatch -- a
+  // whole-volume operation can easily exceed one dispatch's fixed scratch
+  // capacity, so this loops the same way load_crop_outside_file()'s own
+  // batching loop (below) does for an unusually large Cutout snapshot.
   const size_t batch_cap = kMaxSculptStampCellsPerCall;
   for (size_t start = 0; start < pending.size(); start += batch_cap) {
     const size_t count = std::min(batch_cap, pending.size() - start);
@@ -6507,15 +6096,14 @@ i32 VulkanRaymarchShader::crop_volume(glm::vec3 center, BrushShape shape_type,
   }
 
   // A crop can free/reallocate bricks any pending undo_stamp() entry
-  // refers to -- clear it, same hazard restore_sculpt_checkpoint() already
-  // documents for its own GPU-state rewrite. Crop/Cutout are NOT
-  // integrated into the checkpoint/replay engine (see this method's own
-  // header comment) -- this clears the PER-STAMP undo stack only; it does
-  // not touch sculpt_checkpoints_ at all (those remain valid as "state at
-  // an earlier edit index", since nothing about past STAMPS changed -- a
-  // later delete_edit()/move_edit() replaying around a gap simply will not
-  // reproduce this crop, a documented, accepted limitation -- see this
-  // method's own header comment).
+  // refers to -- clear it, the same "a GPU-state rewrite out from under an
+  // existing snapshot invalidates it" hazard every other wholesale rewrite
+  // in this class already has to account for. Crop/Cutout are NOT
+  // integrated into SculptVolume/the GPU stamp-list mirror at all (see
+  // this method's own header comment) -- a later delete_edit()/move_edit()
+  // recompute has no way to know this crop ever happened, so it simply
+  // will not reproduce it; a documented, accepted limitation, see this
+  // method's own header comment.
   undo_stack_.clear();
   invalidate_temporal_history();
 
@@ -6533,12 +6121,11 @@ bool VulkanRaymarchShader::export_crop_outside(const std::string &path,
 
   vkDeviceWaitIdle(context_->device.logical_device);
 
-  // Steps 1-3 below duplicate capture_sculpt_checkpoint()'s own readback
-  // mechanics verbatim rather than sharing a helper with it -- see this
-  // method's own header comment (vulkan_raymarch_shader.h) for why: M4's
-  // checkpoint/replay engine is already-complete, must-not-touch work, and
-  // refactoring it to share a helper carries real regression risk for zero
-  // behavioural benefit over simply duplicating ~30 lines of readback code.
+  // Steps 1-3 below duplicate crop_volume()'s own readback mechanics
+  // (above) verbatim rather than sharing a helper with it -- see this
+  // method's own header comment (vulkan_raymarch_shader.h) for why this
+  // and crop_volume() each read back the chunk/brick state independently
+  // instead of factoring out a shared helper.
   std::vector<CropOutsideBrickHeader> brick_headers;
   std::vector<std::vector<f32>> brick_voxels;
 
@@ -6766,13 +6353,13 @@ bool VulkanRaymarchShader::load_crop_outside_file(const std::string &path) {
 
   vkDeviceWaitIdle(context_->device.logical_device);
 
-  // Reuses restore_sculpt_checkpoint()'s own batched-upload-then-dispatch
-  // mechanics (chunk_sculpt_checkpoint_restore_pipeline_ + chunk_sculpt_
-  // splat_regen_pipeline_) rather than duplicating them -- see this
-  // method's own header comment (vulkan_raymarch_shader.h) for why this is
-  // safe to share (it is a pure "upload a captured brick verbatim" dispatch
-  // with no dependency on the checkpoint-ring/undo-history machinery this
-  // milestone must not touch).
+  // Batched upload-then-dispatch over chunk_sculpt_checkpoint_restore_
+  // pipeline_ + chunk_sculpt_splat_regen_pipeline_ -- see this method's own
+  // header comment (vulkan_raymarch_shader.h) for why this shader (despite
+  // its name -- its own sole OTHER caller, the periodic checkpoint ring,
+  // was deleted in M5) is still kept and used here: it is a pure "upload a
+  // captured brick verbatim" dispatch with no dependency on anything else
+  // that was removed alongside the ring.
   struct PendingCell {
     i32 slot = 0;
     i32 local_cell_index = 0;

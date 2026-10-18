@@ -637,21 +637,6 @@ static_assert(
     "SculptBrushOp and VulkanRaymarchShader::BrushOp must stay in "
     "lockstep.");
 
-// M4b: how many landed stamps between each full-volume checkpoint capture
-// (VulkanRaymarchShader::capture_sculpt_checkpoint()) -- see apply_stamp_
-// and_record()'s own call site. 10 matches the plan file's own suggestion
-// and is a reasonable middle ground for a hand-sized sculpture: frequent
-// enough that delete_edit()'s own replay (restore-nearest-checkpoint, then
-// re-stamp everything after it) never has to redo more than ~9 stamps'
-// worth of work even on a long session, while infrequent enough that the
-// kMaxSculptCheckpoints-deep ring (below) covers a reasonable span of
-// history (50 stamps) before its oldest entry drops off. VERIFIED WITH: this
-// was temporarily lowered to 3 during this milestone's own manual
-// verification pass (to actually exercise a checkpoint-restore within one
-// short test session without stamping 10+ shapes first) and restored to 10
-// before landing -- see the task's own verification notes.
-constexpr i32 kSculptCheckpointInterval = 10;
-
 void VulkanRendererBackend::set_material(i32 slot, glm::vec3 colour,
                                          f32 roughness, f32 metallic,
                                          bool waxy, i32 fleck_pattern,
@@ -720,19 +705,6 @@ void VulkanRendererBackend::apply_stamp_and_record(
   context_.raymarch_shader->sculpt_stamp_list_append(
       center, vulkan_shape, params, smoothness, vulkan_op, material_slot,
       looseness);
-
-  // M4b: every ~kSculptCheckpointInterval landed stamps, snapshot the whole
-  // volume so a future delete_edit() targeting an edit near here never has
-  // to replay all the way from empty -- see capture_sculpt_checkpoint()'s
-  // own comment for the full mechanics. after_edit_index is this stamp's
-  // own position in the (just-updated) stamp list.
-  ++stamps_since_checkpoint_;
-  if (stamps_since_checkpoint_ >= kSculptCheckpointInterval) {
-    stamps_since_checkpoint_ = 0;
-    const i32 after_edit_index =
-        static_cast<i32>(sculpt_system_.volume().stamps().size()) - 1;
-    context_.raymarch_shader->capture_sculpt_checkpoint(after_edit_index);
-  }
 }
 
 void VulkanRendererBackend::stamp_shape(glm::vec3 center,

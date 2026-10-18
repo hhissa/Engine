@@ -796,81 +796,20 @@ public:
   i32 spray_paint(glm::vec3 center, BrushShape shape_type, glm::vec4 params,
                   f32 opacity_per_pass);
 
-  // M4b (Delete-of-an-arbitrary-edit): captures a full-volume checkpoint --
-  // every currently resident chunk/brick's voxel+material data -- tagged
-  // with `after_edit_index` (the index, into SculptVolume::stamps(), of the
-  // stamp that was just applied when this is called; the caller,
-  // VulkanRendererBackend, is responsible for picking that number
-  // correctly). Pushed onto sculpt_checkpoints_ (oldest dropped once
-  // kMaxSculptCheckpoints is exceeded -- see its own comment). This is the
-  // ONLY way a later delete_edit() can reconstruct the volume's state as of
-  // an arbitrary past edit without replaying the ENTIRE history from
-  // scratch every time -- see restore_sculpt_checkpoint_before()'s own
-  // comment for how it's used.
-  //
-  // Mechanics: reads back chunk_indirection_buffer_'s level-0 sub-range in
-  // ONE device-to-staging copy (it's a flat scan over every live chunk
-  // slot's cells to learn which hold a brick at all -- no per-brick
-  // granularity needed for that part), then reads back every DISTINCT
-  // resident brick's chunk_brick_primitive_buffer_ entry and full
-  // CHUNK_BRICK_VOXEL_COUNT-float chunk_brick_pool_buffer_ voxel array in
-  // TWO more device-to-staging copies, each a single vkCmdCopyBuffer call
-  // covering every touched brick's own (scattered) offset via VulkanBuffer::
-  // copy_regions_to() -- one bulk, multi-region round trip per buffer,
-  // never one round trip per brick. Synchronous and device-stalling, same
-  // as every other sculpt-family call -- an authoring-time operation, not
-  // a per-frame one.
-  void capture_sculpt_checkpoint(i32 after_edit_index);
-
-  // M4b: finds the checkpoint with the largest after_edit_index STRICTLY
-  // LESS than `edit_index` and restores the GPU field to exactly that
-  // state (reset_chunked_field() first, for a clean slate, then every
-  // captured brick re-allocated and written back verbatim -- see
-  // restore_sculpt_checkpoint()'s own .cpp comment for the full mechanics);
-  // if no such checkpoint exists (e.g. edit_index is small, or nothing has
-  // been captured yet this session), just calls reset_chunked_field() and
-  // restores nothing, which IS the correct "state before edit 0" answer.
-  // Returns the after_edit_index actually restored to, or -1 if it reset to
-  // empty instead -- the caller (VulkanRendererBackend::delete_edit()) uses
-  // this to know where its own stamp_shape() replay needs to resume (the
-  // very next index after whatever this returns).
-  //
-  // Deliberately does NOT touch sculpt_checkpoints_ itself (neither adding
-  // nor removing entries) -- restoring an OLDER state doesn't invalidate
-  // checkpoints that are older still, and the caller decides separately
-  // which checkpoints a delete makes stale (see
-  // invalidate_sculpt_checkpoints_from()). It DOES clear undo_stack_ (via
-  // reset_chunked_field(), or explicitly if a checkpoint is actually
-  // restored) -- every entry in it refers to chunk slots/brick indices from
-  // whatever GPU state existed a moment ago, which this call just replaced
-  // out from under it.
-  i32 restore_sculpt_checkpoint_before(i32 edit_index);
-
-  // M4b: drops every checkpoint whose after_edit_index is >= edit_index --
-  // called by VulkanRendererBackend::delete_edit() once it has committed to
-  // removing the stamp at `edit_index`, since every edit from that point on
-  // shifts down by one position in SculptVolume::stamps() and any
-  // checkpoint tagged at or after it refers to a state (and an index) that
-  // no longer corresponds to anything in the rebuilt list. Checkpoints
-  // tagged STRICTLY BEFORE edit_index are untouched -- nothing about their
-  // own state or index changed (only entries at-or-after the deleted one
-  // move). The ring simply refills from here as new edits accumulate going
-  // forward -- there is no need to immediately recapture anything.
-  void invalidate_sculpt_checkpoints_from(i32 edit_index);
-
   // M4 (Crop/Cutout): the whole-volume boolean filter both tools share --
   // see the plan file's §4 table (/home/h-i/.claude/plans/joyful-skipping-
   // giraffe.md) for why this is NOT scoped to the shape's own AABB the way
   // every prior stamp/spray/undo call has been: Crop/Cutout constrain
   // EVERYTHING that currently exists in the volume, not just whatever one
   // brush stamp would touch. Mechanics: one bulk copy of level 0's entire
-  // chunk_indirection_buffer_ sub-range (identical first step to capture_
-  // sculpt_checkpoint()'s own, see its comment) to learn which cells are
-  // occupied, then every occupied (slot, local_cell_index) pair is batched
-  // into chunk_sculpt_cell_buffer_ at kMaxSculptStampCellsPerCall entries
-  // per dispatch (reusing that buffer's existing fixed capacity, same
-  // batching idiom restore_sculpt_checkpoint() already uses at kMaxSculpt
-  // UndoCellsPerStamp granularity) -- each batch dispatches Builtin.
+  // chunk_indirection_buffer_ sub-range (the same "scan the whole table to
+  // learn which cells are occupied" shape export_crop_outside()'s own
+  // readback below uses) to learn which cells are occupied, then every
+  // occupied (slot, local_cell_index) pair is batched into chunk_sculpt_
+  // cell_buffer_ at kMaxSculptStampCellsPerCall entries per dispatch
+  // (reusing that buffer's existing fixed capacity, same batching idiom
+  // load_crop_outside_file() uses at kMaxSculptUndoCellsPerStamp
+  // granularity) -- each batch dispatches Builtin.
   // SculptCrop.comp.glsl (keep-inside identity: smooth_subtraction(-crop_
   // sdf, old_dist, k, h), the standard SDF-intersection identity -- see
   // that shader's own header comment for the full verification against
@@ -896,11 +835,11 @@ public:
   // call site drives the LIVE volume with it set).
   //
   // Clears undo_stack_ (a crop can free/reallocate bricks any pending undo_
-  // stamp() entry refers to, exactly the same hazard restore_sculpt_
-  // checkpoint() already documents for its own GPU-state rewrite) and
-  // invalidates TAA history. Deliberately NOT integrated into SculptVolume/
-  // the checkpoint-replay engine -- see this method's own .cpp comment for
-  // the documented, accepted scope decision (mirrors Spraypaint's own
+  // stamp() entry refers to -- any such entry's chunk slots/brick indices
+  // are simply gone, same hazard every other GPU-state rewrite in this
+  // class already has to account for) and invalidates TAA history.
+  // Deliberately NOT integrated into SculptVolume/the GPU stamp-list
+  // mirror -- see this method's own .cpp comment for
   // precedent: not undoable/redoable for this pass, and not replayed by
   // delete_edit()/move_edit() if either targets an edit that landed before
   // a Crop ran).
@@ -914,9 +853,9 @@ public:
                   f32 smoothness, bool keep_outside);
 
   // M4 (Cutout): reads back EVERY resident brick's current voxel/material
-  // state (same bulk-copy/scan/batched-brick-readback mechanics as capture_
-  // sculpt_checkpoint()'s own steps 1-3, duplicated rather than shared --
-  // see this method's .cpp comment for why), then computes, ENTIRELY ON THE
+  // state (a bulk-copy/scan/batched-brick-readback, self-contained to this
+  // method -- see its .cpp comment for why it isn't shared with anything
+  // else), then computes, ENTIRELY ON THE
   // CPU (a small C++ port of Builtin.BrushShapes.inc.glsl's eval_brush_
   // shape()/smooth_subtraction(), file-local to the .cpp), the COMPLEMENT of
   // whatever crop_volume(..., keep_outside=false) is about to keep live --
@@ -951,12 +890,14 @@ public:
 
   // M4 (Cutout): the counterpart to export_crop_outside() -- reads a
   // snapshot file it (or an identical process) wrote and injects every
-  // brick in it into the LIVE volume, reusing restore_sculpt_checkpoint()'s
-  // own batched-upload-then-dispatch mechanics (chunk_sculpt_checkpoint_
-  // restore_pipeline_ + chunk_sculpt_splat_regen_pipeline_, kMaxSculptUndo
-  // CellsPerStamp entries per batch) rather than duplicating them --
-  // acquire_sculpt_chunk_slot() resolves (or allocates) each brick's chunk-
-  // table slot exactly as every other sculpt-family loader path already
+  // brick in it into the LIVE volume: a batched upload-then-dispatch over
+  // chunk_sculpt_checkpoint_restore_pipeline_ (bound via chunk_sculpt_
+  // stamp_set_/chunk_sculpt_stamp_set_layout_, see that pipeline's own
+  // header comment for why this shader -- despite its name -- is kept and
+  // shared here) + chunk_sculpt_splat_regen_pipeline_, kMaxSculptUndo
+  // CellsPerStamp entries per batch -- acquire_sculpt_chunk_slot()
+  // resolves (or allocates) each brick's chunk-table slot exactly as every
+  // other sculpt-family loader path already
   // does. ADDITIVE onto whatever the volume currently holds, same
   // documented limitation main_window.cpp's own on_load_triggered() already
   // carries for the ordinary .stamps Load path (there is still no "clear
@@ -1011,57 +952,6 @@ private:
   // accepted limitation of a linear-stack undo design (see the plan
   // file's M2b section).
   std::vector<SculptUndoEntry> undo_stack_;
-
-  // M4b (Delete-of-an-arbitrary-edit): one captured brick, as seen by
-  // capture_sculpt_checkpoint() -- the arbitrary-checkpoint counterpart to
-  // SculptUndoCell's MODIFIED case, just unconditional (a checkpoint always
-  // captures every resident brick's FULL state, not a before/after delta,
-  // since it has to stand on its own as a restore target with nothing else
-  // to blend against).
-  struct SculptCheckpointBrick {
-    i32 local_cell_index = 0; // Into this chunk's CHUNK_CELL_COUNT sub-block
-                             // -- see Builtin.ChunkedFieldCommon.inc.glsl.
-    i32 material = 0;
-    f32 looseness = 0.0f; // M3 (Looseness): captured/restored alongside
-                          // material immediately above -- same per-brick
-                          // concept, same unconditional-capture shape.
-    std::vector<f32> voxels; // Exactly kChunkBrickVoxelCount entries.
-  };
-  // One resident chunk's worth of captured bricks.
-  struct SculptCheckpointChunk {
-    glm::ivec3 chunk_coord{0};
-    std::vector<SculptCheckpointBrick> bricks;
-  };
-  // A full-volume checkpoint -- see capture_sculpt_checkpoint()'s own
-  // comment. after_edit_index is which SculptVolume::stamps() index this
-  // represents the state immediately AFTER (i.e. stamps [0, after_edit_
-  // index] have all been applied, nothing past that).
-  struct SculptCheckpoint {
-    i32 after_edit_index = -1;
-    std::vector<SculptCheckpointChunk> chunks;
-  };
-  // Oldest first, capped at kMaxSculptCheckpoints (see restore_sculpt_
-  // checkpoint_before()'s own .cpp comment for why 5/every-10-stamps was
-  // chosen) -- plain process memory, same "an authoring tool's history
-  // living in regular heap memory is normal" reasoning undo_stack_ above
-  // already documents. VulkanRendererBackend decides WHEN to call
-  // capture_sculpt_checkpoint() (the every-~10-stamps cadence); this class
-  // only owns the ring itself and the capture/restore mechanics, which stay
-  // physically next to the buffers they read/write, mirroring undo_stack_'s
-  // own placement.
-  static constexpr size_t kMaxSculptCheckpoints = 5;
-  std::vector<SculptCheckpoint> sculpt_checkpoints_;
-
-  // Restores the GPU field to exactly the state `checkpoint` captured --
-  // the shared tail of both restore_sculpt_checkpoint_before() branches
-  // (checkpoint found vs. not). See the .cpp for the full mechanics
-  // (reset_chunked_field() first, then re-acquire each chunk's slot, batch-
-  // upload every captured brick's voxel/material snapshot into the reused
-  // chunk_sculpt_cell_buffer_/chunk_sculpt_undo_capture_meta_buffer_/
-  // chunk_sculpt_undo_capture_voxel_buffer_ scratch at kMaxSculptUndoCells
-  // PerStamp entries per batch, and dispatch chunk_sculpt_checkpoint_
-  // restore_pipeline_ + chunk_sculpt_splat_regen_pipeline_ once per batch).
-  void restore_sculpt_checkpoint(const SculptCheckpoint &checkpoint);
 
   // Shared body of add_directional_light()/add_point_light() -- light_type
   // matches GpuLight::vector_type.w's convention (0=directional, 1=point).
@@ -1371,13 +1261,20 @@ private:
 
   VkDescriptorPool sculpt_descriptor_pool_ = VK_NULL_HANDLE;
 
-  // M4b: Builtin.SculptCheckpointRestore.comp.glsl -- restores one batch of
-  // a checkpoint's captured bricks (always allocating a fresh brick, then
-  // copying its captured voxel/material snapshot verbatim, no blending) --
-  // see restore_sculpt_checkpoint(). Deliberately reuses chunk_sculpt_
-  // stamp_set_layout_/chunk_sculpt_stamp_set_ wholesale rather than a new
-  // descriptor set: its binding list (StampCellBuffer/ChunkIndirection/
-  // ChunkBrickPool/ChunkBrickPrimitive/the brick free list/UndoCaptureMeta/
+  // Builtin.SculptCheckpointRestore.comp.glsl -- restores one batch of
+  // captured bricks (always allocating a fresh brick, then copying a
+  // voxel/material snapshot verbatim, no blending). Originally built for
+  // the now-deleted periodic checkpoint ring (M4b -- see /home/h-i/.claude/
+  // plans/joyful-skipping-giraffe.md's M4 section for that design and why
+  // M5 replaced it with Builtin.SculptChunkRecompute.comp.glsl's bounded
+  // per-cell recompute); kept because load_crop_outside_file() reuses this
+  // exact pipeline+descriptor-set combination for its own, unrelated
+  // "inject a batch of captured bricks verbatim" need (loading a Cutout's
+  // saved-removed-geometry file back into the live volume) -- see its own
+  // .cpp comment. Deliberately reuses chunk_sculpt_stamp_set_layout_/
+  // chunk_sculpt_stamp_set_ wholesale rather than a new descriptor set:
+  // its binding list (StampCellBuffer/ChunkIndirection/ChunkBrickPool/
+  // ChunkBrickPrimitive/the brick free list/UndoCaptureMeta/
   // UndoCaptureVoxel/ChunkBrickPaint) is byte-for-byte identical to that
   // set's own -- only the SHADER differs (a different pipeline reading the
   // same bound buffers, with the undo-capture buffers' fields repurposed to
@@ -1764,14 +1661,19 @@ private:
   // material untouched -- see that shader's own comment on why). Read back
   // in Builtin.DeferredShade.comp.glsl (paint_read_set_'s new binding 3) to
   // scale a hit surface's effective Fleck strength/scale -- see that
-  // shader's own comment at the real-surface Fleck call site. Also captured/
-  // restored by capture_sculpt_checkpoint()/restore_sculpt_checkpoint() and
-  // undo_stamp() alongside chunk_brick_primitive_buffer_'s own identical
-  // snapshot, for the same reason: it is authored alongside material at
-  // stamp time and represents the same "what this brick's surface is like"
-  // concept, so it must survive Undo/checkpoint-restore exactly the same
-  // way. TRANSFER_SRC for the same checkpoint-readback reason chunk_brick_
-  // primitive_buffer_ carries it.
+  // shader's own comment at the real-surface Fleck call site. Also
+  // captured/restored by undo_stamp() alongside chunk_brick_primitive_
+  // buffer_'s own identical snapshot, for the same reason: it is authored
+  // alongside material at stamp time and represents the same "what this
+  // brick's surface is like" concept, so it must survive Undo exactly the
+  // same way. TRANSFER_SRC is currently unused on this buffer -- kept for
+  // symmetry with chunk_brick_primitive_buffer_'s own identical shape (see
+  // its creation comment, .cpp, for why that one still needs it:
+  // export_crop_outside()'s Cutout-export readback. Originally this
+  // buffer's own TRANSFER_SRC was for the now-deleted M4b periodic
+  // checkpoint ring's readback -- see /home/h-i/.claude/plans/joyful-
+  // skipping-giraffe.md's M4 section -- replaced by Builtin.
+  // SculptChunkRecompute.comp.glsl's bounded per-cell recompute, M5).
   std::optional<VulkanBuffer> chunk_brick_looseness_buffer_;
   // M3c (Spraypaint): exactly the same size/addressing as chunk_brick_pool_
   // buffer_ above (one f32 per voxel, CHUNK_BRICK_VOXEL_COUNT per brick,

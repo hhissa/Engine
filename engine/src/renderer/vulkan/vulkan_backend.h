@@ -158,19 +158,6 @@ private:
   // needed here.
   std::vector<SculptStamp> redo_stack_;
 
-  // M4b: how many stamps have landed (fresh OR replayed -- see apply_
-  // stamp_and_record()) since the last full-volume checkpoint capture --
-  // see kSculptCheckpointInterval's own comment (vulkan_backend.cpp) for
-  // the chosen cadence. Deliberately counts every apply_stamp_and_record()
-  // call uniformly (redo included) rather than distinguishing "fresh" from
-  // "replayed" stamps -- a checkpoint is just as valid either way, and the
-  // distinction would add bookkeeping for no benefit. NOT incremented by
-  // delete_edit()'s own internal replay (which calls VulkanRaymarchShader::
-  // stamp_shape() directly, bypassing apply_stamp_and_record() -- see its
-  // own comment for why) -- the ring is allowed to stay sparse for a while
-  // after a delete and simply refill from ordinary stamping going forward.
-  i32 stamps_since_checkpoint_ = 0;
-
   // Queued via draw_text()/draw_ui_quad() (by the game, through the
   // renderer frontend) during its render() step; flushed into actual draw
   // calls and cleared by end_frame(), so nothing draws unless the game
