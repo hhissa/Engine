@@ -9,6 +9,7 @@
 #include "../vulkan_image.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -4626,6 +4627,16 @@ i32 VulkanRaymarchShader::stamp_shape(glm::vec3 center, BrushShape shape_type,
 
   ensure_default_sculpt_material();
 
+  // M7 (Smear-latency investigation): wall-clock the whole synchronous
+  // critical section below (vkDeviceWaitIdle through end_single_use's own
+  // fence wait) -- KTRACE is compiled out entirely in a release build
+  // (see core/logger.h), so this costs nothing there; in a build where
+  // it's live, it gives a real per-stamp number "for free" the next time
+  // anyone drags a Smear/Clone stroke in the tool, without needing a
+  // bespoke timing harness. See this method's own doc comment for the
+  // empirical finding this was added to let future sessions reconfirm.
+  const auto stamp_timing_start = std::chrono::steady_clock::now();
+
   // Device-wide wait first -- same reasoning as debug_probe_field()/
   // rebake()/set_skybox(): about to rewrite chunk_table_buffer_/chunk_
   // slot_published_buffer_ directly from the CPU and record GPU work that
@@ -4884,6 +4895,15 @@ i32 VulkanRaymarchShader::stamp_shape(glm::vec3 center, BrushShape shape_type,
 
   // New geometry just appeared -- any accumulated TAA history predates it.
   invalidate_temporal_history();
+
+  const auto stamp_timing_end = std::chrono::steady_clock::now();
+  const f64 stamp_ms =
+      std::chrono::duration<f64, std::milli>(stamp_timing_end -
+                                             stamp_timing_start)
+          .count();
+  KTRACE("VulkanRaymarchShader::stamp_shape() touched {} cell(s) in {:.3f} "
+        "ms (vkDeviceWaitIdle + dispatch + fence wait + undo capture).",
+        cells.size(), stamp_ms);
 
   return static_cast<i32>(cells.size());
 }
