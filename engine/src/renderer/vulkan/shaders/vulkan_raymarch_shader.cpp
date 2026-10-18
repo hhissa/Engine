@@ -5585,14 +5585,30 @@ i32 VulkanRaymarchShader::recompute_cells(
 
   // The splat-regen pass below reads chunk_indirection_buffer_/chunk_brick_
   // pool_buffer_ (to resolve each cell's brick index and its voxels), both
-  // just written above -- same handoff stamp_shape() itself uses.
-  VkBufferMemoryBarrier recompute_barriers[2]{};
-  const VkBuffer recompute_written[2] = {chunk_indirection_buffer_->handle(),
-                                        chunk_brick_pool_buffer_->handle()};
-  for (u32 i = 0; i < 2; ++i) {
+  // just written above -- same handoff stamp_shape() itself uses. UNLIKE
+  // stamp_shape(), this shader's own orphan-brick-freeing branch (see
+  // Builtin.SculptChunkRecompute.comp.glsl's own header comment) can ALSO
+  // write chunk_brick_cluster_buffer_/chunk_cluster_buffer_/chunk_cluster_
+  // free_list_buffer_/chunk_cluster_free_top_buffer_ -- the exact same four
+  // buffers chunk_sculpt_splat_regen_set_ binds to allocate ITS OWN fresh
+  // cluster pages right after. Two separate vkCmdDispatch calls in the same
+  // command buffer have no implicit memory-visibility ordering between them
+  // without a barrier (compute-to-compute hazards are never implicit, even
+  // back-to-back in one command buffer) -- omitting these four from the
+  // barrier would be a genuine race on the shared cluster free-list atomics
+  // between this dispatch's pushes and the next one's pops, not merely a
+  // missed optimisation.
+  VkBufferMemoryBarrier recompute_barriers[6]{};
+  const VkBuffer recompute_written[6] = {
+      chunk_indirection_buffer_->handle(), chunk_brick_pool_buffer_->handle(),
+      chunk_brick_cluster_buffer_->handle(), chunk_cluster_buffer_->handle(),
+      chunk_cluster_free_list_buffer_->handle(),
+      chunk_cluster_free_top_buffer_->handle()};
+  for (u32 i = 0; i < 6; ++i) {
     recompute_barriers[i].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
     recompute_barriers[i].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    recompute_barriers[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    recompute_barriers[i].dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     recompute_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     recompute_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     recompute_barriers[i].buffer = recompute_written[i];
@@ -5600,7 +5616,7 @@ i32 VulkanRaymarchShader::recompute_cells(
     recompute_barriers[i].size = VK_WHOLE_SIZE;
   }
   vkCmdPipelineBarrier(cmd->handle(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 6,
                       recompute_barriers, 0, nullptr);
 
   chunk_sculpt_splat_regen_pipeline_->bind(*cmd);
