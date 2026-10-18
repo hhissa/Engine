@@ -1814,18 +1814,24 @@ void main() {
         int preview_slot = brush_preview.shape_op_slot.z;
         vec4 preview_params = brush_preview.params;
 
-        // Conservative march bound: twice the shape's own largest param
-        // component (every shape's size-governing params live in params.
-        // xyz, params.w only ever a sub-feature like a corner radius that
-        // never exceeds them) plus a flat 1-unit margin. This is a single
-        // analytic shape floating in space, not a voxel field to escape --
-        // mirroring sculpt_shape_bounding_radius()'s own conservative-
-        // bounding-radius reasoning engine-side (stamp_shape()'s CPU-side
-        // cell enumeration), just inlined here rather than shared, since a
-        // compute shader can't call back into engine-side C++.
-        float preview_extent = max(max(preview_params.x, preview_params.y),
-                                   max(preview_params.z, preview_params.w));
-        float preview_bound = preview_extent * 2.0 + 1.0;
+        // March bound: must cover the distance from THIS pixel's ray
+        // origin (the camera) to the shape, not just the shape's own
+        // size -- a previous version used only `preview_extent * 2 + 1`
+        // (the shape's own diameter plus a flat margin), which is enough
+        // to cross the shape once the march is already near it but nowhere
+        // near enough to ever REACH it from a camera sitting several units
+        // away, so the loop always exhausted its bound before the first
+        // ray ever touched the sphere -- the preview never rendered a
+        // single hit, on any pixel, regardless of brush size (confirmed by
+        // direct testing: a full-screen debug fill placed right at the top
+        // of this block was visible, proving the enabled flag/UBO read
+        // were fine, while the real per-pixel trace below it never once
+        // fired). distance(ray_origin, preview_center) covers the gap to
+        // the shape; the rest is this block's own former bound (enough to
+        // cross the shape itself once reached).
+        float preview_bound = distance(ray_origin, preview_center) +
+            max(max(preview_params.x, preview_params.y),
+               max(preview_params.z, preview_params.w)) * 2.0 + 1.0;
 
         float preview_t = 0.0;
         bool preview_hit = false;
