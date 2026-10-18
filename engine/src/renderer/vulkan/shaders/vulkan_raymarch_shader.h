@@ -516,6 +516,29 @@ public:
                     bool waxy, i32 fleck_pattern, f32 fleck_strength,
                     f32 fleck_scale);
 
+  // M7 polish: live brush-cursor "ghost" preview -- shows the ACTUAL
+  // shaded material (colour/roughness/metallic/waxy Finish, Fleck pattern)
+  // the next stamp_shape() call at `center` would place, not just the
+  // wireframe outline tools/modelling_software_v2's scene_viewport.cpp drew
+  // before this existed. `shape_type`/`params`/`op`/`material_slot` use the
+  // EXACT SAME per-shape layout and enum values as stamp_shape() -- see its
+  // own header comment -- so the preview can never drift from what a real
+  // stamp right now would place. Writes a single small UBO (brush_preview_
+  // buffer_ above) that Builtin.DeferredShade.comp.glsl's shading pass
+  // sphere-traces ONE analytic shape against per pixel (eval_brush_preview_
+  // sdf(), mirroring Builtin.SculptStamp.comp.glsl's eval_brush_shape()) --
+  // no voxel field involved, since a preview never touches real geometry.
+  // `enabled = false` is the cheap early-out: the shader's very first read
+  // of the uniform skips the trace entirely, so calling this with false
+  // every frame the preview is hidden costs one float compare, not a wasted
+  // march. Cheap, synchronous, NOT device-stalling (a direct host-visible
+  // load_data() write, same idiom as set_material() above) -- unlike the
+  // sculpt-stamp family, this IS meant to be called every frame the
+  // preview is visible (scene_viewport.cpp's tick()), not just on an
+  // authoring-time action.
+  void set_brush_preview(bool enabled, glm::vec3 center, BrushShape shape_type,
+                         glm::vec4 params, BrushOp op, i32 material_slot);
+
   // Minimal standing-light registration -- fills the next free slot of
   // light_buffer_ and bumps light_count_, the same "direct host-visible
   // buffer write, no device-idle wait" idiom set_material() above uses, NOT
@@ -1268,6 +1291,13 @@ private:
   // pass. Never bound to render_pipeline_ (the visibility pass) -- that
   // shader has no use for paint data, and leaving its pipeline layout at
   // just {render_set_layout_} means this addition cannot affect it at all.
+  // M7 polish ADDS a second binding (1) to this SAME set -- brush_preview_
+  // buffer_, read as BrushPreviewBuffer in the shader -- rather than
+  // standing up a third set: the guidance that landed this feature was
+  // explicit that new shading-only state belongs on "the shading
+  // pipeline's existing additive descriptor set", and this already-
+  // existing set = 1 is exactly that (set 0/render_set_ stays completely
+  // untouched by either addition).
   VkDescriptorPool paint_descriptor_pool_ = VK_NULL_HANDLE;
   VkDescriptorSetLayout paint_read_set_layout_ = VK_NULL_HANDLE;
   VkDescriptorSet paint_read_set_ = VK_NULL_HANDLE;
@@ -1566,6 +1596,17 @@ private:
   // once via vkCmdFillBuffer in reset_chunked_field() without a ~1.9GB CPU-
   // side staging array.
   std::optional<VulkanBuffer> chunk_brick_paint_buffer_;
+  // M7 polish (live brush-cursor ghost preview): the single small UBO
+  // backing set_brush_preview() -- see that method's own comment, and
+  // Builtin.DeferredShade.comp.glsl's BrushPreviewBuffer (set = 1, binding
+  // = 1 -- the SAME additive set paint_read_set_ already adds for
+  // ChunkBrickPaintBuffer at binding 0, not a new set of its own) for the
+  // GPU side. Host-visible/host-coherent: set_brush_preview() is called
+  // every frame the preview is visible and must stay a cheap direct
+  // load_data() write, not a staged upload. Deliberately NOT a push
+  // constant -- PushConstants in that shader is already called out, in its
+  // own comment, as sitting close to Vulkan's guaranteed 128-byte limit.
+  std::optional<VulkanBuffer> brush_preview_buffer_;
   // Host-visible -- unconditional per-cell demand counter, zeroed before
   // every voxelize dispatch and read back afterward, exactly mirroring
   // brick_counter_buffer_'s overflow-diagnostic role above (see its own

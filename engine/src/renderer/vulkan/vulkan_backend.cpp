@@ -763,6 +763,20 @@ i32 VulkanRendererBackend::spray_paint(glm::vec3 center,
       params, opacity_per_pass);
 }
 
+void VulkanRendererBackend::preview_brush(bool enabled, glm::vec3 center,
+                                          SculptBrushShape shape_type,
+                                          glm::vec4 params, SculptBrushOp op,
+                                          i32 material_slot) {
+  // Straight pass-through, same shape/op-enum cast spray_paint() above
+  // uses (the static_assert pinning SculptBrushShape/SculptBrushOp against
+  // VulkanRaymarchShader::BrushShape/BrushOp, above, covers this call too)
+  // -- no SculptSystem bookkeeping, no undo involvement: a preview is not
+  // an edit, it never touches sculpt_system_ or redo_stack_ at all.
+  context_.raymarch_shader->set_brush_preview(
+      enabled, center, static_cast<VulkanRaymarchShader::BrushShape>(shape_type),
+      params, static_cast<VulkanRaymarchShader::BrushOp>(op), material_slot);
+}
+
 bool VulkanRendererBackend::redo_stamp() {
   if (redo_stack_.empty()) {
     return false;

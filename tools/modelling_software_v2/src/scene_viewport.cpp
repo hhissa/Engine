@@ -930,9 +930,20 @@ void SceneViewport::update_brush_preview() {
   }
   // Hidden during any active drag -- see this method's own header comment
   // in scene_viewport.h for why every drag mode already has its own
-  // feedback and doesn't need this on top of it.
+  // feedback and doesn't need this on top of it. Explicitly tells the
+  // renderer the shaded ghost preview (M7 polish) should stop showing too
+  // -- unlike preview_lines_/preview_visible_ above (plain member state
+  // this class owns and simply leaves at its already-cleared default),
+  // the renderer-side preview is separate persistent GPU state
+  // (VulkanRaymarchShader::set_brush_preview()'s UBO) that stays showing
+  // whatever it was last told until something explicitly turns it off --
+  // a `return` here with no matching call would leave last frame's ghost
+  // stuck on screen for the whole drag.
   if (orbiting_ || left_dragging_ || spray_dragging_ || move_dragging_ ||
       moving_edit_dragging_) {
+    renderer_sculpt_preview_brush(false, glm::vec3(0.0f), brush_shape_,
+                                  glm::vec4(0.0f), brush_op_,
+                                  brush_material_slot_);
     return;
   }
 
@@ -954,7 +965,14 @@ void SceneViewport::update_brush_preview() {
   const QPoint local = mapFromGlobal(QCursor::pos());
   if (local.x() < 0 || local.y() < 0 || local.x() >= width() ||
       local.y() >= height()) {
-    return; // pointer is outside this viewport (over a dock, menu, etc.)
+    // Same "explicitly turn off persistent GPU state" reasoning as the
+    // drag-state early return above -- the pointer having left this
+    // viewport (over a dock, menu, etc.) must not leave last frame's ghost
+    // showing at whatever world position it was last computed at.
+    renderer_sculpt_preview_brush(false, glm::vec3(0.0f), brush_shape_,
+                                  glm::vec4(0.0f), brush_op_,
+                                  brush_material_slot_);
+    return;
   }
 
   const glm::vec3 center = compute_ray_center(local);
@@ -1002,6 +1020,19 @@ void SceneViewport::update_brush_preview() {
                        glm::vec3(0.0f, 0.0f, 1.0f), rx, rz); // XZ plane
   }
   preview_visible_ = !preview_lines_.empty();
+
+  // M7 polish: the real shaded "ghost" preview, alongside the wireframe
+  // lines just built above -- same center/params/brush_shape_/brush_op_/
+  // brush_material_slot_ a click right now would stamp with (see this
+  // method's own comment on `params` above), so the two cues -- the
+  // wireframe outline and the shaded fill the renderer composites in
+  // Builtin.DeferredShade.comp.glsl -- can never show a different brush
+  // than the one that would actually land. Keyed to preview_visible_
+  // (which is exactly !preview_lines_.empty(), just set above), not a
+  // separate condition -- there is no case where the wireframe should
+  // show but the shaded ghost shouldn't, or vice versa.
+  renderer_sculpt_preview_brush(preview_visible_, center, brush_shape_,
+                                params, brush_op_, brush_material_slot_);
 }
 
 void SceneViewport::draw_brush_preview() const {

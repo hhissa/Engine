@@ -1157,6 +1157,36 @@ struct GpuLight {
   f32 source_primitive[4];
 };
 
+// M7 polish: matches `BrushPreviewBuffer` in Builtin.DeferredShade.comp.
+// glsl field-for-field -- see set_brush_preview()'s own header comment
+// (vulkan_raymarch_shader.h) for why this exists at all. Plain C arrays of
+// f32/i32, like GpuLight/GpuLayer above, NOT glm::vec3/vec4 -- a bare vec3
+// is exactly the kind of GLSL-vs-C++ alignment mismatch M1a cost real
+// debugging time to root-cause (see the plan file's M1a section), so every
+// field here is a full 16-byte vec4-equivalent, with any genuinely-unused
+// component left as explicit padding rather than omitted.
+struct GpuBrushPreview {
+  f32 center_enabled[4]; // xyz = world-space center, w = 1.0f/0.0f enabled
+                        // -- a float flag, not bool, matching every other
+                        // packed boolean in this file (set_material()'s
+                        // waxy flag, ScenePrimitiveMaterialScalars' exempt
+                        // flag) for the same reason: bool's size/ABI is not
+                        // guaranteed to match across the C++/GLSL boundary.
+  f32 params[4];          // Same per-shape layout as stamp_shape()'s own
+                        // `params` -- see Builtin.SculptStamp.comp.glsl's
+                        // eval_brush_shape() table.
+  i32 shape_op_slot[4];   // x = BrushShape, y = BrushOp, z = material slot,
+                        // w = unused padding (kept explicit, not omitted,
+                        // so sizeof() stays a whole number of vec4s without
+                        // relying on the compiler to insert matching
+                        // padding -- the exact class of silent mismatch
+                        // M1a's root cause was).
+};
+static_assert(sizeof(GpuBrushPreview) == 48,
+             "GpuBrushPreview must stay 3 vec4-sized members (48 bytes) -- "
+             "see Builtin.DeferredShade.comp.glsl's BrushPreviewBuffer, "
+             "which this struct's layout must match field-for-field.");
+
 // A single compiled "parametric attribute" expression -- matches the
 // `ParamExpr` struct in Builtin.RaymarchVoxelize.comp.glsl exactly (plain
 // C arrays, not std::array, so the memory layout is the flat, tightly
@@ -2368,6 +2398,26 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                        context_->allocator,
                                        &chunk_sculpt_spraypaint_set_layout_));
 
+  // M7 polish: brush_preview_buffer_ -- the single small UBO behind
+  // set_brush_preview() (see its own header comment, vulkan_raymarch_
+  // shader.h). Host-visible/host-coherent, like primitive_colour_buffer_
+  // etc. above: it is rewritten by a direct CPU load_data() every frame
+  // the brush-cursor preview is visible, never touched by the GPU. Created
+  // here, right before paint_read_set_layout_ below, since binding 1 of
+  // that set is the only thing that ever reads it.
+  brush_preview_buffer_.emplace(
+      *context_, sizeof(GpuBrushPreview), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  {
+    // Default-safe contents until the first real set_brush_preview() call:
+    // enabled = 0.0f, so Builtin.DeferredShade.comp.glsl's early-out skips
+    // the preview trace entirely rather than reading whatever uninitialized
+    // bytes a fresh host-visible allocation happens to hold.
+    const GpuBrushPreview disabled_preview{};
+    brush_preview_buffer_->load_data(0, sizeof(GpuBrushPreview), 0,
+                                     &disabled_preview);
+  }
+
   // M3c: paint_read_set_: {0=ChunkBrickPaintBuffer (the SAME buffer as
   // above, read-only here)} -- the tiny, SEPARATE set (bound as set = 1)
   // Builtin.DeferredShade.comp.glsl's pipeline binds alongside render_set_
@@ -2376,14 +2426,21 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // the shader for why this, not widening render_set_, is how the data
   // gets there. render_pipeline_ (the visibility pass) never binds this --
   // its pipeline layout stays exactly {render_set_layout_}, unchanged.
-  VkDescriptorSetLayoutBinding paint_read_bindings[1]{};
+  // M7 polish ADDS binding 1 = BrushPreviewBuffer (brush_preview_buffer_
+  // above) to this SAME set, rather than a third one -- see paint_read_
+  // set_layout_'s own header comment (vulkan_raymarch_shader.h) for why.
+  VkDescriptorSetLayoutBinding paint_read_bindings[2]{};
   paint_read_bindings[0].binding = 0;
   paint_read_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_bindings[0].descriptorCount = 1;
   paint_read_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  paint_read_bindings[1].binding = 1;
+  paint_read_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  paint_read_bindings[1].descriptorCount = 1;
+  paint_read_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   VkDescriptorSetLayoutCreateInfo paint_read_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  paint_read_layout_info.bindingCount = 1;
+  paint_read_layout_info.bindingCount = 2;
   paint_read_layout_info.pBindings = paint_read_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &paint_read_layout_info,
@@ -2396,15 +2453,22 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // different pipeline (deferred_shade_pipeline_, an existing per-frame
   // shader) than every set in sculpt_descriptor_pool_ (authoring-time-only
   // dispatches) -- mixing the two pools' lifetimes/semantics would be
-  // confusing even though Vulkan itself has no objection.
-  VkDescriptorPoolSize paint_pool_size{};
-  paint_pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  paint_pool_size.descriptorCount = 3 + 1; // chunk_sculpt_spraypaint_set_ +
-                                          // paint_read_set_
+  // confusing even though Vulkan itself has no objection. M7 polish adds a
+  // SECOND pool-size entry: brush_preview_buffer_'s binding is a UNIFORM_
+  // BUFFER, a different VkDescriptorType than every STORAGE_BUFFER binding
+  // already in this pool, and Vulkan requires one VkDescriptorPoolSize
+  // entry per distinct type.
+  VkDescriptorPoolSize paint_pool_sizes[2]{};
+  paint_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_pool_sizes[0].descriptorCount = 3 + 1; // chunk_sculpt_spraypaint_set_
+                                              // + paint_read_set_'s binding 0
+  paint_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  paint_pool_sizes[1].descriptorCount = 1; // paint_read_set_'s binding 1
+                                          // (BrushPreviewBuffer)
   VkDescriptorPoolCreateInfo paint_pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-  paint_pool_info.poolSizeCount = 1;
-  paint_pool_info.pPoolSizes = &paint_pool_size;
+  paint_pool_info.poolSizeCount = 2;
+  paint_pool_info.pPoolSizes = paint_pool_sizes;
   paint_pool_info.maxSets = 2;
   VK_CHECK(vkCreateDescriptorPool(context_->device.logical_device,
                                   &paint_pool_info, context_->allocator,
@@ -2443,15 +2507,27 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   vkUpdateDescriptorSets(context_->device.logical_device, 3,
                         chunk_sculpt_spraypaint_writes, 0, nullptr);
 
-  VkDescriptorBufferInfo paint_read_buffer_info{
-      chunk_brick_paint_buffer_->handle(), 0, VK_WHOLE_SIZE};
-  VkWriteDescriptorSet paint_read_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-  paint_read_write.dstSet = paint_read_set_;
-  paint_read_write.dstBinding = 0;
-  paint_read_write.descriptorCount = 1;
-  paint_read_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  paint_read_write.pBufferInfo = &paint_read_buffer_info;
-  vkUpdateDescriptorSets(context_->device.logical_device, 1, &paint_read_write,
+  VkDescriptorBufferInfo paint_read_buffer_infos[2] = {
+      {chunk_brick_paint_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {brush_preview_buffer_->handle(), 0, VK_WHOLE_SIZE},
+  };
+  VkWriteDescriptorSet paint_read_writes[2]{};
+  paint_read_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  paint_read_writes[0].dstSet = paint_read_set_;
+  paint_read_writes[0].dstBinding = 0;
+  paint_read_writes[0].descriptorCount = 1;
+  paint_read_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_read_writes[0].pBufferInfo = &paint_read_buffer_infos[0];
+  // M7 polish: binding 1 = BrushPreviewBuffer, the UNIFORM_BUFFER-typed
+  // addition -- see paint_read_bindings[1] above for why this is a
+  // different descriptor type than binding 0.
+  paint_read_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  paint_read_writes[1].dstSet = paint_read_set_;
+  paint_read_writes[1].dstBinding = 1;
+  paint_read_writes[1].descriptorCount = 1;
+  paint_read_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  paint_read_writes[1].pBufferInfo = &paint_read_buffer_infos[1];
+  vkUpdateDescriptorSets(context_->device.logical_device, 2, paint_read_writes,
                         0, nullptr);
 
   VkDescriptorPoolSize chunk_pool_size{};
@@ -3573,6 +3649,7 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   chunk_brick_free_list_buffer_.reset();
   chunk_brick_demand_buffer_.reset();
   chunk_brick_paint_buffer_.reset();
+  brush_preview_buffer_.reset();
   chunk_brick_primitive_buffer_.reset();
   chunk_brick_pool_buffer_.reset();
   chunk_indirection_buffer_.reset();
@@ -4382,6 +4459,41 @@ void VulkanRaymarchShader::set_material(i32 slot, glm::vec3 colour,
   // every other slot got in ensure_default_sculpt_material() -- no bump map
   // control exists for sculpt materials yet, so nothing further needs
   // binding there for a brand-new slot to render correctly.
+}
+
+// M7 polish -- see this method's own header comment (vulkan_raymarch_
+// shader.h) for what this is and why it exists. A plain direct load_data()
+// write into brush_preview_buffer_, exactly set_material()'s own idiom
+// just above -- no staging buffer, no device-idle wait, safe to call every
+// frame. `enabled=false` still writes the full struct (not a 4-byte early
+// write of just the flag): the shader reads center_enabled.w before
+// touching anything else in the buffer, so a stale center/shape/slot left
+// over from the last ENABLED call can never leak through while disabled,
+// and a single load_data() call is simpler than reasoning about which
+// partial writes are safe to skip.
+void VulkanRaymarchShader::set_brush_preview(bool enabled, glm::vec3 center,
+                                             BrushShape shape_type,
+                                             glm::vec4 params, BrushOp op,
+                                             i32 material_slot) {
+  if (!brush_preview_buffer_) {
+    KWARN("VulkanRaymarchShader::set_brush_preview: called before "
+         "brush_preview_buffer_ exists -- ignoring.");
+    return;
+  }
+  GpuBrushPreview preview{};
+  preview.center_enabled[0] = center.x;
+  preview.center_enabled[1] = center.y;
+  preview.center_enabled[2] = center.z;
+  preview.center_enabled[3] = enabled ? 1.0f : 0.0f;
+  preview.params[0] = params.x;
+  preview.params[1] = params.y;
+  preview.params[2] = params.z;
+  preview.params[3] = params.w;
+  preview.shape_op_slot[0] = static_cast<i32>(shape_type);
+  preview.shape_op_slot[1] = static_cast<i32>(op);
+  preview.shape_op_slot[2] = material_slot;
+  preview.shape_op_slot[3] = 0;
+  brush_preview_buffer_->load_data(0, sizeof(GpuBrushPreview), 0, &preview);
 }
 
 i32 VulkanRaymarchShader::add_light_internal(f32 light_type, glm::vec3 vector,

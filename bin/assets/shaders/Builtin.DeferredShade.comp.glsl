@@ -49,6 +49,17 @@ layout(binding = 25, rgba16f) uniform readonly image2D gbuffer_normal_material;
 
 #include "Builtin.SdfFieldConfig.inc.glsl"
 
+// M7 polish (live brush-cursor ghost preview): the same analytic brush-
+// shape distance functions Builtin.SculptStamp.comp.glsl stamps with --
+// pure functions of their arguments, no SSBO/UBO dependency, so including
+// this here is free. See eval_brush_preview_sdf() below (and its own
+// SHAPE_*/OP_* constants, duplicated from Builtin.SculptStamp.comp.glsl the
+// same way Builtin.SculptSpraypaint.comp.glsl/Builtin.SculptCrop.comp.glsl
+// already each keep their own copy -- GLSL compute shaders are separate
+// translation units with no linking, so there is nowhere shared to put a
+// single copy without a new .inc.glsl file for four lines of constants).
+#include "Builtin.BrushShapes.inc.glsl"
+
 // M6 (Flecks): the procedural surface-stylization evaluator -- self-
 // contained (own hashing/noise, no dependency on anything else in this
 // file), so it can be included this early. See its own header comment for
@@ -309,6 +320,97 @@ void sample_active_field(vec3 p, vec3 ray_dir, out float dist, out float skip_di
 layout(set = 1, binding = 0) readonly buffer ChunkBrickPaintBuffer {
     float chunk_brick_paint[];
 };
+
+// M7 polish (live brush-cursor ghost preview): the single small UBO
+// VulkanRaymarchShader::set_brush_preview() writes every frame the preview
+// is visible -- binding 1 of the SAME set = 1 ChunkBrickPaintBuffer above
+// already uses, not a third set (see paint_read_set_layout_'s own comment,
+// vulkan_raymarch_shader.h, for why new shading-only state belongs here).
+// Field layout matches GpuBrushPreview (vulkan_raymarch_shader.cpp) field-
+// for-field -- three vec4-sized members, nothing narrower, so std430/std140
+// (identical here, since every field is already 16-byte-aligned) can never
+// silently diverge from the C++ struct the way a bare vec3 bit M1a.
+layout(set = 1, binding = 1) uniform BrushPreviewBuffer {
+    vec4 center_enabled; // xyz = world-space center, w = 1.0/0.0 enabled.
+    vec4 params;          // Same per-shape layout as StampCell's `params`
+                         // below -- see eval_brush_preview_sdf()'s own
+                         // comment for the full per-shape table.
+    ivec4 shape_op_slot;  // x = shape_type (SHAPE_* below), y = op (OP_*
+                         // below), z = material slot (into scene_diffuse_
+                         // colours/material_scalars/transmission, same
+                         // arrays every real sculpt material reads), w =
+                         // unused padding.
+} brush_preview;
+
+// Shape/op selectors -- brush_preview.shape_op_slot's x/y values. Must
+// match VulkanRaymarchShader::BrushShape/BrushOp (and SculptBrushShape/
+// SculptBrushOp, renderer_types.inl) exactly -- same lockstep note as
+// Builtin.SculptStamp.comp.glsl's own copy of these constants (nothing in
+// C++ checks THIS half of it either; the static_assert in vulkan_backend.
+// cpp only pins the two C++-side enums against each other).
+const int PREVIEW_SHAPE_SPHERE = 0;
+const int PREVIEW_SHAPE_BOX = 1;
+const int PREVIEW_SHAPE_PLANE = 2;
+const int PREVIEW_SHAPE_TORUS = 3;
+const int PREVIEW_SHAPE_CAPPED_CYLINDER = 4;
+const int PREVIEW_SHAPE_CAPPED_CONE = 5;
+const int PREVIEW_SHAPE_ROUND_BOX = 6;
+const int PREVIEW_SHAPE_BOX_FRAME = 7;
+const int PREVIEW_SHAPE_OCTAHEDRON = 8;
+const int PREVIEW_SHAPE_PYRAMID = 9;
+const int PREVIEW_SHAPE_HEX_PRISM = 10;
+const int PREVIEW_SHAPE_ROUND_CONE = 11;
+const int PREVIEW_SHAPE_CAPSULE = 12;
+const int PREVIEW_SHAPE_LINK = 13;
+const int PREVIEW_SHAPE_ELLIPSOID = 14;
+const int PREVIEW_OP_UNION = 0;
+const int PREVIEW_OP_SUBTRACTION = 1;
+
+// Evaluates the selected brush shape at world point p against a brush
+// centered at `center`, in world space -- deliberately NOT pre-translated
+// by the caller (unlike Builtin.SculptStamp.comp.glsl's eval_brush_shape(),
+// which always receives an already-local p) so main()'s sphere-trace below
+// and its central-difference normal estimate can both call this directly
+// with raw world-space sample points. Picks the same subset of the 4-float
+// params block per shape stamp_shape() does -- see VulkanRaymarchShader::
+// stamp_shape()'s header comment for the authoritative per-shape table
+// (duplicated in Builtin.SculptStamp.comp.glsl's own eval_brush_shape()
+// comment too): Sphere = params.x; Box/RoundBox/BoxFrame/Ellipsoid =
+// params.xyz (+ params.w for RoundBox's corner radius/BoxFrame's edge
+// thickness); Plane = params.x; Torus = params.xy; CappedCylinder/Capsule/
+// HexPrism = params.xy; CappedCone/RoundCone/Link = params.xyz;
+// Octahedron/Pyramid = params.xy.
+float eval_brush_preview_sdf(vec3 p, int shape_type, vec4 params, vec3 center) {
+    vec3 lp = p - center;
+    switch (shape_type) {
+        case PREVIEW_SHAPE_SPHERE:         return sphere_sdf(lp, params.x);
+        case PREVIEW_SHAPE_BOX:            return box_sdf(lp, params.xyz);
+        case PREVIEW_SHAPE_PLANE:          return plane_sdf(lp, params.x);
+        case PREVIEW_SHAPE_TORUS:          return torus_sdf(lp, params.x, params.y);
+        case PREVIEW_SHAPE_CAPPED_CYLINDER:
+            return capped_cylinder_sdf(lp, params.x, params.y);
+        case PREVIEW_SHAPE_CAPPED_CONE:
+            return capped_cone_sdf(lp, params.x, params.y, params.z);
+        case PREVIEW_SHAPE_ROUND_BOX:
+            return round_box_sdf(lp, params.xyz, params.w);
+        case PREVIEW_SHAPE_BOX_FRAME:
+            return box_frame_sdf(lp, params.xyz, params.w);
+        case PREVIEW_SHAPE_OCTAHEDRON:     return octahedron_sdf(lp, params.x);
+        case PREVIEW_SHAPE_PYRAMID:        return pyramid_sdf(lp, params.x, params.y);
+        case PREVIEW_SHAPE_HEX_PRISM:      return hex_prism_sdf(lp, params.x, params.y);
+        case PREVIEW_SHAPE_ROUND_CONE:
+            return round_cone_sdf(lp, params.x, params.y, params.z);
+        case PREVIEW_SHAPE_CAPSULE:        return capsule_sdf(lp, params.x, params.y);
+        case PREVIEW_SHAPE_LINK:
+            return link_sdf(lp, params.x, params.y, params.z);
+        case PREVIEW_SHAPE_ELLIPSOID:      return ellipsoid_sdf(lp, params.xyz);
+        default:
+            // Unreachable as long as the CPU side only ever sends a valid
+            // SculptBrushShape value -- see eval_brush_shape()'s identical
+            // fallback, Builtin.SculptStamp.comp.glsl.
+            return sphere_sdf(lp, params.x);
+    }
+}
 
 // Resolves the paint accumulator at world point p, LEVEL 0 ONLY -- every
 // sculpt brush (Stamp/Smear/Clone/Spraypaint) only ever touches level 0 of
@@ -1138,6 +1240,122 @@ float filtered_ao(ivec2 centre, vec3 centre_normal, float centre_depth) {
                             : imageLoad(ao_visibility, centre).r;
 }
 
+// M7 polish (live brush-cursor ghost preview): shades one brush-preview
+// hit through the SAME lighting building blocks main()'s own per-pixel
+// block below uses for a real surface -- specular_ggx()/fresnel_schlick(),
+// fleck_modulate_albedo()/fleck_perturb_normal(), sample_probe_grid()/
+// sample_gi_cascade(), calc_contact_ao(), shadow_march()/chunked_shadow_
+// march() -- so the ghost is a truthful preview of what committing the
+// stamp will actually look like, not a cheaper stand-in. Reads `slot`'s
+// material straight out of scene_diffuse_colours/material_scalars/
+// transmission -- the exact same per-slot arrays every real sculpt
+// material uses (VulkanRaymarchShader::set_material()'s packing), so a
+// Finish/Fleck change the user just made shows up in the preview with no
+// separate sync path.
+//
+// Deliberately narrower than main()'s own block in two documented ways:
+//   - No triplanar diffuse texture/bump sampling. Every sculpt material's
+//     scene_textures[slot] is already bound to a spatially uniform
+//     flat_texture() (see set_material()'s own comment) for exactly the
+//     slots this preview can ever target, so tex_colour would always
+//     resolve to (1,1,1) and bump to zero anyway -- skipping both costs
+//     nothing visible and several texture fetches per preview pixel.
+//   - Always takes the marched shadow_march()/chunked_shadow_march()
+//     branch, never main()'s ISM lookup path. ISM exists to make MANY
+//     shadowed local lights cheap simultaneously; a preview is one extra
+//     shaded pixel per frame regardless of light count, so the ordinary
+//     marched path is already cheap enough and this avoids duplicating
+//     ISM_COUNT/sample_ism() bookkeeping for a second call site.
+vec3 shade_brush_preview(vec3 p, vec3 normal, vec3 view_dir, int slot) {
+    float scalar_x = material_scalars[slot].x;
+    float exempt_flag = scalar_x > 0.75 ? 1.0 : 0.0;
+    float metallic = clamp((scalar_x - exempt_flag) * 2.0, 0.0, 1.0);
+    float roughness = clamp(material_scalars[slot].w, 0.0, 1.0);
+    float waxy_strength = clamp(transmission[slot].x, 0.0, 1.0);
+    int fleck_pattern = int(round(transmission[slot].y));
+    float fleck_strength = clamp(transmission[slot].z, 0.0, 1.0);
+    float fleck_scale = transmission[slot].w;
+
+    vec3 tint = scene_diffuse_colours[slot].rgb;
+    tint *= fleck_modulate_albedo(p, normal, fleck_pattern, fleck_scale,
+                                  fleck_strength);
+    normal = fleck_perturb_normal(p, normal, fleck_pattern, fleck_scale,
+                                  fleck_strength);
+
+    vec3 indirect = (push.flags & RENDER_FLAG_CHUNKED_FIELD) != 0
+        ? sample_gi_cascade(p)
+        : sample_probe_grid(p);
+    float ao = calc_contact_ao(p, normal);
+    float occlusion = mix(INDIRECT_AO_FLOOR, 1.0, ao);
+    vec3 ambient_indirect = indirect * occlusion +
+        vec3(push.ambient) * mix(AMBIENT_AO_FLOOR, 1.0, ao);
+    vec3 lighting = ambient_indirect;
+    vec3 specular = vec3(0.0);
+    float f0 = mix(DEFAULT_DIELECTRIC_F0, 1.0, metallic);
+
+    for (int i = 0; i < push.light_count; ++i) {
+        Light light = lights[i];
+        int light_type = int(light.vector_type.w);
+        vec3 light_colour = light.colour_intensity.rgb;
+        float intensity = light.colour_intensity.a;
+
+        vec3 light_dir;
+        float attenuation;
+        float shadow_max_dist;
+        if (light_type == 1) {
+            vec3 to_light = light.vector_type.xyz - p;
+            float dist = length(to_light);
+            light_dir = to_light / max(dist, 0.0001);
+            attenuation = intensity / max(dist * dist, 0.0001);
+            shadow_max_dist = dist;
+        } else {
+            light_dir = normalize(light.vector_type.xyz);
+            attenuation = intensity;
+            shadow_max_dist = MAX_DIST;
+        }
+
+        float diffuse = max(dot(normal, light_dir), 0.0);
+        if (diffuse > 0.0) {
+            vec3 shadow_origin = p + normal * SHADOW_NORMAL_BIAS;
+            float shadow = (push.flags & RENDER_FLAG_CHUNKED_FIELD) != 0
+                ? chunked_shadow_march(shadow_origin, light_dir,
+                                      push.camera_position.xyz, shadow_max_dist,
+                                      SHADOW_SOFTNESS, SHADOW_MAX_STEPS,
+                                      int(light.source_primitive.x))
+                : shadow_march(shadow_origin, light_dir, shadow_max_dist,
+                               SHADOW_SOFTNESS, SHADOW_MAX_STEPS,
+                               int(light.source_primitive.x));
+            diffuse *= shadow;
+            specular += light_colour * attenuation * shadow *
+                        specular_ggx(normal, view_dir, light_dir, roughness, f0);
+            if (waxy_strength > 0.0) {
+                specular += light_colour * attenuation * shadow *
+                            waxy_strength * WAXY_LOBE_WEIGHT *
+                            specular_ggx(normal, view_dir, light_dir,
+                                         WAXY_LOBE_ROUGHNESS, f0);
+            }
+        }
+        lighting += light_colour * diffuse * attenuation;
+    }
+
+    if ((push.flags & RENDER_FLAG_SKYBOX) != 0) {
+        float n_dot_v = max(dot(normal, view_dir), 0.0);
+        float env_fresnel = fresnel_schlick(n_dot_v, f0);
+        float env_strength = env_fresnel * (1.0 - roughness) * ao;
+        specular += sample_skybox(reflect(-view_dir, normal)) * env_strength;
+    }
+
+    vec3 albedo = tint;
+    const float PREVIEW_METAL_AMBIENT_SCALE = 0.6; // matches main()'s own
+                                                   // METAL_AMBIENT_SCALE.
+    vec3 metal_ambient = albedo * ambient_indirect * metallic *
+                          PREVIEW_METAL_AMBIENT_SCALE;
+
+    return albedo * lighting * (1.0 - metallic) +
+           specular * mix(vec3(1.0), albedo, metallic) +
+           metal_ambient;
+}
+
 void main() {
     ivec2 pixel_coord = ivec2(gl_GlobalInvocationID.xy);
     ivec2 image_size = imageSize(out_image);
@@ -1545,6 +1763,117 @@ void main() {
         // the selection outline (push.selected_primitive_index) that used
         // to live here were both CSG-primitive-specific and removed along
         // with the rest of the scene graph (M0 CSG deletion pass).
+    }
+
+    // M7 polish: live brush-cursor "ghost" preview -- sphere-traces ONE
+    // analytic shape (brush_preview, set = 1 binding = 1 above) against
+    // THIS pixel's exact same ray_origin/ray_dir, shades any hit through
+    // shade_brush_preview() (the same lighting building blocks the real-
+    // surface block just above used), and blends it over `colour` as a
+    // translucent ghost -- Dreams' own "about to place this" cue, not a
+    // committed edit. Runs unconditionally (not just when travelled <
+    // MAX_DIST above) so the preview still shows over open background/sky,
+    // which is the common case when sculpting into empty space.
+    if (brush_preview.center_enabled.w > 0.5) {
+        // Cheap early-out already happened above (the whole block is
+        // skipped once center_enabled.w is 0) -- this is the ONLY cost a
+        // hidden preview adds to every other pixel in the frame: one
+        // float compare.
+        vec3 preview_center = brush_preview.center_enabled.xyz;
+        int preview_shape = brush_preview.shape_op_slot.x;
+        int preview_op = brush_preview.shape_op_slot.y;
+        int preview_slot = brush_preview.shape_op_slot.z;
+        vec4 preview_params = brush_preview.params;
+
+        // Conservative march bound: twice the shape's own largest param
+        // component (every shape's size-governing params live in params.
+        // xyz, params.w only ever a sub-feature like a corner radius that
+        // never exceeds them) plus a flat 1-unit margin. This is a single
+        // analytic shape floating in space, not a voxel field to escape --
+        // mirroring sculpt_shape_bounding_radius()'s own conservative-
+        // bounding-radius reasoning engine-side (stamp_shape()'s CPU-side
+        // cell enumeration), just inlined here rather than shared, since a
+        // compute shader can't call back into engine-side C++.
+        float preview_extent = max(max(preview_params.x, preview_params.y),
+                                   max(preview_params.z, preview_params.w));
+        float preview_bound = preview_extent * 2.0 + 1.0;
+
+        float preview_t = 0.0;
+        bool preview_hit = false;
+        const int PREVIEW_MAX_STEPS = 64; // a handful of steps is enough
+                                          // for one analytic shape -- see
+                                          // this block's own header comment.
+        for (int i = 0; i < PREVIEW_MAX_STEPS; ++i) {
+            if (preview_t >= preview_bound) {
+                break;
+            }
+            vec3 sample_p = ray_origin + ray_dir * preview_t;
+            float d = eval_brush_preview_sdf(sample_p, preview_shape,
+                                             preview_params, preview_center);
+            if (d < SURF_DIST) {
+                preview_hit = true;
+                break;
+            }
+            preview_t += d;
+        }
+
+        if (preview_hit) {
+            vec3 preview_p = ray_origin + ray_dir * preview_t;
+            // Central-difference gradient of the same analytic function --
+            // 6 extra SDF evals, cheap for one shape (no field/brick
+            // lookups involved, unlike calc_static_normal()'s equivalent
+            // for a real marched hit).
+            const float PREVIEW_NORMAL_EPS = 0.001;
+            vec3 preview_normal = normalize(vec3(
+                eval_brush_preview_sdf(preview_p + vec3(PREVIEW_NORMAL_EPS, 0.0, 0.0),
+                                       preview_shape, preview_params, preview_center) -
+                eval_brush_preview_sdf(preview_p - vec3(PREVIEW_NORMAL_EPS, 0.0, 0.0),
+                                       preview_shape, preview_params, preview_center),
+                eval_brush_preview_sdf(preview_p + vec3(0.0, PREVIEW_NORMAL_EPS, 0.0),
+                                       preview_shape, preview_params, preview_center) -
+                eval_brush_preview_sdf(preview_p - vec3(0.0, PREVIEW_NORMAL_EPS, 0.0),
+                                       preview_shape, preview_params, preview_center),
+                eval_brush_preview_sdf(preview_p + vec3(0.0, 0.0, PREVIEW_NORMAL_EPS),
+                                       preview_shape, preview_params, preview_center) -
+                eval_brush_preview_sdf(preview_p - vec3(0.0, 0.0, PREVIEW_NORMAL_EPS),
+                                       preview_shape, preview_params, preview_center)));
+
+            vec3 preview_colour = shade_brush_preview(preview_p, preview_normal,
+                                                       -ray_dir, preview_slot);
+
+            // Occlusion choice (documented, not a bug): a preview hit
+            // BEHIND whatever this pixel's real surface already resolved
+            // to (preview_t > travelled) still shows, just at a reduced
+            // alpha, rather than vanishing outright -- Dreams itself
+            // ghosts the about-to-be-placed shape through surrounding
+            // geometry the same way, which is the whole point of a
+            // "ghost" (you need to see a brush preview poking INTO a wall
+            // you're sculpting against, not have it disappear the moment
+            // it would be hidden). A hit in front of the real surface (or
+            // no real surface at all, travelled >= MAX_DIST, i.e. open
+            // background) shows at full preview strength.
+            const float PREVIEW_ALPHA = 0.55;
+            const float PREVIEW_OCCLUDED_ALPHA_SCALE = 0.4;
+            float preview_alpha = PREVIEW_ALPHA;
+            if (preview_t > travelled) {
+                preview_alpha *= PREVIEW_OCCLUDED_ALPHA_SCALE;
+            }
+
+            // A thin Union(cyan)/Subtraction(orange) rim tint ON TOP of
+            // the real shaded fill -- same colours scene_viewport.cpp's
+            // own wireframe preview already uses, so the two cues agree
+            // rather than contradict. Strongest at grazing angles (where a
+            // flat shaded fill alone reads most ambiguously against a
+            // similarly-lit background), via the same (1 - n.v) Fresnel-
+            // like falloff fresnel_schlick() uses elsewhere in this file.
+            vec3 preview_op_tint = preview_op == PREVIEW_OP_SUBTRACTION
+                ? vec3(1.0, 0.55, 0.15)
+                : vec3(0.2, 0.95, 1.0);
+            float preview_rim = pow(1.0 - max(dot(preview_normal, -ray_dir), 0.0), 2.0);
+            preview_colour = mix(preview_colour, preview_op_tint, preview_rim * 0.35);
+
+            colour = mix(colour, preview_colour, preview_alpha);
+        }
     }
 
     // The Transmission block (glass refraction/reflection against

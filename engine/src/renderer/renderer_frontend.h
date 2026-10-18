@@ -288,6 +288,33 @@ KAPI bool renderer_sculpt_redo();
 KAPI i32 renderer_sculpt_spray(glm::vec3 center, SculptBrushShape shape_type,
                                glm::vec4 params, f32 opacity_per_pass);
 
+// M7 polish: the live brush-cursor "ghost" preview -- shows the ACTUAL
+// shaded material (colour, roughness/metallic/waxy Finish, Fleck pattern)
+// a renderer_sculpt_stamp_shape() call at `center` with these exact
+// parameters would place, replacing the plain wireframe outline tools/
+// modelling_software_v2's scene_viewport.cpp drew before this existed. See
+// RendererBackend::preview_brush()/VulkanRaymarchShader::set_brush_
+// preview() for the full mechanics: one analytic shape is sphere-traced
+// per pixel and shaded through the SAME lighting path every real surface
+// uses, then blended as a translucent ghost over whatever that pixel
+// already rendered. `shape_type`/`params`/`op`/`material_slot` use the
+// exact same per-shape layout and enum values as renderer_sculpt_stamp_
+// shape() -- the preview can never drift from what a real stamp right now
+// would place. Cheap, synchronous, and NOT device-stalling (a direct
+// host-visible buffer write) -- unlike every sculpt-stamp-family call
+// above, this one is meant to be called every frame the preview should be
+// visible (tools/modelling_software_v2's SceneViewport::tick(), alongside
+// its own wireframe-line bookkeeping), not just on an authoring-time
+// action. Pass `enabled=false` the instant the preview should stop
+// showing (pointer left the viewport, a drag started, etc.) -- center/
+// params/op/material_slot are then ignored, and the shader's own first
+// read of the uniform skips the trace entirely, so the false path costs
+// one float compare per pixel, not a wasted march.
+KAPI void renderer_sculpt_preview_brush(bool enabled, glm::vec3 center,
+                                        SculptBrushShape shape_type,
+                                        glm::vec4 params, SculptBrushOp op,
+                                        i32 material_slot);
+
 // M4b: deletes the stamp at `index` (0 = oldest, matching the order
 // renderer_sculpt_stamp_shape() calls landed in) WITHOUT discarding
 // anything stamped before or after it -- see RendererBackend::delete_edit()/

@@ -312,6 +312,19 @@ i32 renderer_sculpt_spray(glm::vec3 center, SculptBrushShape shape_type,
   return backend->spray_paint(center, shape_type, params, opacity_per_pass);
 }
 
+void renderer_sculpt_preview_brush(bool enabled, glm::vec3 center,
+                                   SculptBrushShape shape_type,
+                                   glm::vec4 params, SculptBrushOp op,
+                                   i32 material_slot) {
+  if (!backend) {
+    KWARN("renderer backend does not exist to accept a brush-preview "
+         "request.");
+    return;
+  }
+  backend->preview_brush(enabled, center, shape_type, params, op,
+                         material_slot);
+}
+
 bool renderer_sculpt_delete_edit(i32 index) {
   if (!backend) {
     KWARN("renderer backend does not exist to accept a sculpt-delete-edit "

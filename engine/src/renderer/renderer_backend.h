@@ -205,6 +205,24 @@ public:
   virtual i32 spray_paint(glm::vec3 center, SculptBrushShape shape_type,
                           glm::vec4 params, f32 opacity_per_pass) = 0;
 
+  // M7 polish: the live brush-cursor "ghost" preview -- see
+  // VulkanRaymarchShader::set_brush_preview()'s own header comment for the
+  // full mechanics (a shaded sphere-trace of ONE analytic shape, composited
+  // over whatever render_to() already produced for that pixel, read from a
+  // small UBO on the shading pipeline's existing additive descriptor set).
+  // `shape_type`/`params`/`op`/`material_slot` use the exact same per-shape
+  // layout/enum values as stamp_shape() above -- the preview always matches
+  // what a real stamp at `center` right now would place. Cheap, synchronous,
+  // NOT device-stalling (a direct host-visible buffer write) -- unlike
+  // stamp_shape()/spray_paint(), this IS meant to be called every frame the
+  // preview is visible, not just on an authoring-time action; pass
+  // `enabled=false` (center/params/op/material_slot are then ignored) the
+  // instant the preview should stop showing (pointer left the viewport, a
+  // drag started, etc.) so the ghost never sticks around a stale frame.
+  virtual void preview_brush(bool enabled, glm::vec3 center,
+                             SculptBrushShape shape_type, glm::vec4 params,
+                             SculptBrushOp op, i32 material_slot) = 0;
+
   // M4b: deletes the stamp at `index` (0 = oldest, matching SculptVolume::
   // stamps()'s own order) WITHOUT discarding anything stamped before or
   // after it -- the checkpoint/replay counterpart to undo_stamp()'s own

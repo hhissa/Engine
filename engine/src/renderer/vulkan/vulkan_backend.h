@@ -57,6 +57,9 @@ public:
   bool redo_stamp() override;
   i32 spray_paint(glm::vec3 center, SculptBrushShape shape_type,
                   glm::vec4 params, f32 opacity_per_pass) override;
+  void preview_brush(bool enabled, glm::vec3 center,
+                     SculptBrushShape shape_type, glm::vec4 params,
+                     SculptBrushOp op, i32 material_slot) override;
   bool delete_edit(i32 index) override;
   bool move_edit(i32 index, glm::vec3 new_center) override;
   i32 crop_volume(glm::vec3 center, SculptBrushShape shape_type,
