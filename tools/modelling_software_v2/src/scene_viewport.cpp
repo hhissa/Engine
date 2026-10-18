@@ -5,6 +5,7 @@
 #include <platform/platform.h>
 #include <renderer/renderer_frontend.h>
 
+#include <QCursor>
 #include <QFocusEvent>
 #include <QGuiApplication>
 #include <QKeyEvent>
@@ -15,6 +16,9 @@
 #include <QtGui/qguiapplication_platform.h>
 
 #include <xcb/xcb.h>
+
+#include <algorithm>
+#include <cmath>
 
 namespace {
 constexpr f32 kYawSensitivity = 0.005f;
@@ -316,6 +320,13 @@ void SceneViewport::tick() {
   }
 
   renderer_set_camera(camera_);
+  // M7 (live brush-cursor preview): recomputed every tick (camera may have
+  // orbited/zoomed since the last mouse move -- see update_brush_preview()'s
+  // own comment) and queued before renderer_draw_frame() below, same
+  // "queued draws are consumed and cleared by end_frame()" discipline
+  // tools/sdf_editor's tick() documented for its gizmo (git history).
+  update_brush_preview();
+  draw_brush_preview();
   render_packet packet{delta_time};
   renderer_draw_frame(&packet);
 }
@@ -828,4 +839,185 @@ bool SceneViewport::delete_edit_at(int index) {
     return false;
   }
   return renderer_sculpt_delete_edit(index);
+}
+
+// M7 (live brush-cursor preview) -- see this method's own header comment.
+std::optional<glm::vec2>
+SceneViewport::project_to_screen(glm::vec3 world_point) const {
+  // Inverts compute_ray_center()'s ray construction exactly the way
+  // tools/sdf_editor's project_to_screen() did (git history, deleted in
+  // M0): camera_.forward()/right()/up() are orthonormal, so
+  // dot(uv.x*right + uv.y*up + forward, forward) is always exactly 1
+  // regardless of uv, which is what lets v_forward alone recover the scale
+  // factor needed to get back to uv from an arbitrary world-space vector.
+  const glm::vec3 v = world_point - camera_.position();
+  const f32 v_forward = glm::dot(v, camera_.forward());
+  if (v_forward <= 0.001f) {
+    return std::nullopt; // behind the camera
+  }
+  const f32 uv_x = glm::dot(v, camera_.right()) / v_forward;
+  const f32 uv_y = glm::dot(v, camera_.up()) / v_forward;
+
+  // renderer_draw_line() wants PHYSICAL screen pixels -- physical_size()
+  // is already width()/height() * devicePixelRatio(), so computing
+  // directly in that space (rather than logical-then-scale-back-up, which
+  // is what tools/sdf_editor's version did for its QPointF-typed return)
+  // skips a round trip for the exact same result.
+  const QSize phys = physical_size();
+  const f32 px = uv_x * static_cast<f32>(phys.height()) +
+                0.5f * static_cast<f32>(phys.width());
+  const f32 py = uv_y * static_cast<f32>(phys.height()) +
+                0.5f * static_cast<f32>(phys.height());
+  return glm::vec2(px, py);
+}
+
+void SceneViewport::append_wire_ellipse(
+    std::vector<std::pair<glm::vec2, glm::vec2>> &lines, glm::vec3 center,
+    glm::vec3 u, glm::vec3 v, f32 ru, f32 rv) const {
+  constexpr int kSegments = 24; // matches tools/sdf_editor's gizmo ring
+                                // segment count (git history) -- plenty
+                                // smooth for a small screen-space preview,
+                                // not so many it's a meaningful per-frame
+                                // cost at 24 * 3 rings per tick.
+  constexpr f32 kTwoPi = 6.28318530717958647692f;
+  std::optional<glm::vec2> prev;
+  for (int i = 0; i <= kSegments; ++i) {
+    const f32 t = kTwoPi * static_cast<f32>(i) / static_cast<f32>(kSegments);
+    const glm::vec3 world_point =
+        center + ru * std::cos(t) * u + rv * std::sin(t) * v;
+    std::optional<glm::vec2> screen = project_to_screen(world_point);
+    // Only connect a segment when BOTH its endpoints are in front of the
+    // camera -- unlike tools/sdf_editor's build_gizmo_ring() (which just
+    // dropped behind-camera points from its list, letting the remaining
+    // points connect across a gap), this draws each (i-1, i) pair
+    // independently, which avoids ever drawing a long stray chord between
+    // two angularly-distant surviving points.
+    if (prev && screen) {
+      lines.emplace_back(*prev, *screen);
+    }
+    prev = screen;
+  }
+}
+
+void SceneViewport::append_wire_box(
+    std::vector<std::pair<glm::vec2, glm::vec2>> &lines, glm::vec3 center,
+    glm::vec3 half_extents) const {
+  glm::vec3 corners[8];
+  for (int i = 0; i < 8; ++i) {
+    corners[i] = center + glm::vec3((i & 1) ? half_extents.x : -half_extents.x,
+                                    (i & 2) ? half_extents.y : -half_extents.y,
+                                    (i & 4) ? half_extents.z : -half_extents.z);
+  }
+  static constexpr int kEdges[12][2] = {
+      {0, 1}, {0, 2}, {0, 4}, {1, 3}, {1, 5}, {2, 3},
+      {2, 6}, {3, 7}, {4, 5}, {4, 6}, {5, 7}, {6, 7},
+  };
+  for (const auto &edge : kEdges) {
+    std::optional<glm::vec2> a = project_to_screen(corners[edge[0]]);
+    std::optional<glm::vec2> b = project_to_screen(corners[edge[1]]);
+    if (a && b) {
+      lines.emplace_back(*a, *b);
+    }
+  }
+}
+
+void SceneViewport::update_brush_preview() {
+  preview_lines_.clear();
+  preview_visible_ = false;
+
+  if (!initialized_ || shutdown_) {
+    return;
+  }
+  // Hidden during any active drag -- see this method's own header comment
+  // in scene_viewport.h for why every drag mode already has its own
+  // feedback and doesn't need this on top of it.
+  if (orbiting_ || left_dragging_ || spray_dragging_ || move_dragging_ ||
+      moving_edit_dragging_) {
+    return;
+  }
+
+  // Polled via QCursor::pos() + mapFromGlobal() every tick(), rather than
+  // cached from the last mouseMoveEvent -- two reasons. First, it's a more
+  // literal fit for "updates every frame as the mouse moves" (a tick()-
+  // driven poll inherently can't go stale between moves the way a cached
+  // last-event position theoretically could if some platform ever
+  // coalesced/dropped a move). Second, and more load-bearing: a bare
+  // QWindow embedded via createWindowContainer (see this class's own
+  // header comment on the borrowed-handle PlatformLayer bootstrap) is not
+  // guaranteed to receive a plain hover-only mouseMoveEvent (no button
+  // held) from every input path a real desktop delivers one from --
+  // QCursor::pos() asks the X server directly (XQueryPointer under the
+  // xcb platform) and so is independent of whichever event-delivery path
+  // did or didn't fire. mapFromGlobal() + an explicit bounds check against
+  // width()/height() is this class's own equivalent of "is the mouse over
+  // me" -- there is no QWidget-style underMouse() on a bare QWindow.
+  const QPoint local = mapFromGlobal(QCursor::pos());
+  if (local.x() < 0 || local.y() < 0 || local.x() >= width() ||
+      local.y() >= height()) {
+    return; // pointer is outside this viewport (over a dock, menu, etc.)
+  }
+
+  const glm::vec3 center = compute_ray_center(local);
+  // Same params a real stamp at this position would actually use --
+  // brush_params_from_size() + apply_stretch(), exactly what place_stamp()
+  // computes -- so the preview's size/stretch always matches what a click
+  // right now would place, not an approximation of it.
+  const glm::vec4 params =
+      apply_stretch(brush_params_from_size(brush_shape_, brush_size_),
+                    brush_stretch_x_, brush_stretch_y_, brush_stretch_z_);
+
+  // Recommended approach (plan's M7 section): a wireframe approximation is
+  // sufficient, not an exact per-shape outline. Two buckets:
+  //  - True box shapes (Box/RoundBox/BoxFrame): an axis-aligned wireframe
+  //    box using params.xyz directly as half-extents -- these are the
+  //    shapes a rounded ellipsoid would visibly misrepresent (a box brush
+  //    reading as a sphere outline would be actively misleading about where
+  //    its flat corners land).
+  //  - Everything else: three orthogonal ellipse rings (a sphere when all
+  //    three radii match, an ellipsoid-ish silhouette otherwise) -- for
+  //    shapes whose params don't populate all of x/y/z (e.g. Sphere only
+  //    ever sets params.x; Torus's params.z is always 0), a zero/near-zero
+  //    component falls back to the largest populated one so the ring
+  //    collapses to a sane uniform circle instead of a degenerate sliver.
+  const bool is_box_shape = brush_shape_ == SculptBrushShape::Box ||
+                            brush_shape_ == SculptBrushShape::RoundBox ||
+                            brush_shape_ == SculptBrushShape::BoxFrame;
+  constexpr f32 kMinExtent = 0.01f;
+  if (is_box_shape) {
+    const glm::vec3 half_extents(std::max(params.x, kMinExtent),
+                                 std::max(params.y, kMinExtent),
+                                 std::max(params.z, kMinExtent));
+    append_wire_box(preview_lines_, center, half_extents);
+  } else {
+    const f32 fallback =
+        std::max({params.x, params.y, params.z, kMinExtent});
+    const f32 rx = params.x > kMinExtent ? params.x : fallback;
+    const f32 ry = params.y > kMinExtent ? params.y : fallback;
+    const f32 rz = params.z > kMinExtent ? params.z : fallback;
+    append_wire_ellipse(preview_lines_, center, glm::vec3(1.0f, 0.0f, 0.0f),
+                       glm::vec3(0.0f, 1.0f, 0.0f), rx, ry); // XY plane
+    append_wire_ellipse(preview_lines_, center, glm::vec3(0.0f, 1.0f, 0.0f),
+                       glm::vec3(0.0f, 0.0f, 1.0f), ry, rz); // YZ plane
+    append_wire_ellipse(preview_lines_, center, glm::vec3(1.0f, 0.0f, 0.0f),
+                       glm::vec3(0.0f, 0.0f, 1.0f), rx, rz); // XZ plane
+  }
+  preview_visible_ = !preview_lines_.empty();
+}
+
+void SceneViewport::draw_brush_preview() const {
+  if (!preview_visible_) {
+    return;
+  }
+  // A bright cyan reads distinctly against this tool's default lit-grey/
+  // white sculpture material and sky-blue skybox alike, same reasoning
+  // tools/sdf_editor picked distinct saturated colours per gizmo axis for
+  // (git history) -- subtraction gets a warm orange instead, since Union
+  // vs. Subtraction is exactly the kind of thing this preview should make
+  // visible at a glance before the click happens, not just where/how big.
+  const glm::vec4 colour = brush_op_ == SculptBrushOp::Subtraction
+                               ? glm::vec4(1.0f, 0.55f, 0.15f, 0.9f)
+                               : glm::vec4(0.2f, 0.95f, 1.0f, 0.9f);
+  for (const auto &segment : preview_lines_) {
+    renderer_draw_line(segment.first, segment.second, colour);
+  }
 }

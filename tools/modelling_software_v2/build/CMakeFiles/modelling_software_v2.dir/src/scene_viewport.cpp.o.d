@@ -619,6 +619,7 @@ CMakeFiles/modelling_software_v2.dir/src/scene_viewport.cpp.o: \
   /home/h-i/Projects/NOAIEngine/tools/modelling_software_v2/../../engine/src/core/logger.h \
   /home/h-i/Projects/NOAIEngine/tools/modelling_software_v2/../../engine/src/platform/platform.h \
   /home/h-i/Projects/NOAIEngine/tools/modelling_software_v2/../../engine/src/renderer/renderer_frontend.h \
+  /usr/include/x86_64-linux-gnu/qt6/QtGui/QCursor \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/QFocusEvent \
   /usr/include/x86_64-linux-gnu/qt6/QtGui/qevent.h \
   /usr/include/x86_64-linux-gnu/qt6/QtCore/qiodevice.h \
