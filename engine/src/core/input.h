@@ -10,6 +10,46 @@ namespace input {
 
 enum class Button : std::uint8_t { Left, Right, Middle, Count };
 
+// Gamepad buttons -- naming/shape follows SDL2's GameController abstraction
+// (the de facto standard everyone recognises for this), though nothing here
+// depends on SDL2 itself. DpadUp/Down/Left/Right are exposed as buttons
+// (discrete presses), not axes, even though the hardware reports the d-pad
+// as two hat axes -- that's how most games actually want to consume a
+// d-pad, and matches SDL2's own convention; the platform layer derives
+// these from the hat axes (see platform_linux.cpp's gamepad poll).
+enum class GamepadButton : std::uint8_t {
+  A,
+  B,
+  X,
+  Y,
+  LeftBumper,
+  RightBumper,
+  Back,
+  Start,
+  Guide,
+  LeftStick,  // L3 -- left stick click, not the stick axes
+  RightStick, // R3 -- right stick click, not the stick axes
+  DpadUp,
+  DpadDown,
+  DpadLeft,
+  DpadRight,
+  Count
+};
+
+// Gamepad analog axes. Sticks read [-1, 1] (0 = centered); triggers read
+// [0, 1] (0 = released, 1 = fully pressed) -- see
+// process_gamepad_axis()'s own comment for exactly how the raw hardware
+// range maps to each.
+enum class GamepadAxis : std::uint8_t {
+  LeftX,
+  LeftY,
+  RightX,
+  RightY,
+  LeftTrigger,
+  RightTrigger,
+  Count
+};
+
 enum class Key : std::uint16_t {
   None = 0,
   Backspace = 0x08,
@@ -190,5 +230,38 @@ void process_button(Button button, bool pressed);
 void process_mouse_move(i16 x, i16 y);
 void process_mouse_wheel(i8 z_delta);
 void process_resize(u16 width, u16 height);
+
+// Gamepad
+//
+// This mirrors the keyboard/mouse API shape exactly (is_*_down/up,
+// was_*_down/up against the current/previous double-buffer), plus
+// is_gamepad_connected() and gamepad_axis() for the analog state neither
+// keyboard nor mouse have an equivalent of. At most one gamepad is tracked
+// -- there's no index parameter, matching this engine's needs; a future
+// consumer wanting multi-pad support would need to extend this, not retrofit
+// it.
+KAPI bool is_gamepad_connected();
+KAPI bool is_gamepad_button_down(GamepadButton button);
+KAPI bool is_gamepad_button_up(GamepadButton button);
+KAPI bool was_gamepad_button_down(GamepadButton button);
+KAPI bool was_gamepad_button_up(GamepadButton button);
+
+// Normalized: sticks in [-1, 1] (0 = centered), triggers in [0, 1] (0 =
+// released, 1 = fully pressed) -- see process_gamepad_axis()'s own comment
+// for exactly how the raw hardware range maps to each. Returns 0 if no
+// gamepad is connected or the subsystem isn't initialized.
+KAPI f32 gamepad_axis(GamepadAxis axis);
+
+// Fired once per actual connect/disconnect transition (see
+// EVENT_CODE_GAMEPAD_CONNECTED/DISCONNECTED) -- call this once from the
+// platform layer when a device is opened/closed, not every poll.
+void process_gamepad_connection(bool connected);
+void process_gamepad_button(GamepadButton button, bool pressed);
+// Axis changes are NOT accompanied by an event (unlike
+// process_mouse_move(), which fires one on every move) -- a gamepad stick
+// polled at 60-125Hz with ordinary jitter would spam the event queue with
+// near-useless continuous deltas. Poll via gamepad_axis() instead; this is
+// a deliberate asymmetry with mouse-move, not an oversight.
+void process_gamepad_axis(GamepadAxis axis, f32 normalized_value);
 
 } // namespace input

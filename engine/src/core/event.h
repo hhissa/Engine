@@ -71,6 +71,31 @@ enum class EventCode : std::uint16_t {
    */
   EVENT_CODE_RESIZED = 0x08,
 
+  // Gamepad connected. No payload.
+  EVENT_CODE_GAMEPAD_CONNECTED = 0x09,
+
+  // Gamepad disconnected. No payload.
+  EVENT_CODE_GAMEPAD_DISCONNECTED = 0x0A,
+
+  // Gamepad button pressed.
+  /* Context usage:
+   * u16 button = data.data.u16[0];
+   */
+  EVENT_CODE_GAMEPAD_BUTTON_PRESSED = 0x0B,
+
+  // Gamepad button released.
+  /* Context usage:
+   * u16 button = data.data.u16[0];
+   */
+  EVENT_CODE_GAMEPAD_BUTTON_RELEASED = 0x0C,
+
+  // Note: there is deliberately no EVENT_CODE_GAMEPAD_AXIS_* -- unlike
+  // EVENT_CODE_MOUSE_MOVED, which fires on every move, a gamepad stick
+  // polled at 60-125Hz with ordinary jitter would spam the event queue
+  // with near-useless continuous deltas. Poll input::gamepad_axis()
+  // instead; this asymmetry with mouse-move is intentional, not an
+  // oversight.
+
   MAX_EVENT_CODE = 0xFF
 };
 

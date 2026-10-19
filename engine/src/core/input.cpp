@@ -23,11 +23,19 @@ struct MouseState {
   std::array<bool, idx(Button::Count)> buttons{};
 };
 
+struct GamepadState {
+  bool connected{false};
+  std::array<bool, idx(GamepadButton::Count)> buttons{};
+  std::array<f32, idx(GamepadAxis::Count)> axes{};
+};
+
 struct InputState {
   KeyboardState keyboard_current;
   KeyboardState keyboard_previous;
   MouseState mouse_current;
   MouseState mouse_previous;
+  GamepadState gamepad_current;
+  GamepadState gamepad_previous;
   i32 wheel_delta_accum{0}; // see mouse_wheel_delta()
 };
 
@@ -55,6 +63,7 @@ void update(double /*delta_time*/) {
   }
   g_state.keyboard_previous = g_state.keyboard_current;
   g_state.mouse_previous = g_state.mouse_current;
+  g_state.gamepad_previous = g_state.gamepad_current;
   // Cleared here, at the end of this frame's iteration (Application's loop
   // calls this after game->update()/render() -- see mouse_wheel_delta()'s
   // comment) -- ready to accumulate fresh events for the next frame.
@@ -116,6 +125,43 @@ void process_resize(u16 width, u16 height) {
   g_events->fire(EventCode::EVENT_CODE_RESIZED, nullptr, context);
 }
 
+void process_gamepad_connection(bool connected) {
+  auto &slot = g_state.gamepad_current.connected;
+  if (slot != connected) {
+    slot = connected;
+    if (!connected) {
+      // Dropped mid-press/mid-stick -- don't leave a stale button/axis
+      // latched "down"/deflected for a gamepad that's no longer there.
+      g_state.gamepad_current.buttons = {};
+      g_state.gamepad_current.axes = {};
+    }
+
+    EventContext context{};
+    g_events->fire(connected ? EventCode::EVENT_CODE_GAMEPAD_CONNECTED
+                             : EventCode::EVENT_CODE_GAMEPAD_DISCONNECTED,
+                   nullptr, context);
+  }
+}
+
+void process_gamepad_button(GamepadButton button, bool pressed) {
+  auto &slot = g_state.gamepad_current.buttons[idx(button)];
+  if (slot != pressed) {
+    slot = pressed;
+
+    EventContext context{};
+    context.data.u16[0] = static_cast<u16>(button);
+    g_events->fire(pressed ? EventCode::EVENT_CODE_GAMEPAD_BUTTON_PRESSED
+                           : EventCode::EVENT_CODE_GAMEPAD_BUTTON_RELEASED,
+                   nullptr, context);
+  }
+}
+
+void process_gamepad_axis(GamepadAxis axis, f32 normalized_value) {
+  // No event fired here -- see this function's declaration in input.h for
+  // why (high-frequency continuous data; poll gamepad_axis() instead).
+  g_state.gamepad_current.axes[idx(axis)] = normalized_value;
+}
+
 // --- Keyboard queries -------------------------------------------------------
 
 bool is_key_down(Key key) {
@@ -171,6 +217,39 @@ i32 mouse_wheel_delta() {
     return 0;
   }
   return g_state.wheel_delta_accum;
+}
+
+// --- Gamepad queries ---------------------------------------------------
+
+bool is_gamepad_connected() {
+  return g_initialized && g_state.gamepad_current.connected;
+}
+
+bool is_gamepad_button_down(GamepadButton button) {
+  return g_initialized && g_state.gamepad_current.connected &&
+         g_state.gamepad_current.buttons[idx(button)];
+}
+
+bool is_gamepad_button_up(GamepadButton button) {
+  return !g_initialized || !g_state.gamepad_current.connected ||
+         !g_state.gamepad_current.buttons[idx(button)];
+}
+
+bool was_gamepad_button_down(GamepadButton button) {
+  return g_initialized && g_state.gamepad_previous.connected &&
+         g_state.gamepad_previous.buttons[idx(button)];
+}
+
+bool was_gamepad_button_up(GamepadButton button) {
+  return !g_initialized || !g_state.gamepad_previous.connected ||
+         !g_state.gamepad_previous.buttons[idx(button)];
+}
+
+f32 gamepad_axis(GamepadAxis axis) {
+  if (!g_initialized || !g_state.gamepad_current.connected) {
+    return 0.0f;
+  }
+  return g_state.gamepad_current.axes[idx(axis)];
 }
 
 } // namespace input
