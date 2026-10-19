@@ -17,6 +17,12 @@
 #endif
 #include <windows.h>
 
+// Gamepad support: XInput, the standard Win32 controller API (the direct
+// counterpart of the Linux layer's raw joystick API) -- Xinput9_1_0.lib is
+// the variant available all the way back to Vista, which is as safe a
+// default as this codebase's other Win32 dependencies.
+#include <Xinput.h>
+
 #define VK_USE_PLATFORM_WIN32_KHR
 #include "../renderer/vulkan/vulkan_types.inl"
 #include <vulkan/vulkan.h>
@@ -174,6 +180,94 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam,
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+// ─── Gamepad polling (XInput) ───────────────────────────────────────────
+// XInput is the Win32 counterpart of platform_linux.cpp's raw joystick
+// API -- a simple poll-once-per-frame call, no device file/handle to
+// manage. NOTE: this half of the engine's gamepad support could not be
+// compiled or run against real hardware in the environment this was
+// written in (no Windows toolchain available) -- written carefully from
+// XInput's well-documented, stable API shape, but flagged here as
+// unverified at the symbol/runtime level, unlike the Linux backend.
+
+f32 clamp01(f32 v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+f32 clamp11(f32 v) { return v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v); }
+
+struct ButtonBit {
+  WORD mask;
+  input::GamepadButton button;
+};
+
+// XInput already reports the d-pad as discrete button bits (unlike
+// Linux's raw joystick API, which reports it as two hat axes that
+// platform_linux.cpp has to convert itself) -- no sign-convention guessing
+// needed here, the Dpad* bits map straight across.
+constexpr std::array<ButtonBit, 14> kButtonBits = {{
+    {XINPUT_GAMEPAD_A, input::GamepadButton::A},
+    {XINPUT_GAMEPAD_B, input::GamepadButton::B},
+    {XINPUT_GAMEPAD_X, input::GamepadButton::X},
+    {XINPUT_GAMEPAD_Y, input::GamepadButton::Y},
+    {XINPUT_GAMEPAD_LEFT_SHOULDER, input::GamepadButton::LeftBumper},
+    {XINPUT_GAMEPAD_RIGHT_SHOULDER, input::GamepadButton::RightBumper},
+    {XINPUT_GAMEPAD_BACK, input::GamepadButton::Back},
+    {XINPUT_GAMEPAD_START, input::GamepadButton::Start},
+    // XInput has no bit for the Guide/Xbox button -- Microsoft reserves
+    // it for the system shell and never surfaces it through this API.
+    // Left unmapped: is_gamepad_button_down(GamepadButton::Guide) will
+    // simply never report true on Windows. Linux's raw joystick API does
+    // see it (button 8 in the xpad driver's layout) -- a genuine platform
+    // asymmetry, not a bug on either side.
+    {XINPUT_GAMEPAD_LEFT_THUMB, input::GamepadButton::LeftStick},
+    {XINPUT_GAMEPAD_RIGHT_THUMB, input::GamepadButton::RightStick},
+    {XINPUT_GAMEPAD_DPAD_UP, input::GamepadButton::DpadUp},
+    {XINPUT_GAMEPAD_DPAD_DOWN, input::GamepadButton::DpadDown},
+    {XINPUT_GAMEPAD_DPAD_LEFT, input::GamepadButton::DpadLeft},
+    {XINPUT_GAMEPAD_DPAD_RIGHT, input::GamepadButton::DpadRight},
+}};
+
+// At most one gamepad is tracked (see input.h's doc comment on the
+// gamepad API) -- user index 0 is "the first connected controller" in
+// practice for a single-pad setup, which is this engine's whole scope
+// right now.
+constexpr DWORD kGamepadUserIndex = 0;
+
+void poll_gamepad() {
+  XINPUT_STATE state{};
+  if (XInputGetState(kGamepadUserIndex, &state) != ERROR_SUCCESS) {
+    // Normal, silent case: no controller plugged in (or unplugged since
+    // the last call) -- process_gamepad_connection() only fires an event
+    // on an actual change, so this is cheap to call every frame.
+    input::process_gamepad_connection(false);
+    return;
+  }
+  input::process_gamepad_connection(true);
+
+  const XINPUT_GAMEPAD &pad = state.Gamepad;
+  for (const ButtonBit &bit : kButtonBits) {
+    input::process_gamepad_button(bit.button, (pad.wButtons & bit.mask) != 0);
+  }
+
+  // Sticks: XInput's native range is -32768..32767 (one more negative
+  // step than Linux's joystick API, which bottoms out at -32767) --
+  // dividing by 32767 and clamping saturates that extra step at -1.0f
+  // instead of reporting slightly past it.
+  input::process_gamepad_axis(input::GamepadAxis::LeftX,
+                              clamp11(pad.sThumbLX / 32767.0f));
+  input::process_gamepad_axis(input::GamepadAxis::LeftY,
+                              clamp11(pad.sThumbLY / 32767.0f));
+  input::process_gamepad_axis(input::GamepadAxis::RightX,
+                              clamp11(pad.sThumbRX / 32767.0f));
+  input::process_gamepad_axis(input::GamepadAxis::RightY,
+                              clamp11(pad.sThumbRY / 32767.0f));
+
+  // Triggers: XInput's native range is 0..255, already starting at
+  // "released" -- unlike Linux's -32767-centered trigger axis, so this is
+  // a plain divide, no offset needed.
+  input::process_gamepad_axis(input::GamepadAxis::LeftTrigger,
+                              clamp01(pad.bLeftTrigger / 255.0f));
+  input::process_gamepad_axis(input::GamepadAxis::RightTrigger,
+                              clamp01(pad.bRightTrigger / 255.0f));
+}
+
 } // namespace
 
 // ─── PlatformLayer: owns the Win32 window ──────────────────────────────────
@@ -243,6 +337,13 @@ PlatformLayer::~PlatformLayer() {
 
 b8 PlatformLayer::platform_pump_messages() {
   auto *state = static_cast<win32_state *>(internal_state);
+
+  // Gamepad state is system-wide, not tied to any particular window --
+  // polled unconditionally, before the owns_window check below, same as
+  // platform_linux.cpp's joystick poll and for the same reason: gating it
+  // on window ownership would silently break gamepad input for a
+  // borrowed-window consumer for no architectural reason.
+  poll_gamepad();
 
   // Borrowed windows are pumped by whatever owns their event loop.
   if (!state->owns_window) {

@@ -34,8 +34,10 @@ IF /I "%~1"=="release" (
 )
 REM -Wall -Werror
 SET includeFlags=-Isrc -I"%VULKAN_SDK%\Include"
-REM winmm: PlaySound, for audio.cpp.
-SET linkerFlags=-shared -luser32 -lwinmm -lvulkan-1 -L"%VULKAN_SDK%\Lib"
+REM winmm: PlaySound, for audio.cpp. xinput9_1_0: gamepad polling (XInput),
+REM for platform_win32.cpp -- the Vista-and-later import lib, same minimum
+REM bar the rest of this file's Windows support already assumes.
+SET linkerFlags=-shared -luser32 -lwinmm -lxinput9_1_0 -lvulkan-1 -L"%VULKAN_SDK%\Lib"
 
 ECHO Building %assembly% (%config%)...
 REM Also writes ..\bin\engine.lib, the import library the game links against.
