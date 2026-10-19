@@ -31,6 +31,16 @@
 #include <string_view>
 #include <thread>
 
+// Gamepad support: the raw Linux joystick API, not evdev directly -- "give
+// me normalized axis/button events" is exactly what's needed here, and it
+// needs no extra library (unlike SDL2, whose headers aren't available in
+// this build environment).
+#include <cerrno>
+#include <fcntl.h>
+#include <linux/joystick.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
 #define VK_USE_PLATFORM_XCB_KHR
 #include "../renderer/vulkan/vulkan_types.inl"
 #include <vulkan/vulkan.h>
@@ -48,6 +58,18 @@ struct linux_state {
   // wm_* are unused (left zero-initialized) in that case, and the
   // destructor must not destroy a window/connection/display it doesn't own.
   b8 owns_window;
+
+  // Gamepad device (see poll_gamepad() below). -1 when no device is
+  // currently open -- either none has ever been found, or the last one
+  // open'd was unplugged. Independent of owns_window: a joystick device
+  // node is a system-wide resource, not tied to this window/connection.
+  i32 gamepad_fd = -1;
+  // Throttles the open() retry when no device is currently open, so an
+  // unplugged controller doesn't cost a filesystem stat() every single
+  // platform_pump_messages() call (cheap, but pointless at render-loop
+  // frequency). Counts calls, not time -- simpler, and "every ~2 seconds
+  // at 60fps" is plenty responsive for noticing a hot-plug.
+  i32 gamepad_reopen_countdown = 0;
 };
 
 // ─── PlatformLayer: owns the X window ──────────────────────────────────────
@@ -140,6 +162,10 @@ PlatformLayer::PlatformLayer(BorrowedWindowHandle handle, i32 width,
 PlatformLayer::~PlatformLayer() {
   auto *state = static_cast<linux_state *>(internal_state);
 
+  if (state->gamepad_fd >= 0) {
+    close(state->gamepad_fd);
+  }
+
   if (state->owns_window) {
     XAutoRepeatOn(state->display);
     xcb_destroy_window(state->connection, state->window);
@@ -150,8 +176,197 @@ PlatformLayer::~PlatformLayer() {
   internal_state = nullptr;
 }
 
+namespace {
+
+// Candidate joystick device nodes to probe, in order. The index isn't
+// stable across reboots/replugs -- this session observed the connected
+// Xbox 360 pad at /dev/input/js1 with js0 being an unrelated keyboard
+// consumer-control node, but that's just this session's snapshot, not
+// something to hardcode. Probing a short fixed list and keeping the first
+// one that both opens AND answers JSIOCGNAME (confirms it's a real
+// joystick node, not some other js-numbered device) is simple and good
+// enough; a udev-based "watch for new joystick nodes" approach would be
+// more correct for exotic multi-pad setups but is overkill for "does this
+// engine see a controller at all".
+constexpr std::array<const char *, 4> kGamepadDevicePaths = {
+    "/dev/input/js0", "/dev/input/js1", "/dev/input/js2", "/dev/input/js3"};
+
+// How many platform_pump_messages() calls to wait between retrying open()
+// while no gamepad is connected. O_NONBLOCK opens are cheap, but there's
+// no reason to stat() four device nodes every single frame when nothing's
+// plugged in -- once every 120 calls is ~2 seconds at 60fps, plenty
+// responsive for noticing a hot-plug without being wasteful.
+constexpr i32 kGamepadReopenInterval = 120;
+
+// Tries each candidate path; returns an open, confirmed-joystick fd, or -1
+// if none worked.
+i32 try_open_gamepad() {
+  for (const char *path : kGamepadDevicePaths) {
+    i32 fd = open(path, O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
+      continue;
+    }
+    char name[128] = {};
+    if (ioctl(fd, JSIOCGNAME(sizeof(name)), name) < 0) {
+      // Opened, but doesn't answer the joystick ioctl -- not actually a
+      // joystick device (js-numbered nodes aren't guaranteed to all be
+      // joysticks). Skip it.
+      close(fd);
+      continue;
+    }
+    KINFO("Gamepad found: {} ({})", path, name);
+    return fd;
+  }
+  return -1;
+}
+
+// Button 0-10 -> GamepadButton, in the standard xpad driver ordering for
+// an Xbox 360 pad: A, B, X, Y, LB, RB, Back, Start, Guide, L3, R3. This is
+// well-documented/stable for this family of controller, not a guess.
+constexpr std::array<input::GamepadButton, 11> kButtonMap = {
+    input::GamepadButton::A,          input::GamepadButton::B,
+    input::GamepadButton::X,          input::GamepadButton::Y,
+    input::GamepadButton::LeftBumper, input::GamepadButton::RightBumper,
+    input::GamepadButton::Back,       input::GamepadButton::Start,
+    input::GamepadButton::Guide,      input::GamepadButton::LeftStick,
+    input::GamepadButton::RightStick,
+};
+
+f32 clamp01(f32 v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+f32 clamp11(f32 v) { return v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v); }
+
+// Drains every pending js_event on state->gamepad_fd this frame, translates
+// each into the matching input::process_gamepad_*() call, and handles
+// lazy-open/hot-plug/disconnect of the device itself. See this function's
+// call site in platform_pump_messages() for why this runs unconditionally,
+// independent of owns_window.
+void poll_gamepad(linux_state *state) {
+  if (state->gamepad_fd < 0) {
+    // No device currently open -- throttle how often we retry, see
+    // kGamepadReopenInterval.
+    if (state->gamepad_reopen_countdown > 0) {
+      --state->gamepad_reopen_countdown;
+      return;
+    }
+    state->gamepad_reopen_countdown = kGamepadReopenInterval;
+
+    state->gamepad_fd = try_open_gamepad();
+    if (state->gamepad_fd < 0) {
+      // Normal, silent case: no controller plugged in. Only fires an
+      // event the first time (process_gamepad_connection() diffs against
+      // current state), not every retry.
+      input::process_gamepad_connection(false);
+      return;
+    }
+    input::process_gamepad_connection(true);
+  }
+
+  js_event ev;
+  for (;;) {
+    ssize_t n = read(state->gamepad_fd, &ev, sizeof(ev));
+    if (n == static_cast<ssize_t>(sizeof(ev))) {
+      // JS_EVENT_INIT is ORed into type for the synthetic "here's the
+      // current state" events the kernel sends right after open -- these
+      // are real initial state, not noise to discard, so mask it off and
+      // handle them exactly like a live event.
+      u8 type = ev.type & ~JS_EVENT_INIT;
+
+      if (type == JS_EVENT_BUTTON) {
+        if (ev.number < kButtonMap.size()) {
+          input::process_gamepad_button(kButtonMap[ev.number], ev.value != 0);
+        }
+        continue;
+      }
+
+      if (type != JS_EVENT_AXIS) {
+        continue;
+      }
+
+      switch (ev.number) {
+      case 0: // Left stick X
+        input::process_gamepad_axis(input::GamepadAxis::LeftX,
+                                    clamp11(ev.value / 32767.0f));
+        break;
+      case 1: // Left stick Y
+        input::process_gamepad_axis(input::GamepadAxis::LeftY,
+                                    clamp11(ev.value / 32767.0f));
+        break;
+      case 3: // Right stick X
+        input::process_gamepad_axis(input::GamepadAxis::RightX,
+                                    clamp11(ev.value / 32767.0f));
+        break;
+      case 4: // Right stick Y
+        input::process_gamepad_axis(input::GamepadAxis::RightY,
+                                    clamp11(ev.value / 32767.0f));
+        break;
+      case 2: // Left trigger -- hardware range is -32767 (released) ..
+              // 32767 (fully pressed), unlike the stick axes' centered
+              // range.
+        input::process_gamepad_axis(
+            input::GamepadAxis::LeftTrigger,
+            clamp01((ev.value + 32767) / 65534.0f));
+        break;
+      case 5: // Right trigger, same mapping as case 2.
+        input::process_gamepad_axis(
+            input::GamepadAxis::RightTrigger,
+            clamp01((ev.value + 32767) / 65534.0f));
+        break;
+      case 6: // D-pad X (hat, effectively 3-state: -32767/0/32767).
+              // Reported as buttons, not an axis -- see GamepadButton's
+              // doc comment in input.h for why.
+        input::process_gamepad_button(input::GamepadButton::DpadLeft,
+                                      ev.value < 0);
+        input::process_gamepad_button(input::GamepadButton::DpadRight,
+                                      ev.value > 0);
+        break;
+      case 7: // D-pad Y (hat). Sign convention ASSUMED, not interactively
+              // verified against real hardware this session: negative =
+              // up, matching stick-Y's own convention (axes 1/4) and the
+              // most common Linux joystick hat convention. If a future
+              // session with hands-on access finds the d-pad up/down feel
+              // inverted, flip this.
+        input::process_gamepad_button(input::GamepadButton::DpadUp,
+                                      ev.value < 0);
+        input::process_gamepad_button(input::GamepadButton::DpadDown,
+                                      ev.value > 0);
+        break;
+      default:
+        break;
+      }
+      continue;
+    }
+
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      // No more events pending this frame -- normal, done.
+      return;
+    }
+
+    // n == 0 (EOF) or any other read error (e.g. ENODEV) means the device
+    // is gone. Close it and let the next call's lazy-open retry find it
+    // again if replugged.
+    close(state->gamepad_fd);
+    state->gamepad_fd = -1;
+    state->gamepad_reopen_countdown = 0; // retry immediately next call
+    input::process_gamepad_connection(false);
+    return;
+  }
+}
+
+} // namespace
+
 b8 PlatformLayer::platform_pump_messages() {
   auto *state = static_cast<linux_state *>(internal_state);
+
+  // Gamepad state is system-wide, not tied to any particular window or
+  // X11 connection (unlike keyboard/mouse, which legitimately come from
+  // this window's XCB event stream) -- so it's polled unconditionally,
+  // BEFORE the owns_window check below. A joystick device file has
+  // nothing to do with X11 window ownership: gating this on owns_window
+  // would silently break gamepad input for every borrowed-window consumer
+  // (e.g. a tool embedding this PlatformLayer in a Qt-owned window) for no
+  // architectural reason, which runs against the point of this being an
+  // engine-level, not tool-specific, capability.
+  poll_gamepad(state);
 
   // Borrowed windows are pumped by whatever owns their event loop (e.g.
   // Qt's XCB platform plugin, already reading from this exact connection)
