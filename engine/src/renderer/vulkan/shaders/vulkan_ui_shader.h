@@ -53,7 +53,7 @@ public:
   // the images actually on screen hold video memory.
   void render_image_to(VulkanCommandBuffer &command_buffer, u32 width,
                        u32 height, std::string_view path, glm::vec2 position,
-                       glm::vec2 size);
+                       glm::vec2 size, glm::vec4 tint = glm::vec4(1.0f));
 
   // Releases the material (and so the GPU texture) of every image that
   // hasn't been drawn for kImageIdleFrames frames. Called once per frame,
@@ -68,7 +68,8 @@ private:
 
   // The draw both render_to() and render_image_to() come down to.
   void draw_quad(VulkanCommandBuffer &command_buffer, u32 width, u32 height,
-                 Material &material, glm::vec2 position, glm::vec2 size);
+                 Material &material, glm::vec2 position, glm::vec2 size,
+                 glm::vec4 tint);
 
   // One material per image path currently in use -- see
   // render_image_to(). Released (by Material::name, its content key) once

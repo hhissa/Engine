@@ -3,6 +3,7 @@
 #include "../renderer/renderer_types.inl" // SculptBrushShape/SculptBrushOp
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <optional>
 #include <vector>
 
@@ -60,6 +61,14 @@ struct SculptStamp {
   // Fleck strength/scale (see Builtin.FleckPattern.inc.glsl's entry
   // points). See the plan file's M3/M6 sections.
   f32 looseness = 0.0f;
+  // Orientation of the shape about its own center. Identity for anything
+  // stamped by a brush; object rotation (VulkanRendererBackend::
+  // transform_object()) is what makes it non-identity.
+  glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+  // Which object this stamp belongs to -- every stamp made between two
+  // VulkanRendererBackend::begin_object() calls shares one id. Objects are
+  // what grab/rotate act on as a unit.
+  i32 object_id = 0;
 };
 
 // Owns the (mostly append-only -- see pop_last_stamp()/remove_stamp_at()
@@ -106,9 +115,12 @@ public:
   const SculptStamp &add_stamp(glm::vec3 center, SculptBrushShape shape_type,
                                glm::vec4 params, f32 smoothness,
                                SculptBrushOp op, i32 material_slot,
-                               i32 cells_touched, f32 looseness = 0.0f) {
+                               i32 cells_touched, f32 looseness = 0.0f,
+                               glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+                               i32 object_id = 0) {
     stamps_.push_back(SculptStamp{center, shape_type, params, smoothness, op,
-                                  material_slot, cells_touched, looseness});
+                                  material_slot, cells_touched, looseness,
+                                  rotation, object_id});
     return stamps_.back();
   }
 
@@ -163,6 +175,30 @@ public:
     }
     stamps_[index].center = new_center;
     stamps_[index].cells_touched = cells_touched;
+    return true;
+  }
+
+  // Moves and re-orients the stamp at `index` in place (object grab/
+  // rotate). Like update_stamp_center(), never changes order or size.
+  bool update_stamp_transform(size_t index, glm::vec3 new_center,
+                              glm::quat new_rotation, glm::vec4 new_params,
+                              f32 new_smoothness, i32 cells_touched) {
+    if (index >= stamps_.size()) {
+      return false;
+    }
+    stamps_[index].center = new_center;
+    stamps_[index].rotation = new_rotation;
+    stamps_[index].params = new_params;
+    stamps_[index].smoothness = new_smoothness;
+    stamps_[index].cells_touched = cells_touched;
+    return true;
+  }
+
+  bool set_stamp_material(size_t index, i32 material_slot) {
+    if (index >= stamps_.size()) {
+      return false;
+    }
+    stamps_[index].material_slot = material_slot;
     return true;
   }
 

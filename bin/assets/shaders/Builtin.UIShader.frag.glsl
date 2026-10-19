@@ -11,6 +11,14 @@ layout(set = 1, binding = 0) uniform InstanceUniformObject {
 } instance_ubo;
 layout(set = 1, binding = 1) uniform sampler2D diffuse_sampler;
 
+// Must match the vertex shader's block. tint multiplies this one draw
+// (e.g. alpha to fade an image in and out).
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    vec4 tint;
+} push;
+
 void main() {
-    out_colour = instance_ubo.diffuse_colour * texture(diffuse_sampler, in_texcoord);
+    out_colour = push.tint * instance_ubo.diffuse_colour *
+                 texture(diffuse_sampler, in_texcoord);
 }

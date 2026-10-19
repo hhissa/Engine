@@ -200,8 +200,9 @@ constexpr i32 kGamepadReopenInterval = 120;
 
 // Tries each candidate path; returns an open, confirmed-joystick fd, or -1
 // if none worked.
-i32 try_open_gamepad() {
-  for (const char *path : kGamepadDevicePaths) {
+// Opens the first of `paths` that is a joystick device; -1 if none is.
+template <typename Paths> i32 open_first_gamepad(const Paths &paths) {
+  for (const char *path : paths) {
     i32 fd = open(path, O_RDONLY | O_NONBLOCK);
     if (fd < 0) {
       continue;
@@ -218,6 +219,17 @@ i32 try_open_gamepad() {
     return fd;
   }
   return -1;
+}
+
+i32 try_open_gamepad() {
+  // KENGINE_GAMEPAD_DEVICE picks one specific joystick node (e.g.
+  // /dev/input/js1) instead of the first one found -- for when more than
+  // one pad is connected, or to drive the engine from a virtual pad.
+  const char *forced = std::getenv("KENGINE_GAMEPAD_DEVICE");
+  if (forced && *forced) {
+    return open_first_gamepad(std::array<const char *, 1>{forced});
+  }
+  return open_first_gamepad(kGamepadDevicePaths);
 }
 
 // Button 0-10 -> GamepadButton, in the standard xpad driver ordering for

@@ -152,7 +152,9 @@ layout(std430, binding = 9) buffer ChunkClusterFreeListTopBuffer {
 // Must match kMaxChunkBricks/kMaxChunkClusters engine-side exactly -- same
 // manual-sync-point convention every other sculpt-family shader already
 // uses (see Builtin.SculptStamp.comp.glsl's identical MAX_CHUNK_BRICKS).
-const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
+// Specialization constant 0: the engine passes its VRAM-sized
+// max_chunk_bricks_ here at pipeline creation; 16384 per level is only the default.
+layout(constant_id = 0) const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
 const int MAX_CLUSTERS = 131072;
 
 // Plain scalars throughout, same convention/reasoning as every other

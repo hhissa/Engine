@@ -8,6 +8,7 @@
 #include "vulkan_framebuffer.h"
 #include "vulkan_types.inl"
 
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
@@ -34,7 +35,7 @@ public:
   void draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
                          glm::vec4 colour) override;
   void draw_image(std::string_view path, glm::vec2 position,
-                  glm::vec2 size) override;
+                  glm::vec2 size, glm::vec4 tint) override;
   glm::vec2 preload_image(std::string_view path) override;
   void set_grid_visible(b8 visible) override;
   void set_chunked_field_enabled(b8 enabled) override;
@@ -48,11 +49,14 @@ public:
                     f32 fleck_scale) override;
   i32 add_directional_light(glm::vec3 direction, glm::vec3 colour,
                             f32 intensity) override;
+  void set_point_light(i32 index, glm::vec3 position, glm::vec3 colour,
+                       f32 intensity, i32 source_material) override;
   i32 add_point_light(glm::vec3 position, glm::vec3 colour,
                       f32 intensity) override;
   void stamp_shape(glm::vec3 center, SculptBrushShape shape_type,
                    glm::vec4 params, f32 smoothness, SculptBrushOp shape_op,
-                   i32 material_slot = 0, f32 looseness = 0.0f) override;
+                   i32 material_slot = 0, f32 looseness = 0.0f,
+                   glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f)) override;
   bool undo_stamp() override;
   bool redo_stamp() override;
   i32 spray_paint(glm::vec3 center, SculptBrushShape shape_type,
@@ -62,6 +66,38 @@ public:
                      SculptBrushOp op, i32 material_slot) override;
   bool delete_edit(i32 index) override;
   bool move_edit(i32 index, glm::vec3 new_center) override;
+  bool sculpt_bounds(glm::vec3 *out_min, glm::vec3 *out_max) const override;
+  i32 begin_object() override;
+  i32 current_object() const override { return current_object_id_; }
+  void set_current_object(i32 object_id) override {
+    current_object_id_ = object_id;
+    next_object_id_ = std::max(next_object_id_, object_id + 1);
+  }
+  i32 pick_object(glm::vec3 point, f32 max_distance) const override;
+  i32 raycast_object(glm::vec3 origin, glm::vec3 direction, f32 max_t,
+                     f32 *out_t) const override;
+  bool object_bounds(i32 object_id, glm::vec3 *out_min,
+                     glm::vec3 *out_max) const override;
+  bool transform_object(i32 object_id, glm::vec3 pivot, glm::quat rotation,
+                        glm::vec3 translation, f32 scale = 1.0f) override;
+  bool transform_objects(const i32 *object_ids, i32 count, glm::vec3 pivot,
+                         glm::quat rotation, glm::vec3 translation,
+                         f32 scale = 1.0f) override;
+  bool delete_objects(const i32 *object_ids, i32 count) override;
+  void set_outlined_objects(const i32 *object_ids, i32 count,
+                            glm::vec4 colour,
+                            const i32 *outline_groups) override;
+  void set_scope_objects(const i32 *object_ids, i32 count) override;
+  bool set_object_material(const i32 *object_ids, i32 count,
+                           i32 slot) override;
+  void set_material_glow(i32 slot, f32 glow) override;
+  i32 object_ids(i32 *out_ids, i32 capacity) const override;
+  i32 raycast_objects(glm::vec3 origin, glm::vec3 direction, f32 max_t,
+                      const i32 *object_ids, i32 count,
+                      f32 *out_t) const override;
+  i32 clone_object(i32 object_id) override;
+  bool object_anchor(i32 object_id, glm::vec3 *out_center,
+                     glm::quat *out_rotation) const override;
   i32 crop_volume(glm::vec3 center, SculptBrushShape shape_type,
                   glm::vec4 params, f32 smoothness) override;
   bool cutout_volume(glm::vec3 center, SculptBrushShape shape_type,
@@ -127,7 +163,28 @@ private:
   void apply_stamp_and_record(glm::vec3 center, SculptBrushShape shape_type,
                               glm::vec4 params, f32 smoothness,
                               SculptBrushOp shape_op, i32 material_slot,
-                              f32 looseness = 0.0f);
+                              f32 looseness, glm::quat rotation,
+                              i32 object_id);
+
+  // After an edit that moved or removed stamps (and dropped undo history):
+  // returns the chunk slots no stamp touches any more -- see
+  // VulkanRaymarchShader::release_unused_sculpt_chunks().
+  void release_unused_sculpt_chunks();
+  // Hands the outlined objects' current stamps to the shading pass.
+  void update_selection_outline();
+  std::vector<i32> outlined_objects_;
+  std::vector<i32> outline_keys_; // parallel to outlined_objects_
+  std::vector<i32> scope_objects_;
+  glm::vec4 outline_colour_{1.0f};
+  bool collect_object_stamps(const i32 *object_ids, i32 count,
+                             const char *caller,
+                             std::vector<size_t> *out_members) const;
+
+  // Shared by sculpt_bounds()/object_bounds(): bounds of the Union stamps
+  // for which `include` returns true.
+  template <typename Filter>
+  bool union_stamp_bounds(Filter include, glm::vec3 *out_min,
+                          glm::vec3 *out_max) const;
 
   VulkanContext context_{};
   PlatformLayer *plat_state_ = nullptr;
@@ -145,6 +202,9 @@ private:
   // one call site that needs it; promote it if a later milestone's tool
   // needs to reach it from somewhere else.
   SculptSystem sculpt_system_;
+  // The object new stamps are recorded under -- see begin_object().
+  i32 current_object_id_ = 0;
+  i32 next_object_id_ = 1;
 
   // M2b: stamps popped by undo_stamp(), most-recently-undone last --
   // redo_stamp() pops from the back (LIFO), so consecutive redos restore

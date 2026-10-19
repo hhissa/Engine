@@ -1,5 +1,6 @@
 #include "main_window.h"
 #include "scene_viewport.h"
+#include "sculpt_shared.h"
 
 #include <QCheckBox>
 #include <QColorDialog>
@@ -730,8 +731,12 @@ void ModellingWindow::on_stamp_placed(glm::vec3 center,
                                        glm::vec4 params, f32 smoothness,
                                        SculptBrushOp op, int material_slot,
                                        f32 looseness) {
+  // The object is whichever one the engine just recorded the stamp under (a
+  // new one per stroke -- see SceneViewport::mousePressEvent()).
   document_.add_stamp(center, shape_type, params, smoothness, op,
-                      material_slot, looseness);
+                      material_slot, looseness,
+                      viewport_->last_stamp_rotation(),
+                      renderer_sculpt_current_object());
   // A fresh, user-driven stamp invalidates any pending redo history -- the
   // engine side (VulkanRendererBackend::stamp_shape()) clears its own redo_
   // stack_ for exactly the same reason at exactly the same moment (this
@@ -827,7 +832,7 @@ void ModellingWindow::on_redo_triggered() {
     group.pop_back();
     document_.add_stamp(stamp.center, stamp.shape_type, stamp.params,
                         stamp.smoothness, stamp.op, stamp.material_slot,
-                        stamp.looseness);
+                        stamp.looseness, stamp.rotation, stamp.object_id);
     ++redone_count;
   }
   if (!group.empty()) {
@@ -1199,11 +1204,11 @@ void ModellingWindow::on_load_triggered() {
   // immediately after launching the tool (nothing stamped yet) round-
   // trips correctly; loading a *different* file into an already-sculpted
   // session will show both sets of stamps together.
-  for (const SculptStampRecord &stamp : loaded.stamps()) {
-    viewport_->replay_stamp(stamp.center, stamp.shape_type, stamp.params,
-                            stamp.smoothness, stamp.op, stamp.material_slot,
-                            stamp.looseness);
-    // M3a: replay_stamp() does NOT emit stamp_placed() (see its own
+  // Replays every stamp with its rotation and object grouping (and remaps
+  // the file's object ids onto the engine's) -- see sculpt_shared.h.
+  sculpt_shared::replay_document(loaded);
+  for (size_t i = 0; i < loaded.stamps().size(); ++i) {
+    // M3a: replay does NOT emit stamp_placed() (see its own
     // comment), so on_stroke_ended() never fires for it either --
     // undo_group_sizes_ needs an explicit entry per loaded stamp here, or
     // Undo after a Load would have no grouping information for any of

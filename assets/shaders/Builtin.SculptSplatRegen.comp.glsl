@@ -85,6 +85,16 @@ layout(push_constant) uniform PushConstants {
                          // disallowed) -- always 0 in M1a.
     float chunk_cell_size; // COARSE_CELL_SIZE -- shared by every cell.
     float voxel_size;      // chunk_cell_size / CHUNK_BRICK_DIM.
+    // 0 = RELEASE: return every cluster page the cell's brick currently
+    //     holds to the free list (and forget them), nothing else.
+    // 1 = GENERATE: build the brick's points into fresh pages.
+    // The engine always runs RELEASE then GENERATE as two dispatches with a
+    // barrier between (record_splat_regen()): generate_splat_points() used
+    // to overwrite a re-generated brick's page list without freeing the old
+    // pages, leaking a few hundred pages per edit until the pool ran dry and
+    // sculpts lost their points. Pushes and pops share one free-list stack,
+    // so they can't safely interleave in a single dispatch.
+    int mode;
 } pc;
 
 #include "Builtin.ChunkVoxelize.comp.glsl.SPLAT_REGEN_REFERENCE"
@@ -104,6 +114,23 @@ void main() {
         // Shouldn't happen -- SculptStamp.comp.glsl must have run (with a
         // barrier) before this dispatch for every cell in this same list.
         // Defensive only.
+        return;
+    }
+
+    if (pc.mode == 0) {
+        for (int i = 0; i < CHUNK_MAX_CLUSTERS_PER_BRICK; ++i) {
+            int list_index = brick_index * CHUNK_MAX_CLUSTERS_PER_BRICK + i;
+            int page = brick_clusters[list_index];
+            if (page < 0) {
+                continue;
+            }
+            brick_clusters[list_index] = -1;
+            chunk_clusters[page].meta = uvec4(0);
+            uint slot = atomicAdd(cluster_free_top, 1u);
+            if (slot < uint(MAX_CLUSTERS)) {
+                cluster_free_list[slot] = page;
+            }
+        }
         return;
     }
 

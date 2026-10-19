@@ -80,13 +80,16 @@ struct ShaderConfig {
 // Instance slots are a fixed-size array (kMaxShaderInstances) with a
 // free-index stack, not a general allocator. Most builtin shaders need one
 // instance; the UI shader takes one more per distinct image drawn through
-// renderer_draw_image(), which is what the headroom is for.
+// renderer_draw_image() (a UI with icons, colour swatches and preview
+// spheres can easily have 60+ on screen), which is what the headroom is for.
+// Running out makes a new image silently draw as whichever image last
+// used the shader -- see acquire_instance_resources().
 class VulkanShader {
 public:
   using UniformIndex = u16;
   static constexpr UniformIndex kInvalidUniformIndex = 0xFFFF;
   static constexpr u32 kInvalidInstanceId = 0xFFFFFFFF;
-  static constexpr u32 kMaxShaderInstances = 32;
+  static constexpr u32 kMaxShaderInstances = 128;
   static constexpr u32 kMaxInstanceSamplers = 4;
 
   VulkanShader(VulkanContext &context, ShaderConfig config);

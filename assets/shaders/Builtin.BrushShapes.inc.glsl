@@ -10,6 +10,14 @@
 // the old SdfSceneCommon.inc.glsl) -- every function here is a pure
 // function of its arguments, with no SSBO/UBO dependency.
 
+// Rotates p by the INVERSE of unit quaternion q (xyz = vector part, w =
+// scalar part) -- i.e. takes a world-space offset into a rotated stamp's
+// own local frame, where its shape SDF is defined.
+vec3 quat_rotate_inverse(vec4 q, vec3 p) {
+    vec3 u = -q.xyz;
+    return p + 2.0 * cross(u, cross(u, p) + q.w * p);
+}
+
 float sphere_sdf(vec3 p, float radius) {
     return length(p) - radius;
 }

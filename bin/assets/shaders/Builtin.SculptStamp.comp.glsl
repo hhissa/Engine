@@ -254,7 +254,9 @@ const int UNDO_CAPTURE_CAPACITY = 1024;
 // Must match kMaxChunkBricks engine-side exactly (kMaxChunkBricksPerLevel
 // (16384) * kNumLevels (5) -- see Builtin.ChunkEvict.comp.glsl's identical
 // MAX_BRICKS for the same cross-check).
-const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
+// Specialization constant 0: the engine passes its VRAM-sized
+// max_chunk_bricks_ here at pipeline creation; 16384 per level is only the default.
+layout(constant_id = 0) const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
 
 // Plain scalars throughout (never a vec/ivec, and never reordered) so this
 // block's byte layout matches SculptStampPushConstants engine-side exactly,
@@ -286,6 +288,12 @@ layout(push_constant) uniform PushConstants {
                         // ensure_default_sculpt_material() engine-side).
     int op;             // One of the OP_* constants above.
     float looseness;    // M3 (Looseness): written into chunk_brick_
+    // Shape orientation as a unit quaternion (x, y, z, w) -- identity for
+    // brush stamps; see SculptStamp::rotation.
+    float rot_x;
+    float rot_y;
+    float rot_z;
+    float rot_w;
                         // looseness[] alongside material_slot below, same
                         // UNION-only-overwrites rule. Added at the END of
                         // this block -- see SculptStampPushConstants'
@@ -412,8 +420,11 @@ void main() {
                 // CENTRE at local offset (apron_index - 1) sits at cell_min
                 // + (apron_index - 0.5) * voxel_size.
                 vec3 world_pos = cell_min + (vec3(px, py, pz) - 0.5) * voxel_size;
-                float new_dist = eval_brush_shape(world_pos - brush_center,
-                                                  pc.shape_type, params);
+                float new_dist = eval_brush_shape(
+                    quat_rotate_inverse(vec4(pc.rot_x, pc.rot_y, pc.rot_z,
+                                             pc.rot_w),
+                                        world_pos - brush_center),
+                    pc.shape_type, params);
 
                 int voxel_index = base + px +
                     py * CHUNK_BRICK_APRON_DIM +

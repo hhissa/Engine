@@ -244,7 +244,9 @@ layout(std430, binding = 12) readonly buffer StampListBuffer {
 // Must match MAX_CHUNK_BRICKS/MAX_CLUSTERS_UNDO in Builtin.SculptStamp.
 // comp.glsl/Builtin.SculptUndoRestore.comp.glsl exactly -- same cross-check,
 // same constants engine-side (kMaxChunkBricks/kMaxChunkClusters).
-const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
+// Specialization constant 0: the engine passes its VRAM-sized
+// max_chunk_bricks_ here at pipeline creation; 16384 per level is only the default.
+layout(constant_id = 0) const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
 const int MAX_CLUSTERS_RECOMPUTE = 131072;
 
 // Plain scalars only, same order/convention as every other sculpt-family
@@ -260,7 +262,56 @@ layout(push_constant) uniform PushConstants {
                        // triggered this recompute has already landed.
     float cell_size;   // COARSE_CELL_SIZE.
     float voxel_size;  // cell_size / CHUNK_BRICK_DIM.
+    // 0 = RELEASE: free the brick of every cell that will end up empty (no
+    //     Union stamp overlaps it) and do nothing else.
+    // 1 = REBUILD: the full replay below, which only ever ALLOCATES.
+    // Run as two dispatches with a barrier between (recompute_cells()).
+    // Freeing pushes onto the same free-list stack allocating pops from; in
+    // one dispatch a pop could read a slot a concurrent push had claimed
+    // but not yet written, handing out a brick still in use -- two cells
+    // sharing one brick, i.e. holes and stray fragments after objects had
+    // been moved around for a while.
+    int mode;
 } pc;
+
+// Whether any Union stamp's bounding cube overlaps the cell -- exactly the
+// condition under which main()'s replay leaves the cell with a brick.
+bool cell_has_union_stamp(vec3 cell_min, vec3 cell_max) {
+    for (int s = 0; s < pc.stamp_count; ++s) {
+        if (int(round(stamps[s].smoothness_op_material_looseness.y)) != OP_UNION) {
+            continue;
+        }
+        vec3 center = stamps[s].center_shape.xyz;
+        float bounding_radius = stamps[s].bounding_radius_pad.x;
+        if (all(lessThanEqual(center - vec3(bounding_radius), cell_max)) &&
+            all(greaterThanEqual(center + vec3(bounding_radius), cell_min))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void free_cell_brick(int indirection_index, int existing_brick) {
+    uint write_index = atomicAdd(brick_free_top, 1u);
+    if (write_index < uint(MAX_CHUNK_BRICKS)) {
+        brick_free_list[write_index] = existing_brick;
+    }
+    chunk_indirection[indirection_index] = -1;
+
+    for (int i = 0; i < CHUNK_MAX_CLUSTERS_PER_BRICK; ++i) {
+        int list_index = existing_brick * CHUNK_MAX_CLUSTERS_PER_BRICK + i;
+        int page = brick_clusters[list_index];
+        if (page < 0) {
+            continue;
+        }
+        brick_clusters[list_index] = -1;
+        chunk_clusters[page].meta = uvec4(0);
+        uint slot = atomicAdd(cluster_free_top, 1u);
+        if (slot < uint(MAX_CLUSTERS_RECOMPUTE)) {
+            cluster_free_list[slot] = page;
+        }
+    }
+}
 
 void main() {
     uint idx = gl_GlobalInvocationID.x;
@@ -277,6 +328,13 @@ void main() {
     int existing_brick = chunk_indirection[indirection_index];
     bool had_brick_before = existing_brick >= 0;
 
+    if (pc.mode == 0) {
+        if (had_brick_before && !cell_has_union_stamp(cell_min, cell_max)) {
+            free_cell_brick(indirection_index, existing_brick);
+        }
+        return;
+    }
+
     bool brick_exists = false;   // Whether, after the full replay below,
                                  // this cell ends up with ANY geometry.
     int brick_index = -1;        // Resolved lazily, on the first UNION
@@ -288,6 +346,9 @@ void main() {
                                  // SculptStamp.comp.glsl's own pop uses.
     int last_union_material = -1;
     float last_union_looseness = 0.0;
+    // How close the winning stamp's surface comes to this brick's voxels --
+    // see the material choice after each UNION stamp below.
+    float best_surface_dist = 1e30;
 
     int base = -1; // brick_index * CHUNK_BRICK_VOXEL_COUNT, once resolved.
 
@@ -305,6 +366,10 @@ void main() {
         int material_slot = int(round(smop.z));
         float looseness = smop.w;
         float bounding_radius = stamps[s].bounding_radius_pad.x;
+        // yzw = the rotation quaternion's vector part, stored with w >= 0 so
+        // the scalar part can be rebuilt here (see build_stamp_list_entry()).
+        vec3 rot_xyz = stamps[s].bounding_radius_pad.yzw;
+        vec4 rotation = vec4(rot_xyz, sqrt(max(0.0, 1.0 - dot(rot_xyz, rot_xyz))));
 
         // Identical conservative cube-vs-cell reject test to the one
         // VulkanRaymarchShader::stamp_shape()'s CPU-side cell enumeration
@@ -333,7 +398,8 @@ void main() {
                         vec3 world_pos = cell_min +
                             (vec3(px, py, pz) - 0.5) * pc.voxel_size;
                         float new_dist = eval_brush_shape(
-                            world_pos - center, shape_type, params);
+                            quat_rotate_inverse(rotation, world_pos - center),
+                            shape_type, params);
                         int voxel_index = base + px +
                             py * CHUNK_BRICK_APRON_DIM +
                             pz * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM;
@@ -351,6 +417,7 @@ void main() {
         }
 
         // OP_UNION.
+        float stamp_surface_dist = 1e30; // min |distance| over the voxels
         if (!brick_exists) {
             // First real content this cell gets -- resolve a brick index
             // (reuse the existing one if this cell already had a brick
@@ -376,7 +443,8 @@ void main() {
                         vec3 world_pos = cell_min +
                             (vec3(px, py, pz) - 0.5) * pc.voxel_size;
                         float new_dist = eval_brush_shape(
-                            world_pos - center, shape_type, params);
+                            quat_rotate_inverse(rotation, world_pos - center),
+                            shape_type, params);
                         int voxel_index = base + px +
                             py * CHUNK_BRICK_APRON_DIM +
                             pz * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM;
@@ -384,6 +452,7 @@ void main() {
                         // is just the shape itself (same reasoning Builtin.
                         // SculptStamp.comp.glsl's own `is_new` branch uses).
                         chunk_bricks[voxel_index] = new_dist;
+                        stamp_surface_dist = min(stamp_surface_dist, abs(new_dist));
                     }
                 }
             }
@@ -394,7 +463,8 @@ void main() {
                         vec3 world_pos = cell_min +
                             (vec3(px, py, pz) - 0.5) * pc.voxel_size;
                         float new_dist = eval_brush_shape(
-                            world_pos - center, shape_type, params);
+                            quat_rotate_inverse(rotation, world_pos - center),
+                            shape_type, params);
                         int voxel_index = base + px +
                             py * CHUNK_BRICK_APRON_DIM +
                             pz * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM;
@@ -403,15 +473,23 @@ void main() {
                         chunk_bricks[voxel_index] =
                             smooth_union(new_dist, old_dist, smoothness,
                                         unused_h);
+                        stamp_surface_dist = min(stamp_surface_dist, abs(new_dist));
                     }
                 }
             }
         }
-        // Every UNION stamp that actually touched this cell overwrites
-        // these -- so after the full walk they hold the LAST one, in list
-        // order (see this file's own header comment).
-        last_union_material = material_slot;
-        last_union_looseness = looseness;
+        // The brick's material (it has only one) is the stamp whose SURFACE
+        // passes closest to its voxels -- the one the brick actually
+        // shows. (It used to be simply the last stamp whose bounding box
+        // touched the cell, so an object placed next to another took over
+        // the neighbour's nearby bricks -- e.g. a glowing object turned
+        // the facing side of the plain box beside it glowing too.) Ties go
+        // to the later stamp, as before.
+        if (stamp_surface_dist <= best_surface_dist) {
+            best_surface_dist = stamp_surface_dist;
+            last_union_material = material_slot;
+            last_union_looseness = looseness;
+        }
     }
 
     if (brick_exists && !alloc_failed) {
@@ -436,25 +514,11 @@ void main() {
         // cluster page it owns back onto their shared pools -- IDENTICAL
         // idiom to Builtin.SculptUndoRestore.comp.glsl's own NEW_BRICK-undo
         // branch (see this file's own header comment).
-        uint write_index = atomicAdd(brick_free_top, 1u);
-        if (write_index < uint(MAX_CHUNK_BRICKS)) {
-            brick_free_list[write_index] = existing_brick;
-        }
-        chunk_indirection[indirection_index] = -1;
-
-        for (int i = 0; i < CHUNK_MAX_CLUSTERS_PER_BRICK; ++i) {
-            int list_index = existing_brick * CHUNK_MAX_CLUSTERS_PER_BRICK + i;
-            int page = brick_clusters[list_index];
-            if (page < 0) {
-                continue;
-            }
-            brick_clusters[list_index] = -1;
-            chunk_clusters[page].meta = uvec4(0);
-            uint slot = atomicAdd(cluster_free_top, 1u);
-            if (slot < uint(MAX_CLUSTERS_RECOMPUTE)) {
-                cluster_free_list[slot] = page;
-            }
-        }
+        //
+        // Unreachable since the RELEASE pass (mode 0) took over freeing --
+        // it frees exactly these cells first, so they arrive here with no
+        // brick. Kept as a safety net.
+        free_cell_brick(indirection_index, existing_brick);
     }
     // Else: had no brick before, has none after -- true no-op, nothing to
     // do (e.g. a cell this stamp's conservative bounding cube reaches but

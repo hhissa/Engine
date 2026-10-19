@@ -372,6 +372,54 @@ layout(set = 1, binding = 3) readonly buffer ChunkBrickLoosenessBuffer {
     float chunk_brick_looseness[];
 };
 
+// Selection outline: the stamps of every object the app wants outlined
+// (VulkanRaymarchShader::set_selection_outline()), grouped per object, so
+// each object's own silhouette can be ray-marched analytically here --
+// the baked field doesn't know which object a voxel belongs to. Layout
+// matches GpuSelectionOutline (vulkan_raymarch_shader.cpp) exactly.
+const int OUTLINE_MAX_OBJECTS = 16;
+const int OUTLINE_MAX_STAMPS = 512;
+struct OutlineObject {
+    vec4 center_radius; // bounding sphere of the whole object
+    ivec4 range;        // x = first stamp, y = stamp count, z = 1 for
+                        // the scoped-in set (masked, not outlined)
+};
+struct OutlineStamp {
+    vec4 center_radius; // xyz = center, w = bounding radius
+    vec4 params;        // same per-shape params as a stamp
+    vec4 rotation;      // quaternion xyzw
+    vec4 smooth_shape_op; // x = smoothness, y = shape, z = op
+};
+layout(set = 1, binding = 4) readonly buffer SelectionOutlineBuffer {
+    ivec4 outline_counts; // x = object count (0 = no outline)
+    vec4 outline_colour;
+    vec4 outline_style;   // x = dot spacing (px), y = fraction of each
+                          // spacing that is dot, z = line width (px),
+                          // w = alpha of the parts hidden behind geometry.
+                          // The line starts OUTLINE_GAP_PX outside the
+                          // silhouette so it never sits on the object.
+    OutlineObject outline_objects[OUTLINE_MAX_OBJECTS];
+    OutlineStamp outline_stamps[OUTLINE_MAX_STAMPS];
+};
+
+// Scope-in mask: 1 where a scoped-in object is what this pixel shows, else
+// 0 (1 everywhere when nothing is scoped). Builtin.PostComposite.comp.glsl
+// blurs and greys every 0 pixel.
+layout(set = 1, binding = 5, rgba8) uniform writeonly image2D scope_mask_image;
+
+// Per-material extras, indexed like scene_diffuse_colours: x = glow (0 =
+// none, 1 = full) -- the surface adds its own albedo as light, so it reads
+// as glowing in its colour and the bloom pass picks it up. See
+// VulkanRaymarchShader::set_material_glow().
+layout(set = 1, binding = 6) readonly buffer MaterialExtraBuffer {
+    vec4 material_extra[];
+};
+const float GLOW_STRENGTH = 1.35;
+// How much of a glow light scatters into the air as a halo -- see the
+// glow-halo loop in main().
+const float GLOW_HALO_STRENGTH = 0.06;
+const float GLOW_HALO_REACH = 0.7; // halo fade distance per sqrt(intensity)
+
 // Shape/op selectors -- brush_preview.shape_op_slot's x/y values. Must
 // match VulkanRaymarchShader::BrushShape/BrushOp (and SculptBrushShape/
 // SculptBrushOp, renderer_types.inl) exactly -- same lockstep note as
@@ -440,6 +488,175 @@ float eval_brush_preview_sdf(vec3 p, int shape_type, vec4 params, vec3 center) {
             // fallback, Builtin.SculptStamp.comp.glsl.
             return sphere_sdf(lp, params.x);
     }
+}
+
+const float OUTLINE_GAP_PX = 1.0;
+
+// One outlined object's distance at p: its stamps combined in list order,
+// exactly as the sculpt combines them (smooth union / smooth subtraction).
+// A stamp whose bounding sphere is further than the running distance plus
+// its blend radius can't change the result, so it is skipped unevaluated.
+float outline_object_sdf(vec3 p, int first, int count) {
+    float d = 1e10;
+    float h;
+    for (int i = first; i < first + count; ++i) {
+        OutlineStamp stamp = outline_stamps[i];
+        float k = stamp.smooth_shape_op.x;
+        bool subtract = int(stamp.smooth_shape_op.z) == PREVIEW_OP_SUBTRACTION;
+        float bound = length(p - stamp.center_radius.xyz) - stamp.center_radius.w;
+        if (!subtract && bound > d + k) {
+            continue;
+        }
+        if (subtract && bound > 0.0 + k) {
+            continue; // p is outside the cutter: nothing carved here
+        }
+        vec3 local = quat_rotate_inverse(stamp.rotation, p - stamp.center_radius.xyz);
+        float sd = eval_brush_preview_sdf(local, int(stamp.smooth_shape_op.y),
+                                          stamp.params, vec3(0.0));
+        if (subtract) {
+            d = smooth_subtraction(sd, d, k, h);
+        } else {
+            d = d >= 1e9 ? sd : smooth_union(sd, d, k, h);
+        }
+    }
+    return d;
+}
+
+// The selection outline for this pixel: rgb + alpha (0 = none). A ray
+// that misses an outlined object but passes within outline_style.z pixels
+// of it is on that object's silhouette -- the raymarching "outline for
+// free", here against just the selected objects' own stamps. Dots are
+// spaced by angle around the object's on-screen centre. Parts hidden
+// behind other geometry (scene_depth nearer than the silhouette) draw at
+// outline_style.w alpha.
+vec4 selection_outline(vec3 ray_origin, vec3 ray_dir, vec2 pixel,
+                       vec2 image_size, float scene_depth) {
+    float best_alpha = 0.0;
+    float pixel_angle = 1.0 / image_size.y; // world size of a pixel per unit distance
+    float outer = OUTLINE_GAP_PX + outline_style.z; // band's outer edge, px
+    for (int o = 0; o < outline_counts.x; ++o) {
+        OutlineObject object = outline_objects[o];
+        if (object.range.z != 0) {
+            continue; // the scoped-in set: masked, not outlined
+        }
+        // Ray vs the object's bounding sphere, widened by the line width.
+        vec3 oc = object.center_radius.xyz - ray_origin;
+        float tc = dot(oc, ray_dir);
+        if (tc <= 0.0) {
+            continue;
+        }
+        float radius = object.center_radius.w + (outer + 1.0) * pixel_angle * tc;
+        float miss2 = dot(oc, oc) - tc * tc;
+        if (miss2 > radius * radius) {
+            continue;
+        }
+        float half_chord = sqrt(radius * radius - miss2);
+        float t = max(tc - half_chord, 0.0);
+        float t_end = tc + half_chord;
+
+        // Sphere trace, keeping the closest approach in pixels.
+        float closest_px = 1e10;
+        float closest_t = t;
+        bool hit = false;
+        for (int step = 0; step < 96 && t < t_end; ++step) {
+            float d = outline_object_sdf(ray_origin + ray_dir * t,
+                                         object.range.x, object.range.y);
+            // A tenth of a pixel: anything nearer is inside the shape.
+            if (d < 0.1 * pixel_angle * t) {
+                hit = true;
+                break;
+            }
+            float px = d / (t * pixel_angle);
+            if (px < closest_px) {
+                closest_px = px;
+                closest_t = t;
+            }
+            t += max(d, 1e-4);
+        }
+        if (hit || closest_px > outer + 0.5) {
+            continue;
+        }
+
+        // Dot pattern: angle around the object's on-screen centre.
+        vec3 rel = object.center_radius.xyz - push.camera_position.xyz;
+        float cz = dot(rel, push.camera_forward.xyz);
+        if (cz <= 0.0) {
+            continue;
+        }
+        vec2 centre_px = vec2(dot(rel, push.camera_right.xyz),
+                              dot(rel, push.camera_up.xyz)) / cz * image_size.y +
+                         0.5 * image_size;
+        float ring_px = object.center_radius.w / cz * image_size.y * 0.6;
+        float dots = max(8.0, floor(6.2831853 * ring_px / outline_style.x));
+        vec2 rel_px = pixel - centre_px;
+        float phase = fract((atan(rel_px.y, rel_px.x) / 6.2831853 + 0.5) * dots);
+        if (phase > outline_style.y) {
+            continue;
+        }
+
+        // The band [gap, outer] px outside the silhouette, with soft
+        // (anti-aliased) edges; dimmed where hidden.
+        float alpha = smoothstep(OUTLINE_GAP_PX - 0.5, OUTLINE_GAP_PX + 0.5, closest_px) *
+                      (1.0 - smoothstep(outer - 0.5, outer + 0.5, closest_px));
+        if (scene_depth >= 0.0 && scene_depth < closest_t * 0.98) {
+            alpha *= outline_style.w;
+        }
+        best_alpha = max(best_alpha, alpha);
+    }
+    return vec4(outline_colour.rgb, best_alpha * outline_colour.a);
+}
+
+// The scope-in mask for this pixel (see scope_mask_image): 1 if a scoped
+// object is hit and nothing nearer covers it (the G-buffer surface is at
+// about the same depth -- the baked field differs from the analytic one by
+// a voxel or so), or if the ray grazes one within a pixel where the
+// G-buffer surface sits right there (the rendered edge). 1 everywhere when
+// nothing is scoped.
+float scope_mask(vec3 ray_origin, vec3 ray_dir, vec2 image_size,
+                 float scene_depth) {
+    float pixel_angle = 1.0 / image_size.y;
+    bool any_scope = false;
+    for (int o = 0; o < outline_counts.x; ++o) {
+        OutlineObject object = outline_objects[o];
+        if (object.range.z == 0) {
+            continue;
+        }
+        any_scope = true;
+        vec3 oc = object.center_radius.xyz - ray_origin;
+        float tc = dot(oc, ray_dir);
+        float radius = object.center_radius.w;
+        float miss2 = dot(oc, oc) - tc * tc;
+        if (tc + radius <= 0.0 || miss2 > radius * radius) {
+            continue;
+        }
+        float half_chord = sqrt(radius * radius - miss2);
+        float t = max(tc - half_chord, 0.0);
+        float t_end = tc + half_chord;
+        float closest_px = 1e10;
+        float closest_t = t;
+        for (int step = 0; step < 128 && t < t_end; ++step) {
+            float d = outline_object_sdf(ray_origin + ray_dir * t,
+                                         object.range.x, object.range.y);
+            if (d < 0.1 * pixel_angle * max(t, 0.01)) {
+                float tolerance = 0.05 + 0.02 * t;
+                if (scene_depth < 0.0 || scene_depth > t - tolerance) {
+                    return 1.0;
+                }
+                break;
+            }
+            float px = d / (max(t, 0.01) * pixel_angle);
+            if (px < closest_px) {
+                closest_px = px;
+                closest_t = t;
+            }
+            t += max(d, 1e-4);
+        }
+        if (closest_px < 1.5 && scene_depth >= 0.0 &&
+            abs(scene_depth - closest_t) < 0.05 + 0.02 * closest_t) {
+            return 1.0;
+        }
+    }
+    return any_scope ? 0.0 : 1.0;
 }
 
 // Resolves the paint accumulator at world point p, LEVEL 0 ONLY -- every
@@ -1844,6 +2061,11 @@ void main() {
         colour = albedo * lighting * (1.0 - metallic) +
                  specular * mix(vec3(1.0), albedo, metallic) +
                  metal_ambient;
+        // Glow: blend toward the material's own colour, lit from within,
+        // so it reads as glowing IN that colour rather than washing out to
+        // white on top of the lighting.
+        float glow = clamp(material_extra[hit_material].x, 0.0, 1.0);
+        colour = mix(colour, albedo * GLOW_STRENGTH, glow);
 
         // Self-illumination: added straight in, independent of every light/
         // ambient/GI term above -- an emissive primitive (Material::
@@ -1861,6 +2083,35 @@ void main() {
         // the selection outline (push.selected_primitive_index) that used
         // to live here were both CSG-primitive-specific and removed along
         // with the rest of the scene graph (M0 CSG deletion pass).
+    }
+
+    // Glow halo: a glowing object's light (a Point light with a source
+    // material -- see VulkanRaymarchShader::set_point_light()) scatters a
+    // little into the air, so the space around the object glows too. This
+    // is the closed-form integral of its inverse-square falloff along the
+    // view ray, from the camera to whatever the ray hits (so geometry in
+    // front hides it): I/h * (atan((t1 - t0)/h) - atan(-t0/h)), with t0 the
+    // ray distance closest to the light and h the ray's distance from it.
+    for (int i = 0; i < push.light_count; ++i) {
+        Light light = lights[i];
+        if (int(light.vector_type.w) != 1 || light.source_primitive.x < 0.0 ||
+            light.colour_intensity.a <= 0.0) {
+            continue;
+        }
+        vec3 to_light = light.vector_type.xyz - ray_origin;
+        float t0 = dot(to_light, ray_dir);
+        float h = max(length(to_light - ray_dir * t0), 0.05);
+        float t1 = travelled;
+        float scatter = (atan((t1 - t0) / h) - atan(-t0 / h)) / h;
+        // The light's intensity encodes its object's size (see the tool's
+        // sync_glow_lights()), so the halo's reach scales with it too.
+        float reach = sqrt(light.colour_intensity.a);
+        float halo = light.colour_intensity.a * scatter * GLOW_HALO_STRENGTH *
+                     exp(-h / (GLOW_HALO_REACH * reach));
+        // Blended toward the glow's colour rather than added on, so a red
+        // glow stays red over a bright sky instead of bleaching to white.
+        colour = mix(colour, light.colour_intensity.rgb * GLOW_STRENGTH,
+                     1.0 - exp(-halo));
     }
 
     // M7 polish: live brush-cursor "ghost" preview -- sphere-traces ONE
@@ -1990,6 +2241,42 @@ void main() {
 
             preview_overlay_colour = preview_colour;
             preview_overlay_alpha = preview_alpha;
+        }
+    }
+    // Scope-in mask (unjittered pixel-centre ray, like the outline below,
+    // since it's applied after TAA).
+    {
+        float mask = 1.0;
+        if (outline_counts.x > 0) {
+            vec2 mask_uv = (vec2(pixel_coord) + 0.5 - 0.5 * vec2(image_size)) /
+                           float(image_size.y);
+            vec3 mask_dir = normalize(mask_uv.x * push.camera_right.xyz +
+                                      mask_uv.y * push.camera_up.xyz +
+                                      push.camera_forward.xyz);
+            mask = scope_mask(ray_origin, mask_dir, vec2(image_size), depth);
+        }
+        imageStore(scope_mask_image, pixel_coord, vec4(mask));
+    }
+
+    // Selection outline, layered over the brush preview in the same
+    // overlay (so it also stays out of TAA's history). The unjittered
+    // pixel-centre ray: the outline must not shimmer with TAA jitter.
+    if (outline_counts.x > 0) {
+        vec2 centre_uv = (vec2(pixel_coord) + 0.5 - 0.5 * vec2(image_size)) /
+                         float(image_size.y);
+        vec3 centre_dir = normalize(centre_uv.x * push.camera_right.xyz +
+                                    centre_uv.y * push.camera_up.xyz +
+                                    push.camera_forward.xyz);
+        vec4 outline = selection_outline(ray_origin, centre_dir,
+                                         vec2(pixel_coord) + 0.5,
+                                         vec2(image_size), depth);
+        if (outline.a > 0.0) {
+            float out_alpha = outline.a + preview_overlay_alpha * (1.0 - outline.a);
+            preview_overlay_colour =
+                (outline.rgb * outline.a +
+                 preview_overlay_colour * preview_overlay_alpha * (1.0 - outline.a)) /
+                out_alpha;
+            preview_overlay_alpha = out_alpha;
         }
     }
     imageStore(preview_overlay_image, pixel_coord,

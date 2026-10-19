@@ -4,6 +4,7 @@
 #include "renderer_types.inl"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -72,9 +73,10 @@ public:
   // Queues the image at path (a texture name -- "photos/cloud_mel.jpg" is
   // assets/photos/cloud_mel.jpg, see TextureSystem) stretched over
   // position/size this frame. Drawn with the backdrop quads: over the
-  // scene, under every text/quad/line, in queue order with them.
+  // scene, under every text/quad/line, in queue order with them. tint
+  // multiplies the image (its alpha fades it).
   virtual void draw_image(std::string_view path, glm::vec2 position,
-                          glm::vec2 size) = 0;
+                          glm::vec2 size, glm::vec4 tint) = 0;
 
   // Loads path's image now rather than on its first draw_image(), and
   // returns its size in pixels -- (0, 0) if it can't be loaded. For a
@@ -153,6 +155,9 @@ public:
   // not per frame.
   virtual i32 add_directional_light(glm::vec3 direction, glm::vec3 colour,
                                     f32 intensity) = 0;
+  // See VulkanRaymarchShader::set_point_light().
+  virtual void set_point_light(i32 index, glm::vec3 position, glm::vec3 colour,
+                               f32 intensity, i32 source_material) = 0;
   virtual i32 add_point_light(glm::vec3 position, glm::vec3 colour,
                              f32 intensity) = 0;
 
@@ -173,7 +178,8 @@ public:
   virtual void stamp_shape(glm::vec3 center, SculptBrushShape shape_type,
                            glm::vec4 params, f32 smoothness,
                            SculptBrushOp shape_op, i32 material_slot = 0,
-                           f32 looseness = 0.0f) = 0;
+                           f32 looseness = 0.0f,
+                           glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f)) = 0;
 
   // M2b: reverts the most recently applied stamp (GPU voxels/material
   // restored or its freshly-allocated brick freed, plus the matching
@@ -247,6 +253,92 @@ public:
   // that path is untouched and remains the quick, no-checkpoint-replay-
   // needed way to move whatever was JUST stamped.
   virtual bool move_edit(i32 index, glm::vec3 new_center) = 0;
+
+  // Approximate world-space bounds of everything the sculpt currently adds
+  // (Union stamps only -- a Subtraction stamp can only remove material).
+  // Returns false, leaving the outputs untouched, when there is nothing to
+  // bound.
+  virtual bool sculpt_bounds(glm::vec3 *out_min, glm::vec3 *out_max) const = 0;
+
+  // --- Objects: groups of stamps that grab/rotate act on as a unit. ---
+  // Starts a new object; every stamp from now on belongs to it until the
+  // next call. Returns the new object's id. Stamps made before the first
+  // call belong to object 0.
+  virtual i32 begin_object() = 0;
+  // The object new stamps currently go to, and switching back to an
+  // existing one (e.g. when replaying a saved file). Setting an id keeps
+  // begin_object() from ever handing that id out again.
+  virtual i32 current_object() const = 0;
+  virtual void set_current_object(i32 object_id) = 0;
+  // The object whose surface is nearest `point`, if within max_distance of
+  // it; -1 otherwise. Only Union stamps count -- a Subtraction stamp has no
+  // surface of its own to pick.
+  virtual i32 pick_object(glm::vec3 point, f32 max_distance) const = 0;
+  // The first object a ray hits (origin + t * direction, direction unit
+  // length, t in [0, max_t]), writing the hit distance to *out_t; -1 if it
+  // hits nothing. Marches the stamps' exact shapes on the CPU; Subtraction
+  // stamps and smooth blends are ignored, so a carved-out hole still
+  // counts as solid. Only Union stamps can be hit.
+  virtual i32 raycast_object(glm::vec3 origin, glm::vec3 direction,
+                             f32 max_t, f32 *out_t) const = 0;
+  // Approximate world-space bounds of one object's Union stamps. Returns
+  // false, leaving the outputs untouched, if it has none.
+  virtual bool object_bounds(i32 object_id, glm::vec3 *out_min,
+                             glm::vec3 *out_max) const = 0;
+  // Moves every stamp of an object together: scale uniformly and rotate
+  // about `pivot`, then translate. Re-runs the affected region at once, so
+  // the change is visible on the next frame and blends with the rest of the
+  // sculpt. Synchronous and device-stalling like every sculpt edit; clears
+  // undo/redo history (like move_edit()). Returns false if the object has
+  // no stamps, any of them is past the GPU stamp mirror's cap, or scale is
+  // not positive.
+  virtual bool transform_object(i32 object_id, glm::vec3 pivot,
+                                glm::quat rotation, glm::vec3 translation,
+                                f32 scale = 1.0f) = 0;
+  // transform_object() for several objects at once, moved as one group
+  // with a single re-run of the region, so moving a group costs about the
+  // same as moving one object. Same return rules (any id with no stamps is
+  // skipped; false if nothing moved).
+  virtual bool transform_objects(const i32 *object_ids, i32 count,
+                                 glm::vec3 pivot, glm::quat rotation,
+                                 glm::vec3 translation, f32 scale = 1.0f) = 0;
+  // Removes every stamp of the given objects and re-runs the region they
+  // covered. Clears undo/redo history. Returns false if nothing was removed
+  // (or a stamp is past the GPU stamp mirror's cap).
+  virtual bool delete_objects(const i32 *object_ids, i32 count) = 0;
+  // Draws a dotted outline around each of these objects' silhouettes,
+  // following them as they move, until changed. count 0 turns it off.
+  // outline_groups (may be null) gives each id an outline key: ids sharing
+  // a key get one merged outline around all of them.
+  virtual void set_outlined_objects(const i32 *object_ids, i32 count,
+                                    glm::vec4 colour,
+                                    const i32 *outline_groups) = 0;
+  // Scope-in: everything on screen except these objects is blurred and
+  // greyed. count 0 turns it off.
+  virtual void set_scope_objects(const i32 *object_ids, i32 count) = 0;
+  // Gives every stamp of these objects material `slot` and re-runs their
+  // region. Clears undo/redo history. False if nothing changed.
+  virtual bool set_object_material(const i32 *object_ids, i32 count,
+                                   i32 slot) = 0;
+  // Writes up to `capacity` distinct object ids (in first-stamp order) to
+  // out_ids and returns how many objects there are in total.
+  virtual i32 object_ids(i32 *out_ids, i32 capacity) const = 0;
+  // Glow strength of material `slot` (0 = none, 1 = full) in its colour.
+  virtual void set_material_glow(i32 slot, f32 glow) = 0;
+  // raycast_object() that only sees the given objects.
+  virtual i32 raycast_objects(glm::vec3 origin, glm::vec3 direction,
+                              f32 max_t, const i32 *object_ids, i32 count,
+                              f32 *out_t) const = 0;
+  // Copies every stamp of an object, in order, into a brand-new object at
+  // the same place (appended to the end of the stamp list). Returns the
+  // new object's id, or -1 if the source has no stamps. Leaves the current
+  // object unchanged.
+  virtual i32 clone_object(i32 object_id) = 0;
+  // The object's anchor: its first stamp's center and rotation -- a fixed
+  // reference point for snapping (bounds shift as an object rotates; the
+  // anchor doesn't). False if the object has no stamps.
+  virtual bool object_anchor(i32 object_id, glm::vec3 *out_center,
+                             glm::quat *out_rotation) const = 0;
 
   // M4 (Crop): a whole-volume boolean filter -- keeps only the geometry
   // currently inside shape_type/params/center (centered/smoothed exactly

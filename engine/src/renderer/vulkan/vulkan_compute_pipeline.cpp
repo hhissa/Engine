@@ -6,7 +6,7 @@
 VulkanComputePipeline::VulkanComputePipeline(
     VulkanContext &context, const VulkanShaderModule &compute_stage,
     const std::vector<VkDescriptorSetLayout> &descriptor_set_layouts,
-    u32 push_constant_size)
+    u32 push_constant_size, const VkSpecializationInfo *specialization)
     : context_(&context) {
   VkPipelineLayoutCreateInfo layout_create_info{
       VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -30,6 +30,7 @@ VulkanComputePipeline::VulkanComputePipeline(
   VkComputePipelineCreateInfo pipeline_create_info{
       VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
   pipeline_create_info.stage = compute_stage.stage_create_info();
+  pipeline_create_info.stage.pSpecializationInfo = specialization;
   pipeline_create_info.layout = layout_;
   pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
   pipeline_create_info.basePipelineIndex = -1;

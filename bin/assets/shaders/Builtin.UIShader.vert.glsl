@@ -18,6 +18,7 @@ layout(set = 0, binding = 0) uniform GlobalUniformObject {
 // rather than per-draw.
 layout(push_constant) uniform PushConstants {
     mat4 model; // 64 bytes.
+    vec4 tint;  // used by the fragment shader
 } push;
 
 layout(location = 0) out vec2 out_texcoord;

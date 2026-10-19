@@ -26,7 +26,9 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 // glsl's identical MAX_BRICKS -- see its own comment for the NUM_CHUNK_
 // LEVELS multiplication) -- the shared brick pool this chunk's bricks are
 // being returned to.
-const int MAX_BRICKS = 16384 * NUM_CHUNK_LEVELS;
+// Specialization constant 0: the engine passes its VRAM-sized
+// max_chunk_bricks_ here at pipeline creation; 16384 per level is only the default.
+layout(constant_id = 0) const int MAX_BRICKS = 16384 * NUM_CHUNK_LEVELS;
 
 layout(binding = 0) buffer ChunkIndirectionBuffer {
     int chunk_indirection[];

@@ -35,7 +35,9 @@ public:
   void apply_stamp(glm::vec3 center, SculptBrushShape shape_type,
                    glm::vec4 params, f32 smoothness, SculptBrushOp op,
                    i32 material_slot, i32 cells_touched,
-                   f32 looseness = 0.0f);
+                   f32 looseness = 0.0f,
+                   glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+                   i32 object_id = 0);
 
   // M2b: removes and returns the most recently applied stamp's bookkeeping
   // record -- the CPU-side half of an Undo (see VulkanRendererBackend::
@@ -69,6 +71,18 @@ public:
   bool update_stamp_center(size_t index, glm::vec3 new_center,
                            i32 cells_touched) {
     return volume_.update_stamp_center(index, new_center, cells_touched);
+  }
+
+  bool update_stamp_transform(size_t index, glm::vec3 new_center,
+                              glm::quat new_rotation, glm::vec4 new_params,
+                              f32 new_smoothness, i32 cells_touched) {
+    return volume_.update_stamp_transform(index, new_center, new_rotation,
+                                          new_params, new_smoothness,
+                                          cells_touched);
+  }
+
+  bool set_stamp_material(size_t index, i32 material_slot) {
+    return volume_.set_stamp_material(index, material_slot);
   }
 
   const SculptVolume &volume() const noexcept { return volume_; }

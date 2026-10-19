@@ -4,7 +4,8 @@
 void SculptSystem::apply_stamp(glm::vec3 center, SculptBrushShape shape_type,
                                glm::vec4 params, f32 smoothness,
                                SculptBrushOp op, i32 material_slot,
-                               i32 cells_touched, f32 looseness) {
+                               i32 cells_touched, f32 looseness,
+                               glm::quat rotation, i32 object_id) {
   if (cells_touched <= 0) {
     KWARN("SculptSystem::apply_stamp() recorded a stamp at ({:.3f}, {:.3f}, "
          "{:.3f}) that touched no cells (GPU side rejected or truncated "
@@ -13,5 +14,6 @@ void SculptSystem::apply_stamp(glm::vec3 center, SculptBrushShape shape_type,
          center.x, center.y, center.z);
   }
   volume_.add_stamp(center, shape_type, params, smoothness, op,
-                    material_slot, cells_touched, looseness);
+                    material_slot, cells_touched, looseness, rotation,
+                    object_id);
 }

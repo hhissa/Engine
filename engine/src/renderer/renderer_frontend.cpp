@@ -183,9 +183,9 @@ void renderer_draw_camera_overlay(glm::vec2 position, glm::vec2 size,
 }
 
 void renderer_draw_image(std::string_view path, glm::vec2 position,
-                         glm::vec2 size) {
+                         glm::vec2 size, glm::vec4 tint) {
   if (backend) {
-    backend->draw_image(path, position, size);
+    backend->draw_image(path, position, size, tint);
   }
 }
 
@@ -257,6 +257,14 @@ i32 renderer_add_directional_light(glm::vec3 direction, glm::vec3 colour,
   return -1;
 }
 
+void renderer_set_point_light(i32 index, glm::vec3 position, glm::vec3 colour,
+                              f32 intensity, i32 source_material) {
+  if (backend) {
+    backend->set_point_light(index, position, colour, intensity,
+                             source_material);
+  }
+}
+
 i32 renderer_add_point_light(glm::vec3 position, glm::vec3 colour,
                              f32 intensity) {
   if (backend) {
@@ -270,10 +278,11 @@ i32 renderer_add_point_light(glm::vec3 position, glm::vec3 colour,
 void renderer_sculpt_stamp_shape(glm::vec3 center,
                             SculptBrushShape shape_type, glm::vec4 params,
                             f32 smoothness, SculptBrushOp shape_op,
-                            i32 material_slot, f32 looseness) {
+                            i32 material_slot, f32 looseness,
+                            glm::quat rotation) {
   if (backend) {
     backend->stamp_shape(center, shape_type, params, smoothness, shape_op,
-                         material_slot, looseness);
+                         material_slot, looseness, rotation);
   } else {
     KWARN("renderer backend does not exist to accept a sculpt-stamp "
          "request.");
@@ -341,6 +350,127 @@ bool renderer_sculpt_move_edit(i32 index, glm::vec3 new_center) {
     return false;
   }
   return backend->move_edit(index, new_center);
+}
+
+bool renderer_sculpt_bounds(glm::vec3 *out_min, glm::vec3 *out_max) {
+  if (!backend || !out_min || !out_max) {
+    return false;
+  }
+  return backend->sculpt_bounds(out_min, out_max);
+}
+
+i32 renderer_sculpt_begin_object() {
+  return backend ? backend->begin_object() : 0;
+}
+
+i32 renderer_sculpt_raycast_object(glm::vec3 origin, glm::vec3 direction,
+                                   f32 max_t, f32 *out_t) {
+  return backend ? backend->raycast_object(origin, direction, max_t, out_t)
+                 : -1;
+}
+
+i32 renderer_sculpt_current_object() {
+  return backend ? backend->current_object() : 0;
+}
+
+void renderer_sculpt_set_current_object(i32 object_id) {
+  if (backend) {
+    backend->set_current_object(object_id);
+  }
+}
+
+i32 renderer_sculpt_pick_object(glm::vec3 point, f32 max_distance) {
+  return backend ? backend->pick_object(point, max_distance) : -1;
+}
+
+bool renderer_sculpt_object_bounds(i32 object_id, glm::vec3 *out_min,
+                                   glm::vec3 *out_max) {
+  if (!backend || !out_min || !out_max) {
+    return false;
+  }
+  return backend->object_bounds(object_id, out_min, out_max);
+}
+
+bool renderer_sculpt_transform_object(i32 object_id, glm::vec3 pivot,
+                                      glm::quat rotation,
+                                      glm::vec3 translation, f32 scale) {
+  if (!backend) {
+    return false;
+  }
+  return backend->transform_object(object_id, pivot, rotation, translation,
+                                   scale);
+}
+
+bool renderer_sculpt_transform_objects(const i32 *object_ids, i32 count,
+                                       glm::vec3 pivot, glm::quat rotation,
+                                       glm::vec3 translation, f32 scale) {
+  if (!backend || !object_ids || count <= 0) {
+    return false;
+  }
+  return backend->transform_objects(object_ids, count, pivot, rotation,
+                                    translation, scale);
+}
+
+bool renderer_sculpt_delete_objects(const i32 *object_ids, i32 count) {
+  if (!backend || !object_ids || count <= 0) {
+    return false;
+  }
+  return backend->delete_objects(object_ids, count);
+}
+
+void renderer_sculpt_set_outlined_objects(const i32 *object_ids, i32 count,
+                                          glm::vec4 colour,
+                                          const i32 *outline_groups) {
+  if (backend) {
+    backend->set_outlined_objects(object_ids, object_ids ? count : 0, colour,
+                                  outline_groups);
+  }
+}
+
+bool renderer_sculpt_set_object_material(const i32 *object_ids, i32 count,
+                                         i32 slot) {
+  if (!backend) {
+    return false;
+  }
+  return backend->set_object_material(object_ids, count, slot);
+}
+
+i32 renderer_sculpt_object_ids(i32 *out_ids, i32 capacity) {
+  return backend ? backend->object_ids(out_ids, capacity) : 0;
+}
+
+void renderer_sculpt_set_material_glow(i32 slot, f32 glow) {
+  if (backend) {
+    backend->set_material_glow(slot, glow);
+  }
+}
+
+void renderer_sculpt_set_scope_objects(const i32 *object_ids, i32 count) {
+  if (backend) {
+    backend->set_scope_objects(object_ids, object_ids ? count : 0);
+  }
+}
+
+i32 renderer_sculpt_raycast_objects(glm::vec3 origin, glm::vec3 direction,
+                                    f32 max_t, const i32 *object_ids,
+                                    i32 count, f32 *out_t) {
+  if (!backend || !object_ids || count <= 0) {
+    return -1;
+  }
+  return backend->raycast_objects(origin, direction, max_t, object_ids, count,
+                                  out_t);
+}
+
+i32 renderer_sculpt_clone_object(i32 object_id) {
+  return backend ? backend->clone_object(object_id) : -1;
+}
+
+bool renderer_sculpt_object_anchor(i32 object_id, glm::vec3 *out_center,
+                                   glm::quat *out_rotation) {
+  if (!backend || !out_center || !out_rotation) {
+    return false;
+  }
+  return backend->object_anchor(object_id, out_center, out_rotation);
 }
 
 i32 renderer_sculpt_crop(glm::vec3 center, SculptBrushShape shape_type,

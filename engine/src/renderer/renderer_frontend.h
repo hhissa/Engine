@@ -4,6 +4,7 @@
 #include "renderer_types.inl"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <string>
 #include <string_view>
 
@@ -59,9 +60,11 @@ KAPI void renderer_draw_backdrop_quad(glm::vec2 position, glm::vec2 size,
 // Queues an image -- a path under assets/ with its extension, e.g.
 // "photos/cloud_mel.jpg" -- stretched over position/size (screen pixels,
 // top-left origin) this frame. Same layer and ordering as
-// renderer_draw_backdrop_quad(): over the scene, under all text.
+// renderer_draw_backdrop_quad(): over the scene, under all text. tint
+// multiplies the image -- e.g. (1, 1, 1, a) to fade it.
 KAPI void renderer_draw_image(std::string_view path, glm::vec2 position,
-                         glm::vec2 size);
+                         glm::vec2 size,
+                         glm::vec4 tint = glm::vec4(1.0f));
 
 // Loads an image ahead of its first renderer_draw_image() and returns its
 // size in pixels ((0, 0) if it can't be loaded) -- e.g. to fit it to the
@@ -204,6 +207,15 @@ KAPI i32 renderer_add_directional_light(glm::vec3 direction, glm::vec3 colour,
 KAPI i32 renderer_add_point_light(glm::vec3 position, glm::vec3 colour,
                                   f32 intensity);
 
+// Re-sets a point light added by renderer_add_point_light() -- move it,
+// recolour it, or turn it off (intensity 0). source_material >= 0 makes it
+// a glowing object's light: that material's own surface doesn't shadow it
+// (so it can sit inside the object), and the scene shows a halo of
+// scattered light around it. Cheap; fine every frame.
+KAPI void renderer_set_point_light(i32 index, glm::vec3 position,
+                                   glm::vec3 colour, f32 intensity,
+                                   i32 source_material = -1);
+
 // M2a: stamps one analytic brush shape, blended via union or subtraction
 // with a given smoothness, directly into the chunked field and
 // regenerates its splat points -- see RendererBackend::stamp_shape()/
@@ -223,7 +235,8 @@ KAPI void renderer_sculpt_stamp_shape(glm::vec3 center,
                                  glm::vec4 params, f32 smoothness,
                                  SculptBrushOp shape_op,
                                  i32 material_slot = 0,
-                                 f32 looseness = 0.0f);
+                                 f32 looseness = 0.0f,
+                                 glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
 
 // M1a back-compat convenience wrapper, kept so testbed's own M1a smoke test
 // (TestbedGame::initialize(), which only ever wants a hard-union sphere)
@@ -348,6 +361,110 @@ KAPI bool renderer_sculpt_delete_edit(i32 index);
 // whatever was JUST stamped. This call is for moving an ARBITRARY past
 // edit, selected from the tool's edit-history list.
 KAPI bool renderer_sculpt_move_edit(i32 index, glm::vec3 new_center);
+
+// Approximate world-space bounds of everything the sculpt currently adds
+// (Union stamps only). Returns false, leaving the outputs untouched, when
+// nothing has been stamped. Cheap: CPU-side bookkeeping only, no GPU work.
+KAPI bool renderer_sculpt_bounds(glm::vec3 *out_min, glm::vec3 *out_max);
+
+// --- Objects -------------------------------------------------------------
+// An object is a group of stamps that grab/rotate act on as a unit: every
+// stamp made between two renderer_sculpt_begin_object() calls. Stamps made
+// before the first call belong to object 0.
+
+// Starts a new object and returns its id.
+KAPI i32 renderer_sculpt_begin_object();
+
+// The object new stamps currently go to.
+KAPI i32 renderer_sculpt_current_object();
+
+// Sends new stamps to an existing object (e.g. replaying a saved file).
+// begin_object() never hands out this id afterwards.
+KAPI void renderer_sculpt_set_current_object(i32 object_id);
+
+// The object whose surface is nearest `point`, if within max_distance of
+// it; -1 if none is. Only Union stamps count.
+KAPI i32 renderer_sculpt_pick_object(glm::vec3 point, f32 max_distance);
+
+// The first object a ray hits (direction must be unit length), within
+// max_t; writes the hit distance to *out_t (may be null). -1 if nothing is
+// hit. Only Union stamps count; carved holes still read as solid.
+KAPI i32 renderer_sculpt_raycast_object(glm::vec3 origin, glm::vec3 direction,
+                                        f32 max_t, f32 *out_t);
+
+// Approximate world-space bounds of one object. False if it has no Union
+// stamps.
+KAPI bool renderer_sculpt_object_bounds(i32 object_id, glm::vec3 *out_min,
+                                        glm::vec3 *out_max);
+
+// Moves an object: scales (uniformly) and rotates every one of its stamps
+// about `pivot`, then translates them. The affected region is re-run
+// straight away, so it shows -- blended with the rest of the sculpt -- next
+// frame. Synchronous and device-stalling, so call it at most once per
+// frame. Clears undo/redo history. Returns false if nothing was moved.
+KAPI bool renderer_sculpt_transform_object(i32 object_id, glm::vec3 pivot,
+                                           glm::quat rotation,
+                                           glm::vec3 translation,
+                                           f32 scale = 1.0f);
+
+// renderer_sculpt_transform_object() for a group of objects, moved
+// together with one re-run of the region (cheaper than one call per
+// object). Returns false if nothing was moved.
+KAPI bool renderer_sculpt_transform_objects(const i32 *object_ids, i32 count,
+                                            glm::vec3 pivot,
+                                            glm::quat rotation,
+                                            glm::vec3 translation,
+                                            f32 scale = 1.0f);
+
+// Deletes the given objects (every one of their stamps) and re-runs the
+// region they covered. Clears undo/redo history. Returns false if nothing
+// was deleted.
+KAPI bool renderer_sculpt_delete_objects(const i32 *object_ids, i32 count);
+
+// Draws a dotted outline around each of these objects' silhouettes (in
+// `colour`), following them as they move, until called again; count 0
+// turns it off. Parts hidden behind other geometry show faintly. Up to 16
+// objects / 512 stamps in total.
+// outline_groups (may be null) gives each object an outline key; objects
+// sharing a key get one merged outline around all of them.
+KAPI void renderer_sculpt_set_outlined_objects(
+    const i32 *object_ids, i32 count,
+    glm::vec4 colour = glm::vec4(1.0f, 0.55f, 0.1f, 1.0f),
+    const i32 *outline_groups = nullptr);
+
+// Gives every stamp of these objects material `slot` (set up with
+// renderer_sculpt_set_material()) and re-runs their region, so an object
+// can carry its own look. Synchronous and device-stalling like any sculpt
+// edit, so do it once per object, not per frame; clears undo/redo
+// history. False if nothing changed.
+KAPI bool renderer_sculpt_set_object_material(const i32 *object_ids,
+                                              i32 count, i32 slot);
+
+// Writes up to `capacity` distinct object ids (in first-stamp order) to
+// out_ids (may be null to just count) and returns how many there are.
+KAPI i32 renderer_sculpt_object_ids(i32 *out_ids, i32 capacity);
+
+// How strongly material `slot` glows in its own colour: 0 = not at all,
+// 1 = fully (bright enough to bloom). Cheap; fine to call every frame.
+KAPI void renderer_sculpt_set_material_glow(i32 slot, f32 glow);
+
+// Scope-in: blurs and greys everything on screen except these objects.
+// count 0 turns it off.
+KAPI void renderer_sculpt_set_scope_objects(const i32 *object_ids, i32 count);
+
+// renderer_sculpt_raycast_object() that only sees the given objects.
+KAPI i32 renderer_sculpt_raycast_objects(glm::vec3 origin, glm::vec3 direction,
+                                         f32 max_t, const i32 *object_ids,
+                                         i32 count, f32 *out_t);
+
+// Copies an object into a new one at the same place and returns the new
+// id (-1 if the source has no stamps).
+KAPI i32 renderer_sculpt_clone_object(i32 object_id);
+
+// An object's anchor: its first stamp's center and rotation -- a fixed
+// reference for snapping. False if the object has no stamps.
+KAPI bool renderer_sculpt_object_anchor(i32 object_id, glm::vec3 *out_center,
+                                        glm::quat *out_rotation);
 
 // M4 (Crop): a whole-volume boolean filter -- keeps only the geometry
 // currently inside shape_type/params/center (same per-shape params table as

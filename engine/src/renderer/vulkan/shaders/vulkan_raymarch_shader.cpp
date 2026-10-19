@@ -12,7 +12,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstddef>
 #include <cstring>
+#include <limits>
 #include <fstream>
 #include <glm/gtc/quaternion.hpp>
 #include <initializer_list>
@@ -396,13 +398,16 @@ struct SculptStampPushConstants {
   // already matches Builtin.SculptStamp.comp.glsl's PushConstants block
   // exactly; appending keeps every existing member's offset unchanged.
   f32 looseness;
+  // Shape orientation quaternion -- must match the rot_* fields at the end
+  // of Builtin.SculptStamp.comp.glsl's push block.
+  f32 rot_x, rot_y, rot_z, rot_w;
 };
 // Byte-exact cross-check against Builtin.SculptStamp.comp.glsl's own
-// PushConstants block (14 plain 4-byte scalars, no vec/ivec, so no std430
+// PushConstants block (18 plain 4-byte scalars, no vec/ivec, so no std430
 // alignment padding on either side) -- see this struct's own header
 // comment and the plan file's M1a postmortem for why this one struct is
 // worth a hard compile-time check instead of just a comment.
-static_assert(sizeof(SculptStampPushConstants) == 14 * 4,
+static_assert(sizeof(SculptStampPushConstants) == 18 * 4,
              "SculptStampPushConstants must stay byte-identical to Builtin."
              "SculptStamp.comp.glsl's PushConstants block");
 
@@ -424,6 +429,7 @@ struct SculptSplatRegenPushConstants {
   i32 stats;
   f32 chunk_cell_size;
   f32 voxel_size;
+  i32 mode; // 0 = release old pages, 1 = generate -- see record_splat_regen()
 };
 
 // Mirrors Builtin.SculptStamp.comp.glsl's/Builtin.SculptUndoRestore.comp.
@@ -460,8 +466,9 @@ struct SculptChunkRecomputePushConstants {
                    // recompute_cells().
   f32 cell_size;
   f32 voxel_size;
+  i32 mode; // 0 = release emptied cells, 1 = rebuild -- see recompute_cells()
 };
-static_assert(sizeof(SculptChunkRecomputePushConstants) == 4 * 4,
+static_assert(sizeof(SculptChunkRecomputePushConstants) == 5 * 4,
              "SculptChunkRecomputePushConstants must stay byte-identical "
              "to Builtin.SculptChunkRecompute.comp.glsl's PushConstants "
              "block");
@@ -574,6 +581,7 @@ struct PostCompositePushConstants {
   f32 vignette_radius;
   i32 pixelation_enabled;
   i32 pixelation_block_size;
+  i32 scope_active; // nonzero: blur + grey everything outside scope_mask_image_
 };
 
 // GI probe grid dimensions. Must match PROBE_DIM in both
@@ -696,8 +704,22 @@ constexpr u32 kNumLevels = 5;
 // for the reported case while staying within this engine's "desktop GPU
 // target" budget (see kMaxBricks' own comment); raise further only if a
 // scene demonstrably still overflows this.
+//
+// This is now the CEILING, not the size: the pool and the same-sized M3c
+// paint buffer cost ~1.8GB each at this value, which together don't fit a
+// 4GB card at all. choose_max_chunk_bricks() below picks the real per-level
+// count from the GPU's VRAM at startup.
 constexpr u32 kMaxChunkBricksPerLevel = 16384;
-constexpr u32 kMaxChunkBricks = kMaxChunkBricksPerLevel * kNumLevels;
+// Floor for choose_max_chunk_bricks() -- the pre-raise 1.6% budget. Below
+// this, ordinary scenes visibly lose surface, so a smaller card gets this
+// and an allocation failure rather than a silently broken field.
+constexpr u32 kMinChunkBricksPerLevel = 4096;
+// Per-level counts are rounded down to a multiple of this.
+constexpr u32 kChunkBricksPerLevelGranularity = 1024;
+// VRAM held back from the brick pools for everything else: the rest of the
+// renderer's buffers (~450MB at startup), the swapchain, scene textures and
+// skyboxes, and whatever the desktop is using.
+constexpr u64 kNonBrickVramReserve = 1024ull * 1024 * 1024;
 // The chunked field's own brick resolution -- deliberately NOT kBrickDim
 // above, even though a chunk's cell layout otherwise mirrors the fixed-cube
 // field's. A clip level's own cell (chunk_level_world_size(level)/
@@ -716,13 +738,44 @@ constexpr u32 kMaxChunkBricks = kMaxChunkBricksPerLevel * kNumLevels;
 // detail. Kept as its own constant (not raising kBrickDim itself) so
 // sdf_editor's synchronous-authoring fallback and every game keep the
 // fixed-cube field's existing ~1GB brick pool exactly as it was -- only
-// chunk_brick_pool_buffer_ below pays for this (roughly 455MB at this
-// value: kMaxChunkBricks * kChunkBrickVoxelCount * sizeof(f32)). Must
-// match CHUNK_BRICK_DIM in Builtin.SdfFieldConfig.inc.glsl exactly.
+// chunk_brick_pool_buffer_ below pays for this (max_chunk_bricks_ *
+// kChunkBrickVoxelCount * sizeof(f32)). Must match CHUNK_BRICK_DIM in
+// Builtin.SdfFieldConfig.inc.glsl exactly.
 constexpr u32 kChunkBrickDim = 16;
 constexpr u32 kChunkBrickApronDim = kChunkBrickDim + 2;
 constexpr u32 kChunkBrickVoxelCount =
     kChunkBrickApronDim * kChunkBrickApronDim * kChunkBrickApronDim;
+
+// Total chunk bricks (all levels) for this GPU: as many per level as fit in
+// the largest device-local heap after kNonBrickVramReserve, clamped to
+// [kMinChunkBricksPerLevel, kMaxChunkBricksPerLevel]. Every brick costs a
+// voxel block in BOTH chunk_brick_pool_buffer_ and chunk_brick_paint_
+// buffer_, plus a few i32s of per-brick bookkeeping (primitive, looseness,
+// free-list entry, kChunkMaxClustersPerBrick cluster links).
+u32 choose_max_chunk_bricks(const VkPhysicalDeviceMemoryProperties &memory) {
+  u64 device_local_heap = 0;
+  for (u32 i = 0; i < memory.memoryHeapCount; ++i) {
+    if (memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+      device_local_heap =
+          std::max<u64>(device_local_heap, memory.memoryHeaps[i].size);
+    }
+  }
+  constexpr u64 kBytesPerBrick =
+      2ull * kChunkBrickVoxelCount * sizeof(f32) + (3 + 4) * sizeof(i32);
+  const u64 budget = device_local_heap > kNonBrickVramReserve
+                         ? device_local_heap - kNonBrickVramReserve
+                         : 0;
+  u64 per_level = budget / kBytesPerBrick / kNumLevels;
+  per_level -= per_level % kChunkBricksPerLevelGranularity;
+  per_level = std::clamp<u64>(per_level, kMinChunkBricksPerLevel,
+                              kMaxChunkBricksPerLevel);
+  const u32 total = static_cast<u32>(per_level) * kNumLevels;
+  KINFO("Chunk brick pool: {} bricks per level ({} total, {} MB for pool + "
+        "paint) sized for a {} MB device-local heap.",
+        per_level, total, total * kBytesPerBrick / (1024 * 1024),
+        device_local_heap / (1024 * 1024));
+  return total;
+}
 // Splatting: per-brick surface-point budget -- must match CHUNK_POINTS_PER_
 // BRICK in Builtin.SdfFieldConfig.inc.glsl AND Builtin.ChunkPointSplat.
 // comp.glsl's local_size_x (one thread per point slot) exactly; the
@@ -853,7 +906,9 @@ bool primitive_matters_at_level(f32 bounding_radius, u32 level) {
 // camera, per level -- (2*1+1)^3 = 27 candidate chunks, safely under
 // kMaxResidentChunks (64) with headroom so the window doesn't thrash
 // against the slot cap right at its own edge.
-constexpr i32 kStreamRadiusChunks = 1;
+// Unused since camera streaming was removed; kept equal to the shaders'
+// STREAM_RADIUS_CHUNKS (see Builtin.SdfFieldConfig.inc.glsl for why it's 7).
+constexpr i32 kStreamRadiusChunks = 7;
 // Loads and evictions are budgeted separately per level (each dispatch is
 // cheap relative to a full rebake, but still real GPU work) -- this is the
 // "no vkDeviceWaitIdle stall" lever the plan calls for: spread over N
@@ -1282,6 +1337,30 @@ static_assert(sizeof(GpuBrushPreview) == 48,
              "see Builtin.DeferredShade.comp.glsl's BrushPreviewBuffer, "
              "which this struct's layout must match field-for-field.");
 
+// Matches `SelectionOutlineBuffer` in Builtin.DeferredShade.comp.glsl --
+// see set_selection_outline().
+struct GpuOutlineObject {
+  f32 center_radius[4];
+  i32 range[4]; // x = first stamp, y = stamp count
+};
+struct GpuOutlineStamp {
+  f32 center_radius[4];
+  f32 params[4];
+  f32 rotation[4]; // quaternion xyzw
+  f32 smooth_shape_op[4];
+};
+struct GpuSelectionOutline {
+  i32 counts[4]; // x = object count
+  f32 colour[4];
+  f32 style[4]; // dot spacing px, dot fraction, width px, hidden alpha
+  GpuOutlineObject objects[VulkanRaymarchShader::kMaxOutlineObjects];
+  GpuOutlineStamp stamps[VulkanRaymarchShader::kMaxOutlineStamps];
+};
+static_assert(sizeof(GpuOutlineObject) == 32 && sizeof(GpuOutlineStamp) == 64,
+              "must match the std430 structs in Builtin.DeferredShade.comp.glsl");
+static_assert(offsetof(GpuSelectionOutline, objects) == 48,
+              "must match SelectionOutlineBuffer's std430 layout");
+
 // A single compiled "parametric attribute" expression -- matches the
 // `ParamExpr` struct in Builtin.RaymarchVoxelize.comp.glsl exactly (plain
 // C arrays, not std::array, so the memory layout is the flat, tightly
@@ -1672,6 +1751,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     return;
   }
 
+  // Before any chunk buffer is sized, and before the pipelines that read it
+  // as a specialization constant are created.
+  max_chunk_bricks_ = choose_max_chunk_bricks(context_->device.memory);
+
   // Output/bloom-scratch/post-process images, sized off render_scale_ (1.0
   // unless set_render_scale() has been called) -- see
   // recreate_render_target_images().
@@ -1729,9 +1812,9 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   const u64 chunk_indirection_size = static_cast<u64>(kNumLevels) *
       kMaxResidentChunks * kChunkCellCount * sizeof(i32);
   const u64 chunk_brick_pool_size =
-      static_cast<u64>(kMaxChunkBricks) * kChunkBrickVoxelCount * sizeof(f32);
+      static_cast<u64>(max_chunk_bricks_) * kChunkBrickVoxelCount * sizeof(f32);
   const u64 chunk_brick_primitive_size =
-      static_cast<u64>(kMaxChunkBricks) * sizeof(i32);
+      static_cast<u64>(max_chunk_bricks_) * sizeof(i32);
 
   chunk_table_buffer_.emplace(*context_, chunk_table_size,
                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1816,12 +1899,14 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // has. Nothing on the CPU reads either buffer; reset_chunked_field()
   // seeds them once through a staging copy (see upload_to_device_local()).
   chunk_brick_free_list_buffer_.emplace(
-      *context_, static_cast<u64>(kMaxChunkBricks) * sizeof(i32),
+      *context_, static_cast<u64>(max_chunk_bricks_) * sizeof(i32),
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  // TRANSFER_SRC: read back by log_sculpt_pools().
   chunk_brick_free_list_top_buffer_.emplace(
       *context_, sizeof(u32),
-      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   chunk_debug_query_output_buffer_.emplace(
       *context_, sizeof(ChunkDebugQueryOutput),
@@ -1942,13 +2027,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       *context_, static_cast<u64>(kMaxChunkClusters) * sizeof(i32),
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  // TRANSFER_SRC: read back by log_sculpt_pools().
   chunk_cluster_free_top_buffer_.emplace(
       *context_, sizeof(u32),
-      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   chunk_brick_cluster_buffer_.emplace(
       *context_,
-      static_cast<u64>(kMaxChunkBricks) * kChunkMaxClustersPerBrick * sizeof(i32),
+      static_cast<u64>(max_chunk_bricks_) * kChunkMaxClustersPerBrick * sizeof(i32),
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
@@ -2619,6 +2706,30 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
                                      &disabled_preview);
   }
 
+  // Per-material glow (set_material_glow()), paint_read_set_ binding 6.
+  // Zero-filled: nothing glows until asked to.
+  material_extra_buffer_.emplace(
+      *context_, kMaxScenePrimitives * sizeof(glm::vec4),
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  {
+    const std::vector<glm::vec4> zeros(kMaxScenePrimitives, glm::vec4(0.0f));
+    material_extra_buffer_->load_data(0, kMaxScenePrimitives * sizeof(glm::vec4),
+                                      0, zeros.data());
+  }
+
+  // Selection outline stamps (set_selection_outline()), paint_read_set_
+  // binding 4. Starts with zero objects, so the shader skips it.
+  selection_outline_buffer_.emplace(
+      *context_, sizeof(GpuSelectionOutline),
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  {
+    const GpuSelectionOutline empty_outline{};
+    selection_outline_buffer_->load_data(0, sizeof(GpuSelectionOutline), 0,
+                                         &empty_outline);
+  }
+
   // M3c: paint_read_set_: {0=ChunkBrickPaintBuffer (the SAME buffer as
   // above, read-only here)} -- the tiny, SEPARATE set (bound as set = 1)
   // Builtin.DeferredShade.comp.glsl's pipeline binds alongside render_set_
@@ -2641,7 +2752,10 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // chunk_sculpt_undo_restore_set_ bindings) -- render_set_ is confirmed
   // already fully packed at 29/29 bindings, so this per-brick buffer goes
   // on this set instead, same precedent as the three additions above it.
-  VkDescriptorSetLayoutBinding paint_read_bindings[4]{};
+  // Binding 4 = selection_outline_buffer_ (read-only storage).
+  // Binding 5 = scope_mask_image_ (writeonly storage image).
+  // Binding 6 = material_extra_buffer_ (read-only storage: per-slot glow).
+  VkDescriptorSetLayoutBinding paint_read_bindings[7]{};
   paint_read_bindings[0].binding = 0;
   paint_read_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_bindings[0].descriptorCount = 1;
@@ -2658,9 +2772,21 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   paint_read_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_bindings[3].descriptorCount = 1;
   paint_read_bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  paint_read_bindings[4].binding = 4;
+  paint_read_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_read_bindings[4].descriptorCount = 1;
+  paint_read_bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  paint_read_bindings[5].binding = 5;
+  paint_read_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  paint_read_bindings[5].descriptorCount = 1;
+  paint_read_bindings[5].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  paint_read_bindings[6].binding = 6;
+  paint_read_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_read_bindings[6].descriptorCount = 1;
+  paint_read_bindings[6].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   VkDescriptorSetLayoutCreateInfo paint_read_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  paint_read_layout_info.bindingCount = 4;
+  paint_read_layout_info.bindingCount = 7;
   paint_read_layout_info.pBindings = paint_read_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &paint_read_layout_info,
@@ -2682,14 +2808,16 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   VkDescriptorPoolSize paint_pool_sizes[3]{};
   paint_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_pool_sizes[0].descriptorCount =
-      3 + 1 + 1; // chunk_sculpt_spraypaint_set_ + paint_read_set_'s
-                // binding 0 + binding 3 (M3 Looseness, NEW)
+      3 + 1 + 1 + 1 + 1; // chunk_sculpt_spraypaint_set_ + paint_read_set_'s
+                // binding 0 + binding 3 (M3 Looseness) + binding 4
+                // (selection outline) + binding 6 (material glow)
   paint_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   paint_pool_sizes[1].descriptorCount = 1; // paint_read_set_'s binding 1
                                           // (BrushPreviewBuffer)
   paint_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  paint_pool_sizes[2].descriptorCount = 1; // paint_read_set_'s binding 2
-                                          // (preview_overlay_image_)
+  paint_pool_sizes[2].descriptorCount = 2; // paint_read_set_'s binding 2
+                                          // (preview_overlay_image_) + 5
+                                          // (scope_mask_image_)
   VkDescriptorPoolCreateInfo paint_pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   paint_pool_info.poolSizeCount = 3;
@@ -2732,14 +2860,16 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   vkUpdateDescriptorSets(context_->device.logical_device, 3,
                         chunk_sculpt_spraypaint_writes, 0, nullptr);
 
-  VkDescriptorBufferInfo paint_read_buffer_infos[3] = {
+  VkDescriptorBufferInfo paint_read_buffer_infos[5] = {
       {chunk_brick_paint_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {brush_preview_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_brick_looseness_buffer_->handle(), 0, VK_WHOLE_SIZE}, // M3, binding 3.
+      {selection_outline_buffer_->handle(), 0, VK_WHOLE_SIZE}, // binding 4.
+      {material_extra_buffer_->handle(), 0, VK_WHOLE_SIZE},    // binding 6.
   };
   VkDescriptorImageInfo paint_read_preview_image_info{
       VK_NULL_HANDLE, preview_overlay_image_.view, VK_IMAGE_LAYOUT_GENERAL};
-  VkWriteDescriptorSet paint_read_writes[4]{};
+  VkWriteDescriptorSet paint_read_writes[7]{};
   paint_read_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   paint_read_writes[0].dstSet = paint_read_set_;
   paint_read_writes[0].dstBinding = 0;
@@ -2772,7 +2902,27 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   paint_read_writes[3].descriptorCount = 1;
   paint_read_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_writes[3].pBufferInfo = &paint_read_buffer_infos[2];
-  vkUpdateDescriptorSets(context_->device.logical_device, 4, paint_read_writes,
+  paint_read_writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  paint_read_writes[4].dstSet = paint_read_set_;
+  paint_read_writes[4].dstBinding = 4;
+  paint_read_writes[4].descriptorCount = 1;
+  paint_read_writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_read_writes[4].pBufferInfo = &paint_read_buffer_infos[3];
+  VkDescriptorImageInfo paint_read_scope_image_info{
+      VK_NULL_HANDLE, scope_mask_image_.view, VK_IMAGE_LAYOUT_GENERAL};
+  paint_read_writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  paint_read_writes[5].dstSet = paint_read_set_;
+  paint_read_writes[5].dstBinding = 5;
+  paint_read_writes[5].descriptorCount = 1;
+  paint_read_writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  paint_read_writes[5].pImageInfo = &paint_read_scope_image_info;
+  paint_read_writes[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  paint_read_writes[6].dstSet = paint_read_set_;
+  paint_read_writes[6].dstBinding = 6;
+  paint_read_writes[6].descriptorCount = 1;
+  paint_read_writes[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_read_writes[6].pBufferInfo = &paint_read_buffer_infos[4];
+  vkUpdateDescriptorSets(context_->device.logical_device, 7, paint_read_writes,
                         0, nullptr);
 
   VkDescriptorPoolSize chunk_pool_size{};
@@ -3148,8 +3298,9 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // output_image_ and bloom_temp_image_, writes post_process_image_, and
   // (M7 polish TAA-ghosting fix) reads preview_overlay_image_ -- see
   // Builtin.PostComposite.comp.glsl.
-  VkDescriptorSetLayoutBinding post_composite_bindings[4]{};
-  for (u32 i = 0; i < 4; ++i) {
+  // Binding 4 = scope_mask_image_ (read).
+  VkDescriptorSetLayoutBinding post_composite_bindings[5]{};
+  for (u32 i = 0; i < 5; ++i) {
     post_composite_bindings[i].binding = i;
     post_composite_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     post_composite_bindings[i].descriptorCount = 1;
@@ -3158,7 +3309,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
 
   VkDescriptorSetLayoutCreateInfo post_composite_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  post_composite_layout_info.bindingCount = 4;
+  post_composite_layout_info.bindingCount = 5;
   post_composite_layout_info.pBindings = post_composite_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &post_composite_layout_info,
@@ -3231,7 +3382,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // blur h's 2 + post composite's 4 (M7 polish TAA-ghosting fix added its
   // preview_overlay_image_ read) + TAA resolve's 5 x2 sets + the AO pass's
   // own 3 images.
-  pool_sizes[1].descriptorCount = 23;
+  pool_sizes[1].descriptorCount = 24; // + post composite's scope mask read
   pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   // scene_textures + scene_bump_textures + skybox_texture.
   pool_sizes[2].descriptorCount = kMaxScenePrimitives * 2 + 1;
@@ -3430,14 +3581,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // Populate post_composite_set_: 0 = output_image_ (read), 1 =
   // bloom_temp_image_ (read), 2 = post_process_image_ (write), 3 =
   // preview_overlay_image_ (read -- M7 polish TAA-ghosting fix).
-  VkDescriptorImageInfo post_composite_image_infos[4] = {
+  VkDescriptorImageInfo post_composite_image_infos[5] = {
       {VK_NULL_HANDLE, taa_output_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, bloom_temp_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, post_process_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, preview_overlay_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, scope_mask_image_.view, VK_IMAGE_LAYOUT_GENERAL},
   };
-  VkWriteDescriptorSet post_composite_writes[4]{};
-  for (u32 i = 0; i < 4; ++i) {
+  VkWriteDescriptorSet post_composite_writes[5]{};
+  for (u32 i = 0; i < 5; ++i) {
     post_composite_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     post_composite_writes[i].dstSet = post_composite_set_;
     post_composite_writes[i].dstBinding = i;
@@ -3445,7 +3597,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
     post_composite_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     post_composite_writes[i].pImageInfo = &post_composite_image_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 4,
+  vkUpdateDescriptorSets(context_->device.logical_device, 5,
                         post_composite_writes, 0, nullptr);
 
   // Everything that points at a render-target image (render_set_'s 0/24,
@@ -3461,10 +3613,19 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       *context_, chunk_debug_query_stage_,
       std::vector<VkDescriptorSetLayout>{chunk_debug_query_set_layout_},
       sizeof(ChunkDebugQueryPushConstants));
+  // Specialization constant 0 = max_chunk_bricks_, for every shader that
+  // declares MAX_CHUNK_BRICKS/MAX_BRICKS (the brick-pool bounds checks).
+  const i32 max_chunk_bricks_spec_value = static_cast<i32>(max_chunk_bricks_);
+  const VkSpecializationMapEntry max_chunk_bricks_spec_entry{0, 0,
+                                                             sizeof(i32)};
+  const VkSpecializationInfo max_chunk_bricks_spec{
+      1, &max_chunk_bricks_spec_entry, sizeof(i32),
+      &max_chunk_bricks_spec_value};
   chunk_evict_pipeline_.emplace(
       *context_, chunk_evict_stage_,
       std::vector<VkDescriptorSetLayout>{chunk_evict_set_layout_},
-      sizeof(ChunkEvictPushConstants));
+      sizeof(ChunkEvictPushConstants),
+      &max_chunk_bricks_spec);
   probe_bake_pipeline_.emplace(
       *context_, probe_bake_stage_,
       std::vector<VkDescriptorSetLayout>{probe_bake_set_layout_},
@@ -3496,7 +3657,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   chunk_sculpt_stamp_pipeline_.emplace(
       *context_, chunk_sculpt_stamp_stage_,
       std::vector<VkDescriptorSetLayout>{chunk_sculpt_stamp_set_layout_},
-      sizeof(SculptStampPushConstants));
+      sizeof(SculptStampPushConstants),
+      &max_chunk_bricks_spec);
   chunk_sculpt_splat_regen_pipeline_.emplace(
       *context_, chunk_sculpt_splat_regen_stage_,
       std::vector<VkDescriptorSetLayout>{chunk_sculpt_splat_regen_set_layout_},
@@ -3504,7 +3666,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   chunk_sculpt_undo_restore_pipeline_.emplace(
       *context_, chunk_sculpt_undo_restore_stage_,
       std::vector<VkDescriptorSetLayout>{chunk_sculpt_undo_restore_set_layout_},
-      sizeof(SculptUndoRestorePushConstants));
+      sizeof(SculptUndoRestorePushConstants),
+      &max_chunk_bricks_spec);
   // M3c: see spray_paint().
   chunk_sculpt_spraypaint_pipeline_.emplace(
       *context_, chunk_sculpt_spraypaint_stage_,
@@ -3517,7 +3680,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   chunk_sculpt_checkpoint_restore_pipeline_.emplace(
       *context_, chunk_sculpt_checkpoint_restore_stage_,
       std::vector<VkDescriptorSetLayout>{chunk_sculpt_stamp_set_layout_},
-      sizeof(SculptUndoRestorePushConstants));
+      sizeof(SculptUndoRestorePushConstants),
+      &max_chunk_bricks_spec);
   // M4 (Crop/Cutout): reuses chunk_sculpt_undo_restore_set_layout_ wholesale
   // -- see chunk_sculpt_crop_pipeline_'s own header comment (vulkan_
   // raymarch_shader.h) for why that set's binding list already covers
@@ -3525,13 +3689,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   chunk_sculpt_crop_pipeline_.emplace(
       *context_, chunk_sculpt_crop_stage_,
       std::vector<VkDescriptorSetLayout>{chunk_sculpt_undo_restore_set_layout_},
-      sizeof(SculptCropPushConstants));
+      sizeof(SculptCropPushConstants),
+      &max_chunk_bricks_spec);
   // M5 (checkpoint-removal redesign): see recompute_region()/recompute_
   // moved_region().
   chunk_sculpt_recompute_pipeline_.emplace(
       *context_, chunk_sculpt_recompute_stage_,
       std::vector<VkDescriptorSetLayout>{chunk_sculpt_recompute_set_layout_},
-      sizeof(SculptChunkRecomputePushConstants));
+      sizeof(SculptChunkRecomputePushConstants),
+      &max_chunk_bricks_spec);
   render_pipeline_.emplace(*context_, render_stage_,
                            std::vector<VkDescriptorSetLayout>{render_set_layout_},
                            sizeof(PushConstants));
@@ -3913,6 +4079,8 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   chunk_brick_demand_buffer_.reset();
   chunk_brick_paint_buffer_.reset();
   brush_preview_buffer_.reset();
+  selection_outline_buffer_.reset();
+  material_extra_buffer_.reset();
   chunk_brick_primitive_buffer_.reset();
   chunk_brick_looseness_buffer_.reset();
   chunk_brick_pool_buffer_.reset();
@@ -3924,6 +4092,7 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   vulkan_image_destroy(context_, &history_images_[0]);
   vulkan_image_destroy(context_, &ao_image_);
   vulkan_image_destroy(context_, &preview_overlay_image_);
+  vulkan_image_destroy(context_, &scope_mask_image_);
   vulkan_image_destroy(context_, &normal_material_image_);
   vulkan_image_destroy(context_, &depth_image_);
   vulkan_image_destroy(context_, &post_process_image_);
@@ -4054,6 +4223,15 @@ void VulkanRaymarchShader::recreate_render_target_images() {
                       VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
                       VK_IMAGE_ASPECT_COLOR_BIT, &preview_overlay_image_);
+  // Scope-in mask (r = 1 where a scoped object is visible), written by
+  // Builtin.DeferredShade.comp.glsl and read by Builtin.PostComposite.
+  // comp.glsl to blur + grey everything else. Same lifetime as above.
+  vulkan_image_destroy(context_, &scope_mask_image_);
+  vulkan_image_create(context_, VK_IMAGE_TYPE_2D, render_width_, render_height_,
+                      context_->swapchain.image_format.format,
+                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_STORAGE_BIT,
+                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, TRUE,
+                      VK_IMAGE_ASPECT_COLOR_BIT, &scope_mask_image_);
   for (u32 i = 0; i < 2; ++i) {
     vulkan_image_destroy(context_, &history_images_[i]);
     vulkan_image_create(context_, VK_IMAGE_TYPE_2D, render_width_,
@@ -4231,14 +4409,15 @@ void VulkanRaymarchShader::rebind_render_target_descriptors() {
   vkUpdateDescriptorSets(context_->device.logical_device, 2, bloom_blur_h_writes,
                         0, nullptr);
 
-  VkDescriptorImageInfo post_composite_image_infos[4] = {
+  VkDescriptorImageInfo post_composite_image_infos[5] = {
       {VK_NULL_HANDLE, taa_output_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, bloom_temp_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, post_process_image_.view, VK_IMAGE_LAYOUT_GENERAL},
       {VK_NULL_HANDLE, preview_overlay_image_.view, VK_IMAGE_LAYOUT_GENERAL},
+      {VK_NULL_HANDLE, scope_mask_image_.view, VK_IMAGE_LAYOUT_GENERAL},
   };
-  VkWriteDescriptorSet post_composite_writes[4]{};
-  for (u32 i = 0; i < 4; ++i) {
+  VkWriteDescriptorSet post_composite_writes[5]{};
+  for (u32 i = 0; i < 5; ++i) {
     post_composite_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     post_composite_writes[i].dstSet = post_composite_set_;
     post_composite_writes[i].dstBinding = i;
@@ -4246,7 +4425,7 @@ void VulkanRaymarchShader::rebind_render_target_descriptors() {
     post_composite_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     post_composite_writes[i].pImageInfo = &post_composite_image_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 4,
+  vkUpdateDescriptorSets(context_->device.logical_device, 5,
                         post_composite_writes, 0, nullptr);
 
   // M7 polish (TAA-ghosting fix): paint_read_set_'s binding 2 --
@@ -4264,6 +4443,19 @@ void VulkanRaymarchShader::rebind_render_target_descriptors() {
   paint_read_preview_write.pImageInfo = &paint_read_preview_image_info;
   vkUpdateDescriptorSets(context_->device.logical_device, 1,
                         &paint_read_preview_write, 0, nullptr);
+
+  // scope_mask_image_ (paint_read_set_ binding 5) is recreated with it.
+  VkDescriptorImageInfo paint_read_scope_image_info{
+      VK_NULL_HANDLE, scope_mask_image_.view, VK_IMAGE_LAYOUT_GENERAL};
+  VkWriteDescriptorSet paint_read_scope_write{
+      VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  paint_read_scope_write.dstSet = paint_read_set_;
+  paint_read_scope_write.dstBinding = 5;
+  paint_read_scope_write.descriptorCount = 1;
+  paint_read_scope_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  paint_read_scope_write.pImageInfo = &paint_read_scope_image_info;
+  vkUpdateDescriptorSets(context_->device.logical_device, 1,
+                        &paint_read_scope_write, 0, nullptr);
 }
 
 // Used to deep-copy GeometrySystem's registered CSG primitives into the
@@ -4458,15 +4650,15 @@ void VulkanRaymarchShader::reset_chunked_field() {
   // comment: allocation order never matters, only that every index is
   // handed out at most once between resets).
   {
-    std::vector<i32> free_list(kMaxChunkBricks);
-    for (u32 i = 0; i < kMaxChunkBricks; ++i) {
+    std::vector<i32> free_list(max_chunk_bricks_);
+    for (u32 i = 0; i < max_chunk_bricks_; ++i) {
       free_list[i] = static_cast<i32>(i);
     }
     upload_to_device_local(*chunk_brick_free_list_buffer_, free_list.data(),
                            free_list.size() * sizeof(i32));
   }
   {
-    const u32 top = kMaxChunkBricks;
+    const u32 top = max_chunk_bricks_;
     upload_to_device_local(*chunk_brick_free_list_top_buffer_, &top,
                            sizeof(top));
   }
@@ -4499,7 +4691,7 @@ void VulkanRaymarchShader::reset_chunked_field() {
   // ...and no brick owns any page yet (-1 is "no page", not page 0).
   {
     std::vector<i32> owners(
-        static_cast<size_t>(kMaxChunkBricks) * kChunkMaxClustersPerBrick, -1);
+        static_cast<size_t>(max_chunk_bricks_) * kChunkMaxClustersPerBrick, -1);
     upload_to_device_local(*chunk_brick_cluster_buffer_, owners.data(),
                            owners.size() * sizeof(i32));
   }
@@ -4525,6 +4717,7 @@ void VulkanRaymarchShader::reset_chunked_field() {
   // acquire_sculpt_chunk_slot().
   sculpt_chunk_slot_used_.assign(kMaxResidentChunks, false);
   sculpt_chunk_slot_by_coord_.clear();
+  sculpt_table_owner_.clear();
 
   // M2b: every captured undo entry refers to chunk slots/brick indices that
   // just got wiped above -- none of them mean anything post-reset.
@@ -4614,6 +4807,14 @@ void VulkanRaymarchShader::ensure_default_sculpt_material() {
   bump_info.sampler = context_->texture_system->flat_texture().sampler();
 
   std::vector<VkDescriptorImageInfo> diffuse_infos(kMaxScenePrimitives, diffuse_info);
+  // Slots 2+ are only ever used through set_material(), whose Finishes want
+  // a flat (plain white) texture rather than the checkerboard -- bound here,
+  // once, because rewriting render_set_ later would touch a descriptor set
+  // an in-flight frame is still using.
+  VkDescriptorImageInfo flat_info = diffuse_info;
+  flat_info.imageView = context_->texture_system->flat_texture().view();
+  flat_info.sampler = context_->texture_system->flat_texture().sampler();
+  std::fill(diffuse_infos.begin() + 2, diffuse_infos.end(), flat_info);
   std::vector<VkDescriptorImageInfo> bump_infos(kMaxScenePrimitives, bump_info);
 
   VkWriteDescriptorSet writes[2]{};
@@ -4742,21 +4943,10 @@ void VulkanRaymarchShader::set_material(i32 slot, glm::vec3 colour,
   // undisguised. Slot 0/1 are never passed through this function (guarded
   // above), so the bare-stamp/Spraypaint checkerboard baseline is completely
   // unaffected -- this only ever rebinds a slot a Finish was just assigned.
-  VkDescriptorImageInfo diffuse_info{};
-  diffuse_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  diffuse_info.imageView = context_->texture_system->flat_texture().view();
-  diffuse_info.sampler = context_->texture_system->flat_texture().sampler();
-
-  VkWriteDescriptorSet diffuse_write{};
-  diffuse_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  diffuse_write.dstSet = render_set_;
-  diffuse_write.dstBinding = 6;
-  diffuse_write.dstArrayElement = static_cast<u32>(slot);
-  diffuse_write.descriptorCount = 1;
-  diffuse_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  diffuse_write.pImageInfo = &diffuse_info;
-  vkUpdateDescriptorSets(context_->device.logical_device, 1, &diffuse_write, 0,
-                        nullptr);
+  //
+  // (That rebind now happens once for every slot 2+ up front, in
+  // ensure_default_sculpt_material() -- doing it here wrote render_set_
+  // while an in-flight frame could still be using it.)
 
   // scene_bump_textures[slot] was already bound to the same flat filler
   // every other slot got in ensure_default_sculpt_material() -- no bump map
@@ -4799,6 +4989,101 @@ void VulkanRaymarchShader::set_brush_preview(bool enabled, glm::vec3 center,
   brush_preview_buffer_->load_data(0, sizeof(GpuBrushPreview), 0, &preview);
 }
 
+void VulkanRaymarchShader::set_material_glow(i32 slot, f32 glow) {
+  if (slot < 0 || slot >= static_cast<i32>(kMaxScenePrimitives) ||
+      !material_extra_buffer_) {
+    return;
+  }
+  const glm::vec4 extra(std::max(glow, 0.0f), 0.0f, 0.0f, 0.0f);
+  material_extra_buffer_->load_data(
+      static_cast<u64>(slot) * sizeof(glm::vec4), sizeof(glm::vec4), 0,
+      &extra);
+}
+
+void VulkanRaymarchShader::set_selection_outline(
+    const std::vector<OutlineObject> &objects, glm::vec4 colour,
+    glm::vec4 style) {
+  if (!selection_outline_buffer_) {
+    return;
+  }
+  auto outline = std::make_unique<GpuSelectionOutline>();
+  i32 object_count = 0;
+  i32 stamp_count = 0;
+  bool any_scope = false;
+  for (const OutlineObject &outline_object : objects) {
+    const std::vector<OutlineStamp> &object = outline_object.stamps;
+    if (object.empty()) {
+      continue;
+    }
+    if (object_count >= static_cast<i32>(kMaxOutlineObjects) ||
+        stamp_count + static_cast<i32>(object.size()) >
+            static_cast<i32>(kMaxOutlineStamps)) {
+      if (!outline_overflow_warned_) {
+        KWARN("Selection outline: more than {} objects or {} stamps selected; "
+              "the rest are not outlined.",
+              kMaxOutlineObjects, kMaxOutlineStamps);
+        outline_overflow_warned_ = true;
+      }
+      break;
+    }
+    GpuOutlineObject &gpu_object = outline->objects[object_count];
+    glm::vec3 lo(std::numeric_limits<f32>::max());
+    glm::vec3 hi(std::numeric_limits<f32>::lowest());
+    gpu_object.range[0] = stamp_count;
+    gpu_object.range[1] = static_cast<i32>(object.size());
+    gpu_object.range[2] = outline_object.scope_mask ? 1 : 0;
+    for (const OutlineStamp &stamp : object) {
+      GpuOutlineStamp &gpu = outline->stamps[stamp_count++];
+      gpu.center_radius[0] = stamp.center.x;
+      gpu.center_radius[1] = stamp.center.y;
+      gpu.center_radius[2] = stamp.center.z;
+      gpu.center_radius[3] = stamp.bounding_radius;
+      gpu.params[0] = stamp.params.x;
+      gpu.params[1] = stamp.params.y;
+      gpu.params[2] = stamp.params.z;
+      gpu.params[3] = stamp.params.w;
+      gpu.rotation[0] = stamp.rotation.x;
+      gpu.rotation[1] = stamp.rotation.y;
+      gpu.rotation[2] = stamp.rotation.z;
+      gpu.rotation[3] = stamp.rotation.w;
+      gpu.smooth_shape_op[0] = stamp.smoothness;
+      gpu.smooth_shape_op[1] = static_cast<f32>(stamp.shape_type);
+      gpu.smooth_shape_op[2] = static_cast<f32>(stamp.op);
+      if (stamp.op == BrushOp::Union) {
+        lo = glm::min(lo, stamp.center - glm::vec3(stamp.bounding_radius));
+        hi = glm::max(hi, stamp.center + glm::vec3(stamp.bounding_radius));
+      }
+    }
+    if (lo.x > hi.x) {
+      continue; // only subtraction stamps: nothing to outline
+    }
+    const glm::vec3 center = 0.5f * (lo + hi);
+    gpu_object.center_radius[0] = center.x;
+    gpu_object.center_radius[1] = center.y;
+    gpu_object.center_radius[2] = center.z;
+    gpu_object.center_radius[3] = 0.5f * glm::length(hi - lo);
+    any_scope = any_scope || outline_object.scope_mask;
+    ++object_count;
+  }
+  outline->counts[0] = object_count;
+  scope_active_ = any_scope;
+  for (int i = 0; i < 4; ++i) {
+    outline->colour[i] = colour[i];
+    outline->style[i] = style[i];
+  }
+  // Only rewrite the buffer when something changed: the shading pass may
+  // still be reading it for an in-flight frame.
+  const auto *bytes = reinterpret_cast<const u8 *>(outline.get());
+  if (last_selection_outline_.size() == sizeof(GpuSelectionOutline) &&
+      std::memcmp(last_selection_outline_.data(), bytes,
+                  sizeof(GpuSelectionOutline)) == 0) {
+    return;
+  }
+  selection_outline_buffer_->load_data(0, sizeof(GpuSelectionOutline), 0,
+                                       outline.get());
+  last_selection_outline_.assign(bytes, bytes + sizeof(GpuSelectionOutline));
+}
+
 i32 VulkanRaymarchShader::add_light_internal(f32 light_type, glm::vec3 vector,
                                              glm::vec3 colour,
                                              f32 intensity) {
@@ -4833,6 +5118,23 @@ i32 VulkanRaymarchShader::add_light_internal(f32 light_type, glm::vec3 vector,
   return slot;
 }
 
+void VulkanRaymarchShader::set_point_light(i32 index, glm::vec3 position,
+                                           glm::vec3 colour, f32 intensity,
+                                           i32 source_material) {
+  if (!light_buffer_ || index < 0 || index >= light_count_) {
+    return;
+  }
+  const GpuLight gpu_light{
+      .vector_type = {position.x, position.y, position.z, 1.0f}, // Point
+      .colour_intensity = {colour.x, colour.y, colour.z,
+                           std::max(intensity, 0.0f)},
+      .source_primitive = {static_cast<f32>(source_material), 0.0f, 0.0f,
+                           0.0f},
+  };
+  light_buffer_->load_data(static_cast<u64>(index) * sizeof(GpuLight),
+                           sizeof(GpuLight), 0, &gpu_light);
+}
+
 i32 VulkanRaymarchShader::add_directional_light(glm::vec3 direction,
                                                  glm::vec3 colour,
                                                  f32 intensity) {
@@ -4846,6 +5148,15 @@ i32 VulkanRaymarchShader::add_directional_light(glm::vec3 direction,
 i32 VulkanRaymarchShader::add_point_light(glm::vec3 position, glm::vec3 colour,
                                           f32 intensity) {
   return add_light_internal(1.0f, position, colour, intensity);
+}
+
+u64 VulkanRaymarchShader::sculpt_table_index(const ChunkKey &key) {
+  auto wrap = [](i64 v) -> i64 {
+    return ((v % static_cast<i64>(kChunkTableDim)) + kChunkTableDim) %
+        static_cast<i64>(kChunkTableDim);
+  };
+  return static_cast<u64>(wrap(key.cx) + wrap(key.cy) * kChunkTableDim +
+                          wrap(key.cz) * kChunkTableDim * kChunkTableDim);
 }
 
 i32 VulkanRaymarchShader::acquire_sculpt_chunk_slot(glm::ivec3 chunk_coord,
@@ -4866,25 +5177,34 @@ i32 VulkanRaymarchShader::acquire_sculpt_chunk_slot(glm::ivec3 chunk_coord,
   }
   if (slot == kInvalidChunkSlot) {
     out_is_new = false;
-    return -1; // Every level-0 slot taken -- M1a has no eviction path.
+    // Every level-0 slot taken. Slots of chunks the sculpt has left are
+    // returned by release_unused_sculpt_chunks().
+    return -1;
   }
-
-  sculpt_chunk_slot_used_[slot] = true;
-  sculpt_chunk_slot_by_coord_[key] = slot;
 
   // Level 0's own [0, kChunkTableDim^3) range of chunk_table_buffer_ (see
   // Builtin.ChunkedFieldCommon.inc.glsl's chunk_table_slot_at() -- this
   // must wrap identically, or the render pass would resolve a different
   // slot than the one this stamp just published into).
-  auto wrap16 = [](i64 v) -> i64 {
-    return ((v % static_cast<i64>(kChunkTableDim)) + kChunkTableDim) %
-        static_cast<i64>(kChunkTableDim);
-  };
-  const i64 wx = wrap16(key.cx);
-  const i64 wy = wrap16(key.cy);
-  const i64 wz = wrap16(key.cz);
-  const u64 table_index = static_cast<u64>(
-      wx + wy * kChunkTableDim + wz * kChunkTableDim * kChunkTableDim);
+  const u64 table_index = sculpt_table_index(key);
+  if (const auto owner = sculpt_table_owner_.find(table_index);
+      owner != sculpt_table_owner_.end()) {
+    // A live chunk exactly a table-width away already holds this entry.
+    if (!sculpt_table_alias_warned_) {
+      KWARN("Sculpt reaches further than the chunk table can address "
+            "({} chunks per axis) -- geometry at chunk ({}, {}, {}) is not "
+            "stored, because it would overwrite chunk ({}, {}, {}).",
+            kChunkTableDim, key.cx, key.cy, key.cz, owner->second.cx,
+            owner->second.cy, owner->second.cz);
+      sculpt_table_alias_warned_ = true;
+    }
+    out_is_new = false;
+    return -1;
+  }
+
+  sculpt_chunk_slot_used_[slot] = true;
+  sculpt_chunk_slot_by_coord_[key] = slot;
+  sculpt_table_owner_[table_index] = key;
 
   if (void *mapped =
           chunk_table_buffer_->lock(table_index * sizeof(i32), sizeof(i32), 0)) {
@@ -4940,7 +5260,8 @@ i32 VulkanRaymarchShader::acquire_sculpt_chunk_slot(glm::ivec3 chunk_coord,
 // correct neighbouring values.
 static f32 sculpt_shape_bounding_radius(VulkanRaymarchShader::BrushShape shape_type,
                                         const glm::vec4 &params,
-                                        f32 smoothness) {
+                                        f32 smoothness,
+                                        bool rotated = false) {
   using BrushShape = VulkanRaymarchShader::BrushShape;
   const f32 p0 = std::abs(params.x);
   const f32 p1 = std::abs(params.y);
@@ -5022,18 +5343,31 @@ static f32 sculpt_shape_bounding_radius(VulkanRaymarchShader::BrushShape shape_t
     extent = std::max(p0, std::max(p1, std::max(p2, p3)));
     break;
   }
+  // `extent` bounds the shape as an axis-aligned CUBE of that half-size
+  // (every caller tests center +- radius as an AABB). Once the shape is
+  // rotated, its corners can reach out to the cube's corner distance,
+  // sqrt(3) * extent, along any axis.
+  if (rotated) {
+    extent *= 1.7320508f;
+  }
   return extent + std::max(smoothness, 0.0f);
 }
+
+namespace {
+bool is_identity_rotation(const glm::quat &q) {
+  return std::abs(q.w) >= 0.999999f;
+}
+} // namespace
 
 i32 VulkanRaymarchShader::stamp_shape(glm::vec3 center, BrushShape shape_type,
                                       glm::vec4 params, f32 smoothness,
                                       BrushOp op, i32 material_slot,
-                                      f32 looseness) {
+                                      f32 looseness, glm::quat rotation) {
   if (!valid_) {
     return 0;
   }
-  const f32 bounding_radius =
-      sculpt_shape_bounding_radius(shape_type, params, smoothness);
+  const f32 bounding_radius = sculpt_shape_bounding_radius(
+      shape_type, params, smoothness, !is_identity_rotation(rotation));
   if (!(bounding_radius > 0.0f)) { // also rejects NaN
     KWARN("VulkanRaymarchShader::stamp_shape() ignored a shape whose "
          "bounding radius was non-positive ({:.4f}).",
@@ -5191,7 +5525,8 @@ i32 VulkanRaymarchShader::stamp_shape(glm::vec3 center, BrushShape shape_type,
       params.y,       params.z, params.w, smoothness,
       voxel_size,     static_cast<i32>(shape_type),
       static_cast<i32>(cells.size()), material_slot,
-      static_cast<i32>(op), looseness};
+      static_cast<i32>(op), looseness,
+      rotation.x,     rotation.y, rotation.z, rotation.w};
   vkCmdPushConstants(cmd->handle(), chunk_sculpt_stamp_pipeline_->layout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(stamp_push),
                     &stamp_push);
@@ -5217,17 +5552,7 @@ i32 VulkanRaymarchShader::stamp_shape(glm::vec3 center, BrushShape shape_type,
                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2,
                       stamp_barriers, 0, nullptr);
 
-  chunk_sculpt_splat_regen_pipeline_->bind(*cmd);
-  vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
-                         chunk_sculpt_splat_regen_pipeline_->layout(), 0, 1,
-                         &chunk_sculpt_splat_regen_set_, 0, nullptr);
-  SculptSplatRegenPushConstants splat_push{static_cast<i32>(cells.size()),
-                                           bake_stats_enabled_ ? 1 : 0,
-                                           cell_size, voxel_size};
-  vkCmdPushConstants(cmd->handle(), chunk_sculpt_splat_regen_pipeline_->layout(),
-                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push),
-                    &splat_push);
-  vkCmdDispatch(cmd->handle(), groups, 1, 1);
+  record_splat_regen(*cmd, static_cast<i32>(cells.size()), cell_size, voxel_size, groups);
 
   VulkanCommandBuffer::end_single_use(*context_,
                                       context_->device.graphics_command_pool,
@@ -5333,24 +5658,33 @@ namespace {
 GpuSculptStampListEntry build_stamp_list_entry(
     glm::vec3 center, VulkanRaymarchShader::BrushShape shape_type,
     glm::vec4 params, f32 smoothness, VulkanRaymarchShader::BrushOp op,
-    i32 material_slot, f32 looseness) {
+    i32 material_slot, f32 looseness, glm::quat rotation) {
   GpuSculptStampListEntry entry{};
+  // Only the vector part is stored (bounding_radius_pad.yzw); the shader
+  // rebuilds w as sqrt(1 - |xyz|^2), which needs w >= 0. q and -q are the
+  // same rotation, so flip to the w >= 0 one.
+  rotation = glm::normalize(rotation);
+  if (rotation.w < 0.0f) {
+    rotation = -rotation;
+  }
   entry.center_shape =
       glm::vec4(center, static_cast<f32>(static_cast<i32>(shape_type)));
   entry.params = params;
   entry.smoothness_op_material_looseness =
       glm::vec4(smoothness, static_cast<f32>(static_cast<i32>(op)),
                static_cast<f32>(material_slot), looseness);
-  entry.bounding_radius_pad = glm::vec4(
-      sculpt_shape_bounding_radius(shape_type, params, smoothness), 0.0f,
-      0.0f, 0.0f);
+  entry.bounding_radius_pad =
+      glm::vec4(sculpt_shape_bounding_radius(shape_type, params, smoothness,
+                                             !is_identity_rotation(rotation)),
+                rotation.x, rotation.y, rotation.z);
   return entry;
 }
 } // namespace
 
 void VulkanRaymarchShader::sculpt_stamp_list_append(
     glm::vec3 center, BrushShape shape_type, glm::vec4 params,
-    f32 smoothness, BrushOp op, i32 material_slot, f32 looseness) {
+    f32 smoothness, BrushOp op, i32 material_slot, f32 looseness,
+    glm::quat rotation) {
   if (!valid_ || !chunk_sculpt_stamp_list_buffer_.has_value()) {
     return;
   }
@@ -5368,7 +5702,8 @@ void VulkanRaymarchShader::sculpt_stamp_list_append(
     return;
   }
   const GpuSculptStampListEntry entry = build_stamp_list_entry(
-      center, shape_type, params, smoothness, op, material_slot, looseness);
+      center, shape_type, params, smoothness, op, material_slot, looseness,
+      rotation);
   chunk_sculpt_stamp_list_buffer_->load_data(
       static_cast<u64>(gpu_stamp_mirror_count_) * sizeof(GpuSculptStampListEntry),
       sizeof(GpuSculptStampListEntry), 0, &entry);
@@ -5377,7 +5712,8 @@ void VulkanRaymarchShader::sculpt_stamp_list_append(
 
 void VulkanRaymarchShader::sculpt_stamp_list_update(
     i32 index, glm::vec3 center, BrushShape shape_type, glm::vec4 params,
-    f32 smoothness, BrushOp op, i32 material_slot, f32 looseness) {
+    f32 smoothness, BrushOp op, i32 material_slot, f32 looseness,
+    glm::quat rotation) {
   if (!valid_ || !chunk_sculpt_stamp_list_buffer_.has_value()) {
     return;
   }
@@ -5389,7 +5725,8 @@ void VulkanRaymarchShader::sculpt_stamp_list_update(
     return;
   }
   const GpuSculptStampListEntry entry = build_stamp_list_entry(
-      center, shape_type, params, smoothness, op, material_slot, looseness);
+      center, shape_type, params, smoothness, op, material_slot, looseness,
+      rotation);
   chunk_sculpt_stamp_list_buffer_->load_data(
       static_cast<u64>(index) * sizeof(GpuSculptStampListEntry),
       sizeof(GpuSculptStampListEntry), 0, &entry);
@@ -5424,10 +5761,10 @@ void VulkanRaymarchShader::sculpt_stamp_list_erase(i32 index) {
 
 void VulkanRaymarchShader::collect_recompute_cells(
     glm::vec3 center, BrushShape shape_type, glm::vec4 params,
-    f32 smoothness, std::unordered_set<u64> &seen,
+    f32 smoothness, glm::quat rotation, std::unordered_set<u64> &seen,
     std::vector<GpuSculptStampCell> &out_cells, std::vector<u32> &new_slots) {
-  const f32 bounding_radius =
-      sculpt_shape_bounding_radius(shape_type, params, smoothness);
+  const f32 bounding_radius = sculpt_shape_bounding_radius(
+      shape_type, params, smoothness, !is_identity_rotation(rotation));
   if (!(bounding_radius > 0.0f)) {
     return;
   }
@@ -5577,7 +5914,42 @@ i32 VulkanRaymarchShader::recompute_cells(
                          &chunk_sculpt_recompute_set_, 0, nullptr);
   SculptChunkRecomputePushConstants recompute_push{
       static_cast<i32>(cells.size()), static_cast<i32>(gpu_stamp_mirror_count_),
-      cell_size, voxel_size};
+      cell_size, voxel_size, 0};
+  // Pass 1 (mode 0): free the bricks of cells that end up empty.
+  vkCmdPushConstants(cmd->handle(), chunk_sculpt_recompute_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(recompute_push),
+                    &recompute_push);
+  vkCmdDispatch(cmd->handle(), groups, 1, 1);
+  {
+    // Everything pass 1 can write, before pass 2 allocates from the same
+    // free lists -- see the shader's `mode` comment for the race this
+    // separation prevents.
+    const VkBuffer released[7] = {
+        chunk_indirection_buffer_->handle(),
+        chunk_brick_free_list_buffer_->handle(),
+        chunk_brick_free_list_top_buffer_->handle(),
+        chunk_brick_cluster_buffer_->handle(),
+        chunk_cluster_buffer_->handle(),
+        chunk_cluster_free_list_buffer_->handle(),
+        chunk_cluster_free_top_buffer_->handle()};
+    VkBufferMemoryBarrier release_barriers[7]{};
+    for (u32 i = 0; i < 7; ++i) {
+      release_barriers[i].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+      release_barriers[i].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      release_barriers[i].dstAccessMask =
+          VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+      release_barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      release_barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      release_barriers[i].buffer = released[i];
+      release_barriers[i].offset = 0;
+      release_barriers[i].size = VK_WHOLE_SIZE;
+    }
+    vkCmdPipelineBarrier(cmd->handle(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 7,
+                        release_barriers, 0, nullptr);
+  }
+  // Pass 2 (mode 1): replay every stamp into the surviving cells.
+  recompute_push.mode = 1;
   vkCmdPushConstants(cmd->handle(), chunk_sculpt_recompute_pipeline_->layout(),
                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(recompute_push),
                     &recompute_push);
@@ -5619,17 +5991,7 @@ i32 VulkanRaymarchShader::recompute_cells(
                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 6,
                       recompute_barriers, 0, nullptr);
 
-  chunk_sculpt_splat_regen_pipeline_->bind(*cmd);
-  vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
-                         chunk_sculpt_splat_regen_pipeline_->layout(), 0, 1,
-                         &chunk_sculpt_splat_regen_set_, 0, nullptr);
-  SculptSplatRegenPushConstants splat_push{static_cast<i32>(cells.size()),
-                                           bake_stats_enabled_ ? 1 : 0,
-                                           cell_size, voxel_size};
-  vkCmdPushConstants(cmd->handle(), chunk_sculpt_splat_regen_pipeline_->layout(),
-                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push),
-                    &splat_push);
-  vkCmdDispatch(cmd->handle(), groups, 1, 1);
+  record_splat_regen(*cmd, static_cast<i32>(cells.size()), cell_size, voxel_size, groups);
 
   VulkanCommandBuffer::end_single_use(*context_,
                                       context_->device.graphics_command_pool,
@@ -5645,15 +6007,16 @@ i32 VulkanRaymarchShader::recompute_cells(
 
 i32 VulkanRaymarchShader::recompute_region(glm::vec3 center,
                                            BrushShape shape_type,
-                                           glm::vec4 params, f32 smoothness) {
+                                           glm::vec4 params, f32 smoothness,
+                                           glm::quat rotation) {
   if (!valid_) {
     return 0;
   }
   std::unordered_set<u64> seen;
   std::vector<GpuSculptStampCell> cells;
   std::vector<u32> new_slots;
-  collect_recompute_cells(center, shape_type, params, smoothness, seen, cells,
-                          new_slots);
+  collect_recompute_cells(center, shape_type, params, smoothness, rotation,
+                          seen, cells, new_slots);
   return recompute_cells(cells, new_slots);
 }
 
@@ -5661,18 +6024,192 @@ i32 VulkanRaymarchShader::recompute_moved_region(glm::vec3 old_center,
                                                  glm::vec3 new_center,
                                                  BrushShape shape_type,
                                                  glm::vec4 params,
-                                                 f32 smoothness) {
+                                                 f32 smoothness,
+                                                 glm::quat rotation) {
   if (!valid_) {
     return 0;
   }
   std::unordered_set<u64> seen;
   std::vector<GpuSculptStampCell> cells;
   std::vector<u32> new_slots;
-  collect_recompute_cells(old_center, shape_type, params, smoothness, seen,
-                          cells, new_slots);
-  collect_recompute_cells(new_center, shape_type, params, smoothness, seen,
-                          cells, new_slots);
+  collect_recompute_cells(old_center, shape_type, params, smoothness,
+                          rotation, seen, cells, new_slots);
+  collect_recompute_cells(new_center, shape_type, params, smoothness,
+                          rotation, seen, cells, new_slots);
   return recompute_cells(cells, new_slots);
+}
+
+void VulkanRaymarchShader::record_splat_regen(VulkanCommandBuffer &cmd,
+                                              i32 cell_count, f32 cell_size,
+                                              f32 voxel_size, u32 groups) {
+  chunk_sculpt_splat_regen_pipeline_->bind(cmd);
+  vkCmdBindDescriptorSets(cmd.handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
+                         chunk_sculpt_splat_regen_pipeline_->layout(), 0, 1,
+                         &chunk_sculpt_splat_regen_set_, 0, nullptr);
+  SculptSplatRegenPushConstants splat_push{cell_count,
+                                           bake_stats_enabled_ ? 1 : 0,
+                                           cell_size, voxel_size, 0};
+  // Pass 1: release each cell's existing pages.
+  vkCmdPushConstants(cmd.handle(), chunk_sculpt_splat_regen_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push),
+                    &splat_push);
+  vkCmdDispatch(cmd.handle(), groups, 1, 1);
+
+  // The release pass pushes onto the same free-list stack the generate pass
+  // pops from, and writes the page lists/records it reads.
+  VkBufferMemoryBarrier barriers[4]{};
+  const VkBuffer written[4] = {chunk_cluster_free_list_buffer_->handle(),
+                               chunk_cluster_free_top_buffer_->handle(),
+                               chunk_brick_cluster_buffer_->handle(),
+                               chunk_cluster_buffer_->handle()};
+  for (u32 i = 0; i < 4; ++i) {
+    barriers[i].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    barriers[i].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barriers[i].dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barriers[i].buffer = written[i];
+    barriers[i].offset = 0;
+    barriers[i].size = VK_WHOLE_SIZE;
+  }
+  vkCmdPipelineBarrier(cmd.handle(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 4,
+                      barriers, 0, nullptr);
+
+  // Pass 2: generate fresh points.
+  splat_push.mode = 1;
+  vkCmdPushConstants(cmd.handle(), chunk_sculpt_splat_regen_pipeline_->layout(),
+                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push),
+                    &splat_push);
+  vkCmdDispatch(cmd.handle(), groups, 1, 1);
+}
+
+void VulkanRaymarchShader::log_sculpt_pools(const char *context) {
+  static const bool enabled = std::getenv("KENGINE_SCULPT_POOL_LOG") != nullptr;
+  if (!enabled || !valid_) {
+    return;
+  }
+  VulkanBuffer staging(*context_, 2 * sizeof(u32),
+                       VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!staging.is_valid()) {
+    return;
+  }
+  chunk_brick_free_list_top_buffer_->copy_to(
+      staging, 0, 0, sizeof(u32), context_->device.graphics_queue,
+      context_->device.graphics_command_pool);
+  chunk_cluster_free_top_buffer_->copy_to(
+      staging, 0, sizeof(u32), sizeof(u32), context_->device.graphics_queue,
+      context_->device.graphics_command_pool);
+  u32 tops[2] = {0, 0};
+  if (void *mapped = staging.lock(0, sizeof(tops), 0)) {
+    std::memcpy(tops, mapped, sizeof(tops));
+    staging.unlock();
+  }
+  KINFO("Sculpt pools after {}: bricks free {}/{}, cluster pages free {}/{}",
+        context, tops[0], max_chunk_bricks_, tops[1], kMaxChunkClusters);
+}
+
+i32 VulkanRaymarchShader::recompute_shapes(
+    const std::vector<RecomputeShape> &shapes) {
+  if (!valid_) {
+    return 0;
+  }
+  // A whole object can cover far more cells than one dispatch's cell buffer
+  // holds (kMaxSculptStampCellsPerCall), so cells are flushed in batches.
+  // Every cell replays the full stamp list on its own, so splitting them
+  // across dispatches gives the same result. `seen` spans all batches, so
+  // no cell runs twice.
+  std::unordered_set<u64> seen;
+  std::vector<GpuSculptStampCell> batch;
+  std::vector<u32> batch_new_slots;
+  std::vector<GpuSculptStampCell> shape_cells;
+  std::vector<u32> shape_new_slots;
+  i32 total = 0;
+  for (const RecomputeShape &shape : shapes) {
+    shape_cells.clear();
+    shape_new_slots.clear();
+    collect_recompute_cells(shape.center, shape.shape_type, shape.params,
+                            shape.smoothness, shape.rotation, seen,
+                            shape_cells, shape_new_slots);
+    if (!batch.empty() &&
+        batch.size() + shape_cells.size() > kMaxSculptStampCellsPerCall) {
+      total += recompute_cells(batch, batch_new_slots);
+      batch.clear();
+      batch_new_slots.clear();
+    }
+    batch.insert(batch.end(), shape_cells.begin(), shape_cells.end());
+    batch_new_slots.insert(batch_new_slots.end(), shape_new_slots.begin(),
+                           shape_new_slots.end());
+  }
+  if (!batch.empty()) {
+    total += recompute_cells(batch, batch_new_slots);
+  }
+  log_sculpt_pools("recompute_shapes");
+  return total;
+}
+
+void VulkanRaymarchShader::release_unused_sculpt_chunks(
+    const std::vector<RecomputeShape> &live_stamps) {
+  if (!valid_ || sculpt_chunk_slot_by_coord_.empty()) {
+    return;
+  }
+  // Every level-0 chunk any live stamp's cell range touches -- the same
+  // range stamp_shape()/collect_recompute_cells() would enumerate.
+  const f32 cell_size = kCoarseCellSize;
+  const i32 dim = static_cast<i32>(kChunkCoarseDim);
+  auto floor_div = [](i32 a, i32 b) {
+    return (a >= 0) ? (a / b) : -(((-a) + b - 1) / b);
+  };
+  std::unordered_set<ChunkKey, ChunkKeyHash> live;
+  for (const RecomputeShape &shape : live_stamps) {
+    const f32 radius = sculpt_shape_bounding_radius(
+        shape.shape_type, shape.params, shape.smoothness,
+        !is_identity_rotation(shape.rotation));
+    const glm::ivec3 cell_lo(
+        glm::floor((shape.center - glm::vec3(radius)) / cell_size));
+    const glm::ivec3 cell_hi(
+        glm::floor((shape.center + glm::vec3(radius)) / cell_size));
+    for (i32 cz = floor_div(cell_lo.z, dim); cz <= floor_div(cell_hi.z, dim); ++cz) {
+      for (i32 cy = floor_div(cell_lo.y, dim); cy <= floor_div(cell_hi.y, dim); ++cy) {
+        for (i32 cx = floor_div(cell_lo.x, dim); cx <= floor_div(cell_hi.x, dim); ++cx) {
+          live.insert(ChunkKey{0, cx, cy, cz});
+        }
+      }
+    }
+  }
+
+  std::vector<ChunkKey> dead;
+  for (const auto &entry : sculpt_chunk_slot_by_coord_) {
+    if (!live.count(entry.first)) {
+      dead.push_back(entry.first);
+    }
+  }
+  for (const ChunkKey &key : dead) {
+    const u32 slot = sculpt_chunk_slot_by_coord_[key];
+    const u64 table_index = sculpt_table_index(key);
+    if (void *mapped = chunk_table_buffer_->lock(table_index * sizeof(i32),
+                                                 sizeof(i32), 0)) {
+      *static_cast<i32 *>(mapped) = -1;
+      chunk_table_buffer_->unlock();
+    }
+    if (void *mapped = chunk_slot_published_buffer_->lock(
+            static_cast<u64>(slot) * sizeof(u32), sizeof(u32), 0)) {
+      *static_cast<u32 *>(mapped) = 0u;
+      chunk_slot_published_buffer_->unlock();
+    }
+    sculpt_chunk_slot_used_[slot] = false;
+    sculpt_chunk_slot_by_coord_.erase(key);
+    sculpt_table_owner_.erase(table_index);
+  }
+}
+
+f32 VulkanRaymarchShader::eval_shape_sdf_cpu(BrushShape shape_type,
+                                             glm::vec4 params,
+                                             glm::vec3 local_p) {
+  return crop_cpu::eval_brush_shape(local_p, shape_type, params);
 }
 
 i32 VulkanRaymarchShader::spray_paint(glm::vec3 center, BrushShape shape_type,
@@ -5925,18 +6462,8 @@ bool VulkanRaymarchShader::undo_stamp() {
   // see Builtin.SculptUndoRestore.comp.glsl's own header comment for why
   // its defensive brick_index<0 check already makes this correct for every
   // change_type this dispatch could have produced.
-  chunk_sculpt_splat_regen_pipeline_->bind(*cmd);
-  vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
-                         chunk_sculpt_splat_regen_pipeline_->layout(), 0, 1,
-                         &chunk_sculpt_splat_regen_set_, 0, nullptr);
   const f32 voxel_size = kCoarseCellSize / static_cast<f32>(kChunkBrickDim);
-  SculptSplatRegenPushConstants splat_push{static_cast<i32>(cell_count),
-                                           bake_stats_enabled_ ? 1 : 0,
-                                           kCoarseCellSize, voxel_size};
-  vkCmdPushConstants(cmd->handle(), chunk_sculpt_splat_regen_pipeline_->layout(),
-                    VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push),
-                    &splat_push);
-  vkCmdDispatch(cmd->handle(), groups, 1, 1);
+  record_splat_regen(*cmd, static_cast<i32>(cell_count), kCoarseCellSize, voxel_size, groups);
 
   VulkanCommandBuffer::end_single_use(*context_,
                                       context_->device.graphics_command_pool,
@@ -6092,18 +6619,8 @@ i32 VulkanRaymarchShader::crop_volume(glm::vec3 center, BrushShape shape_type,
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2,
                         barriers, 0, nullptr);
 
-    chunk_sculpt_splat_regen_pipeline_->bind(*cmd);
-    vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
-                           chunk_sculpt_splat_regen_pipeline_->layout(), 0, 1,
-                           &chunk_sculpt_splat_regen_set_, 0, nullptr);
     const f32 voxel_size = kCoarseCellSize / static_cast<f32>(kChunkBrickDim);
-    SculptSplatRegenPushConstants splat_push{static_cast<i32>(count),
-                                             bake_stats_enabled_ ? 1 : 0,
-                                             kCoarseCellSize, voxel_size};
-    vkCmdPushConstants(cmd->handle(), chunk_sculpt_splat_regen_pipeline_->layout(),
-                      VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push),
-                      &splat_push);
-    vkCmdDispatch(cmd->handle(), groups, 1, 1);
+    record_splat_regen(*cmd, static_cast<i32>(count), kCoarseCellSize, voxel_size, groups);
 
     VulkanCommandBuffer::end_single_use(*context_,
                                         context_->device.graphics_command_pool,
@@ -6497,17 +7014,7 @@ bool VulkanRaymarchShader::load_crop_outside_file(const std::string &path) {
                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 2,
                         barriers, 0, nullptr);
 
-    chunk_sculpt_splat_regen_pipeline_->bind(*cmd);
-    vkCmdBindDescriptorSets(cmd->handle(), VK_PIPELINE_BIND_POINT_COMPUTE,
-                           chunk_sculpt_splat_regen_pipeline_->layout(), 0, 1,
-                           &chunk_sculpt_splat_regen_set_, 0, nullptr);
-    SculptSplatRegenPushConstants splat_push{static_cast<i32>(count),
-                                             bake_stats_enabled_ ? 1 : 0,
-                                             kCoarseCellSize, voxel_size};
-    vkCmdPushConstants(cmd->handle(), chunk_sculpt_splat_regen_pipeline_->layout(),
-                      VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(splat_push),
-                      &splat_push);
-    vkCmdDispatch(cmd->handle(), groups, 1, 1);
+    record_splat_regen(*cmd, static_cast<i32>(count), kCoarseCellSize, voxel_size, groups);
 
     VulkanCommandBuffer::end_single_use(*context_,
                                         context_->device.graphics_command_pool,
@@ -7341,6 +7848,12 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
                    VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+  // Scope mask: also written every pixel, every frame.
+  transition_image(cmd, scope_mask_image_.handle,
+                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                   VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
   deferred_shade_pipeline_->bind(command_buffer);
   // M3c: set 0 = render_set_ (unchanged), set 1 = paint_read_set_ (NEW --
@@ -7493,6 +8006,11 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
                    VK_ACCESS_SHADER_READ_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+  transition_image(cmd, scope_mask_image_.handle, VK_IMAGE_LAYOUT_GENERAL,
+                   VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_WRITE_BIT,
+                   VK_ACCESS_SHADER_READ_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
   PostCompositePushConstants post_composite_push{
       static_cast<i32>(render_width_),
@@ -7502,6 +8020,7 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
       vignette_radius_,
       pixelation_enabled_ ? 1 : 0,
       static_cast<i32>(pixelation_block_size_),
+      scope_active_ ? 1 : 0,
   };
   post_composite_pipeline_->bind(command_buffer);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -7659,14 +8178,14 @@ void VulkanRaymarchShader::collect_frame_timings() {
   // "broken chunks" on screen. Percentages are of the pool, so "100% used"
   // is the number to look for.
   if (chunk_bricks_free_ != 0xFFFFFFFFu) {
-    const u32 bricks_used = kMaxChunkBricks - std::min(chunk_bricks_free_,
-                                                       kMaxChunkBricks);
+    const u32 bricks_used = max_chunk_bricks_ - std::min(chunk_bricks_free_,
+                                                       max_chunk_bricks_);
     const u32 clusters_used =
         kMaxChunkClusters - std::min(chunk_clusters_free_, kMaxChunkClusters);
     KINFO("  pool peak use        bricks {}/{} ({:.0f}%)  clusters {}/{} "
          "({:.0f}%)",
-         bricks_used, kMaxChunkBricks,
-         100.0 * static_cast<f64>(bricks_used) / kMaxChunkBricks,
+         bricks_used, max_chunk_bricks_,
+         100.0 * static_cast<f64>(bricks_used) / max_chunk_bricks_,
          clusters_used, kMaxChunkClusters,
          100.0 * static_cast<f64>(clusters_used) / kMaxChunkClusters);
     // The cliff that actually matters is not zero -- it is the reserve.

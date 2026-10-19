@@ -1,8 +1,21 @@
+#include "controller_mode.h"
 #include "main_window.h"
 
 #include <QApplication>
 
+#include <cstring>
+
 int main(int argc, char *argv[]) {
+  // `--controller [FILE.stamps]`: the engine's own window, gamepad-driven,
+  // with no Qt. Checked before anything Qt is touched -- QApplication is
+  // never constructed in this mode.
+  for (int i = 1; i < argc; ++i) {
+    if (std::strcmp(argv[i], "--controller") == 0) {
+      const char *stamps_path = i + 1 < argc ? argv[i + 1] : nullptr;
+      return run_controller_mode(stamps_path);
+    }
+  }
+
   // SceneViewport embeds the engine's Vulkan renderer directly into the
   // window via an XCB handle (see ensure_engine_initialized(), which
   // qFatal()s if QNativeInterface::QX11Application isn't available) --

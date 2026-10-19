@@ -116,7 +116,9 @@ layout(std430, binding = 12) buffer ChunkBrickLoosenessBuffer {
 
 // Must match kMaxChunkBricks engine-side exactly -- same cross-check as
 // Builtin.SculptStamp.comp.glsl's identical constant.
-const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
+// Specialization constant 0: the engine passes its VRAM-sized
+// max_chunk_bricks_ here at pipeline creation; 16384 per level is only the default.
+layout(constant_id = 0) const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
 // Must match kMaxChunkClusters engine-side -- same constant/comment as
 // Builtin.ChunkEvict.comp.glsl's identical MAX_CLUSTERS.
 const int MAX_CLUSTERS_UNDO = 131072;

@@ -39,6 +39,7 @@ ShaderConfig build_ui_shader_config(VulkanRenderpass &ui_renderpass) {
       {"diffuse_texture", ShaderUniformType::Sampler,
        ShaderUniformScope::Instance},
       {"model", ShaderUniformType::Mat4, ShaderUniformScope::Local},
+      {"tint", ShaderUniformType::Vec4, ShaderUniformScope::Local},
   };
   return config;
 }
@@ -111,7 +112,8 @@ void VulkanUIShader::render_to(VulkanCommandBuffer &command_buffer, u32 width,
     KWARN("VulkanUIShader::render_to called on an invalid shader.");
     return;
   }
-  draw_quad(command_buffer, width, height, *material_, position, size);
+  draw_quad(command_buffer, width, height, *material_, position, size,
+            glm::vec4(1.0f));
 }
 
 Material &VulkanUIShader::image_material(std::string_view path) {
@@ -144,7 +146,7 @@ void VulkanUIShader::release_idle_images() {
 void VulkanUIShader::render_image_to(VulkanCommandBuffer &command_buffer,
                                      u32 width, u32 height,
                                      std::string_view path, glm::vec2 position,
-                                     glm::vec2 size) {
+                                     glm::vec2 size, glm::vec4 tint) {
   if (!valid_) {
     KWARN("VulkanUIShader::render_image_to called on an invalid shader.");
     return;
@@ -156,12 +158,13 @@ void VulkanUIShader::render_image_to(VulkanCommandBuffer &command_buffer,
   // a negative scale gives is harmless.
   draw_quad(command_buffer, width, height, image_material(path),
             glm::vec2(position.x, position.y + size.y),
-            glm::vec2(size.x, -size.y));
+            glm::vec2(size.x, -size.y), tint);
 }
 
 void VulkanUIShader::draw_quad(VulkanCommandBuffer &command_buffer, u32 width,
                                u32 height, Material &material,
-                               glm::vec2 position, glm::vec2 size) {
+                               glm::vec2 position, glm::vec2 size,
+                               glm::vec4 tint) {
   shader_->use(command_buffer);
 
   // Screen-pixel orthographic projection: (0,0) at the top-left, matching
@@ -179,10 +182,15 @@ void VulkanUIShader::draw_quad(VulkanCommandBuffer &command_buffer, u32 width,
 
   context_->material_system->apply_instance(material, command_buffer);
 
-  glm::mat4 model =
-      glm::translate(glm::mat4(1.0f), glm::vec3(position, 0.0f)) *
-      glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f));
-  shader_->push_local(command_buffer, &model, sizeof(model));
+  // Laid out as the shaders' push-constant block.
+  struct {
+    glm::mat4 model;
+    glm::vec4 tint;
+  } local{glm::translate(glm::mat4(1.0f), glm::vec3(position, 0.0f)) *
+              glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f)),
+          tint};
+  static_assert(sizeof(local) == 80);
+  shader_->push_local(command_buffer, &local, sizeof(local));
 
   VkCommandBuffer cmd = command_buffer.handle();
   VkDeviceSize offsets[1] = {0};

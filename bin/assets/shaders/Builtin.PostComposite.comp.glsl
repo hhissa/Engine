@@ -40,6 +40,10 @@ layout(binding = 2, rgba8) uniform writeonly image2D post_process_out;
 // draws later still -- see preview_overlay_image's own declaration comment,
 // Builtin.DeferredShade.comp.glsl, for the full story.
 layout(binding = 3, rgba8) uniform readonly image2D brush_preview_overlay;
+// Scope-in mask from Builtin.DeferredShade.comp.glsl: r = 1 where a
+// scoped-in object shows. While push.scope_active, every other pixel is
+// blurred and greyed so the scoped objects stand out.
+layout(binding = 4, rgba8) uniform readonly image2D scope_mask;
 
 layout(push_constant) uniform PushConstants {
     int full_width;
@@ -49,7 +53,25 @@ layout(push_constant) uniform PushConstants {
     float vignette_radius;      // normalized distance from center where falloff starts
     int pixelation_enabled;     // nonzero to quantize non-exempt pixels into blocks
     int pixelation_block_size;  // block edge length, in full-resolution pixels
+    int scope_active;           // nonzero: blur + grey outside scope_mask
 } push;
+
+// Scope-in background: a disc blur of scene_colour (a golden-angle spiral
+// of taps, ~SCOPE_BLUR_RADIUS px across).
+const int SCOPE_BLUR_TAPS = 24;
+const float SCOPE_BLUR_RADIUS = 9.0;
+vec3 scope_blur(ivec2 coord) {
+    ivec2 size = ivec2(push.full_width, push.full_height);
+    vec3 sum = imageLoad(scene_colour, coord).rgb;
+    for (int i = 1; i <= SCOPE_BLUR_TAPS; ++i) {
+        float r = SCOPE_BLUR_RADIUS * sqrt(float(i) / float(SCOPE_BLUR_TAPS));
+        float a = float(i) * 2.39996323;
+        ivec2 tap = clamp(coord + ivec2(round(r * vec2(cos(a), sin(a)))),
+                          ivec2(0), size - ivec2(1));
+        sum += imageLoad(scene_colour, tap).rgb;
+    }
+    return sum / float(SCOPE_BLUR_TAPS + 1);
+}
 
 // Same tap pattern as Builtin.BloomBlurH.comp.glsl, now stepping through
 // bloom_temp's own (half-resolution) pixels vertically -- one half-res
@@ -89,7 +111,11 @@ void main() {
     // always uses its own colour regardless of pixelation_enabled, so a
     // marked primitive stays crisp even while its surroundings pixelate.
     vec3 base_colour = own_pixel.rgb;
-    if (push.pixelation_enabled != 0 && !exempt) {
+    bool scoped_out = push.scope_active != 0 && imageLoad(scope_mask, coord).r < 0.5;
+    if (scoped_out) {
+        base_colour = scope_blur(coord);
+    }
+    if (push.pixelation_enabled != 0 && !exempt && !scoped_out) {
         int block = max(push.pixelation_block_size, 1);
         ivec2 block_origin = (coord / block) * block;
         base_colour = imageLoad(scene_colour, block_origin).rgb;
@@ -109,6 +135,11 @@ void main() {
     float vignette = 1.0 - push.vignette_strength *
                           smoothstep(push.vignette_radius, 1.4142, dist);
     colour *= vignette;
+
+    if (scoped_out) {
+        float grey = dot(colour, vec3(0.299, 0.587, 0.114));
+        colour = vec3(grey * 0.75 + 0.04);
+    }
 
     // Brush-cursor ghost preview, composited last -- after bloom/vignette/
     // pixelation, over the final frame, immune to TAA by construction (see

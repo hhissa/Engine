@@ -32,6 +32,9 @@ set(ENGINE_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../bin")
 # so there is no testbed/src/sdf_authoring.cpp-equivalent dependency here.
 add_executable(modelling_software_v2
   src/main.cpp
+  src/controller_mode.cpp
+  src/controller_mode.h
+  src/sculpt_shared.h
   src/main_window.cpp
   src/main_window.h
   src/scene_viewport.cpp

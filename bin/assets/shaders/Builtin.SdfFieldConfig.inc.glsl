@@ -251,7 +251,14 @@ const int CHUNK_TABLE_DIM = 16;
 // coverage grows exponentially with level even though every level keeps
 // the exact same (2*STREAM_RADIUS_CHUNKS+1)^3 chunk *count* resident.
 const int NUM_CHUNK_LEVELS = 5;
-const int STREAM_RADIUS_CHUNKS = 1;
+// 7, not the streaming era's 1: sculpting only ever fills LEVEL 0 (there
+// is no camera streaming any more, and no coarser LOD is built for sculpt
+// chunks), so a level-0 chunk outside this window was drawn from an empty
+// coarser level instead -- the whole sculpt vanished once the camera was
+// ~6 units away. 7 is the widest window the wrapped CHUNK_TABLE_DIM (16)
+// table can address without two chunks aliasing one entry, so level 0 now
+// covers ~28-32 units around the camera.
+const int STREAM_RADIUS_CHUNKS = 7;
 
 float chunk_level_world_size(int level) {
     return CHUNK_WORLD_SIZE * pow(2.0, float(level));

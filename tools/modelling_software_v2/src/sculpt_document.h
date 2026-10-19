@@ -6,6 +6,7 @@
                      // rather than relying on transitive include order.
 #include <renderer/renderer_types.inl> // SculptBrushShape/SculptBrushOp
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <fstream>
 #include <optional>
@@ -28,8 +29,11 @@
 // mirror of the brick data. For M2a the simplest correct format is still a
 // trivial text file, one stamp per line -- just a wider line than M1b's:
 //
+//   FORMAT v4 (objects): v3 plus "qx qy qz qw object_id" -- 17 columns.
+//   The stamp's rotation quaternion and which object it belongs to.
 //   FORMAT v3 (M3, Looseness): "x y z shape_type p0 p1 p2 p3 smoothness op
-//   material_slot looseness" -- 12 columns.
+//   material_slot looseness" -- 12 columns, loaded with identity rotation
+//   and every stamp as its own object.
 //   FORMAT v2 (M2a): "x y z shape_type p0 p1 p2 p3 smoothness op
 //   material_slot" -- 11 columns, upgraded on the fly to looseness=0.0
 //   (the engine-side default -- see SculptStamp::looseness's own comment,
@@ -55,6 +59,10 @@ struct SculptStampRecord {
   // effect yet, exists so an authored value survives save/load until the
   // Fleck evaluator (M6) can actually consume it.
   f32 looseness = 0.0f;
+  // Orientation and object grouping -- see SculptStamp::rotation/object_id
+  // (engine/src/resources/sculpt_volume.h).
+  glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+  i32 object_id = 0;
 };
 
 // Owns the flat stamp list and its plain-text save/load. Replaying every
@@ -65,10 +73,12 @@ class SculptDocument {
 public:
   void add_stamp(glm::vec3 center, SculptBrushShape shape_type,
                  glm::vec4 params, f32 smoothness, SculptBrushOp op,
-                 i32 material_slot, f32 looseness = 0.0f) {
+                 i32 material_slot, f32 looseness = 0.0f,
+                 glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+                 i32 object_id = 0) {
     stamps_.push_back(SculptStampRecord{center, shape_type, params,
                                         smoothness, op, material_slot,
-                                        looseness});
+                                        looseness, rotation, object_id});
   }
 
   void clear() { stamps_.clear(); }
@@ -120,6 +130,11 @@ public:
     return true;
   }
 
+  // Re-points every record from one object id to another -- used when a
+  // loaded file's ids are remapped onto the engine's (see
+  // sculpt_shared::replay_document()).
+  std::vector<SculptStampRecord> &mutable_stamps() noexcept { return stamps_; }
+
   const std::vector<SculptStampRecord> &stamps() const noexcept {
     return stamps_;
   }
@@ -134,16 +149,18 @@ public:
     if (!out) {
       return false;
     }
-    out << "# modelling_software_v2 sculpt stamps (v3/M3)\n";
+    out << "# modelling_software_v2 sculpt stamps (v4/objects)\n";
     out << "# x y z shape_type p0 p1 p2 p3 smoothness op material_slot "
-          "looseness\n";
+          "looseness qx qy qz qw object_id\n";
     for (const SculptStampRecord &stamp : stamps_) {
       out << stamp.center.x << ' ' << stamp.center.y << ' ' << stamp.center.z
           << ' ' << static_cast<i32>(stamp.shape_type) << ' ' << stamp.params.x
           << ' ' << stamp.params.y << ' ' << stamp.params.z << ' '
           << stamp.params.w << ' ' << stamp.smoothness << ' '
           << static_cast<i32>(stamp.op) << ' ' << stamp.material_slot << ' '
-          << stamp.looseness << '\n';
+          << stamp.looseness << ' ' << stamp.rotation.x << ' '
+          << stamp.rotation.y << ' ' << stamp.rotation.z << ' '
+          << stamp.rotation.w << ' ' << stamp.object_id << '\n';
     }
     return static_cast<bool>(out);
   }
@@ -168,6 +185,7 @@ public:
       return false;
     }
     std::vector<SculptStampRecord> loaded;
+    bool saw_v4 = false;
     std::string line;
     while (std::getline(in, line)) {
       if (line.empty() || line[0] == '#') {
@@ -181,7 +199,23 @@ public:
       }
 
       std::istringstream iss(line);
-      if (tokens.size() == 12) {
+      if (tokens.size() == 17) {
+        SculptStampRecord stamp;
+        i32 shape_type_raw = 0;
+        i32 op_raw = 0;
+        if (iss >> stamp.center.x >> stamp.center.y >> stamp.center.z >>
+            shape_type_raw >> stamp.params.x >> stamp.params.y >>
+            stamp.params.z >> stamp.params.w >> stamp.smoothness >> op_raw >>
+            stamp.material_slot >> stamp.looseness >> stamp.rotation.x >>
+            stamp.rotation.y >> stamp.rotation.z >> stamp.rotation.w >>
+            stamp.object_id) {
+          stamp.shape_type = static_cast<SculptBrushShape>(shape_type_raw);
+          stamp.op = static_cast<SculptBrushOp>(op_raw);
+          stamp.rotation = glm::normalize(stamp.rotation);
+          loaded.push_back(stamp);
+          saw_v4 = true;
+        }
+      } else if (tokens.size() == 12) {
         SculptStampRecord stamp;
         i32 shape_type_raw = 0;
         i32 op_raw = 0;
@@ -222,6 +256,12 @@ public:
       }
       // Any other column count: skip the line, same tolerate-and-skip
       // policy malformed lines already got.
+    }
+    // Pre-v4 files have no grouping: give every stamp its own object.
+    if (!saw_v4) {
+      for (size_t i = 0; i < loaded.size(); ++i) {
+        loaded[i].object_id = static_cast<i32>(i);
+      }
     }
     stamps_ = std::move(loaded);
     return true;

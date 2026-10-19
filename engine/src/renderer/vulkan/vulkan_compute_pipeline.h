@@ -21,10 +21,12 @@ public:
   // small values that change every dispatch, since there's no separate
   // memory a still-in-flight frame could be reading while a new value is
   // written for the next one.
+  // specialization may be null; it is only read during construction.
   VulkanComputePipeline(
       VulkanContext &context, const VulkanShaderModule &compute_stage,
       const std::vector<VkDescriptorSetLayout> &descriptor_set_layouts = {},
-      u32 push_constant_size = 0);
+      u32 push_constant_size = 0,
+      const VkSpecializationInfo *specialization = nullptr);
   ~VulkanComputePipeline();
 
   VulkanComputePipeline(const VulkanComputePipeline &) = delete;

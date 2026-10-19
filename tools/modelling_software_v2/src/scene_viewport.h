@@ -222,6 +222,12 @@ public:
 
   bool has_clone_source() const noexcept { return clone_source_.has_value(); }
 
+  // Rotation of the stamp behind the most recent stamp_placed() signal --
+  // identity for brush stamps, the original rotation for a Move re-stamp.
+  // Read from a stamp_placed() handler (the signal itself predates
+  // rotation).
+  glm::quat last_stamp_rotation() const noexcept { return last_stamp_rotation_; }
+
   // M3c (Spraypaint): a THIRD, mutually-exclusive drag mode alongside
   // Smear (the default, both this and Clone off) and Clone -- ON means a
   // left-drag calls renderer_sculpt_spray() repeatedly (see place_spray())
@@ -648,4 +654,6 @@ private:
   // on every mouse move) so a still mouse during an orbit/zoom still keeps
   // the preview correctly positioned under the ray that position now casts.
   bool preview_visible_ = false;
+
+  glm::quat last_stamp_rotation_{1.0f, 0.0f, 0.0f, 0.0f};
 };

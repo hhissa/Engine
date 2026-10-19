@@ -121,7 +121,9 @@ layout(std430, binding = 9) buffer ChunkBrickLoosenessBuffer {
 
 // Must match kMaxChunkBricks engine-side exactly -- same cross-check as
 // every other sculpt-family shader's identical constant.
-const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
+// Specialization constant 0: the engine passes its VRAM-sized
+// max_chunk_bricks_ here at pipeline creation; 16384 per level is only the default.
+layout(constant_id = 0) const int MAX_CHUNK_BRICKS = 16384 * NUM_CHUNK_LEVELS;
 
 layout(push_constant) uniform PushConstants {
     int cell_count; // How many of StampCellBuffer/RestoreMetaBuffer/

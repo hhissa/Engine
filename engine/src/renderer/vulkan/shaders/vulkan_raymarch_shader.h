@@ -553,6 +553,37 @@ public:
   void set_brush_preview(bool enabled, glm::vec3 center, BrushShape shape_type,
                          glm::vec4 params, BrushOp op, i32 material_slot);
 
+  // Selection outline: a dotted outline drawn around each of `objects`
+  // (each a list of that object's stamps, in stamp-list order) by the
+  // shading pass, which ray-marches just these stamps per pixel. Empty
+  // turns it off. colour.a scales the whole outline; style = (dot spacing
+  // px, dot fraction, line width px, alpha behind other geometry). Cheap to
+  // call every frame -- the buffer is only rewritten when it changes.
+  // How strongly material `slot` glows in its own colour (0 = not at all,
+  // 1 = fully). Cheap host-visible write; fine to call every frame.
+  void set_material_glow(i32 slot, f32 glow);
+
+  static constexpr u32 kMaxOutlineObjects = 16;
+  static constexpr u32 kMaxOutlineStamps = 512;
+  struct OutlineStamp {
+    glm::vec3 center;
+    BrushShape shape_type;
+    glm::vec4 params;
+    f32 smoothness;
+    glm::quat rotation;
+    BrushOp op;
+    f32 bounding_radius;
+  };
+  // One outline: an object's (or a whole group's) stamps. scope_mask
+  // instead marks the stamps as the scoped-in set: not outlined, but
+  // everything else on screen is blurred and greyed while any is given.
+  struct OutlineObject {
+    std::vector<OutlineStamp> stamps;
+    bool scope_mask = false;
+  };
+  void set_selection_outline(const std::vector<OutlineObject> &objects,
+                             glm::vec4 colour, glm::vec4 style);
+
   // Minimal standing-light registration -- fills the next free slot of
   // light_buffer_ and bumps light_count_, the same "direct host-visible
   // buffer write, no device-idle wait" idiom set_material() above uses, NOT
@@ -575,6 +606,12 @@ public:
   i32 add_directional_light(glm::vec3 direction, glm::vec3 colour,
                             f32 intensity);
   i32 add_point_light(glm::vec3 position, glm::vec3 colour, f32 intensity);
+  // Re-sets an already-added point light (index from add_point_light()).
+  // source_material >= 0 marks it as a glowing object's light: that
+  // material's own surface doesn't shadow it, and the shading pass draws a
+  // halo of scattered light around it. Intensity 0 turns it off. Cheap.
+  void set_point_light(i32 index, glm::vec3 position, glm::vec3 colour,
+                       f32 intensity, i32 source_material);
 
   // M2a: stamps one analytic brush shape (any BrushShape value, generalized
   // from M1a's sphere-only/hard-union-only version -- see /home/h-i/.claude/
@@ -638,7 +675,8 @@ public:
   // keeps compiling and behaving identically.
   i32 stamp_shape(glm::vec3 center, BrushShape shape_type, glm::vec4 params,
                   f32 smoothness, BrushOp op, i32 material_slot = 0,
-                  f32 looseness = 0.0f);
+                  f32 looseness = 0.0f,
+                  glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
 
   // M2b: reverts the most recent still-undoable stamp_shape() call -- see
   // undo_stack_'s own comment for how far back "still-undoable" reaches.
@@ -692,11 +730,13 @@ public:
   // implies for delete_edit()/move_edit() on any index at or past the cap.
   void sculpt_stamp_list_append(glm::vec3 center, BrushShape shape_type,
                                 glm::vec4 params, f32 smoothness, BrushOp op,
-                                i32 material_slot, f32 looseness);
+                                i32 material_slot, f32 looseness,
+                                glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
   void sculpt_stamp_list_update(i32 index, glm::vec3 center,
                                 BrushShape shape_type, glm::vec4 params,
                                 f32 smoothness, BrushOp op, i32 material_slot,
-                                f32 looseness);
+                                f32 looseness,
+                                glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
   void sculpt_stamp_list_erase(i32 index);
 
   // M5: delete_edit()/move_edit()'s own recompute can free a brick back
@@ -752,7 +792,8 @@ public:
   // stamp_shape()'s own return value), 0 if the shape's bounding radius is
   // non-positive.
   i32 recompute_region(glm::vec3 center, BrushShape shape_type,
-                       glm::vec4 params, f32 smoothness);
+                       glm::vec4 params, f32 smoothness,
+                       glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
 
   // M5: the move_edit() counterpart -- recomputes the UNION of the cells
   // touched by the shape's OLD center AND its NEW center (deduplicated, so
@@ -766,7 +807,53 @@ public:
   // return convention.
   i32 recompute_moved_region(glm::vec3 old_center, glm::vec3 new_center,
                              BrushShape shape_type, glm::vec4 params,
-                             f32 smoothness);
+                             f32 smoothness,
+                             glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+
+  // One shape's footprint for recompute_shapes() below.
+  struct RecomputeShape {
+    glm::vec3 center;
+    BrushShape shape_type;
+    glm::vec4 params;
+    f32 smoothness;
+    glm::quat rotation;
+  };
+  // Re-runs every coarse cell any of `shapes` overlaps, in ONE dispatch --
+  // the multi-stamp generalisation of recompute_moved_region(), used for
+  // moving/rotating a whole object (pass each stamp's old AND new pose).
+  // The caller must already have updated the stamp-list mirror. Returns
+  // how many cells were re-run.
+  i32 recompute_shapes(const std::vector<RecomputeShape> &shapes);
+
+  // Frees the level-0 chunk slot (and its chunk-table entry) of every
+  // sculpt chunk that none of `live_stamps` overlaps any more -- e.g. after
+  // an object has moved out of it. Call only after the vacated cells have
+  // been re-run (so their bricks are already freed), and only from edits
+  // that drop undo history (an undo snapshot may name a freed slot).
+  // Without this, slots are never returned: a moving object eventually
+  // exhausts them, and wraps the chunk table onto itself.
+  void release_unused_sculpt_chunks(const std::vector<RecomputeShape> &live_stamps);
+
+  // Diagnostic: with KENGINE_SCULPT_POOL_LOG set, reads back and logs how
+  // many bricks and splat cluster pages are free. A number that keeps
+  // falling across edits that shouldn't change the sculpt's size is a
+  // leak. Synchronous (two tiny GPU copies); a no-op when the variable is
+  // unset.
+  void log_sculpt_pools(const char *context);
+
+  // Records the splat-point regeneration for `cell_count` cells (already
+  // uploaded to chunk_sculpt_cell_buffer_) into cmd: first a pass that
+  // returns each cell brick's existing cluster pages to the pool, then --
+  // after a barrier -- the pass that builds fresh ones. Every sculpt edit
+  // path goes through this; generating without releasing leaks pages.
+  void record_splat_regen(VulkanCommandBuffer &cmd, i32 cell_count,
+                          f32 cell_size, f32 voxel_size, u32 groups);
+
+  // CPU evaluation of one brush shape's SDF at `local_p` (already in the
+  // shape's own frame: offset from its center, un-rotated). Matches the
+  // shaders' eval_brush_shape(). Used for picking objects.
+  static f32 eval_shape_sdf_cpu(BrushShape shape_type, glm::vec4 params,
+                                glm::vec3 local_p);
 
   bool undo_stamp();
 
@@ -1049,7 +1136,7 @@ private:
   // Resets the chunked field to empty: fills chunk_table_buffer_ with -1
   // (no chunk resident anywhere) and re-seeds chunk_brick_free_list_buffer_/
   // chunk_brick_free_list_top_buffer_ to a full free pool ([0, 1, ...,
-  // kMaxChunkBricks-1], top = kMaxChunkBricks). Called once from the
+  // max_chunk_bricks_-1], top = max_chunk_bricks_). Called once from the
   // constructor. Also resets the M1a sculpt-stamp chunk-slot bookkeeping
   // (sculpt_chunk_slot_used_/sculpt_chunk_slot_by_coord_) -- see
   // acquire_sculpt_chunk_slot().
@@ -1403,6 +1490,7 @@ private:
   // same as stamp_shape()'s own new_slots handling.
   void collect_recompute_cells(glm::vec3 center, BrushShape shape_type,
                                glm::vec4 params, f32 smoothness,
+                               glm::quat rotation,
                                std::unordered_set<u64> &seen,
                                std::vector<GpuSculptStampCell> &out_cells,
                                std::vector<u32> &new_slots);
@@ -1426,6 +1514,14 @@ private:
   // track the allocation state of.
   std::vector<b8> sculpt_chunk_slot_used_;
   std::unordered_map<ChunkKey, u32, ChunkKeyHash> sculpt_chunk_slot_by_coord_;
+  // Which live chunk owns each wrapped chunk-table entry. The level-0 table
+  // is CHUNK_TABLE_DIM chunks wide per axis and WRAPS, so two chunks that
+  // far apart share an entry; acquire_sculpt_chunk_slot() refuses the
+  // second rather than silently drawing one chunk's bricks in the other's
+  // place.
+  std::unordered_map<u64, ChunkKey> sculpt_table_owner_;
+  bool sculpt_table_alias_warned_ = false;
+  static u64 sculpt_table_index(const ChunkKey &key);
 
   // See ensure_default_sculpt_material().
   b8 default_sculpt_material_ready_ = false;
@@ -1665,7 +1761,13 @@ private:
   // kMaxResidentChunks * kChunkCellCount i32s -- device-local, like
   // indirection_buffer_ above; see voxelize_chunk().
   std::optional<VulkanBuffer> chunk_indirection_buffer_;
-  // kMaxChunkBricks * kChunkBrickVoxelCount f32s -- this field's own,
+  // How many bricks the chunked field's pool holds, across all levels.
+  // Chosen once at construction from the GPU's VRAM (see
+  // choose_max_chunk_bricks() in the .cpp) and passed to every shader that
+  // bounds-checks against it as specialization constant 0, so the engine
+  // and the shaders can't disagree on it.
+  u32 max_chunk_bricks_ = 0;
+  // max_chunk_bricks_ * kChunkBrickVoxelCount f32s -- this field's own,
   // separate, brick pool (see Builtin.SdfFieldConfig.inc.glsl's comment on
   // why it doesn't share brick_pool_buffer_ above).
   std::optional<VulkanBuffer> chunk_brick_pool_buffer_;
@@ -1717,6 +1819,13 @@ private:
   // constant -- PushConstants in that shader is already called out, in its
   // own comment, as sitting close to Vulkan's guaranteed 128-byte limit.
   std::optional<VulkanBuffer> brush_preview_buffer_;
+  // set_selection_outline()'s stamps (paint_read_set_ binding 4), plus a
+  // CPU copy of the last upload so unchanged frames skip the write.
+  std::optional<VulkanBuffer> selection_outline_buffer_;
+  // Per-material-slot extras (x = glow), paint_read_set_ binding 6.
+  std::optional<VulkanBuffer> material_extra_buffer_;
+  std::vector<u8> last_selection_outline_;
+  bool outline_overflow_warned_ = false;
   // M7 polish FIX (TAA-ghosting): render-target-sized (same lifetime as
   // depth_image_/ao_image_ -- recreate_render_target_images()) rgba8 image
   // Builtin.DeferredShade.comp.glsl writes the brush preview's shaded
@@ -1728,6 +1837,9 @@ private:
   // blending it in before TAA fed the ghost into TAA's own history and
   // crushed it down to history's tiny per-frame blend weight every frame.
   VulkanImage preview_overlay_image_{};
+  // Scope-in mask -- see recreate_render_target_images().
+  VulkanImage scope_mask_image_{};
+  bool scope_active_ = false;
   // Host-visible -- unconditional per-cell demand counter, zeroed before
   // every voxelize dispatch and read back afterward, exactly mirroring
   // brick_counter_buffer_'s overflow-diagnostic role above (see its own
