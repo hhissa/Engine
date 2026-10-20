@@ -81,6 +81,10 @@ public:
                                           cells_touched);
   }
 
+  bool set_stamp_looseness(size_t index, f32 looseness) {
+    return volume_.set_stamp_looseness(index, looseness);
+  }
+
   bool set_stamp_material(size_t index, i32 material_slot) {
     return volume_.set_stamp_material(index, material_slot);
   }

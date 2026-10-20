@@ -681,13 +681,11 @@ bool SceneViewport::load_cutout_file(const QString &path) {
 
 void SceneViewport::configure_material(i32 slot, glm::vec3 colour,
                                        f32 roughness, f32 metallic,
-                                       bool waxy, i32 fleck_pattern,
-                                       f32 fleck_strength, f32 fleck_scale) {
+                                       bool waxy) {
   if (!initialized_ || shutdown_) {
     return;
   }
-  renderer_sculpt_set_material(slot, colour, roughness, metallic, waxy,
-                               fleck_pattern, fleck_strength, fleck_scale);
+  renderer_sculpt_set_material(slot, colour, roughness, metallic, waxy);
 }
 
 void SceneViewport::replay_stamp(glm::vec3 center,

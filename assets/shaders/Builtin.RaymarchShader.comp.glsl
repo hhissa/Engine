@@ -378,9 +378,17 @@ const int SPLAT_MODE_VISIBILITY = 2;
 // case out_dist/out_pos/out_material are untouched. Shared by both splat
 // modes -- prime mode wants only the distance and the point's spacing,
 // visibility mode wants the position and material too.
+// How far a fully ruffled fleck's normal is tilted at random (read_splat()).
+const float FLECK_TILT = 0.6;
+// How far (in fleck spacings) a fleck may sit outside its object before
+// it is clipped as overhang (see main()).
+const float FLECK_OVERHANG = 0.1;
+
 bool read_splat(ivec2 pixel_coord, ivec2 image_size, out float out_dist,
-                out vec3 out_pos, out vec3 out_normal, out float out_spacing,
+                out vec3 out_pos, out vec3 out_normal, out vec3 out_base_normal,
+                out float out_looseness, out float out_spacing,
                 out int out_material) {
+    out_looseness = 0.0; // an out param is undefined on any early return
     if (push.splat_mode == SPLAT_MODE_OFF) {
         return false;
     }
@@ -413,6 +421,10 @@ bool read_splat(ivec2 pixel_coord, ivec2 image_size, out float out_dist,
     // and its stochastic thinning here).
     uint payload = uint(entry & 0xFFFFFFFFul);
     uint spacing_code = (payload >> 25) & 7u;
+    // FLECKS: the brick's looseness (see Builtin.ChunkPointSplat.comp.glsl).
+    // Bits 28-29: looseness level (0 = ordinary splat), 30-31: ruffle.
+    out_looseness = float((payload >> 28) & 3u) / 3.0;
+    float ruffle = float((payload >> 30) & 3u) / 3.0;
     uint id = payload & 0x01FFFFFFu;
     int cluster_index = int(id / uint(CHUNK_CLUSTER_POINTS));
     int point_index = int(id % uint(CHUNK_CLUSTER_POINTS));
@@ -428,6 +440,18 @@ bool read_splat(ivec2 pixel_coord, ivec2 image_size, out float out_dist,
     // per shaded pixel, and it is the normal of the field, not of the point,
     // which drift apart exactly where the field is coarsest.
     out_normal = unpack_point_normal(packed.y);
+    out_base_normal = out_normal; // before ruffle's tilt
+    // FLECKS: ruffle -- each loose fleck leans a little its own way (a fixed
+    // tilt hashed from its id, growing with ruffle), so neighbouring flecks
+    // catch the light differently and read as separate marks even on a
+    // flat face.
+    if (out_looseness > 0.0) {
+        uint h = id * 747796405u + 2891336453u;
+        h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+        vec3 jitter = vec3(float(h & 1023u), float((h >> 10) & 1023u),
+                           float((h >> 20) & 1023u)) / 511.5 - 1.0;
+        out_normal = normalize(out_normal + jitter * (FLECK_TILT * ruffle));
+    }
     out_spacing = (cluster.bbox_min_cell.w / float(CHUNK_BRICK_DIM)) *
         float(1u << spacing_code);
     // The baked per-brick material, exactly the provenance a raymarch hit in
@@ -566,6 +590,30 @@ vec3 refine_splat_hit(vec3 ray_origin, vec3 ray_dir, vec3 splat_pos,
     return splat_pos;
 }
 
+// FLECKS (see Builtin.ChunkPointSplat.comp.glsl): every fleck pixel stores
+// its exact ray distance to its fleck's card -- flat on the surface, or
+// swung up off it by impasto -- so its position is just origin + ray * d.
+vec3 pixel_ray_dir(ivec2 pc, ivec2 size) {
+    vec2 uv = (vec2(pc) + vec2(push.taa_jitter_x, push.taa_jitter_y) -
+               0.5 * vec2(size)) / float(size.y);
+    return normalize(uv.x * push.camera_right.xyz + uv.y * push.camera_up.xyz +
+                     push.camera_forward.xyz);
+}
+
+// Position of pixel pc's fleck surface, if that pixel shows fleck want_id.
+bool fleck_pixel_pos(ivec2 pc, ivec2 size, uint want_id, vec3 origin,
+                     out vec3 out_p) {
+    if (pc.x < 0 || pc.y < 0 || pc.x >= size.x || pc.y >= size.y) {
+        return false;
+    }
+    uint64_t entry = splat_visibility[pc.y * size.x + pc.x];
+    if (entry == ~uint64_t(0) || (uint(entry) & 0x01FFFFFFu) != want_id) {
+        return false;
+    }
+    out_p = origin + pixel_ray_dir(pc, size) * uintBitsToFloat(uint(entry >> 32));
+    return true;
+}
+
 // How far past the primary ray's own hit (or MAX_DIST on a miss) a
 // volumetric shaft is still marched through -- keeps the fixed step count
 // below reasonably fine-grained without needing to cover the whole of
@@ -648,21 +696,86 @@ void main() {
     vec3 p;
 
     float splat_dist, splat_spacing;
-    vec3 splat_pos, splat_normal;
+    float splat_looseness = 0.0;
+    vec3 splat_pos, splat_normal, splat_base_normal;
     int splat_material;
     bool have_splat = read_splat(pixel_coord, image_size, splat_dist, splat_pos,
-                                 splat_normal, splat_spacing, splat_material);
+                                 splat_normal, splat_base_normal, splat_looseness,
+                                 splat_spacing,
+                                 splat_material);
+    // FLECKS: a loose splat is drawn as the fleck it is -- its own disc,
+    // lit by its own normal -- rather than snapped back onto the smooth
+    // isosurface (which is what makes ordinary splats invisible). In Prime
+    // mode too: a loose fleck takes the splat path there even though tight
+    // surfaces keep marching, since marching would draw the smooth surface.
+    bool fleck = have_splat && splat_looseness > 0.0;
+    vec3 fleck_shape_tilt = vec3(0.0); // the fleck's own dome/tilt (below)
+    // A fleck is a flat card, so where the surface turns away under it -- a
+    // box's edge, say -- the card hangs out into the air as a thin disc.
+    // Clip it there: drop any fleck pixel that sits further outside the
+    // object than the fleck's own lift (impasto tilt, dome) accounts for.
+    // The pixel then takes the ordinary path, showing whatever is behind.
+    if (fleck) {
+        vec3 card_p = ray_origin + ray_dir * splat_dist;
+        float height = dot(card_p - splat_pos, splat_base_normal);
+        float slack = FLECK_OVERHANG * splat_spacing;
+        float field_dist, field_skip;
+        int field_material;
+        sample_active_field(card_p, ray_dir, field_dist, field_skip,
+                            field_material);
+        bool overhangs = field_skip > 0.0
+            ? height < slack                       // empty space: only a
+                                                   // deliberately raised tip
+            : field_dist > max(height, 0.0) + slack;
+        if (overhangs) {
+            fleck = false;
+            have_splat = push.splat_mode == SPLAT_MODE_VISIBILITY && have_splat &&
+                         field_skip == 0.0;
+        }
+    }
 
-    if (have_splat && push.splat_mode == SPLAT_MODE_VISIBILITY) {
+    if (have_splat && (push.splat_mode == SPLAT_MODE_VISIBILITY || fleck)) {
         // The disc's orientation is the normal baked into the point itself
         // (see read_splat()): the generator had the field's gradient in hand
         // when it projected the point onto the isosurface, so this is that
         // same gradient, for free, instead of six more field lookups here.
-        p = refine_splat_hit(ray_origin, ray_dir, splat_pos, splat_normal,
-                             splat_spacing, travelled);
+        if (fleck) {
+            // The fleck card's own surface, exactly where the splat pass
+            // put it (raised off the object by impasto, or flat on it)...
+            travelled = splat_dist;
+            p = ray_origin + ray_dir * splat_dist;
+            // ...lit by its real shape -- dome and impasto tilt: the plane
+            // through this pixel's and its same-fleck neighbours' positions,
+            // relative to the surface it grew from.
+            uint want_id = uint(splat_visibility[pixel_coord.y * image_size.x +
+                                                 pixel_coord.x]) & 0x01FFFFFFu;
+            vec3 px_pos, nx_pos, py_pos, ny_pos;
+            bool hpx = fleck_pixel_pos(pixel_coord + ivec2(1, 0), image_size,
+                                       want_id, ray_origin, px_pos);
+            bool hnx = fleck_pixel_pos(pixel_coord - ivec2(1, 0), image_size,
+                                       want_id, ray_origin, nx_pos);
+            bool hpy = fleck_pixel_pos(pixel_coord + ivec2(0, 1), image_size,
+                                       want_id, ray_origin, py_pos);
+            bool hny = fleck_pixel_pos(pixel_coord - ivec2(0, 1), image_size,
+                                       want_id, ray_origin, ny_pos);
+            if ((hpx || hnx) && (hpy || hny)) {
+                vec3 ddx = (hpx ? px_pos : p) - (hnx ? nx_pos : p);
+                vec3 ddy = (hpy ? py_pos : p) - (hny ? ny_pos : p);
+                vec3 n = cross(ddx, ddy);
+                if (dot(n, n) > 1e-14) {
+                    n = normalize(n);
+                    n = dot(n, splat_base_normal) < 0.0 ? -n : n;
+                    fleck_shape_tilt = n - splat_base_normal;
+                }
+            }
+        } else {
+            p = refine_splat_hit(ray_origin, ray_dir, splat_pos, splat_normal,
+                                 splat_spacing, travelled);
+        }
 
         // ...and then SNAP that onto the real isosurface with a few sphere-
-        // tracing steps, starting just short of the disc hit.
+        // tracing steps, starting just short of the disc hit (not for a
+        // loose fleck, which stays on its own disc).
         //
         // The disc intersection alone is not a surface, it is a quilt of
         // them: neighbouring points carry slightly different baked normals,
@@ -692,7 +805,7 @@ void main() {
         // where the field is least Euclidean. Relaxing the step and refusing
         // any result that did not actually converge close to the splat keeps
         // the disc's answer whenever the trace cannot be trusted.
-        {
+        if (!fleck) {
             float snap_t = max(travelled - splat_spacing, 0.0);
             for (int i = 0; i < SPLAT_SNAP_STEPS; ++i) {
                 float snap_dist, snap_skip;
@@ -754,6 +867,25 @@ void main() {
     vec3 out_normal = vec3(0.0, 1.0, 0.0);
     if (travelled < MAX_DIST) {
         out_normal = calc_static_normal(p);
+        // FLECKS: the looser, the more each fleck is lit by its own baked
+        // normal -- which is constant across the fleck, so each one reads as
+        // a separate flat mark (the facet look the comment above avoids for
+        // ordinary splats is exactly what a loose fleck should show).
+        if (fleck) {
+            // A fleck overhanging its object's edge sits over empty space,
+            // where the field has no gradient (a NaN that TAA then smears
+            // into a block): use the fleck's own normal there.
+            float fleck_dist, fleck_skip;
+            int fleck_material;
+            sample_active_field(p, ray_dir, fleck_dist, fleck_skip,
+                                fleck_material);
+            bool field_ok = fleck_skip == 0.0 && abs(fleck_dist) < splat_spacing &&
+                            !any(isnan(out_normal));
+            out_normal = field_ok
+                ? normalize(mix(out_normal, splat_normal, sqrt(splat_looseness)))
+                : splat_normal;
+            out_normal = normalize(out_normal + fleck_shape_tilt);
+        }
     }
     // Negative distance marks "nothing hit". travelled is measured along the
     // normalized ray direction built above, so any reader can recover the

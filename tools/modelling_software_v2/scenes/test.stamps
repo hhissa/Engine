@@ -1,0 +1,5 @@
+# modelling_software_v2 sculpt stamps (v4/objects)
+# x y z shape_type p0 p1 p2 p3 smoothness op material_slot looseness qx qy qz qw object_id
+-1.5 0 2 1 0.5 0.5 0.5 0 0 0 0 0 0 0 0.3826834 0.9238795 1
+0.8 0 2 0 0.6 0 0 0 0 0 0 0 0 0 0 1 2
+1.4 -0.5 2 0 0.4 0 0 0 0.3 0 0 0 0 0 0 1 2

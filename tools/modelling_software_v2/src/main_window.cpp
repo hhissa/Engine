@@ -75,46 +75,6 @@ constexpr FinishPreset kFinishPresets[] = {
 } // namespace
 
 namespace {
-// M6 (Flecks): the 16 Dreams-style surface-stroke presets, each just a
-// (pattern id, scale) pair -- see Builtin.FleckPattern.inc.glsl's own
-// header comment for exactly what each id means and which of the 3
-// families it falls into (the shader derives the family from this same id
-// by a plain range check, so ORDER IS LOAD-BEARING here exactly like
-// kFinishPresets/kBrushShapeNames above: row index == pattern id).
-// `scale` is each preset's own tuned "world units per pattern cycle" --
-// the one Fleck parameter this milestone's UI does NOT expose a slider
-// for (see fleck_strength_spin_'s own comment for the one it does), baked
-// per-preset here the same way kFinishPresets bakes roughness/metallic
-// per Finish rather than exposing three more sliders.
-struct FleckPreset {
-  const char *name;
-  i32 pattern;
-  f32 scale;
-};
-constexpr FleckPreset kFleckPresets[] = {
-    {"Square", 0, 0.35f},         // cellular
-    {"Circle", 1, 0.35f},         // cellular
-    {"Triangle", 2, 0.35f},       // cellular
-    {"Hexagon", 3, 0.40f},        // cellular
-    {"Dots", 4, 0.25f},           // cellular
-    {"Straight", 5, 0.30f},       // directional
-    {"Heavy", 6, 0.35f},          // directional
-    {"Hatching", 7, 0.30f},       // directional
-    {"Streaky", 8, 0.30f},        // directional
-    {"Scribble", 9, 0.30f},       // organic
-    {"Veins", 10, 0.50f},         // organic
-    {"Splat", 11, 0.60f},         // organic
-    {"Cubist", 12, 0.50f},        // organic
-    {"Impressionist", 13, 0.40f}, // organic
-    {"Expressive", 14, 0.45f},    // organic
-    {"Baroque", 15, 0.50f},       // organic
-    {"Impasto", 16, 0.55f},       // impasto (its own family -- see Builtin.FleckPattern.inc.glsl)
-    {"Clay", 17, 0.60f},          // clay (its own family -- concave press-marks, see Builtin.FleckPattern.inc.glsl)
-    {"Fuzzy", 18, 0.15f},         // fuzzy (its own family -- dense anisotropic strands, see Builtin.FleckPattern.inc.glsl)
-};
-} // namespace
-
-namespace {
 // Stops SceneViewport's render timer for as long as this guard is alive --
 // construct one at the top of any handler that shows a modal dialog
 // (QFileDialog spins its own nested Qt event loop) and let it go out of
@@ -288,16 +248,14 @@ void ModellingWindow::build_brush_panel() {
   form->addRow("Smoothness", smoothness_spin_);
 
   // M3 (Looseness): 0..1, no visible effect yet (see looseness_spin_'s own
-  // comment, main_window.h) -- included now so an authored value survives
-  // save/load/Undo/Redo and the control is already in place once the Fleck
-  // evaluator (M6) lands.
+  // comment, main_window.h) -- included so an authored value survives
+  // save/load/Undo/Redo.
   looseness_spin_ = new QDoubleSpinBox(panel);
   looseness_spin_->setRange(0.0, 1.0);
   looseness_spin_->setSingleStep(0.05);
   looseness_spin_->setValue(0.0); // 0 = clean/uniform, matching SceneViewport's default.
   looseness_spin_->setToolTip(
-      "No visible effect yet -- reserved for the Fleck surface-"
-      "stylization milestone (M6). Authored values are saved/undoable.");
+      "No visible effect yet. Authored values are saved/undoable.");
   connect(looseness_spin_, &QDoubleSpinBox::valueChanged, this,
           &ModellingWindow::on_looseness_changed);
   form->addRow("Looseness", looseness_spin_);
@@ -354,32 +312,6 @@ void ModellingWindow::build_brush_panel() {
   connect(material_colour_button_, &QPushButton::clicked, this,
           &ModellingWindow::on_pick_material_colour_clicked);
   form->addRow(material_colour_button_);
-
-  // M6 (Flecks): a Fleck preset dropdown + a strength slider, added right
-  // next to Finish/Material Colour above -- same "what will the NEXT
-  // stamp look like" control family, just one more dimension of it (see
-  // this class's own apply_finish_and_colour(), which now folds Finish
-  // AND Fleck together into the same fresh-slot allocation). fleck_
-  // strength_spin_ starts at 0 ("no Fleck"), so a session that never
-  // touches either control allocates material slots exactly as M5 could
-  // already -- the zero-regression guarantee this milestone's
-  // verification checks for.
-  fleck_combo_ = new QComboBox(panel);
-  for (const FleckPreset &preset : kFleckPresets) {
-    fleck_combo_->addItem(preset.name);
-  }
-  fleck_combo_->setCurrentIndex(0); // Square -- inert until strength > 0.
-  connect(fleck_combo_, &QComboBox::currentIndexChanged, this,
-          &ModellingWindow::on_fleck_changed);
-  form->addRow("Fleck", fleck_combo_);
-
-  fleck_strength_spin_ = new QDoubleSpinBox(panel);
-  fleck_strength_spin_->setRange(0.0, 1.0);
-  fleck_strength_spin_->setSingleStep(0.05);
-  fleck_strength_spin_->setValue(0.0);
-  connect(fleck_strength_spin_, &QDoubleSpinBox::valueChanged, this,
-          &ModellingWindow::on_fleck_strength_changed);
-  form->addRow("Fleck Strength", fleck_strength_spin_);
 
   // M3b: Clone controls, added to the same dock/form rather than a separate
   // panel -- Clone is just another drag mode layered on top of the same
@@ -598,20 +530,6 @@ void ModellingWindow::on_finish_changed(int index) {
   apply_finish_and_colour();
 }
 
-void ModellingWindow::on_fleck_changed(int index) {
-  if (index < 0 ||
-      index >= static_cast<int>(sizeof(kFleckPresets) /
-                                sizeof(kFleckPresets[0]))) {
-    return;
-  }
-  apply_finish_and_colour();
-}
-
-void ModellingWindow::on_fleck_strength_changed(double value) {
-  (void)value;
-  apply_finish_and_colour();
-}
-
 void ModellingWindow::on_pick_material_colour_clicked() {
   // QColorDialog spins its own nested Qt event loop, exactly like
   // QFileDialog -- see ScopedRenderPause's own comment for why the
@@ -627,7 +545,7 @@ void ModellingWindow::on_pick_material_colour_clicked() {
 }
 
 void ModellingWindow::apply_finish_and_colour() {
-  if (!viewport_ || !finish_combo_ || !fleck_combo_ || !fleck_strength_spin_) {
+  if (!viewport_ || !finish_combo_) {
     return;
   }
   const int index = finish_combo_->currentIndex();
@@ -636,31 +554,20 @@ void ModellingWindow::apply_finish_and_colour() {
                                 sizeof(kFinishPresets[0]))) {
     return;
   }
-  const int fleck_index = fleck_combo_->currentIndex();
-  if (fleck_index < 0 ||
-      fleck_index >= static_cast<int>(sizeof(kFleckPresets) /
-                                      sizeof(kFleckPresets[0]))) {
-    return;
-  }
   const FinishPreset &preset = kFinishPresets[index];
-  const FleckPreset &fleck = kFleckPresets[fleck_index];
-  const f32 fleck_strength = static_cast<f32>(fleck_strength_spin_->value());
   const glm::vec3 colour(static_cast<f32>(current_material_colour_.redF()),
                         static_cast<f32>(current_material_colour_.greenF()),
                         static_cast<f32>(current_material_colour_.blueF()));
 
-  // M5 (Finishes) + M6 (Flecks): a FRESH slot every time, never reused --
+  // M5 (Finishes): a FRESH slot every time, never reused --
   // see next_material_slot_'s own comment (main_window.h) for why that is
   // the simplest correct allocator for this tool, and why NOT
   // retroactively changing already-stamped geometry (this only affects
   // what viewport_->set_brush_material_slot() points subsequent stamps
-  // at) is consistent with every other brush-panel control. ONE slot
-  // carries the Finish AND the Fleck together -- not two independent
-  // allocation paths.
+  // at) is consistent with every other brush-panel control.
   const i32 slot = next_material_slot_++;
   viewport_->configure_material(slot, colour, preset.roughness,
-                                preset.metallic, preset.waxy, fleck.pattern,
-                                fleck_strength, fleck.scale);
+                                preset.metallic, preset.waxy);
   viewport_->set_brush_material_slot(slot);
 
   // Mirrors the colour back onto the button itself, so the panel shows
@@ -669,11 +576,8 @@ void ModellingWindow::apply_finish_and_colour() {
       QString("background-color: %1;").arg(current_material_colour_.name()));
 
   statusBar()->showMessage(
-      QString("Finish '%1' + colour %2 + Fleck '%3' @ %4 -> material slot "
-             "%5 (next stamp).")
-          .arg(QString(preset.name), current_material_colour_.name(),
-              QString(fleck.name))
-          .arg(fleck_strength)
+      QString("Finish '%1' + colour %2 -> material slot %3 (next stamp).")
+          .arg(QString(preset.name), current_material_colour_.name())
           .arg(slot),
       4000);
 }

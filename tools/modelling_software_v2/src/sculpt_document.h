@@ -56,8 +56,7 @@ struct SculptStampRecord {
   i32 material_slot = 0;
   // M3 (Looseness): see SculptStamp::looseness's own comment
   // (engine/src/resources/sculpt_volume.h) -- pure bookkeeping, no shader
-  // effect yet, exists so an authored value survives save/load until the
-  // Fleck evaluator (M6) can actually consume it.
+  // effect; exists so an authored value survives save/load.
   f32 looseness = 0.0f;
   // Orientation and object grouping -- see SculptStamp::rotation/object_id
   // (engine/src/resources/sculpt_volume.h).

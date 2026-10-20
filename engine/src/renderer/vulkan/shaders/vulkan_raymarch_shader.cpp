@@ -1871,10 +1871,38 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // not touched by M5); kept for symmetry with chunk_brick_primitive_
   // buffer_'s own identical per-brick shape. See its own header comment
   // (vulkan_raymarch_shader.h) for the full data-path story.
+  // TRANSFER_DST: zero-filled on reset (see reset_chunked_field()), since
+  // the splat pass reads it for every brick -- leftover memory would read
+  // as random looseness and scatter loose flecks over untouched surfaces.
   chunk_brick_looseness_buffer_.emplace(*context_, chunk_brick_primitive_size,
                                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                                           VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  // Flecks: per-material-slot fleck settings (set_material_flecks()), read
+  // by the splat pass through each brick's material. Zero = tight, default
+  // (Circle) style, no comb, no ruffle.
+  fleck_params_buffer_.emplace(
+      *context_, kMaxScenePrimitives * sizeof(glm::vec4),
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  {
+    const std::vector<glm::vec4> zeros(kMaxScenePrimitives, glm::vec4(0.0f));
+    fleck_params_buffer_->load_data(0, kMaxScenePrimitives * sizeof(glm::vec4),
+                                    0, zeros.data());
+  }
+  // Effects mode: per-material-slot animated fleck effects
+  // (set_material_effects()), two vec4s per slot: (boil, flow, wave,
+  // evaporate), (throb, 0, 0, 0). Zero = still.
+  fleck_effects_buffer_.emplace(
+      *context_, kMaxScenePrimitives * 2 * sizeof(glm::vec4),
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  {
+    const std::vector<glm::vec4> zeros(kMaxScenePrimitives * 2, glm::vec4(0.0f));
+    fleck_effects_buffer_->load_data(
+        0, kMaxScenePrimitives * 2 * sizeof(glm::vec4), 0, zeros.data());
+  }
   // M3c (Spraypaint): same size as chunk_brick_pool_buffer_ above -- see
   // chunk_brick_paint_buffer_'s own comment, vulkan_raymarch_shader.h.
   // TRANSFER_DST so reset_chunked_field() can vkCmdFillBuffer() it to all-
@@ -2335,8 +2363,12 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // 6 and 7 exist so finest_level_at() can ask whether a clip level is
   // actually RESIDENT at a point, not merely in-window -- see its comment
   // in the shader for the holes that gating on the window alone punched.
-  VkDescriptorSetLayoutBinding chunk_point_splat_bindings[8]{};
-  for (u32 i = 0; i < 8; ++i) {
+  // 8 = chunk_brick_looseness: a loose brick draws fewer, bigger flecks.
+  // 9 = fleck_params (per material slot), 10 = chunk_brick_primitive (each
+  // brick's material slot, to look its fleck settings up), 11 =
+  // fleck_effects (per material slot, effects mode's animations).
+  VkDescriptorSetLayoutBinding chunk_point_splat_bindings[12]{};
+  for (u32 i = 0; i < 12; ++i) {
     chunk_point_splat_bindings[i].binding = i;
     chunk_point_splat_bindings[i].descriptorType =
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -2345,7 +2377,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   }
   VkDescriptorSetLayoutCreateInfo chunk_point_splat_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  chunk_point_splat_layout_info.bindingCount = 8;
+  chunk_point_splat_layout_info.bindingCount = 12;
   chunk_point_splat_layout_info.pBindings = chunk_point_splat_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &chunk_point_splat_layout_info,
@@ -2745,17 +2777,12 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // preview_overlay_image_ (writeonly -- see its own declaration comment)
   // to this same set, same reasoning again: this is deferred_shade_
   // pipeline_'s existing additive set, and new shading-only output belongs
-  // here, not a fourth set. M3 (Looseness) ADDS binding 3 =
-  // chunk_brick_looseness_buffer_ (read-only here -- the write side is
-  // Builtin.SculptStamp.comp.glsl/Builtin.SculptCheckpointRestore.comp.
-  // glsl/Builtin.SculptUndoRestore.comp.glsl's own chunk_sculpt_stamp_set_/
-  // chunk_sculpt_undo_restore_set_ bindings) -- render_set_ is confirmed
-  // already fully packed at 29/29 bindings, so this per-brick buffer goes
-  // on this set instead, same precedent as the three additions above it.
+  // here, not a fourth set. (Binding 3 -- the per-brick looseness buffer,
+  // read only by the old Fleck shading -- was removed along with it.)
   // Binding 4 = selection_outline_buffer_ (read-only storage).
   // Binding 5 = scope_mask_image_ (writeonly storage image).
   // Binding 6 = material_extra_buffer_ (read-only storage: per-slot glow).
-  VkDescriptorSetLayoutBinding paint_read_bindings[7]{};
+  VkDescriptorSetLayoutBinding paint_read_bindings[6]{};
   paint_read_bindings[0].binding = 0;
   paint_read_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_bindings[0].descriptorCount = 1;
@@ -2768,25 +2795,21 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   paint_read_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   paint_read_bindings[2].descriptorCount = 1;
   paint_read_bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-  paint_read_bindings[3].binding = 3;
+  paint_read_bindings[3].binding = 4;
   paint_read_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_bindings[3].descriptorCount = 1;
   paint_read_bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-  paint_read_bindings[4].binding = 4;
-  paint_read_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_read_bindings[4].binding = 5;
+  paint_read_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   paint_read_bindings[4].descriptorCount = 1;
   paint_read_bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-  paint_read_bindings[5].binding = 5;
-  paint_read_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  paint_read_bindings[5].binding = 6;
+  paint_read_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_bindings[5].descriptorCount = 1;
   paint_read_bindings[5].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-  paint_read_bindings[6].binding = 6;
-  paint_read_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  paint_read_bindings[6].descriptorCount = 1;
-  paint_read_bindings[6].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   VkDescriptorSetLayoutCreateInfo paint_read_layout_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  paint_read_layout_info.bindingCount = 7;
+  paint_read_layout_info.bindingCount = 6;
   paint_read_layout_info.pBindings = paint_read_bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(context_->device.logical_device,
                                        &paint_read_layout_info,
@@ -2808,9 +2831,9 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   VkDescriptorPoolSize paint_pool_sizes[3]{};
   paint_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_pool_sizes[0].descriptorCount =
-      3 + 1 + 1 + 1 + 1; // chunk_sculpt_spraypaint_set_ + paint_read_set_'s
-                // binding 0 + binding 3 (M3 Looseness) + binding 4
-                // (selection outline) + binding 6 (material glow)
+      3 + 1 + 1 + 1; // chunk_sculpt_spraypaint_set_ + paint_read_set_'s
+                // binding 0 + binding 4 (selection outline) + binding 6
+                // (material glow)
   paint_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
   paint_pool_sizes[1].descriptorCount = 1; // paint_read_set_'s binding 1
                                           // (BrushPreviewBuffer)
@@ -2860,16 +2883,15 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   vkUpdateDescriptorSets(context_->device.logical_device, 3,
                         chunk_sculpt_spraypaint_writes, 0, nullptr);
 
-  VkDescriptorBufferInfo paint_read_buffer_infos[5] = {
+  VkDescriptorBufferInfo paint_read_buffer_infos[4] = {
       {chunk_brick_paint_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {brush_preview_buffer_->handle(), 0, VK_WHOLE_SIZE},
-      {chunk_brick_looseness_buffer_->handle(), 0, VK_WHOLE_SIZE}, // M3, binding 3.
       {selection_outline_buffer_->handle(), 0, VK_WHOLE_SIZE}, // binding 4.
       {material_extra_buffer_->handle(), 0, VK_WHOLE_SIZE},    // binding 6.
   };
   VkDescriptorImageInfo paint_read_preview_image_info{
       VK_NULL_HANDLE, preview_overlay_image_.view, VK_IMAGE_LAYOUT_GENERAL};
-  VkWriteDescriptorSet paint_read_writes[7]{};
+  VkWriteDescriptorSet paint_read_writes[6]{};
   paint_read_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   paint_read_writes[0].dstSet = paint_read_set_;
   paint_read_writes[0].dstBinding = 0;
@@ -2894,35 +2916,27 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   paint_read_writes[2].descriptorCount = 1;
   paint_read_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   paint_read_writes[2].pImageInfo = &paint_read_preview_image_info;
-  // M3 (Looseness): binding 3 = chunk_brick_looseness_buffer_, read-only
-  // here -- same STORAGE_BUFFER type as binding 0, different buffer.
   paint_read_writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   paint_read_writes[3].dstSet = paint_read_set_;
-  paint_read_writes[3].dstBinding = 3;
+  paint_read_writes[3].dstBinding = 4;
   paint_read_writes[3].descriptorCount = 1;
   paint_read_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
   paint_read_writes[3].pBufferInfo = &paint_read_buffer_infos[2];
-  paint_read_writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  paint_read_writes[4].dstSet = paint_read_set_;
-  paint_read_writes[4].dstBinding = 4;
-  paint_read_writes[4].descriptorCount = 1;
-  paint_read_writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  paint_read_writes[4].pBufferInfo = &paint_read_buffer_infos[3];
   VkDescriptorImageInfo paint_read_scope_image_info{
       VK_NULL_HANDLE, scope_mask_image_.view, VK_IMAGE_LAYOUT_GENERAL};
+  paint_read_writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  paint_read_writes[4].dstSet = paint_read_set_;
+  paint_read_writes[4].dstBinding = 5;
+  paint_read_writes[4].descriptorCount = 1;
+  paint_read_writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  paint_read_writes[4].pImageInfo = &paint_read_scope_image_info;
   paint_read_writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   paint_read_writes[5].dstSet = paint_read_set_;
-  paint_read_writes[5].dstBinding = 5;
+  paint_read_writes[5].dstBinding = 6;
   paint_read_writes[5].descriptorCount = 1;
-  paint_read_writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  paint_read_writes[5].pImageInfo = &paint_read_scope_image_info;
-  paint_read_writes[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  paint_read_writes[6].dstSet = paint_read_set_;
-  paint_read_writes[6].dstBinding = 6;
-  paint_read_writes[6].descriptorCount = 1;
-  paint_read_writes[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  paint_read_writes[6].pBufferInfo = &paint_read_buffer_infos[4];
-  vkUpdateDescriptorSets(context_->device.logical_device, 7, paint_read_writes,
+  paint_read_writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  paint_read_writes[5].pBufferInfo = &paint_read_buffer_infos[3];
+  vkUpdateDescriptorSets(context_->device.logical_device, 6, paint_read_writes,
                         0, nullptr);
 
   VkDescriptorPoolSize chunk_pool_size{};
@@ -2937,8 +2951,8 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // without its term growing here under-sizes the pool, and the sets
   // allocated after it are the ones that come up short. (The point-splat
   // term went 6 -> 8 when finest_level_at() gained the chunk table and the
-  // published flags.)
-  chunk_pool_size.descriptorCount = 5 + 8 + 8 * 2 + 8 + 9 + 8 + 7;
+  // published flags, then 11 -> 12 with the fleck buffers.)
+  chunk_pool_size.descriptorCount = 5 + 8 + 8 * 2 + 12 + 9 + 8 + 7;
   VkDescriptorPoolCreateInfo chunk_pool_info{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   chunk_pool_info.poolSizeCount = 1;
@@ -3023,7 +3037,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // chunk_point_splat_set_ -- see its layout comment above. Binding 3
   // (splat_visibility_buffer_) gets an initial write here and is re-pointed by
   // rebind_render_target_descriptors() on every recreate.
-  VkDescriptorBufferInfo chunk_point_splat_buffer_infos[8] = {
+  VkDescriptorBufferInfo chunk_point_splat_buffer_infos[12] = {
       {chunk_cluster_point_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_cluster_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {splat_visibility_buffer_->handle(), 0, VK_WHOLE_SIZE},
@@ -3032,9 +3046,13 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
       {chunk_cull_args_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_table_buffer_->handle(), 0, VK_WHOLE_SIZE},
       {chunk_slot_published_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_looseness_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {fleck_params_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {chunk_brick_primitive_buffer_->handle(), 0, VK_WHOLE_SIZE},
+      {fleck_effects_buffer_->handle(), 0, VK_WHOLE_SIZE},
   };
-  VkWriteDescriptorSet chunk_point_splat_writes[8]{};
-  for (u32 i = 0; i < 8; ++i) {
+  VkWriteDescriptorSet chunk_point_splat_writes[12]{};
+  for (u32 i = 0; i < 12; ++i) {
     chunk_point_splat_writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     chunk_point_splat_writes[i].dstSet = chunk_point_splat_set_;
     chunk_point_splat_writes[i].dstBinding = i;
@@ -3043,7 +3061,7 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     chunk_point_splat_writes[i].pBufferInfo = &chunk_point_splat_buffer_infos[i];
   }
-  vkUpdateDescriptorSets(context_->device.logical_device, 8,
+  vkUpdateDescriptorSets(context_->device.logical_device, 12,
                         chunk_point_splat_writes, 0, nullptr);
 
   VkDescriptorBufferInfo chunk_cluster_cull_buffer_infos[9] = {
@@ -3862,6 +3880,11 @@ VulkanRaymarchShader::VulkanRaymarchShader(VulkanContext &context)
   // prewarm_requested_ just stays false.
   prewarm_requested_ = false;
   chunk_dedup_enabled_ = std::getenv("KENGINE_NO_CHUNK_DEDUP") == nullptr;
+  // Diagnostic: KENGINE_NO_TAA renders with temporal accumulation off, to
+  // tell what TAA smears (moving flecks, say) from what is really drawn.
+  if (std::getenv("KENGINE_NO_TAA") != nullptr) {
+    taa_enabled_ = false;
+  }
   if (!chunk_dedup_enabled_) {
     KINFO("Chunk brick deduplication DISABLED (KENGINE_NO_CHUNK_DEDUP).");
   }
@@ -4081,6 +4104,8 @@ VulkanRaymarchShader::~VulkanRaymarchShader() {
   brush_preview_buffer_.reset();
   selection_outline_buffer_.reset();
   material_extra_buffer_.reset();
+  fleck_params_buffer_.reset();
+  fleck_effects_buffer_.reset();
   chunk_brick_primitive_buffer_.reset();
   chunk_brick_looseness_buffer_.reset();
   chunk_brick_pool_buffer_.reset();
@@ -4707,6 +4732,9 @@ void VulkanRaymarchShader::reset_chunked_field() {
         *context_, context_->device.graphics_command_pool);
     vkCmdFillBuffer(cmd->handle(), chunk_brick_paint_buffer_->handle(), 0,
                     VK_WHOLE_SIZE, 0u);
+    // Every brick starts tight (looseness 0) -- see the buffer's creation.
+    vkCmdFillBuffer(cmd->handle(), chunk_brick_looseness_buffer_->handle(), 0,
+                    VK_WHOLE_SIZE, 0u);
     VulkanCommandBuffer::end_single_use(*context_,
                                         context_->device.graphics_command_pool,
                                         std::move(cmd),
@@ -4835,8 +4863,7 @@ void VulkanRaymarchShader::ensure_default_sculpt_material() {
 
 void VulkanRaymarchShader::set_material(i32 slot, glm::vec3 colour,
                                         f32 roughness, f32 metallic,
-                                        bool waxy, i32 fleck_pattern,
-                                        f32 fleck_strength, f32 fleck_scale) {
+                                        bool waxy) {
   // Slots 0/1 are reserved (ensure_default_sculpt_material()'s plain-white
   // default and Spraypaint's fixed paint colour) -- overwriting either
   // would silently change the look of every stamp/spray already relying
@@ -4877,40 +4904,12 @@ void VulkanRaymarchShader::set_material(i32 slot, glm::vec3 colour,
                           clamped_roughness);
   material_scalar_buffer_->load_data(offset, sizeof(glm::vec4), 0, &scalars);
 
-  // x: the "waxy" second-specular-lobe flag (M5). y/z/w: M6 (Flecks)'s
-  // pattern id (0-18, rounded)/strength/scale -- see this method's own
-  // header comment (vulkan_raymarch_shader.h) for the full packing table
-  // and why transmission_buffer_, not tex_transform_buffer_, is where
-  // these live. A caller that wants no Fleck at all is expected to pass
-  // (0, 0.0f, 1.0f) -- strength 0 is what Builtin.FleckPattern.inc.glsl's
-  // entry points gate on, so fleck_pattern/fleck_scale's exact values
-  // don't matter in that case, but they are still stored verbatim (not
-  // forced to 0) so a future "re-enable the last Fleck" UI action has
-  // something to read back.
-  const f32 clamped_fleck_strength = glm::clamp(fleck_strength, 0.0f, 1.0f);
-  const glm::vec4 transmission(waxy ? 1.0f : 0.0f,
-                               static_cast<f32>(fleck_pattern),
-                               clamped_fleck_strength, fleck_scale);
+  // x: the "waxy" second-specular-lobe flag (M5); y/z/w unused.
+  const glm::vec4 transmission(waxy ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
   transmission_buffer_->load_data(offset, sizeof(glm::vec4), 0, &transmission);
 
-  // No uv offset/rotation control exists for sculpt materials yet -- same
+  // No uv offset/rotation control exists for sculpt materials -- same
   // all-zero default ensure_default_sculpt_material() uses for slots 0/1.
-  // M6 investigated repurposing this buffer's apparently-free components
-  // for Fleck params instead of transmission_buffer_'s and found it NOT
-  // safe -- see set_material()'s own header comment (vulkan_raymarch_
-  // shader.h) for why: at the time M6 landed, every sculpt material's
-  // scene_textures[slot] was bound to a visible procedural checkerboard
-  // (texture_system->default_texture()), and this buffer's xyz/w feed that
-  // checkerboard's triplanar UV directly in Builtin.DeferredShade.comp.glsl
-  // -- a non-zero write here would have visibly shifted it regardless of
-  // Fleck settings. A later M5 visual-quality pass rebound every authored
-  // Finish's scene_textures[slot] to flat_texture() instead (see below --
-  // tex_colour is now spatially uniform for every slot this function
-  // touches), but the reasoning for leaving this buffer untouched still
-  // holds for the same reason it always would for a flat texture: a UV
-  // offset/rotation has no visible effect on a texture with no spatial
-  // variation to offset or rotate, so there is nothing to gain by writing
-  // anything other than the all-zero default here.
   const glm::vec4 tex_transform(0.0f, 0.0f, 0.0f, 0.0f);
   tex_transform_buffer_->load_data(offset, sizeof(glm::vec4), 0, &tex_transform);
 
@@ -4987,6 +4986,41 @@ void VulkanRaymarchShader::set_brush_preview(bool enabled, glm::vec3 center,
   preview.shape_op_slot[2] = material_slot;
   preview.shape_op_slot[3] = 0;
   brush_preview_buffer_->load_data(0, sizeof(GpuBrushPreview), 0, &preview);
+}
+
+void VulkanRaymarchShader::set_material_flecks(i32 slot, f32 looseness,
+                                               i32 style, f32 comb,
+                                               f32 ruffle, f32 impasto,
+                                               f32 neatness) {
+  if (slot < 0 || slot >= static_cast<i32>(kMaxScenePrimitives) ||
+      !fleck_params_buffer_) {
+    return;
+  }
+  // y stores style + 1 so a never-set (zero) slot reads as the default,
+  // plus impasto / 2 in its fraction (the slot has no fifth component).
+  const glm::vec4 params(std::clamp(looseness, 0.0f, 1.0f),
+                         static_cast<f32>(style + 1) +
+                             0.5f * std::clamp(impasto, 0.0f, 0.99f),
+                         std::clamp(comb, 0.0f, 1.0f),
+                         // w: ruffle as a level 0-3, plus neatness / 2.
+                         std::round(std::clamp(ruffle, 0.0f, 1.0f) * 3.0f) +
+                             0.5f * std::clamp(neatness, 0.0f, 0.99f));
+  fleck_params_buffer_->load_data(static_cast<u64>(slot) * sizeof(glm::vec4),
+                                  sizeof(glm::vec4), 0, &params);
+}
+
+void VulkanRaymarchShader::set_material_effects(i32 slot, f32 boil, f32 flow,
+                                                f32 wave, f32 evaporate,
+                                                f32 throb) {
+  if (slot < 0 || slot >= static_cast<i32>(kMaxScenePrimitives) ||
+      !fleck_effects_buffer_) {
+    return;
+  }
+  const glm::vec4 effects[2] = {
+      glm::clamp(glm::vec4(boil, flow, wave, evaporate), 0.0f, 1.0f),
+      glm::vec4(std::clamp(throb, 0.0f, 1.0f), 0.0f, 0.0f, 0.0f)};
+  fleck_effects_buffer_->load_data(static_cast<u64>(slot) * sizeof(effects),
+                                   sizeof(effects), 0, effects);
 }
 
 void VulkanRaymarchShader::set_material_glow(i32 slot, f32 glow) {
@@ -7697,6 +7731,14 @@ void VulkanRaymarchShader::render_to(VulkanCommandBuffer &command_buffer,
     // frame to frame for TAA to average them out.
     splat_push.frame_index = static_cast<i32>(noise_frame_);
     splat_push.only_level = splat_only_level_;
+    // This frame's TAA sub-pixel offset rides in the camera vectors' spare
+    // .w components: flecks test their shape at each pixel's true (jittered)
+    // sample point, so TAA anti-aliases their edges like everything else.
+    splat_push.camera_position[3] = jitter_x;
+    splat_push.camera_forward[3] = jitter_y;
+    // Effects mode's animation clock (seconds, wrapped so float precision
+    // never degrades in a long session).
+    splat_push.camera_right[3] = std::fmod(elapsed_time_, 3600.0f);
 
     chunk_point_splat_pipeline_->bind(command_buffer);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,

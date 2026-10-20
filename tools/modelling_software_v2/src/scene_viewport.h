@@ -170,10 +170,9 @@ public:
   // M3 (Looseness): 0 (clean/uniform, the default) to 1 (maximally loose).
   // Purely authored/recorded right now -- see SculptStamp::looseness's own
   // comment (engine/src/resources/sculpt_volume.h) for why this has no
-  // visible effect on a stamp's shape or shading yet: there is no Fleck
-  // evaluator (M6) to consume it. Threaded through the brush panel/stamp
-  // calls anyway so a value set now round-trips correctly through save/
-  // load/Undo/Redo and is already in place the moment M6 lands.
+  // visible effect on a stamp's shape or shading. Threaded through the
+  // brush panel/stamp calls anyway so a value set now round-trips correctly
+  // through save/load/Undo/Redo.
   void set_brush_looseness(f32 looseness) { brush_looseness_ = looseness; }
   f32 brush_looseness() const noexcept { return brush_looseness_; }
 
@@ -418,7 +417,7 @@ public:
   // malformed, or before the engine has initialized.
   bool load_cutout_file(const QString &path);
 
-  // M5 (Finishes) + M6 (Flecks): thin wrapper over
+  // M5 (Finishes): thin wrapper over
   // renderer_sculpt_set_material() -- the same "SceneViewport is the
   // engine-API boundary, ModellingWindow stays Qt-only business logic"
   // split every other sculpt-family call on this class already follows
@@ -427,13 +426,10 @@ public:
   // as a separate, explicit second step (apply_finish_and_colour(),
   // main_window.cpp), the same two-step shape every other brush-panel
   // control already has (a setter configuring state, read by the next
-  // place_stamp()/capture_clone_source() call). fleck_strength 0.0f means
-  // "no Fleck" (fleck_pattern/fleck_scale are then ignored engine-side) --
-  // see renderer_sculpt_set_material()'s own comment. No-op before the
-  // engine has initialized.
+  // place_stamp()/capture_clone_source() call). No-op before the engine
+  // has initialized.
   void configure_material(i32 slot, glm::vec3 colour, f32 roughness,
-                          f32 metallic, bool waxy, i32 fleck_pattern,
-                          f32 fleck_strength, f32 fleck_scale);
+                          f32 metallic, bool waxy);
 
 protected:
   void exposeEvent(QExposeEvent *event) override;

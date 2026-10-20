@@ -73,6 +73,10 @@
 //                     Otherwise: delete the object (or group) under the
 //                     reticle
 //   Start (hold)      recenter the reticle on the screen
+//   D-pad left/right  undo / redo (except mid-clone, where they Fill and
+//                     Repeat -- see above). A step is each finished action:
+//                     a grab, rotate, flip, delete, clone, group change, or
+//                     R2 stroke in a mode.
 //   L3 (click) + left stick direction
 //                     flip the held object (or the one under the reticle)
 //                     90 degrees that way, like tipping it over: up tips
@@ -96,13 +100,15 @@
 // Top bar: buttons at the top centre, each opening a row of buttons
 // underneath it (pressing the open one again closes it). Normally it holds
 // Tools (empty for now) and Modes (Sculpt, Paint, Coat, Style, Effects --
-// only Coat works so far; pressing the current mode again leaves it).
+// only Coat works so far). Inside a mode, an Exit button in the top-right
+// corner (or L1 + B) goes back to the normal controls.
 //
 // Coat mode: the controls stay the same, except
 //   R2 (hold)  applies the current coat tool to the object (or group) under
 //              the reticle, gradually, up to 100%
 //   Y          switches between adding and subtracting (instead of delete)
-// and the top bar becomes Modes | Tools | Add/Subtract | Colour | Finishes:
+//   L1 + B     leaves coat mode (as does the Exit button, top right)
+// and the top bar becomes Tools | Add/Subtract | Colour | Finishes:
 //   Tools      Tint (move the colour toward the picked colour), Hue (take
 //              the picked colour's hue, keeping the object's brightness),
 //              Finish (move toward the picked finish), Glow (glow in the
@@ -113,9 +119,41 @@
 //   Finishes   the finishes, previewed as spheres in the picked colour
 // Every object starts plain: slightly grey, no texture, Default finish.
 //
+// Style mode: the same controls as coat mode (R2 applies the tool to the
+// object or group under the reticle, Y switches add/subtract, L1 + B or the
+// Exit button leaves), with the top bar Tools | Add/Subtract | Fleck Style.
+// The surface is drawn as flecks (splats); the tools change them:
+//   Fleck Style  gives the object the picked fleck shape (subtract: back to
+//                the default circle)
+//   Looseness    fewer, bigger flecks, showing their shape (subtract:
+//                tighter, back to a smooth surface)
+//   Comb         turns the flecks to line up, all one way
+//   Ruffle       the inverse of Comb: scatters the flecks back to random
+//                directions (subtract: combs them, as Comb does)
+//   Impasto      lifts each fleck's tip off the surface, base still
+//                attached, like thick paint
+//   Neatness     lays the flecks out in neat rows, each row offset half a
+//                fleck from the next (subtract: scattered again)
+//   Revert       eases every style setting back to its default (style
+//                changes only; coat and effects are left alone)
+// Fleck Style holds the 16 Dreams fleck styles. L2 does nothing here.
+//
+// Effects mode: style mode's controls, with the top bar Tools |
+// Add/Subtract. Each tool animates the flecks, R2 building it up (subtract:
+// calming it back down):
+//   Boil       flecks bubble up and burst, like boiling water
+//   Flow       flecks stream downhill across the surface, like a river
+//   Wave       flecks sway and flutter, like grass in the wind
+//   Evaporate  flecks soften and drift up and away, like steam
+//   Throb      flecks swell in and out together, like a pulse
+//   Revert     calms every effect back down (effects only)
+// An object with any effect is drawn as flecks even at looseness 0.
+//
 // A tooltip beside the reticle lists, with a button icon and one word
 // each, what the buttons do right now: the object actions when hovering an
-// object, the stick moves while grabbing or rotating one. The icons are
+// object, the stick moves while grabbing or rotating one, a button's name
+// (and shortcut, if it has one) when hovering a button, and getting around
+// plus undo/redo when over nothing. The icons are
 // PNGs in bin/assets/ui/gamepad/ (made by icons/make_gamepad_icons.sh).
 //
 // "Under the reticle" means hit by the line of sight through it. An object
@@ -344,7 +382,7 @@ constexpr glm::vec4 kTipPlus{0.75f, 0.78f, 0.82f, 1.0f};
 // the word for what it does.
 struct TipRow {
   const char *icons[2];
-  const char *word;
+  std::string word;
 };
 
 f32 apply_deadzone(f32 value) {
@@ -422,6 +460,8 @@ public:
       load_stamps(stamps_path_);
     }
     make_everything_plain();
+    adopt_loaded_looseness();
+    committed_ = capture_scene(); // the state undo returns to first
     return true;
   }
 
@@ -444,7 +484,7 @@ public:
     }
     update_flip(dt);
     // In coat mode R2 coats instead of grabbing (see update_coat()).
-    update_manipulation_state(mode_ == EditMode::Coat ? false : r2_pressed,
+    update_manipulation_state(mode_ != EditMode::Default ? false : r2_pressed,
                               l2_pressed, l1);
     update_toolbar_slide(dt);
     update_menu(dt);
@@ -459,7 +499,9 @@ public:
         toggle_selection();
       }
     }
-    if (pressed(GamepadButton::B)) {
+    if (pressed(GamepadButton::B) && l1 && mode_ != EditMode::Default) {
+      exit_mode(); // L1 + B: leave the mode
+    } else if (pressed(GamepadButton::B)) {
       if (shades_open_) {
         shades_open_ = false; // hide the shades row first
       } else if (scoped_group_ >= 0) {
@@ -467,8 +509,10 @@ public:
       }
     }
     update_coat(dt);
+    update_style(dt);
+    update_effects(dt);
     sync_glow_lights();
-    if (pressed(GamepadButton::Y) && mode_ == EditMode::Coat) {
+    if (pressed(GamepadButton::Y) && mode_ != EditMode::Default) {
       toggle_coat_subtract();
     } else if (pressed(GamepadButton::Y)) {
       if (grabbed_object_ >= 0 || rotating_object_ >= 0) {
@@ -485,7 +529,15 @@ public:
       if (pressed(GamepadButton::DpadRight)) {
         step_chain(true);
       }
+    } else if (grabbed_object_ < 0 && rotating_object_ < 0 && !r2_.down) {
+      // Otherwise D-pad left / right: undo / redo.
+      if (pressed(GamepadButton::DpadLeft)) {
+        undo();
+      } else if (pressed(GamepadButton::DpadRight)) {
+        redo();
+      }
     }
+    commit_history_if_idle();
 
     if (framing_) {
       update_framing(dt);
@@ -543,7 +595,29 @@ private:
       return;
     }
     sculpt_shared::replay_document(document);
+    for (const SculptStampRecord &stamp : document.stamps()) {
+      if (stamp.looseness > 0.0f) {
+        f32 &loose = loaded_looseness_[stamp.object_id];
+        loose = std::max(loose, stamp.looseness);
+      }
+    }
     KINFO("Loaded {} stamp(s) from '{}'.", document.stamps().size(), path);
+  }
+
+  // A file's per-stamp looseness becomes its object's style-mode looseness
+  // (and the stamps go back to 0): the shader draws the larger of the two,
+  // so leaving it on the stamps would stop Subtract going below it.
+  void adopt_loaded_looseness() {
+    for (const auto &[object, looseness] : loaded_looseness_) {
+      ObjectCoat *coat = own_coat(object);
+      if (!coat) {
+        continue;
+      }
+      coat->looseness = std::max(coat->looseness, looseness);
+      apply_coat_material(*coat);
+      renderer_sculpt_set_object_looseness(&object, 1, 0.0f);
+    }
+    loaded_looseness_.clear();
   }
 
   // --- The brush point -------------------------------------------------------
@@ -887,7 +961,9 @@ private:
         KINFO("Grab: nothing under the reticle.");
       }
     }
-    if (l2_pressed && rotating_object_ < 0 && grabbed_object_ < 0) {
+    // Style and effects modes have no rotate: L2 does nothing there.
+    if (l2_pressed && rotating_object_ < 0 && grabbed_object_ < 0 &&
+        mode_ != EditMode::Style && mode_ != EditMode::Effects) {
       glm::vec3 hit;
       rotating_object_ = pick_object_under_reticle(&hit);
       if (rotating_object_ >= 0) {
@@ -1135,6 +1211,7 @@ private:
     if (scoped_group_ >= 0) {
       return;
     }
+    history_dirty_ = true;
     if (const Group *group = selected_group()) {
       const i32 id = group->id;
       std::erase_if(groups_, [id](const Group &g) { return g.id == id; });
@@ -1238,6 +1315,7 @@ private:
     });
     remove_from_groups(objects);
     forget_coats(objects);
+    history_dirty_ = true;
     return true;
   }
 
@@ -1274,6 +1352,7 @@ private:
   // in the same order. Inside a scoped group the copies join it; otherwise
   // each group copied whole gets a matching group of copies.
   std::vector<i32> clone_objects(const std::vector<i32> &originals) {
+    history_dirty_ = true;
     std::vector<i32> clones;
     std::vector<std::pair<i32, i32>> copies; // original -> copy
     for (i32 original : originals) {
@@ -1437,6 +1516,7 @@ private:
       renderer_sculpt_transform_objects(
           link.objects.data(), static_cast<i32>(link.objects.size()),
           link.center, delta_rotation, delta_move, delta_scale);
+      history_dirty_ = true;
       link.center = center;
       link.rotation = rotation;
       link.scale = scale;
@@ -1474,6 +1554,7 @@ private:
                                            scale)) {
       return;
     }
+    history_dirty_ = true;
     auto apply = [&](glm::vec3 p) {
       return pivot + scale * (rotation * (p - pivot)) + translation;
     };
@@ -1654,8 +1735,46 @@ private:
   // state whenever it's needed (UiItem), so layout, hover, pressing and
   // drawing all share one description.
 
-  enum class Menu { None, Tools, Modes, CoatTools, Colour, Finishes };
-  enum class EditMode { Default, Coat };
+  enum class Menu {
+    None, Tools, Modes, CoatTools, Colour, Finishes, StyleTools, FleckStyles,
+    EffectsTools
+  };
+  enum class EditMode { Default, Coat, Style, Effects };
+  // Effects mode's tools: each animates the flecks of the object (or group)
+  // under the reticle, R2 building it up (or, subtracting, down) gradually.
+  enum class EffectsTool { Boil, Flow, Wave, Evaporate, Throb, Revert };
+  static constexpr int kEffectsToolCount = 6;
+  static constexpr const char *kEffectsToolNames[kEffectsToolCount] = {
+      "Boil", "Flow", "Wave", "Evaporate", "Throb", "Revert"};
+  static constexpr const char *kEffectsToolIcons[kEffectsToolCount] = {
+      "ui/toolbar/boil.png", "ui/toolbar/flow.png", "ui/toolbar/wave.png",
+      "ui/toolbar/evaporate.png", "ui/toolbar/throb.png",
+      "ui/toolbar/revert.png"};
+  enum class StyleTool {
+    FleckStyle, Looseness, Comb, Ruffle, Impasto, Neatness, Revert
+  };
+  static constexpr int kStyleToolCount = 7;
+  static constexpr const char *kStyleToolNames[kStyleToolCount] = {
+      "Fleck Style", "Looseness", "Comb", "Ruffle", "Impasto", "Neatness",
+      "Revert"};
+  static constexpr const char *kStyleToolIcons[kStyleToolCount] = {
+      "ui/toolbar/fleckstyle.png", "ui/toolbar/looseness.png",
+      "ui/toolbar/comb.png", "ui/toolbar/ruffle.png",
+      "ui/toolbar/impasto.png", "ui/toolbar/neatness.png",
+      "ui/toolbar/revert.png"};
+  // The 16 Dreams fleck styles, in the engine's style-id order (see
+  // renderer_sculpt_set_material_flecks()).
+  static constexpr int kFleckStyleCount = 16;
+  static constexpr const char *kFleckStyleNames[kFleckStyleCount] = {
+      "Square", "Circle", "Triangle", "Hexagon", "Dots", "Scribble",
+      "Veins", "Splat", "Straight", "Heavy", "Hatching", "Cubist",
+      "Impressionist", "Expressive", "Baroque", "Streaky"};
+  static constexpr int kDefaultFleckStyle = 1; // Circle
+  static std::string fleck_style_icon(int style) {
+    return "ui/flecks/style_" + std::to_string(style) + ".png";
+  }
+  // Row buttons per line: a longer row (the 16 fleck styles) wraps.
+  static constexpr int kRowWrap = 8;
   enum class CoatTool { Tint, Hue, Finish, Glow, Revert };
 
   static constexpr int kModeCount = 5;
@@ -1673,26 +1792,28 @@ private:
 
   struct UiItem {
     std::string label;
-    const char *icon = nullptr; // an image, drawn as is (white icons)...
+    std::string icon;           // an image, drawn as is (white icons)...
     bool swatch = false;        // ...or a disc of `colour`...
     int finish = -1;            // ...or finish `finish` previewed in `colour`
     glm::vec3 colour{1.0f};
     bool active = false;  // ringed: the current choice / open menu
     bool enabled = true;
     std::function<void()> press;
+    const char *shortcut[2] = {nullptr, nullptr}; // gamepad icons, if any
   };
 
   // Layers, for hover ids (layer * kLayerStride + index).
   static constexpr int kLayerTop = 0;
   static constexpr int kLayerRow = 1;
   static constexpr int kLayerShades = 2;
+  static constexpr int kLayerExit = 3; // the Exit button (index 0)
   static constexpr int kLayerStride = 100;
 
   glm::vec3 coat_colour() const { return coat_shade(colour_index_, shade_index_); }
 
   std::vector<UiItem> top_items() {
     std::vector<UiItem> items;
-    auto menu_button = [&](Menu menu, std::string label, const char *icon) {
+    auto menu_button = [&](Menu menu, std::string label, std::string icon) {
       UiItem item;
       item.label = label;
       item.icon = icon;
@@ -1701,7 +1822,6 @@ private:
       return item;
     };
     if (mode_ == EditMode::Coat) {
-      items.push_back(menu_button(Menu::Modes, "Modes", "ui/toolbar/modes.png"));
       const int tool = static_cast<int>(coat_tool_);
       items.push_back(menu_button(
           Menu::CoatTools, std::string("Tools: ") + kCoatToolNames[tool],
@@ -1710,17 +1830,44 @@ private:
       add_sub.label = coat_subtract_ ? "Subtracting" : "Adding";
       add_sub.icon = coat_subtract_ ? "ui/toolbar/minus.png" : "ui/toolbar/plus.png";
       add_sub.press = [this] { toggle_coat_subtract(); };
+      add_sub.shortcut[0] = "y";
       items.push_back(add_sub);
-      UiItem colour = menu_button(Menu::Colour, "Colour", nullptr);
+      UiItem colour = menu_button(Menu::Colour, "Colour", "");
       colour.swatch = true;
       colour.colour = coat_colour();
       items.push_back(colour);
       UiItem finishes = menu_button(
           Menu::Finishes, std::string("Finish: ") + kCoatFinishes[finish_index_].name,
-          nullptr);
+          "");
       finishes.finish = finish_index_;
       finishes.colour = coat_colour();
       items.push_back(finishes);
+    } else if (mode_ == EditMode::Style) {
+      const int tool = static_cast<int>(style_tool_);
+      items.push_back(menu_button(
+          Menu::StyleTools, std::string("Tools: ") + kStyleToolNames[tool],
+          kStyleToolIcons[tool]));
+      UiItem add_sub;
+      add_sub.label = coat_subtract_ ? "Subtracting" : "Adding";
+      add_sub.icon = coat_subtract_ ? "ui/toolbar/minus.png" : "ui/toolbar/plus.png";
+      add_sub.press = [this] { toggle_coat_subtract(); };
+      add_sub.shortcut[0] = "y";
+      items.push_back(add_sub);
+      items.push_back(menu_button(
+          Menu::FleckStyles,
+          std::string("Fleck Style: ") + kFleckStyleNames[fleck_style_index_],
+          fleck_style_icon(fleck_style_index_)));
+    } else if (mode_ == EditMode::Effects) {
+      const int tool = static_cast<int>(effects_tool_);
+      items.push_back(menu_button(
+          Menu::EffectsTools, std::string("Tools: ") + kEffectsToolNames[tool],
+          kEffectsToolIcons[tool]));
+      UiItem add_sub;
+      add_sub.label = coat_subtract_ ? "Subtracting" : "Adding";
+      add_sub.icon = coat_subtract_ ? "ui/toolbar/minus.png" : "ui/toolbar/plus.png";
+      add_sub.press = [this] { toggle_coat_subtract(); };
+      add_sub.shortcut[0] = "y";
+      items.push_back(add_sub);
     } else {
       items.push_back(menu_button(Menu::Tools, "Tools", "ui/toolbar/tools.png"));
       items.push_back(menu_button(Menu::Modes, "Modes", "ui/toolbar/modes.png"));
@@ -1736,7 +1883,9 @@ private:
         UiItem item;
         item.label = kModeNames[i];
         item.icon = kModeIcons[i];
-        item.active = i == 2 && mode_ == EditMode::Coat;
+        item.active = (i == 2 && mode_ == EditMode::Coat) ||
+                      (i == 3 && mode_ == EditMode::Style) ||
+                      (i == 4 && mode_ == EditMode::Effects);
         item.press = [this, i] { select_mode(i); };
         items.push_back(item);
       }
@@ -1785,6 +1934,45 @@ private:
         items.push_back(item);
       }
       break;
+    case Menu::StyleTools:
+      for (int i = 0; i < kStyleToolCount; ++i) {
+        UiItem item;
+        item.label = kStyleToolNames[i];
+        item.icon = kStyleToolIcons[i];
+        item.active = static_cast<int>(style_tool_) == i;
+        item.press = [this, i] {
+          style_tool_ = static_cast<StyleTool>(i);
+          KINFO("Style tool: {}.", kStyleToolNames[i]);
+        };
+        items.push_back(item);
+      }
+      break;
+    case Menu::EffectsTools:
+      for (int i = 0; i < kEffectsToolCount; ++i) {
+        UiItem item;
+        item.label = kEffectsToolNames[i];
+        item.icon = kEffectsToolIcons[i];
+        item.active = static_cast<int>(effects_tool_) == i;
+        item.press = [this, i] {
+          effects_tool_ = static_cast<EffectsTool>(i);
+          KINFO("Effects tool: {}.", kEffectsToolNames[i]);
+        };
+        items.push_back(item);
+      }
+      break;
+    case Menu::FleckStyles:
+      for (int i = 0; i < kFleckStyleCount; ++i) {
+        UiItem item;
+        item.label = kFleckStyleNames[i];
+        item.icon = fleck_style_icon(i);
+        item.active = fleck_style_index_ == i;
+        item.press = [this, i] {
+          fleck_style_index_ = i;
+          KINFO("Fleck style: {}.", kFleckStyleNames[i]);
+        };
+        items.push_back(item);
+      }
+      break;
     default: // Tools (default mode): nothing yet
       break;
     }
@@ -1823,14 +2011,44 @@ private:
   }
 
   void select_mode(int index) {
-    if (index == 2) { // Coat
-      mode_ = mode_ == EditMode::Coat ? EditMode::Default : EditMode::Coat;
+    if (index >= 2 && index <= 4) { // Coat, Style, Effects
+      mode_ = index == 2   ? EditMode::Coat
+              : index == 3 ? EditMode::Style
+                           : EditMode::Effects;
       open_menu_ = Menu::None;
       shades_open_ = false;
-      KINFO("{} coat mode.", mode_ == EditMode::Coat ? "Entered" : "Left");
+      KINFO("Entered {} mode.", mode_name());
       return;
     }
     KINFO("{} mode isn't implemented yet.", kModeNames[index]);
+  }
+
+  // Exit button / L1 + B: back to the normal controls.
+  void exit_mode() {
+    if (mode_ == EditMode::Default) {
+      return;
+    }
+    KINFO("Left {} mode.", mode_name());
+    mode_ = EditMode::Default;
+    open_menu_ = Menu::None;
+    shades_open_ = false;
+  }
+
+  const char *mode_name() const {
+    switch (mode_) {
+    case EditMode::Coat: return "coat";
+    case EditMode::Style: return "style";
+    case EditMode::Effects: return "effects";
+    default: return "";
+    }
+  }
+
+  // The Exit button: top-right corner of the area the reticle can reach,
+  // level with the top bar; only shown inside a mode.
+  glm::vec2 exit_button_center() const {
+    const f32 reach_x = 0.5f * kScreenEdge * screen_width_;
+    return {0.5f * screen_width_ + reach_x - kButtonMargin - kButtonRadius,
+            top_row_y()};
   }
 
   void toggle_coat_subtract() {
@@ -1874,9 +2092,17 @@ private:
     const f32 shown =
         staggered(shades ? shades_progress_ : menu_progress_, index, count);
     *out_shown = shown;
+    // A long row wraps after kRowWrap buttons, each further line a button
+    // plus a label's height lower.
+    const int line = shades ? 0 : index / kRowWrap;
+    const int col = shades ? index : index % kRowWrap;
+    const int line_count =
+        shades ? count : std::min(count - line * kRowWrap, kRowWrap);
+    const f32 line_step = 2.0f * kButtonRadius + kMenuRowGap + kTipFontPixels + 6.0f;
     const f32 from = shades ? row_home_y() : top_row_y();
-    const f32 to = shades ? shades_home_y() : row_home_y();
-    return {row_x(cx, index, count), glm::mix(from, to, ease_out(shown))};
+    const f32 to = (shades ? shades_home_y() : row_home_y()) +
+                   line_step * static_cast<f32>(line);
+    return {row_x(cx, col, line_count), glm::mix(from, to, ease_out(shown))};
   }
 
   void update_menu(f32 dt) {
@@ -1910,6 +2136,10 @@ private:
       }
       return -1;
     };
+    if (mode_ != EditMode::Default &&
+        glm::length(reticle - exit_button_center()) <= reach) {
+      return kLayerExit * kLayerStride;
+    }
     if (shades_visible()) {
       if (int id = test(kLayerShades, kCoatShadeCount); id >= 0) {
         return id;
@@ -1927,6 +2157,11 @@ private:
   void press_top_bar(int id) {
     const int layer = id / kLayerStride;
     const int index = id % kLayerStride;
+    if (layer == kLayerExit) {
+      KINFO("Pressed Exit.");
+      exit_mode();
+      return;
+    }
     std::vector<UiItem> items = layer == kLayerTop   ? top_items()
                                 : layer == kLayerRow ? row_items(shown_menu_)
                                                      : shade_items();
@@ -1953,9 +2188,9 @@ private:
 
   void draw_ui_item(const UiItem &item, glm::vec2 centre, bool hovered,
                     f32 alpha) {
-    if (item.icon) {
-      draw_round_button(centre, item.icon, hovered, item.active, item.enabled,
-                        alpha);
+    if (!item.icon.empty()) {
+      draw_round_button(centre, item.icon.c_str(), hovered, item.active,
+                        item.enabled, alpha);
       return;
     }
     // Swatch / finish: the button background, then the colour or sphere.
@@ -1978,22 +2213,17 @@ private:
         continue;
       }
       const bool hovered = hovered_top_ == layer * kLayerStride + i;
-      draw_ui_item(items[i], centre, hovered, shown);
-      if (hovered) {
-        // Top row: name above; the rows below: name underneath.
-        const std::string &label = items[i].label;
-        const f32 y = layer == kLayerTop
-                          ? centre.y - kButtonRadius - kButtonLabelGap
-                          : centre.y + kButtonRadius + kButtonLabelGap +
-                                kTipFontPixels;
-        draw_shadowed_text(label.c_str(),
-                           glm::vec2(centre.x - 0.5f * text_width(label.c_str()), y),
-                           kTipText, 1.0f);
-      }
+      draw_ui_item(items[i], centre, hovered, shown); // name: the tooltip
     }
   }
 
   void draw_top_bar() {
+    if (mode_ != EditMode::Default) {
+      const glm::vec2 centre = exit_button_center();
+      const bool hovered = hovered_top_ == kLayerExit * kLayerStride;
+      draw_round_button(centre, "ui/toolbar/exit.png", hovered, false, true,
+                        1.0f);
+    }
     draw_layer(kLayerTop, top_items());
     if (shown_menu_ == Menu::Tools && menu_progress_ > 0.0f) {
       const char *empty = "No tools yet";
@@ -2023,12 +2253,32 @@ private:
     f32 waxy = 0.0f; // 0..1; on past halfway
     f32 glow = 0.0f;
     i32 light = -1; // its glow light (see sync_glow_lights()), or -1
+    // Flecks (style mode).
+    f32 looseness = 0.0f;
+    i32 fleck_style = kDefaultFleckStyle;
+    f32 comb = 0.0f;
+    f32 ruffle = 0.5f;
+    f32 impasto = 0.0f;
+    f32 neatness = 0.0f;
+    // Effects (effects mode), each 0 = still .. 1 = full.
+    f32 boil = 0.0f;
+    f32 flow = 0.0f;
+    f32 wave = 0.0f;
+    f32 evaporate = 0.0f;
+    f32 throb = 0.0f;
   };
 
   static void apply_coat_material(const ObjectCoat &coat) {
     renderer_sculpt_set_material(coat.slot, coat.colour, coat.roughness,
-                                 coat.metallic, coat.waxy > 0.5f, 0, 0.0f, 1.0f);
+                                 coat.metallic, coat.waxy > 0.5f);
     renderer_sculpt_set_material_glow(coat.slot, coat.glow);
+    renderer_sculpt_set_material_flecks(coat.slot, coat.looseness,
+                                        coat.fleck_style, coat.comb,
+                                        coat.ruffle, coat.impasto,
+                                        coat.neatness);
+    renderer_sculpt_set_material_effects(coat.slot, coat.boil, coat.flow,
+                                         coat.wave, coat.evaporate,
+                                         coat.throb);
   }
 
   // Every object starts plain: one shared slot, set up once.
@@ -2080,6 +2330,7 @@ private:
     coat.slot = slot;
     apply_coat_material(coat);
     renderer_sculpt_set_object_material(&object, 1, slot);
+    history_dirty_ = true;
     coats_[object] = coat;
     return &coats_[object];
   }
@@ -2146,6 +2397,102 @@ private:
     }
   }
 
+  // R2 held in style mode: one frame of the current fleck tool on the
+  // object (or group) under the reticle.
+  void update_style(f32 dt) {
+    if (mode_ != EditMode::Style || !r2_.down || hovered_button_ >= 0 ||
+        hovered_top_ >= 0) {
+      return;
+    }
+    const i32 object = pick_object_under_reticle();
+    if (object < 0) {
+      return;
+    }
+    const f32 step = dt / kCoatFullTime;
+    const f32 target = coat_subtract_ ? 0.0f : 1.0f;
+    for (i32 id : group_for(object)) {
+      ObjectCoat *coat = own_coat(id);
+      if (!coat) {
+        continue;
+      }
+      switch (style_tool_) {
+      case StyleTool::FleckStyle:
+        coat->fleck_style =
+            coat_subtract_ ? kDefaultFleckStyle : fleck_style_index_;
+        break;
+      case StyleTool::Looseness:
+        coat->looseness = move_toward(coat->looseness, target, step);
+        break;
+      case StyleTool::Comb:
+        coat->comb = move_toward(coat->comb, target, step);
+        break;
+      case StyleTool::Ruffle: // Comb run backwards
+        coat->comb = move_toward(coat->comb, 1.0f - target, step);
+        break;
+      case StyleTool::Impasto:
+        coat->impasto = move_toward(coat->impasto, target, step);
+        break;
+      case StyleTool::Neatness:
+        coat->neatness = move_toward(coat->neatness, target, step);
+        break;
+      case StyleTool::Revert: { // every style setting back toward default
+        const ObjectCoat plain;
+        coat->fleck_style = plain.fleck_style;
+        coat->looseness = move_toward(coat->looseness, plain.looseness, step);
+        coat->comb = move_toward(coat->comb, plain.comb, step);
+        coat->ruffle = move_toward(coat->ruffle, plain.ruffle, step);
+        coat->impasto = move_toward(coat->impasto, plain.impasto, step);
+        coat->neatness = move_toward(coat->neatness, plain.neatness, step);
+        break;
+      }
+      }
+      history_dirty_ = true;
+      apply_coat_material(*coat);
+    }
+  }
+
+  // R2 held in effects mode: builds the current effect up (or down) on the
+  // object (or group) under the reticle, like a style tool.
+  void update_effects(f32 dt) {
+    if (mode_ != EditMode::Effects || !r2_.down || hovered_button_ >= 0 ||
+        hovered_top_ >= 0) {
+      return;
+    }
+    const i32 object = pick_object_under_reticle();
+    if (object < 0) {
+      return;
+    }
+    const f32 step = dt / kCoatFullTime;
+    const f32 target = coat_subtract_ ? 0.0f : 1.0f;
+    for (i32 id : group_for(object)) {
+      ObjectCoat *coat = own_coat(id);
+      if (!coat) {
+        continue;
+      }
+      if (effects_tool_ == EffectsTool::Revert) { // every effect toward still
+        for (f32 *e : {&coat->boil, &coat->flow, &coat->wave, &coat->evaporate,
+                       &coat->throb}) {
+          *e = move_toward(*e, 0.0f, step);
+        }
+        apply_coat_material(*coat);
+        history_dirty_ = true;
+        continue;
+      }
+      f32 *effect = nullptr;
+      switch (effects_tool_) {
+      case EffectsTool::Boil: effect = &coat->boil; break;
+      case EffectsTool::Flow: effect = &coat->flow; break;
+      case EffectsTool::Wave: effect = &coat->wave; break;
+      case EffectsTool::Evaporate: effect = &coat->evaporate; break;
+      case EffectsTool::Throb: effect = &coat->throb; break;
+      case EffectsTool::Revert: break; // handled above
+      }
+      *effect = move_toward(*effect, target, step);
+      apply_coat_material(*coat);
+      history_dirty_ = true;
+    }
+  }
+
   // R2 held in coat mode: one frame of the current tool on the object (or
   // group) under the reticle.
   void update_coat(f32 dt) {
@@ -2189,6 +2536,7 @@ private:
       if (coat_tool_ == CoatTool::Glow || all) {
         coat->glow = move_toward(coat->glow, subtract ? 0.0f : 1.0f, step);
       }
+      history_dirty_ = true;
       apply_coat_material(*coat);
     }
   }
@@ -2203,15 +2551,6 @@ private:
       const bool hovered = hovered_button_ == i;
       draw_round_button(centre, button_icon(button), hovered,
                         button_active(button), button_enabled(button), 1.0f);
-      if (hovered) {
-        const char *label = button_label(button);
-        // To the left of the button, vertically centred on it.
-        draw_shadowed_text(label,
-                           glm::vec2(centre.x - kButtonRadius - kButtonLabelGap -
-                                         text_width(label),
-                                     centre.y + 0.36f * kTipFontPixels),
-                           kTipText, 1.0f);
-      }
     }
   }
 
@@ -2258,9 +2597,38 @@ private:
 
   // The rows for what the reticle is doing now; empty when there's nothing
   // to explain (not on an object, or mid-animation).
-  std::vector<TipRow> tooltip_rows() const {
-    if (framing_ || recentering_ || hovered_button_ >= 0 || hovered_top_ >= 0) {
+  std::vector<TipRow> tooltip_rows() {
+    if (framing_ || recentering_) {
       return {};
+    }
+    // Over a button: its name (A presses it) and its shortcut, if any.
+    if (hovered_button_ >= 0 && grabbed_object_ < 0 && rotating_object_ < 0) {
+      const auto button = static_cast<ToolbarButton>(hovered_button_);
+      std::vector<TipRow> rows = {{{"a", nullptr}, button_label(button)}};
+      if (button == ToolbarButton::Scope && scoped_group_ >= 0) {
+        rows.push_back({{"b", nullptr}, "Shortcut"});
+      }
+      return rows;
+    }
+    if (hovered_top_ >= 0 && grabbed_object_ < 0 && rotating_object_ < 0) {
+      const int layer = hovered_top_ / kLayerStride;
+      const int index = hovered_top_ % kLayerStride;
+      if (layer == kLayerExit) {
+        return {{{"a", nullptr}, std::string("Exit ") + mode_name() + " mode"},
+                {{"l1", "b"}, "Shortcut"}};
+      }
+      const std::vector<UiItem> items = layer == kLayerTop   ? top_items()
+                                        : layer == kLayerRow ? row_items(shown_menu_)
+                                                             : shade_items();
+      if (index >= static_cast<int>(items.size())) {
+        return {};
+      }
+      std::vector<TipRow> rows = {{{"a", nullptr}, items[index].label}};
+      if (items[index].shortcut[0]) {
+        rows.push_back({{items[index].shortcut[0], items[index].shortcut[1]},
+                        "Shortcut"});
+      }
+      return rows;
     }
     if (grabbed_object_ >= 0 && chain_.active) {
       // Cloning: Fill/Repeat take Flip's place (it still works).
@@ -2294,6 +2662,27 @@ private:
           {{"l2", nullptr}, "Done"},
       };
     }
+    if (hovered_object_ >= 0 &&
+        (mode_ == EditMode::Style || mode_ == EditMode::Effects)) {
+      const bool reverting = mode_ == EditMode::Style
+                                 ? style_tool_ == StyleTool::Revert
+                                 : effects_tool_ == EffectsTool::Revert;
+      const std::string style_word =
+          reverting ? std::string("Revert")
+                    : std::string(mode_ == EditMode::Style
+                                      ? kStyleToolNames[static_cast<int>(style_tool_)]
+                                      : kEffectsToolNames[static_cast<int>(effects_tool_)]) +
+                          (coat_subtract_ ? " -" : " +");
+      return {
+          {{"r2", nullptr}, style_word},
+          {{"y", nullptr}, coat_subtract_ ? "Add" : "Subtract"},
+          {{"a", nullptr},
+           is_selected(hovered_object_) ? "Deselect" : "Select"},
+          {{"l3", nullptr}, "Flip"},
+          {{"l1", "r1"}, "Frame"},
+          {{"l1", "b"}, "Exit"},
+      };
+    }
     if (hovered_object_ >= 0 && mode_ == EditMode::Coat) {
       static std::string apply_word;
       apply_word = coat_tool_ == CoatTool::Revert
@@ -2301,13 +2690,14 @@ private:
                        : std::string(kCoatToolNames[static_cast<int>(coat_tool_)]) +
                              (coat_subtract_ ? " -" : " +");
       return {
-          {{"r2", nullptr}, apply_word.c_str()},
+          {{"r2", nullptr}, apply_word},
           {{"y", nullptr}, coat_subtract_ ? "Add" : "Subtract"},
           {{"l2", nullptr}, "Rotate"},
           {{"a", nullptr},
            is_selected(hovered_object_) ? "Deselect" : "Select"},
           {{"l3", nullptr}, "Flip"},
           {{"l1", "r1"}, "Frame"},
+          {{"l1", "b"}, "Exit"},
       };
     }
     if (hovered_object_ >= 0) {
@@ -2322,7 +2712,29 @@ private:
           {{"l1", "r1"}, "Frame"},
       };
     }
-    return {};
+    // Over nothing: getting around, and what can be done from here.
+    if (mode_ == EditMode::Default) {
+      return {
+          {{"ls", nullptr}, "Move"},
+          {{"rs", nullptr}, "Look"},
+          {{"r1", nullptr}, "Orbit"},
+          {{"l1", "ls"}, "Strafe"},
+          {{"dpad_left", nullptr}, "Undo"},
+          {{"dpad_right", nullptr}, "Redo"},
+          {{"l1", "r1"}, "Frame all"},
+          {{"start", nullptr}, "Recenter"},
+      };
+    }
+    return {
+        {{"ls", nullptr}, "Move"},
+        {{"rs", nullptr}, "Look"},
+        {{"r1", nullptr}, "Orbit"},
+        {{"l1", "ls"}, "Strafe"},
+        {{"dpad_left", nullptr}, "Undo"},
+        {{"dpad_right", nullptr}, "Redo"},
+        {{"l1", "r1"}, "Frame all"},
+        {{"l1", "b"}, "Exit"},
+    };
   }
 
   // Draws the tooltip around the reticle with no background: at most
@@ -2345,14 +2757,36 @@ private:
     }
     tip_alpha_ = tip_fade_ * tip_fade_ * (3.0f - 2.0f * tip_fade_); // smoothstep
     const std::vector<TipRow> &rows = tip_rows_;
-    const glm::vec2 reticle = reticle_screen();
+    glm::vec2 reticle = reticle_screen();
     const size_t right_count = std::min(rows.size(), kTipMaxRows);
+    const size_t left_last = std::min(rows.size(), right_count + kTipMaxRows);
+    // Near a screen edge, slide the whole tooltip in (both columns
+    // together) rather than squashing one column onto the other.
+    const f32 right_width = tip_column_width(rows, 0, right_count);
+    const f32 left_width = tip_column_width(rows, right_count, left_last);
+    const f32 min_x = left_width > 0.0f ? kTipOffset + left_width : 0.0f;
+    const f32 max_x = screen_width_ - kTipOffset - right_width;
+    if (min_x <= max_x) {
+      reticle.x = std::clamp(reticle.x, min_x, max_x);
+    }
     draw_tip_column(rows, 0, right_count, reticle, true);
     if (rows.size() > right_count) {
-      draw_tip_column(rows, right_count,
-                      std::min(rows.size(), right_count + kTipMaxRows),
-                      reticle, false);
+      draw_tip_column(rows, right_count, left_last, reticle, false);
     }
+  }
+
+  f32 tip_column_width(const std::vector<TipRow> &rows, size_t first,
+                       size_t last) const {
+    f32 icon_column = 0.0f;
+    f32 width = 0.0f;
+    for (size_t i = first; i < last; ++i) {
+      icon_column = std::max(icon_column, tip_icons_width(rows[i]));
+    }
+    for (size_t i = first; i < last; ++i) {
+      width = std::max(width, icon_column + kTipTextGap +
+                                  text_width(rows[i].word.c_str()));
+    }
+    return width;
   }
 
   f32 tip_icons_width(const TipRow &row) const {
@@ -2367,14 +2801,10 @@ private:
   void draw_tip_column(const std::vector<TipRow> &rows, size_t first,
                        size_t last, glm::vec2 reticle, bool right) {
     f32 icon_column = 0.0f;
-    f32 width = 0.0f;
     for (size_t i = first; i < last; ++i) {
       icon_column = std::max(icon_column, tip_icons_width(rows[i]));
     }
-    for (size_t i = first; i < last; ++i) {
-      width = std::max(width, icon_column + kTipTextGap +
-                                  text_width(rows[i].word));
-    }
+    const f32 width = tip_column_width(rows, first, last);
     const f32 height = kTipRowHeight * static_cast<f32>(last - first);
     f32 left = right ? reticle.x + kTipOffset : reticle.x - kTipOffset - width;
     f32 top = reticle.y - 0.5f * height;
@@ -2392,7 +2822,7 @@ private:
       // line up after the widest combo. Left column: each row is pushed
       // right so its word ends at the column's right edge.
       f32 x = right ? left + icon_column - tip_icons_width(row)
-                    : left + width - text_width(row.word) - kTipTextGap -
+                    : left + width - text_width(row.word.c_str()) - kTipTextGap -
                           tip_icons_width(row);
       for (int k = 0; k < 2 && row.icons[k]; ++k) {
         if (k > 0) {
@@ -2407,7 +2837,7 @@ private:
       }
       const f32 text_x = right ? left + icon_column + kTipTextGap
                                : x + kTipTextGap;
-      draw_shadowed_text(row.word, glm::vec2(text_x, baseline), kTipText);
+      draw_shadowed_text(row.word.c_str(), glm::vec2(text_x, baseline), kTipText);
     }
   }
 
@@ -2423,6 +2853,206 @@ private:
     renderer_draw_text(text, position + glm::vec2(kTipShadowOffset),
                        kTipShadow * fade, kTipFontScale);
     renderer_draw_text(text, position, colour * fade, kTipFontScale);
+  }
+
+  // --- Undo / redo -----------------------------------------------------------
+  //
+  // Whole-scene snapshots: every object's stamps, plus the tool's own state
+  // about them (groups, coats/style/effects, selection). An action marks
+  // history_dirty_; once it's over (nothing held, R2/L2 up) the scene is
+  // captured as one step. Restoring rebuilds only the objects that differ
+  // -- deleted ones are re-stamped (under new ids, remapped through the
+  // whole history), clones are deleted, moved ones are re-stamped where
+  // they were -- and puts the tool state back.
+
+  struct ObjectSnapshot {
+    i32 id = -1;
+    std::vector<SculptStampInfo> stamps;
+  };
+  struct SceneSnapshot {
+    std::vector<ObjectSnapshot> objects;
+    std::vector<Group> groups;
+    std::unordered_map<i32, ObjectCoat> coats;
+    std::vector<i32> selection;
+  };
+  static constexpr size_t kMaxUndoSteps = 64;
+
+  static bool same_stamp(const SculptStampInfo &a, const SculptStampInfo &b) {
+    return a.center == b.center && a.shape_type == b.shape_type &&
+           a.params == b.params && a.smoothness == b.smoothness &&
+           a.op == b.op && a.material_slot == b.material_slot &&
+           a.looseness == b.looseness && a.rotation == b.rotation;
+  }
+  static bool same_object(const ObjectSnapshot &a, const ObjectSnapshot &b) {
+    return a.stamps.size() == b.stamps.size() &&
+           std::equal(a.stamps.begin(), a.stamps.end(), b.stamps.begin(),
+                      same_stamp);
+  }
+
+  SceneSnapshot capture_scene() const {
+    SceneSnapshot snap;
+    const i32 count = renderer_sculpt_object_ids(nullptr, 0);
+    std::vector<i32> ids(static_cast<size_t>(std::max(count, 0)));
+    renderer_sculpt_object_ids(ids.data(), count);
+    for (i32 id : ids) {
+      ObjectSnapshot object;
+      object.id = id;
+      object.stamps.resize(
+          static_cast<size_t>(renderer_sculpt_object_stamps(id, nullptr, 0)));
+      renderer_sculpt_object_stamps(id, object.stamps.data(),
+                                    static_cast<i32>(object.stamps.size()));
+      snap.objects.push_back(std::move(object));
+    }
+    snap.groups = groups_;
+    snap.coats = coats_;
+    for (auto &[id, coat] : snap.coats) {
+      coat.light = -1; // lights are runtime, re-made by sync_glow_lights()
+    }
+    snap.selection = selection_;
+    return snap;
+  }
+
+  // Called every frame: closes the step an action has been building once
+  // the action is over.
+  void commit_history_if_idle() {
+    if (!history_dirty_ || grabbed_object_ >= 0 || rotating_object_ >= 0 ||
+        r2_.down || l2_.down || chain_.active || flip_object_ >= 0) {
+      return;
+    }
+    history_dirty_ = false;
+    undo_stack_.push_back(std::move(committed_));
+    if (undo_stack_.size() > kMaxUndoSteps) {
+      undo_stack_.erase(undo_stack_.begin());
+    }
+    committed_ = capture_scene();
+    redo_stack_.clear();
+  }
+
+  void undo() {
+    if (undo_stack_.empty()) {
+      KINFO("Nothing to undo.");
+      return;
+    }
+    redo_stack_.push_back(capture_scene());
+    SceneSnapshot target = std::move(undo_stack_.back());
+    undo_stack_.pop_back();
+    restore_scene(target);
+    KINFO("Undo ({} more).", undo_stack_.size());
+  }
+
+  void redo() {
+    if (redo_stack_.empty()) {
+      KINFO("Nothing to redo.");
+      return;
+    }
+    undo_stack_.push_back(capture_scene());
+    SceneSnapshot target = std::move(redo_stack_.back());
+    redo_stack_.pop_back();
+    restore_scene(target);
+    KINFO("Redo ({} more).", redo_stack_.size());
+  }
+
+  void restore_scene(SceneSnapshot &target) {
+    const SceneSnapshot current = capture_scene();
+    // Objects already exactly as the target has them stay untouched.
+    std::vector<i32> remove;
+    std::vector<bool> kept(target.objects.size(), false);
+    for (const ObjectSnapshot &now : current.objects) {
+      bool keep = false;
+      for (size_t i = 0; i < target.objects.size(); ++i) {
+        if (target.objects[i].id == now.id && same_object(target.objects[i], now)) {
+          kept[i] = keep = true;
+          break;
+        }
+      }
+      if (!keep) {
+        remove.push_back(now.id);
+      }
+    }
+    if (!remove.empty()) {
+      renderer_sculpt_delete_objects(remove.data(), static_cast<i32>(remove.size()));
+    }
+    // Everything else is re-stamped as the target had it.
+    std::unordered_map<i32, i32> new_id;
+    const i32 previous_object = renderer_sculpt_current_object();
+    for (size_t i = 0; i < target.objects.size(); ++i) {
+      if (kept[i]) {
+        continue;
+      }
+      const i32 id = renderer_sculpt_begin_object();
+      renderer_sculpt_set_current_object(id);
+      for (const SculptStampInfo &stamp : target.objects[i].stamps) {
+        renderer_sculpt_stamp_shape(stamp.center, stamp.shape_type, stamp.params,
+                                    stamp.smoothness, stamp.op,
+                                    stamp.material_slot, stamp.looseness,
+                                    stamp.rotation);
+      }
+      new_id[target.objects[i].id] = id;
+    }
+    renderer_sculpt_set_current_object(previous_object);
+    // Re-stamped objects have new ids: follow them through all of history.
+    if (!new_id.empty()) {
+      remap_snapshot(target, new_id);
+      remap_snapshot(committed_, new_id);
+      for (SceneSnapshot &snap : undo_stack_) {
+        remap_snapshot(snap, new_id);
+      }
+      for (SceneSnapshot &snap : redo_stack_) {
+        remap_snapshot(snap, new_id);
+      }
+    }
+
+    // The tool's own state.
+    grabbed_object_ = rotating_object_ = flip_object_ = -1;
+    held_group_.clear();
+    chain_ = CloneChain{};
+    groups_ = target.groups;
+    for (const Group &group : groups_) {
+      next_group_id_ = std::max(next_group_id_, group.id + 1);
+    }
+    for (auto &[id, coat] : coats_) {
+      release_glow_light(coat);
+    }
+    coats_ = target.coats;
+    free_coat_slots_.clear();
+    for (i32 slot = kPlainSlot + 1; slot < next_coat_slot_; ++slot) {
+      if (coat_slot_users(slot) == 0) {
+        free_coat_slots_.push_back(slot);
+      }
+    }
+    for (auto &[id, coat] : coats_) {
+      apply_coat_material(coat);
+    }
+    selection_ = target.selection;
+    if (scoped_group_ >= 0 && !scoped_group()) {
+      scoped_group_ = -1;
+    }
+    committed_ = std::move(target);
+    history_dirty_ = false;
+  }
+
+  static void remap_snapshot(SceneSnapshot &snap,
+                             const std::unordered_map<i32, i32> &new_id) {
+    auto map = [&](i32 id) {
+      auto it = new_id.find(id);
+      return it == new_id.end() ? id : it->second;
+    };
+    for (ObjectSnapshot &object : snap.objects) {
+      object.id = map(object.id);
+    }
+    for (Group &group : snap.groups) {
+      for (i32 &member : group.members) {
+        member = map(member);
+      }
+    }
+    std::unordered_map<i32, ObjectCoat> coats;
+    for (auto &[id, coat] : snap.coats) {
+      coats[map(id)] = coat;
+    }
+    snap.coats = std::move(coats);
+    for (i32 &id : snap.selection) {
+      id = map(id);
+    }
   }
 
   std::string stamps_path_;
@@ -2472,6 +3102,15 @@ private:
   // Coat mode state: the tool, add/subtract, the picked colour (index +
   // shade) and finish, each object's coat, and the material slots.
   CoatTool coat_tool_ = CoatTool::Tint;
+  StyleTool style_tool_ = StyleTool::Looseness;
+  EffectsTool effects_tool_ = EffectsTool::Boil;
+  // Undo / redo (see capture_scene()).
+  SceneSnapshot committed_;               // the scene as of the last step
+  std::vector<SceneSnapshot> undo_stack_; // older steps, newest last
+  std::vector<SceneSnapshot> redo_stack_; // undone steps, newest last
+  bool history_dirty_ = false;            // an action has changed things
+  std::unordered_map<i32, f32> loaded_looseness_; // see adopt_loaded_looseness()
+  int fleck_style_index_ = kDefaultFleckStyle;
   bool coat_subtract_ = false;
   int colour_index_ = 0;
   int shade_index_ = kCoatShadeCount / 2;

@@ -9,6 +9,8 @@
 #include <string>
 #include <string_view>
 
+struct SculptStampInfo; // renderer_frontend.h
+
 class PlatformLayer;
 
 class RendererBackend {
@@ -126,22 +128,13 @@ public:
   // device-stalling; for diagnosis, not for a running game.
   virtual void debug_probe_field(glm::vec3 world_pos) = 0;
 
-  // M5 (Finishes) + M6 (Flecks): configures material slot `slot` (must be
-  // >= 2 -- 0/1 are reserved, see VulkanRaymarchShader::set_material()'s
-  // own comment) with a base colour/roughness/metallic/waxy "Finish" AND a
-  // fleck_pattern (0-18)/fleck_strength (0-1)/fleck_scale "Fleck" -- see
-  // that method for the exact packing. One slot carries both together
-  // (not two independent allocation paths), matching how tools/
-  // modelling_software_v2's apply_finish_and_colour() allocates a slot. A
-  // no-op (logs a warning) if slot is out of range. Synchronous, cheap,
-  // and NOT device-stalling (a direct host-visible buffer write, same as
-  // ensure_default_sculpt_material()) -- meant to be called once per
-  // Finish/Fleck/colour pick in a tool, before the next stamp_shape()/call
-  // that references this slot, not per-frame. Pass fleck_strength 0 (with
-  // any fleck_pattern/fleck_scale -- they are ignored) for "no Fleck".
+  // M5 (Finishes): configures material slot `slot` (must be >= 2 -- 0/1
+  // are reserved, see VulkanRaymarchShader::set_material()'s own comment)
+  // with a base colour/roughness/metallic/waxy "Finish". A no-op (logs a
+  // warning) if slot is out of range. Synchronous, cheap, and NOT device-
+  // stalling (a direct host-visible buffer write).
   virtual void set_material(i32 slot, glm::vec3 colour, f32 roughness,
-                            f32 metallic, bool waxy, i32 fleck_pattern,
-                            f32 fleck_strength, f32 fleck_scale) = 0;
+                            f32 metallic, bool waxy) = 0;
 
   // Registers one standing light -- see VulkanRaymarchShader::
   // add_directional_light()/add_point_light() for exactly what this does
@@ -323,6 +316,21 @@ public:
   // Writes up to `capacity` distinct object ids (in first-stamp order) to
   // out_ids and returns how many objects there are in total.
   virtual i32 object_ids(i32 *out_ids, i32 capacity) const = 0;
+  // See renderer_sculpt_object_stamps().
+  virtual i32 object_stamps(i32 object_id, SculptStampInfo *out_stamps,
+                            i32 capacity) const = 0;
+  // Sets every stamp of these objects to `looseness` (0 = tight, 1 =
+  // loosest -- fewer, bigger flecks) and re-runs their region. Clears
+  // undo/redo history. False if nothing changed.
+  virtual bool set_object_looseness(const i32 *object_ids, i32 count,
+                                    f32 looseness) = 0;
+  // See VulkanRaymarchShader::set_material_flecks().
+  virtual void set_material_flecks(i32 slot, f32 looseness, i32 style,
+                                   f32 comb, f32 ruffle, f32 impasto,
+                                   f32 neatness) = 0;
+  // See VulkanRaymarchShader::set_material_effects().
+  virtual void set_material_effects(i32 slot, f32 boil, f32 flow, f32 wave,
+                                    f32 evaporate, f32 throb) = 0;
   // Glow strength of material `slot` (0 = none, 1 = full) in its colour.
   virtual void set_material_glow(i32 slot, f32 glow) = 0;
   // raycast_object() that only sees the given objects.

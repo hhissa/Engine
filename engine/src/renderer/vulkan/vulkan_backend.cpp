@@ -1,4 +1,5 @@
 #include "vulkan_backend.h"
+#include "renderer/renderer_frontend.h" // SculptStampInfo
 #include "../../core/logger.h"
 
 #include "../../platform/platform.h"
@@ -643,9 +644,7 @@ static_assert(
 
 void VulkanRendererBackend::set_material(i32 slot, glm::vec3 colour,
                                          f32 roughness, f32 metallic,
-                                         bool waxy, i32 fleck_pattern,
-                                         f32 fleck_strength,
-                                         f32 fleck_scale) {
+                                         bool waxy) {
   // Straight pass-through, same "no SculptSystem bookkeeping, no undo
   // involvement" shape as spray_paint()'s own pass-through below -- a
   // material slot's configuration is not an undoable edit, it is a
@@ -653,8 +652,7 @@ void VulkanRendererBackend::set_material(i32 slot, glm::vec3 colour,
   // by index (see VulkanRaymarchShader::set_material()'s own header
   // comment).
   context_.raymarch_shader->set_material(slot, colour, roughness, metallic,
-                                         waxy, fleck_pattern, fleck_strength,
-                                         fleck_scale);
+                                         waxy);
 }
 
 i32 VulkanRendererBackend::add_directional_light(glm::vec3 direction,
@@ -688,13 +686,9 @@ void VulkanRendererBackend::apply_stamp_and_record(
   // backend-agnostic. cells_touched comes straight back from the GPU call
   // so SculptVolume's record can never claim a stamp "happened" more
   // completely than it actually did (e.g. if kMaxResidentChunks ran out
-  // partway through). looseness IS now passed to the GPU call below (M3
-  // Looseness/Fleck wiring) -- it used to be dropped here (see the plan
-  // file's M3 section, and SculptStamp::looseness's own now-stale comment,
-  // sculpt_volume.h), but VulkanRaymarchShader::stamp_shape() now has a
-  // real per-brick effect (chunk_brick_looseness_buffer_, read by Builtin.
-  // DeferredShade.comp.glsl to scale a hit surface's effective Fleck
-  // strength/scale).
+  // partway through). looseness is passed to the GPU call below, which
+  // stores it per brick (chunk_brick_looseness_buffer_); nothing shades
+  // with it at the moment.
   const auto vulkan_shape =
       static_cast<VulkanRaymarchShader::BrushShape>(shape_type);
   const auto vulkan_op = static_cast<VulkanRaymarchShader::BrushOp>(shape_op);
@@ -1202,6 +1196,30 @@ bool VulkanRendererBackend::set_object_material(const i32 *object_ids,
   return true;
 }
 
+i32 VulkanRendererBackend::object_stamps(i32 object_id,
+                                         SculptStampInfo *out_stamps,
+                                         i32 capacity) const {
+  i32 count = 0;
+  for (const SculptStamp &stamp : sculpt_system_.volume().stamps()) {
+    if (stamp.object_id != object_id) {
+      continue;
+    }
+    if (out_stamps && count < capacity) {
+      SculptStampInfo &info = out_stamps[count];
+      info.center = stamp.center;
+      info.shape_type = stamp.shape_type;
+      info.params = stamp.params;
+      info.smoothness = stamp.smoothness;
+      info.op = stamp.op;
+      info.material_slot = stamp.material_slot;
+      info.looseness = stamp.looseness;
+      info.rotation = stamp.rotation;
+    }
+    ++count;
+  }
+  return count;
+}
+
 i32 VulkanRendererBackend::object_ids(i32 *out_ids, i32 capacity) const {
   std::vector<i32> ids;
   for (const SculptStamp &stamp : sculpt_system_.volume().stamps()) {
@@ -1214,6 +1232,57 @@ i32 VulkanRendererBackend::object_ids(i32 *out_ids, i32 capacity) const {
     out_ids[i] = ids[static_cast<size_t>(i)];
   }
   return static_cast<i32>(ids.size());
+}
+
+bool VulkanRendererBackend::set_object_looseness(const i32 *object_ids,
+                                                 i32 count, f32 looseness) {
+  std::vector<size_t> members;
+  if (!object_ids || count <= 0 ||
+      !collect_object_stamps(object_ids, count, "set_object_looseness()",
+                             &members)) {
+    return false;
+  }
+  looseness = std::clamp(looseness, 0.0f, 1.0f);
+  const std::vector<SculptStamp> &stamps = sculpt_system_.volume().stamps();
+  std::vector<VulkanRaymarchShader::RecomputeShape> footprints;
+  for (size_t i : members) {
+    const SculptStamp &stamp = stamps[i];
+    if (stamp.looseness == looseness) {
+      continue;
+    }
+    const auto shape =
+        static_cast<VulkanRaymarchShader::BrushShape>(stamp.shape_type);
+    context_.raymarch_shader->sculpt_stamp_list_update(
+        static_cast<i32>(i), stamp.center, shape, stamp.params,
+        stamp.smoothness, static_cast<VulkanRaymarchShader::BrushOp>(stamp.op),
+        stamp.material_slot, looseness, stamp.rotation);
+    footprints.push_back(
+        {stamp.center, shape, stamp.params, stamp.smoothness, stamp.rotation});
+    sculpt_system_.set_stamp_looseness(i, looseness);
+  }
+  if (footprints.empty()) {
+    return false;
+  }
+  context_.raymarch_shader->recompute_shapes(footprints);
+  // Same reasons as transform_object().
+  context_.raymarch_shader->invalidate_undo_history();
+  redo_stack_.clear();
+  return true;
+}
+
+void VulkanRendererBackend::set_material_flecks(i32 slot, f32 looseness,
+                                                i32 style, f32 comb,
+                                                f32 ruffle, f32 impasto,
+                                                f32 neatness) {
+  context_.raymarch_shader->set_material_flecks(slot, looseness, style, comb,
+                                                ruffle, impasto, neatness);
+}
+
+void VulkanRendererBackend::set_material_effects(i32 slot, f32 boil, f32 flow,
+                                                 f32 wave, f32 evaporate,
+                                                 f32 throb) {
+  context_.raymarch_shader->set_material_effects(slot, boil, flow, wave,
+                                                 evaporate, throb);
 }
 
 void VulkanRendererBackend::set_material_glow(i32 slot, f32 glow) {

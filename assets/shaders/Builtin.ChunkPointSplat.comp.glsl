@@ -152,6 +152,208 @@ layout(binding = 5) readonly buffer ClusterCullArgsBuffer {
 layout(binding = 6) readonly buffer ChunkTableBuffer {
     int chunk_table[];
 };
+// FLECKS. The splats are the surface's "flecks" (Dreams' term). A brick's
+// looseness (0 = tight, 1 = loosest; authored per stamp, stored per brick)
+// trades them for fewer, bigger ones: a loose fleck has a WORLD size of
+// FLECK_TIGHT_VOXELS..FLECK_LOOSE_VOXELS voxels (so its size depends on looseness,
+// not on viewing distance), and the brick keeps just enough points --
+// (spacing / fleck size)^2 of them -- to cover the same surface. Loose flecks are round discs
+// rather than this pass's usual square footprint, are never declined to the
+// marcher at close range (they ARE the look), and carry their looseness in
+// the visibility payload so the render pass draws them as flecks instead of
+// snapping them back onto the smooth isosurface.
+layout(binding = 8) readonly buffer ChunkBrickLoosenessBuffer {
+    float chunk_brick_looseness[];
+};
+const float FLECK_TIGHT_VOXELS = 0.3;  // fleck size at the lowest looseness, in voxels
+                                       // (under 1: smaller than the point spacing, so
+                                       // the solid surface shows between flecks)
+const float FLECK_LOOSE_VOXELS = 20.0; // fleck size at looseness 1, in voxels
+// How many flecks cover each fleck-sized patch of surface: 1 just tiles it
+// (gaps show wherever the random pick clumps); more overlap them into a
+// fully covered, layered surface.
+const float FLECK_DENSITY = 3.0;
+
+// Per-material-slot fleck settings (VulkanRaymarchShader::set_material_
+// flecks()): x = looseness, y = style + 1 (0 = never set: Circle), z = comb,
+// w = ruffle. Looked up through the brick's material slot.
+layout(binding = 9) readonly buffer FleckParamsBuffer {
+    vec4 fleck_params[];
+};
+layout(binding = 10) readonly buffer ChunkBrickPrimitiveBuffer {
+    int chunk_brick_primitive[];
+};
+const int FLECK_PARAM_SLOTS = 1000; // kMaxScenePrimitives engine-side
+
+// EFFECTS MODE: per-material-slot animations (VulkanRaymarchShader::set_
+// material_effects()), two vec4s per slot: (boil, flow, wave, evaporate),
+// (throb, -, -, -), each 0..1. Animated by push.camera_right.w (seconds).
+layout(binding = 11) readonly buffer FleckEffectsBuffer {
+    vec4 fleck_effects[];
+};
+const float EFFECT_BOIL_RATE = 0.8;      // bubbles per second, per fleck
+const float EFFECT_FLOW_SPEED = 0.6;     // fleck spacings per second
+const float EFFECT_WAVE_RATE = 2.2;      // sways per second (radians / 2pi-ish)
+const float EFFECT_WAVE_ANGLE = 0.75;    // radians of sway at full wave
+const float EFFECT_EVAPORATE_RATE = 0.3; // puffs per second, per fleck
+const float EFFECT_THROB_RATE = 1.2;     // beats per second
+
+// Fleck shape (see fleck_covers()), in units of the fleck's own square.
+const float FLECK_WOBBLE = 0.05;    // gentle wobble of the outline, so no
+                                    // two flecks are quite the same shape
+// Each fleck is a raised dab of paint, not a flat card: its surface rises
+// by up to this many fleck radii (stored in each pixel's depth, so the
+// render pass lights the real relief -- see fleck_paint_height()).
+const float FLECK_DOME = 0.35;
+// The dab's relief, as fractions of that height:
+const float FLECK_BRISTLE = 0.14;   // grooves the brush's bristles left,
+const float FLECK_BRISTLES = 5.0;   //   this many across the stroke
+const float FLECK_LIP = 0.15;       // paint pushed up into a rim
+const float FLECK_GRAIN = 0.04;     // fine unevenness
+
+// Smooth 2D value noise in [0, 1].
+float fleck_hash(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+float fleck_noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = p - i;
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(fleck_hash(i), fleck_hash(i + vec2(1.0, 0.0)), f.x),
+               mix(fleck_hash(i + vec2(0.0, 1.0)), fleck_hash(i + vec2(1.0, 1.0)), f.x),
+               f.y);
+}
+const int FLECK_STYLE_CIRCLE = 1;
+
+float fleck_segment_dist(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
+}
+
+// Whether point q of a fleck's own square [-1,1]^2 (u along the fleck's
+// direction, v across it) is inside fleck `style`'s shape -- the 16 Dreams
+// styles, in order. tools/modelling_software_v2/icons/make_fleck_icons.py
+// draws the UI icons from the same shapes, so keep the two in step.
+bool fleck_mask(int style, vec2 q) {
+    float r = length(q);
+    switch (style) {
+    case 0: // Square
+        return max(abs(q.x), abs(q.y)) <= 0.8;
+    case 1: // Circle
+        return r <= 1.0;
+    case 2: // Triangle
+        return q.y >= -0.48 && abs(q.x) <= (0.95 - q.y) * 0.5734;
+    case 3: { // Hexagon
+        vec2 a = abs(q);
+        return max(a.x * 0.866 + a.y * 0.5, a.y) <= 0.85;
+    }
+    case 4: // Dots
+        return length(q) <= 0.3 || length(q - vec2(0.6, 0.55)) <= 0.27 ||
+               length(q - vec2(-0.6, 0.5)) <= 0.27 ||
+               length(q - vec2(0.55, -0.6)) <= 0.27 ||
+               length(q - vec2(-0.55, -0.6)) <= 0.27;
+    case 5: // Scribble
+        return abs(q.x) <= 0.95 && abs(q.y - 0.4 * sin(q.x * 7.0)) <= 0.2;
+    case 6: // Veins
+        return fleck_segment_dist(q, vec2(0.0, -0.95), vec2(0.0, 0.95)) <= 0.1 ||
+               fleck_segment_dist(q, vec2(0.0, 0.1), vec2(0.7, 0.7)) <= 0.08 ||
+               fleck_segment_dist(q, vec2(0.0, -0.3), vec2(-0.65, 0.25)) <= 0.08;
+    case 7: { // Splat
+        float a = atan(q.y, q.x);
+        return r <= 0.66 + 0.18 * sin(5.0 * a + 0.7) + 0.12 * sin(9.0 * a + 2.1);
+    }
+    case 8: // Straight
+        return abs(q.y) <= 0.22 && abs(q.x) <= 0.95;
+    case 9: // Heavy
+        return fleck_segment_dist(q, vec2(-0.55, 0.0), vec2(0.55, 0.0)) <= 0.45;
+    case 10: // Hatching
+        return max(abs(q.x), abs(q.y)) <= 0.9 && fract((q.y + 1.0) * 2.0) < 0.35;
+    case 11: { // Cubist: an irregular four-sided shard
+        vec2 v0 = vec2(-0.9, -0.3), v1 = vec2(0.2, -0.95);
+        vec2 v2 = vec2(0.85, 0.4), v3 = vec2(-0.3, 0.85);
+        float c0 = (v1.x - v0.x) * (q.y - v0.y) - (v1.y - v0.y) * (q.x - v0.x);
+        float c1 = (v2.x - v1.x) * (q.y - v1.y) - (v2.y - v1.y) * (q.x - v1.x);
+        float c2 = (v3.x - v2.x) * (q.y - v2.y) - (v3.y - v2.y) * (q.x - v2.x);
+        float c3 = (v0.x - v3.x) * (q.y - v3.y) - (v0.y - v3.y) * (q.x - v3.x);
+        return c0 >= 0.0 && c1 >= 0.0 && c2 >= 0.0 && c3 >= 0.0;
+    }
+    case 12: // Impressionist: a short dab
+        return (q.x * q.x) / 0.9025 + (q.y * q.y) / 0.2025 <= 1.0;
+    case 13: // Expressive: a curved, tapering stroke
+        return abs(q.x) <= 0.95 &&
+               abs(q.y - (0.6 * q.x * q.x - 0.3)) <= 0.3 * (1.0 - abs(q.x)) + 0.03;
+    case 14: { // Baroque: a spiral
+        float a = atan(q.y, q.x) + 3.14159265;
+        for (int k = 0; k < 2; ++k) {
+            float target = 0.2 + (a + 6.2831853 * float(k)) / 6.2831853 * 0.38;
+            if (target < 0.97 && abs(r - target) < 0.1) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case 15: // Streaky: broken streaks
+        return abs(q.x) <= 0.98 &&
+               ((abs(q.y - 0.1) <= 0.13 && fract(q.x * 2.5 + 0.3) < 0.72) ||
+                (abs(q.y + 0.45) <= 0.08 && fract(q.x * 1.7) < 0.6));
+    default:
+        return r <= 1.0;
+    }
+}
+
+// A fleck as a quick hand-made mark rather than a clean stamp: fleck_mask()'s
+// shape, but each fleck its own size and stretch, its outline bent by a slow
+// wobble and roughened by finer noise, and filled not solid but with a few
+// wobbly scrawled lines running along it (u), gaps between -- so each one
+// reads as a pen/brush scrawl, and neighbouring flecks of one style differ.
+// `seed` is the fleck's own (fixed) random number.
+// Paint height of a dab at shape-space point q (inside the shape): a soft
+// mound, scored along the stroke (fleck x) by bristle grooves, with a lip
+// of paint pushed up at the rim and a little grain. 0 at the edge, ~1 top.
+float fleck_paint_height(vec2 q, vec2 offset) {
+    float r = sqrt(dot(q, q) * 0.85);
+    float mound = sqrt(max(1.0 - r * r, 0.0));
+    // Grooves run along the stroke, wandering slightly, deepest mid-dab.
+    float wander = 0.6 * fleck_noise(vec2(q.x * 1.3, 0.0) + offset + 4.1);
+    float groove = 0.5 + 0.5 * sin((q.y + wander * 0.25) * FLECK_BRISTLES * 3.14159 +
+                                   offset.y * 6.2831853);
+    float bristle_depth = fleck_noise(vec2(q.x * 0.9, q.y * FLECK_BRISTLES) + offset);
+    float bristles = groove * (0.5 + 0.5 * bristle_depth);
+    float lip = smoothstep(0.5, 0.82, r) * (1.0 - smoothstep(0.82, 1.0, r));
+    float grain = fleck_noise(q * 6.0 + offset + 3.3);
+    return mound * (1.0 - FLECK_BRISTLE + FLECK_BRISTLE * bristles) +
+           FLECK_LIP * lip + FLECK_GRAIN * grain * mound;
+}
+
+// Whether fleck-space point q is inside this fleck; height = its paint
+// height there (see fleck_paint_height()).
+bool fleck_covers(int style, vec2 q, uint seed, out float height) {
+    height = 0.0;
+    vec2 offset = vec2(float(seed & 1023u), float((seed >> 10) & 1023u)) * 0.173;
+    float size = 0.85 + 0.35 * float((seed >> 20) & 63u) / 63.0;
+    float stretch = 0.85 + 0.3 * float((seed >> 26) & 31u) / 31.0;
+    q /= vec2(size * stretch, size / stretch);
+    q += FLECK_WOBBLE * 2.0 *
+         (vec2(fleck_noise(q * 1.7 + offset), fleck_noise(q * 1.7 + offset + 17.3)) - 0.5);
+    if (!fleck_mask(style, q)) {
+        return false;
+    }
+    height = fleck_paint_height(q, offset);
+    return true;
+}
+// IMPASTO: each fleck is a card hinged at its base edge (fleck x = -1, the
+// comb's upstream end) and swung up off the surface by up to this angle,
+// so its tip really stands out from the object -- projected, depth-tested
+// and (past the silhouette) drawn where it actually is. Every fleck pixel
+// stores its exact ray distance to its card, so the render pass places
+// and lights it from that alone (Builtin.RaymarchShader.comp.glsl).
+const float FLECK_IMPASTO_ANGLE = 1.05; // radians at impasto 1 (~60 degrees)
+const int FLECK_MAX_RADIUS_PX = 64;   // loose flecks' footprint cap
+const float FLECK_DISC_RADIUS = 0.8;  // disc radius, in spacings (>0.707
+                                      // so neighbours overlap)
+
 layout(binding = 7) readonly buffer ChunkSlotPublishedBuffer {
     uint chunk_slot_published[];
 };
@@ -192,8 +394,8 @@ const int SPLAT_TILE_SIZE = 16;
 // size) / size.y, dir = uv.x * right + uv.y * up + forward), so a point's
 // splat lands on the pixel whose ray actually passes through it.
 layout(push_constant) uniform PushConstants {
-    vec4 camera_position; // xyz + unused pad
-    vec4 camera_forward;  // xyz + unused pad
+    vec4 camera_position; // xyz; w = this frame's TAA jitter x (pixels)
+    vec4 camera_forward;  // xyz; w = this frame's TAA jitter y (pixels)
     vec4 camera_right;    // xyz + unused pad
     vec4 camera_up;       // xyz + unused pad
     int width;            // render-target size in pixels -- see
@@ -502,7 +704,37 @@ void main() {
     // still has to leave a mark.
     float finest_px = voxel_size * float(chunk_point_lod_stride(deepest)) *
         px_per_world;
-    if (push.splat_mode == SPLAT_MODE_VISIBILITY && finest_px > SPLAT_MAX_PX) {
+    // FLECKS: this brick's settings -- the larger of its own (per-stamp)
+    // looseness and its material slot's, plus the slot's style/comb/ruffle.
+    int brick = int(cluster.meta.z);
+    int fleck_slot = chunk_brick_primitive[brick];
+    vec4 fp = fleck_slot >= 0 && fleck_slot < FLECK_PARAM_SLOTS
+        ? fleck_params[fleck_slot] : vec4(0.0);
+    float looseness = max(clamp(chunk_brick_looseness[brick], 0.0, 1.0),
+                          clamp(fp.x, 0.0, 1.0));
+    uint loose_code = uint(round(looseness * 15.0));
+    // y = style + 1 + impasto / 2 (see set_material_flecks()).
+    int fleck_style = fp.y > 0.5 ? int(floor(fp.y + 1e-4)) - 1 : FLECK_STYLE_CIRCLE;
+    float fleck_impasto = fp.y > 0.5 ? clamp(fract(fp.y + 1e-4) * 2.0, 0.0, 1.0) : 0.0;
+    float fleck_comb = clamp(fp.z, 0.0, 1.0);
+    // w = ruffle level (0-3) + neatness / 2 (see set_material_flecks()).
+    float fleck_ruffle = clamp(floor(fp.w + 1e-4), 0.0, 3.0) / 3.0;
+    float fleck_neatness = clamp(fract(fp.w + 1e-4) * 2.0, 0.0, 1.0);
+    // EFFECTS: this slot's animations. An effect needs flecks to move, so an
+    // effected object is drawn as (small) flecks even at looseness 0.
+    vec4 fx = fleck_slot >= 0 && fleck_slot < FLECK_PARAM_SLOTS
+        ? fleck_effects[fleck_slot * 2] : vec4(0.0);
+    float fx_throb = fleck_slot >= 0 && fleck_slot < FLECK_PARAM_SLOTS
+        ? fleck_effects[fleck_slot * 2 + 1].x : 0.0;
+    float fx_boil = fx.x, fx_flow = fx.y, fx_wave = fx.z, fx_evaporate = fx.w;
+    bool has_effects = max(max(fx.x, fx.y), max(max(fx.z, fx.w), fx_throb)) > 0.0;
+    if (has_effects) {
+        loose_code = max(loose_code, 2u);
+        looseness = max(looseness, 2.0 / 15.0);
+    }
+    float fx_time = push.camera_right.w;
+    if (push.splat_mode == SPLAT_MODE_VISIBILITY && finest_px > SPLAT_MAX_PX &&
+        loose_code == 0u) {
         // Only the clip level actually RESPONSIBLE for this region can
         // occlude anything: a coarser level's copy of the same surface is
         // never what sample_clipmap_field() sees there, so letting it post a
@@ -568,12 +800,115 @@ void main() {
         spacing /= sqrt(max(keep, SPLAT_MIN_KEEP_FOR_WIDENING));
     }
 
+    // FLECKS: a loose brick keeps 1 in grow^2 of its points and widens the
+    // survivors by grow -- fewer, bigger flecks over the same surface. Its
+    // own salt, so it thins independently of the screen-density roulette.
+    // A fleck smaller than the spacing keeps every point and is just drawn
+    // smaller (fleck_draw), leaving gaps the marched surface fills.
+    float fleck_draw = spacing;
+    if (loose_code > 0u) {
+        float fleck_size = voxel_size *
+            mix(FLECK_TIGHT_VOXELS, FLECK_LOOSE_VOXELS, float(loose_code - 1u) / 14.0);
+        if (fleck_size > spacing) {
+            float keep_loose = spacing / fleck_size;
+            if (splat_hash(uint(cluster_index), local_index, 0x51ED27u) >
+                FLECK_DENSITY * keep_loose * keep_loose) {
+                return;
+            }
+            spacing = fleck_size;
+        }
+        fleck_draw = fleck_size;
+    }
+
     uvec2 packed = cluster_points[uint(cluster_index) *
                                   uint(CHUNK_CLUSTER_POINTS) + local_index];
     vec3 frac = vec3(float(packed.x & 1023u), float((packed.x >> 10) & 1023u),
                      float((packed.x >> 20) & 1023u)) * (1.0 / 1023.0);
     vec3 p = cell_min + frac * cell_size;
     vec3 normal = unpack_point_normal(packed.y);
+
+    // NEATNESS: pull each loose fleck onto a lattice in the surface -- rows
+    // one fleck apart running across the comb direction, every other row
+    // shifted half a fleck along (brickwork) -- so the flecks lie in neat,
+    // staggered rows instead of scattered at random.
+    if (loose_code > 0u && fleck_neatness > 0.0) {
+        vec3 row_dir = vec3(0.0, 1.0, 0.0); // the comb direction (see below)
+        vec3 down = row_dir - normal * dot(row_dir, normal);
+        down = dot(down, down) < 1e-6 ? cross(normal, vec3(1.0, 0.0, 0.0)) : down;
+        down = normalize(down);
+        vec3 across = cross(normal, down);
+        float row_v = dot(p, down) / spacing;
+        float row = floor(row_v);
+        float col_u = dot(p, across) / spacing + 0.5 * mod(row, 2.0);
+        vec3 snapped = p + down * ((row + 0.5 - row_v) * spacing) +
+                       across * ((round(col_u) - col_u) * spacing);
+        p = mix(p, snapped, fleck_neatness);
+    }
+
+    // EFFECTS: move, swell, sway and fade this fleck over time. Each fleck
+    // runs its own cycle (hashed phase) except throb, which beats together.
+    float fx_size = 1.0;    // scale on the fleck's radius
+    float fx_tilt = 0.0;    // extra swing about its base edge (radians)
+    float fx_turn = 0.0;    // extra turn in the surface (radians)
+    float fx_fade = 0.0;    // fraction of its pixels dropped (TAA softens it)
+    if (has_effects) {
+        uint fid = uint(cluster_index) * 977u + local_index;
+        float phase_a = splat_hash(fid, 0u, 0xB0117u);
+        float phase_b = splat_hash(fid, 1u, 0xB0117u);
+        vec3 world_down = vec3(0.0, 1.0, 0.0); // scene +Y is down
+        vec3 downhill = world_down - normal * dot(world_down, normal);
+        downhill = dot(downhill, downhill) < 1e-6 ? cross(normal, vec3(1.0, 0.0, 0.0))
+                                                 : normalize(downhill);
+        // Boil: each fleck swells up off the surface like a bubble rising,
+        // then bursts (vanishes) and starts again.
+        if (fx_boil > 0.0) {
+            float t = fract(fx_time * EFFECT_BOIL_RATE * (0.7 + 0.6 * phase_b) + phase_a);
+            float swell = sin(3.14159 * t);
+            p += normal * (fx_boil * swell * swell * spacing * 0.7);
+            fx_size *= mix(1.0, 0.55 + 0.75 * swell, fx_boil);
+            fx_fade = max(fx_fade, fx_boil * smoothstep(0.85, 1.0, t));
+        }
+        // Flow: flecks slide downhill across the surface, lined up with the
+        // current, shrinking away at each end of their run so the loop
+        // back to the start never shows.
+        if (fx_flow > 0.0) {
+            float t = fract(fx_time * EFFECT_FLOW_SPEED + phase_a);
+            p += downhill * ((t - 0.5) * 2.0 * spacing * fx_flow);
+            fx_size *= mix(1.0, sin(3.14159 * t), fx_flow * 0.8);
+            fleck_comb = max(fleck_comb, fx_flow);
+        }
+        // Wave: flecks sway about their base like grass, in a gust that
+        // travels across the object (phase by position), with a flutter.
+        if (fx_wave > 0.0) {
+            float gust = fx_time * EFFECT_WAVE_RATE * 3.14159 +
+                         dot(p, vec3(1.0, 0.35, 0.6)) * 9.0;
+            fx_tilt += fx_wave * EFFECT_WAVE_ANGLE * (0.55 + 0.45 * sin(gust));
+            fx_turn += fx_wave * 0.35 * sin(gust * 1.7 + phase_a * 6.2831853);
+        }
+        // Evaporate: flecks drift up and away like steam -- lifting off,
+        // spreading, softening and thinning out until they're gone.
+        if (fx_evaporate > 0.0) {
+            float t = fract(fx_time * EFFECT_EVAPORATE_RATE * (0.75 + 0.5 * phase_b) +
+                            phase_a);
+            vec3 rise = normalize(normal + vec3(0.0, -1.2, 0.0));
+            p += rise * (fx_evaporate * t * t * spacing * 4.0);
+            fx_size *= 1.0 + fx_evaporate * t * 0.9;
+            fx_fade = max(fx_fade, fx_evaporate * smoothstep(0.1, 1.0, t));
+        }
+        // Throb: the whole object beats -- flecks swell and push out on a
+        // sharp heartbeat pulse, then relax.
+        if (fx_throb > 0.0) {
+            float beat = fract(fx_time * EFFECT_THROB_RATE);
+            float pulse = exp(-beat * 9.0) + 0.6 * exp(-max(beat - 0.22, 0.0) * 12.0) *
+                                                 step(0.22, beat);
+            p += normal * (fx_throb * pulse * spacing * 0.5);
+            fx_size *= 1.0 + fx_throb * pulse * 0.45;
+        }
+        // Whole flecks vanish at random as they fade; the rest lose pixels.
+        if (splat_hash(fid, uint(push.frame_index), 0xFADEu) < fx_fade * fx_fade) {
+            return;
+        }
+    }
 
     vec3 v = p - push.camera_position.xyz;
 
@@ -624,22 +959,147 @@ void main() {
     uint id = uint(cluster_index) * uint(CHUNK_CLUSTER_POINTS) + local_index;
     uint spacing_code = uint(clamp(int(ceil(log2(max(spacing / voxel_size, 1.0)))),
                                    0, 7));
-    uint64_t entry = (uint64_t(floatBitsToUint(length(v))) << 32) |
-        uint64_t(id | (spacing_code << 25));
+    // Bits 28-29: looseness (FLECKS; 0 = an ordinary splat, 1-3 = loose),
+    // bits 30-31: ruffle (0-3) -- what the render pass needs to draw it.
+    uint loose_bits = loose_code == 0u ? 0u : uint(clamp(round(looseness * 3.0), 1.0, 3.0));
+    uint ruffle_bits = loose_bits == 0u ? 0u : uint(round(fleck_ruffle * 3.0));
+    float point_dist = length(v);
+    uint payload = id | (spacing_code << 25) | (loose_bits << 28) | (ruffle_bits << 30);
+    uint64_t entry = (uint64_t(floatBitsToUint(point_dist)) << 32) | uint64_t(payload);
 
     // Footprint: cover this point's own share of the surface (half the
     // projected spacing, plus one pixel of slop) so neighbouring points'
     // footprints overlap into gap-free coverage.
     float footprint_px = spacing * inv_z * float(push.height);
     int radius = clamp(int(footprint_px * 0.5) + 1, 1, 8);
+    // A loose fleck is drawn as its style's shape, lying on the surface: a
+    // frame (t, b) in the surface plane, turned at random per fleck or --
+    // with comb -- toward one shared direction (down the surface, like
+    // combed hair), projected to the screen so it foreshortens properly.
+    // Each pixel is mapped back into the fleck's own square and kept only
+    // if fleck_mask() says it's inside the shape.
+    bool shaped = loose_code > 0u;
+    mat2 to_fleck = mat2(1.0);
+    float fleck_radius = 0.0; // world radius, for the dome
+    vec3 card_centre = p;     // the fleck card's centre and plane normal,
+    vec3 card_normal = normal; // for each pixel's exact distance
+    if (shaped) {
+        vec3 comb_dir = vec3(0.0, 1.0, 0.0); // world +Y: down on screen
+        vec3 tc = comb_dir - normal * dot(comb_dir, normal);
+        if (dot(tc, tc) < 1e-6) {
+            tc = cross(normal, vec3(1.0, 0.0, 0.0));
+        }
+        tc = normalize(tc);
+        vec3 bc = cross(normal, tc);
+        float turn = splat_hash(uint(cluster_index), local_index, 0xC0FFEEu) *
+                     6.2831853;
+        vec3 t = mix(tc * cos(turn) + bc * sin(turn), tc, fleck_comb);
+        t = dot(t, t) < 1e-6 ? tc : normalize(t);
+        if (fx_turn != 0.0) { // wave's flutter
+            t = normalize(t * cos(fx_turn) + cross(normal, t) * sin(fx_turn));
+        }
+        vec3 b = cross(normal, t);
+        float fleck_r = fleck_draw * FLECK_DISC_RADIUS;
+        fleck_r *= fx_size;
+        fleck_radius = fleck_r;
+        float swing = fleck_impasto * FLECK_IMPASTO_ANGLE + fx_tilt;
+        if (swing > 0.0) {
+            // Swing the card about its base edge (centre - r*t, along b):
+            // t tilts up toward the normal, the centre rises with it.
+            float angle = min(swing, 1.45);
+            vec3 t_raised = t * cos(angle) + normal * sin(angle);
+            card_centre = p + (t_raised - t) * fleck_r;
+            card_normal = normalize(cross(t_raised, b));
+            t = t_raised;
+            vec3 vc = card_centre - push.camera_position.xyz;
+            float zc = dot(vc, push.camera_forward.xyz);
+            if (zc < 0.05) {
+                return;
+            }
+            inv_z = 1.0 / zc;
+            uv = vec2(dot(vc, push.camera_right.xyz), dot(vc, push.camera_up.xyz)) * inv_z;
+            pixel = uv * float(push.height) +
+                0.5 * vec2(float(push.width), float(push.height));
+            center = ivec2(round(pixel));
+        }
+        // Screen-space (pixel) image of a small world offset w at the card.
+        vec2 st = (vec2(dot(t, push.camera_right.xyz), dot(t, push.camera_up.xyz)) -
+                   uv * dot(t, push.camera_forward.xyz)) * inv_z *
+                  float(push.height) * fleck_r;
+        vec2 sb = (vec2(dot(b, push.camera_right.xyz), dot(b, push.camera_up.xyz)) -
+                   uv * dot(b, push.camera_forward.xyz)) * inv_z *
+                  float(push.height) * fleck_r;
+        vec2 extent = abs(st) + abs(sb);
+        float reach = max(extent.x, extent.y);
+        if (reach > float(FLECK_MAX_RADIUS_PX)) {
+            // Shrink rather than clip, so a close-up fleck keeps its shape.
+            float shrink = float(FLECK_MAX_RADIUS_PX) / reach;
+            st *= shrink;
+            sb *= shrink;
+            reach = float(FLECK_MAX_RADIUS_PX);
+        }
+        float det = st.x * sb.y - st.y * sb.x;
+        if (abs(det) < 0.25) {
+            shaped = false; // seen edge-on: under a pixel, draw it as one
+            radius = 0;
+            card_centre = p;
+            card_normal = normal;
+        } else {
+            radius = max(int(ceil(reach)), 1);
+            // Inverse of [st sb]: pixel offset -> fleck coordinates.
+            to_fleck = mat2(sb.y, -st.y, -sb.x, st.x) / det;
+        }
+    }
+
+    // Each covered pixel's true sample point (its centre plus this frame's
+    // TAA jitter), relative to the fleck's exact projected centre.
+    vec2 jitter = vec2(push.camera_position.w, push.camera_forward.w);
+    vec2 sample_offset = vec2(center) + jitter - pixel;
+    uint fleck_seed = id * 2654435761u + 0x9E3779B9u;
+    fleck_seed ^= fleck_seed >> 15;
+    fleck_seed *= 2246822519u;
 
     for (int dy = -radius; dy <= radius; ++dy) {
         for (int dx = -radius; dx <= radius; ++dx) {
+            vec2 fq = to_fleck * (vec2(dx, dy) + sample_offset);
+            float dome = 0.0;
+            if (shaped && !fleck_covers(fleck_style, fq, fleck_seed, dome)) {
+                continue;
+            }
             ivec2 q = center + ivec2(dx, dy);
             if (q.x < 0 || q.y < 0 || q.x >= push.width || q.y >= push.height) {
                 continue;
             }
-            atomicMin(splat_visibility[q.y * push.width + q.x], entry);
+            // A fading fleck (boil's burst, evaporate) drops a changing share
+            // of its pixels each frame: TAA blends that into a soft, see-
+            // through dab rather than a hard one.
+            if (fx_fade > 0.0 &&
+                splat_hash(uint(q.x) * 7919u + uint(q.y), uint(push.frame_index),
+                           0x50F7u) < fx_fade * 0.7) {
+                continue;
+            }
+            uint64_t pixel_entry = entry;
+            if (shaped) {
+                // This pixel's ray (same construction as the render pass)
+                // against the fleck's card: its exact distance.
+                vec2 ray_uv = (vec2(q) + jitter -
+                               0.5 * vec2(float(push.width), float(push.height))) /
+                              float(push.height);
+                vec3 ray = normalize(ray_uv.x * push.camera_right.xyz +
+                                     ray_uv.y * push.camera_up.xyz +
+                                     push.camera_forward.xyz);
+                float denom = dot(ray, card_normal);
+                float dist = abs(denom) > 1e-3
+                    ? dot(card_centre - push.camera_position.xyz, card_normal) / denom
+                    : point_dist;
+                // Raised by the paint along the card's normal: that much
+                // nearer along this ray.
+                dist -= FLECK_DOME * fleck_radius * dome /
+                        max(abs(denom), 0.3);
+                pixel_entry = (uint64_t(floatBitsToUint(max(dist, 1e-3))) << 32) |
+                              uint64_t(payload);
+            }
+            atomicMin(splat_visibility[q.y * push.width + q.x], pixel_entry);
         }
     }
 }

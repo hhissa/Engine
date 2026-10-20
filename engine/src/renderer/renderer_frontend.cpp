@@ -236,11 +236,9 @@ void renderer_debug_probe_field(glm::vec3 world_pos) {
 }
 
 void renderer_sculpt_set_material(i32 slot, glm::vec3 colour, f32 roughness,
-                                  f32 metallic, bool waxy, i32 fleck_pattern,
-                                  f32 fleck_strength, f32 fleck_scale) {
+                                  f32 metallic, bool waxy) {
   if (backend) {
-    backend->set_material(slot, colour, roughness, metallic, waxy,
-                          fleck_pattern, fleck_strength, fleck_scale);
+    backend->set_material(slot, colour, roughness, metallic, waxy);
   } else {
     KWARN("renderer backend does not exist to accept a sculpt-set-material "
          "request.");
@@ -435,8 +433,35 @@ bool renderer_sculpt_set_object_material(const i32 *object_ids, i32 count,
   return backend->set_object_material(object_ids, count, slot);
 }
 
+bool renderer_sculpt_set_object_looseness(const i32 *object_ids, i32 count,
+                                          f32 looseness) {
+  return backend ? backend->set_object_looseness(object_ids, count, looseness)
+                 : false;
+}
+
 i32 renderer_sculpt_object_ids(i32 *out_ids, i32 capacity) {
   return backend ? backend->object_ids(out_ids, capacity) : 0;
+}
+
+void renderer_sculpt_set_material_flecks(i32 slot, f32 looseness, i32 style,
+                                         f32 comb, f32 ruffle, f32 impasto,
+                                         f32 neatness) {
+  if (backend) {
+    backend->set_material_flecks(slot, looseness, style, comb, ruffle, impasto,
+                                 neatness);
+  }
+}
+
+i32 renderer_sculpt_object_stamps(i32 object_id, SculptStampInfo *out_stamps,
+                                  i32 capacity) {
+  return backend ? backend->object_stamps(object_id, out_stamps, capacity) : 0;
+}
+
+void renderer_sculpt_set_material_effects(i32 slot, f32 boil, f32 flow,
+                                          f32 wave, f32 evaporate, f32 throb) {
+  if (backend) {
+    backend->set_material_effects(slot, boil, flow, wave, evaporate, throb);
+  }
 }
 
 void renderer_sculpt_set_material_glow(i32 slot, f32 glow) {

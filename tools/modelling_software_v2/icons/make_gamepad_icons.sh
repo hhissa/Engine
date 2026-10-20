@@ -62,4 +62,9 @@ stick l3 L3
 dpad dpad_updown up down
 dpad dpad_left left
 dpad dpad_right right
+# Start / menu button: a small dark pill with three lines.
+magick -size ${S}x${S} xc:none -fill '#3a3f47' -stroke '#d8dde5' -strokewidth 5 \
+  -draw "roundrectangle 14,30 113,97 30,30" -stroke white -strokewidth 7 \
+  -draw "line 42,48 86,48" -draw "line 42,64 86,64" -draw "line 42,80 86,80" \
+  -resize 64x64 "$OUT/start.png"
 echo "Icons written to $OUT"

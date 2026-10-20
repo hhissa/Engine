@@ -60,13 +60,6 @@ layout(binding = 25, rgba16f) uniform readonly image2D gbuffer_normal_material;
 // single copy without a new .inc.glsl file for four lines of constants).
 #include "Builtin.BrushShapes.inc.glsl"
 
-// M6 (Flecks): the procedural surface-stylization evaluator -- self-
-// contained (own hashing/noise, no dependency on anything else in this
-// file), so it can be included this early. See its own header comment for
-// the 16-presets/3-families mapping and fleck_perturb_normal()/fleck_
-// modulate_albedo()'s own comments for where/how they are called below.
-#include "Builtin.FleckPattern.inc.glsl"
-
 // One entry per registered light (see GeometrySystem::Light,
 // engine-side). vector_type.xyz is a direction (Directional) or
 // world-space position (Point), vector_type.w its LightType as a float
@@ -359,18 +352,6 @@ layout(set = 1, binding = 1) uniform BrushPreviewBuffer {
 // off or this pixel has no hit -- so a stale previous-frame ghost can never
 // survive into a frame that no longer wants one.
 layout(set = 1, binding = 2, rgba8) uniform writeonly image2D preview_overlay_image;
-
-// M3 (Looseness): same per-brick buffer Builtin.SculptStamp.comp.glsl
-// writes (one f32 per brick slot, same indexing as ChunkBrickPrimitiveBuffer
-// -- see that shader's own comment) -- read-only here, binding 3 of this
-// SAME set = 1, same "new shading-only state belongs here, not render_set_"
-// precedent as every binding above. 0 = uniform/clean (the default for
-// every brick, including every one that existed before this milestone), 1 =
-// maximally loose -- used at the real-surface Fleck call site below to
-// scale the hit brick's effective Fleck strength/scale.
-layout(set = 1, binding = 3) readonly buffer ChunkBrickLoosenessBuffer {
-    float chunk_brick_looseness[];
-};
 
 // Selection outline: the stamps of every object the app wants outlined
 // (VulkanRaymarchShader::set_selection_outline()), grouped per object, so
@@ -726,44 +707,6 @@ float sample_chunk_paint_at_point(vec3 p) {
     float c1 = mix(c01, c11, t.y);
 
     return clamp(mix(c0, c1, t.z), 0.0, 1.0);
-}
-
-// M3 (Looseness): resolves world point p's LEVEL 0 brick index, or -1 if no
-// chunk/brick is resident there -- the small first half of sample_chunk_
-// paint_at_point()'s own brick-resolve (slot -> local_cell_index ->
-// chunk_indirection[] lookup), stopped right before that function's
-// trilinear voxel sample, since a per-BRICK scalar like looseness needs no
-// interpolation at all: it is a per-brick label, not a free-float field (in
-// contrast with chunk_brick_paint[], which genuinely IS a continuous per-
-// voxel field and so needs the full trilinear tap chunk_brick_paint_at_
-// point() does). Deliberately duplicated here rather than threading a new
-// out-parameter through sample_chunked_field()/sample_active_field()'s
-// shared family (Builtin.ChunkedFieldCommon.inc.glsl) -- that chain has 6
-// callers across several compute shaders (shadow/GI passes among them)
-// with no reason to care about brick index at all, so widening its shared
-// signature for one caller's need risks a wide, easy-to-get-subtly-wrong
-// blast radius. This matches the established convention of keeping small
-// per-shader addressing helpers duplicated per shader rather than modifying
-// a widely-shared one -- see eval_brush_preview_sdf()'s own small, local
-// copy of shape-eval logic for the same precedent.
-int resolve_chunk_brick_index_at_point(vec3 p) {
-    const int level = 0;
-    float chunk_world_size = chunk_level_world_size(level);
-    float cell_size = chunk_world_size / float(CHUNK_COARSE_DIM);
-
-    int slot = chunk_table_slot_at(p, level);
-    if (slot < 0) {
-        return -1;
-    }
-
-    ivec3 chunk_coord = ivec3(floor(p / chunk_world_size));
-    vec3 chunk_world_min = vec3(chunk_coord) * chunk_world_size;
-    vec3 local = (p - chunk_world_min) / cell_size;
-    ivec3 cell = clamp(ivec3(floor(local)), ivec3(0), ivec3(CHUNK_COARSE_DIM - 1));
-
-    int local_cell_index = cell.x + cell.y * CHUNK_COARSE_DIM +
-        cell.z * CHUNK_COARSE_DIM * CHUNK_COARSE_DIM;
-    return chunk_indirection[slot * CHUNK_CELL_COUNT + local_cell_index];
 }
 
 // Baked indirect-light probe grid -- a dense regular grid of GI samples
@@ -1528,14 +1471,14 @@ float filtered_ao(ivec2 centre, vec3 centre_normal, float centre_depth) {
 // M7 polish (live brush-cursor ghost preview): shades one brush-preview
 // hit through the SAME lighting building blocks main()'s own per-pixel
 // block below uses for a real surface -- specular_ggx()/fresnel_schlick(),
-// fleck_modulate_albedo()/fleck_perturb_normal(), sample_probe_grid()/
+// sample_probe_grid()/
 // sample_gi_cascade(), calc_contact_ao(), shadow_march()/chunked_shadow_
 // march() -- so the ghost is a truthful preview of what committing the
 // stamp will actually look like, not a cheaper stand-in. Reads `slot`'s
 // material straight out of scene_diffuse_colours/material_scalars/
 // transmission -- the exact same per-slot arrays every real sculpt
 // material uses (VulkanRaymarchShader::set_material()'s packing), so a
-// Finish/Fleck change the user just made shows up in the preview with no
+// Finish change the user just made shows up in the preview with no
 // separate sync path.
 //
 // Deliberately narrower than main()'s own block in two documented ways:
@@ -1557,15 +1500,8 @@ vec3 shade_brush_preview(vec3 p, vec3 normal, vec3 view_dir, int slot) {
     float metallic = clamp((scalar_x - exempt_flag) * 2.0, 0.0, 1.0);
     float roughness = clamp(material_scalars[slot].w, 0.0, 1.0);
     float waxy_strength = clamp(transmission[slot].x, 0.0, 1.0);
-    int fleck_pattern = int(round(transmission[slot].y));
-    float fleck_strength = clamp(transmission[slot].z, 0.0, 1.0);
-    float fleck_scale = transmission[slot].w;
 
     vec3 tint = scene_diffuse_colours[slot].rgb;
-    tint *= fleck_modulate_albedo(p, normal, fleck_pattern, fleck_scale,
-                                  fleck_strength);
-    normal = fleck_perturb_normal(p, normal, fleck_pattern, fleck_scale,
-                                  fleck_strength);
 
     vec3 indirect = (push.flags & RENDER_FLAG_CHUNKED_FIELD) != 0
         ? sample_gi_cascade(p)
@@ -1747,55 +1683,6 @@ void main() {
         tint = mix(tint, scene_diffuse_colours[PAINT_MATERIAL_SLOT].rgb,
                   paint_opacity);
 
-        // M6 (Flecks): this material's Fleck pattern/strength/scale --
-        // packed into transmission[]'s otherwise-free .y/.z/.w (see
-        // transmission_buffer_'s own header comment in vulkan_raymarch_
-        // shader.h for why those 3 components were free here, and why
-        // tex_transform_buffer_'s own apparently-free components turned out
-        // NOT to be safe to reuse instead -- VulkanRaymarchShader::
-        // set_material()'s own comment has the full story). .y is the 0-18
-        // preset id (rounded to the nearest int -- written as a plain
-        // float, like every other packed scalar in this buffer), .z is
-        // strength in [0,1] (0 -- the default for every material that
-        // existed before this milestone -- means "no Fleck", see fleck_
-        // modulate_albedo()/fleck_perturb_normal()'s own gating), .w is the
-        // world-units-per-pattern-cycle scale.
-        int fleck_pattern = int(round(transmission[hit_material].y));
-        float fleck_strength = clamp(transmission[hit_material].z, 0.0, 1.0);
-        float fleck_scale = transmission[hit_material].w;
-
-        // M3 (Looseness): scale this hit's effective Fleck strength/scale by
-        // its BRICK's authored looseness (0 = uniform/clean, the default for
-        // every brick stamped before this feature existed, to 1 = maximally
-        // loose) -- see ChunkBrickLoosenessBuffer's own comment and
-        // resolve_chunk_brick_index_at_point()'s. brick_index < 0 (no
-        // resident brick at this exact point -- shouldn't normally happen
-        // for a confirmed hit, but the G-buffer's normal/material can lag a
-        // same-frame edit by one dispatch) degrades to looseness 0, i.e. no
-        // change from pre-Looseness behaviour, same "nothing here" default
-        // every other chunked-field query in this file already uses.
-        int brick_index = resolve_chunk_brick_index_at_point(p);
-        float looseness = brick_index >= 0 ? chunk_brick_looseness[brick_index] : 0.0;
-        // Direction matters more than exact magnitude here: higher
-        // looseness should read as a COARSER/BIGGER pattern (bigger scale)
-        // with a STRONGER, more irregular perturbation (higher strength) --
-        // "loose/organic" vs. "clean/tight", matching the Looseness tool's
-        // own name and the plan file's "scale perturbation amplitude/
-        // frequency" framing (§4). Clamped the same way fleck_strength
-        // itself already is.
-        float effective_fleck_strength =
-            clamp(fleck_strength * mix(1.0, 1.6, looseness), 0.0, 1.0);
-        float effective_fleck_scale = fleck_scale * mix(1.0, 2.0, looseness);
-
-        // Modulates the tint BEFORE albedo = tex_colour * tint combines it
-        // with the triplanar-sampled texture further down -- so a Fleck's
-        // darkening affects the same quantity the checkerboard default
-        // texture already multiplies into, exactly like Spraypaint's mix()
-        // just above affects it, not a separate downstream term.
-        tint *= fleck_modulate_albedo(p, normal, fleck_pattern,
-                                      effective_fleck_scale,
-                                      effective_fleck_strength);
-
         // This primitive's authored bump magnitude (see material_scalars
         // above). A material with no bump map reads flat_texture() and
         // comes out to zero perturbation whatever this is; a strength of
@@ -1811,19 +1698,6 @@ void main() {
         vec3 bump_z = bump_from_heights(h_centre, h_u, h_v, bump_strength);
 
         normal = apply_triplanar_bump(normal, blend, bump_x, bump_y, bump_z);
-
-        // M6 (Flecks): runs right after bump mapping, perturbing whatever
-        // normal bump mapping already produced -- the two stack naturally
-        // (a Finish's bump map and a Fleck are both just "add surface
-        // relief", one texture-sampled and one procedural). No-op (returns
-        // `normal` unchanged, not even sampling the field) when fleck_
-        // strength is 0 -- see fleck_perturb_normal()'s own gating comment.
-        // M3 (Looseness): same effective_fleck_strength/effective_fleck_
-        // scale as the albedo call above, not the raw per-material values --
-        // see that call site's own comment.
-        normal = fleck_perturb_normal(p, normal, fleck_pattern,
-                                      effective_fleck_scale,
-                                      effective_fleck_strength);
 
         // Sum every registered light's direct diffuse contribution on top
         // of this point's baked indirect/bounce light (see

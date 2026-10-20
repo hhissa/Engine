@@ -151,39 +151,21 @@ KAPI void renderer_set_ao_enabled(b8 enabled);
 // RendererBackend::debug_probe_field().
 KAPI void renderer_debug_probe_field(glm::vec3 world_pos);
 
-// M5 (Finishes) + M6 (Flecks): configures material slot `slot` (must be >=
-// 2 -- 0 and 1 are reserved for the default/Spraypaint materials, see
+// M5 (Finishes): configures material slot `slot` (must be >= 2 -- 0 and 1
+// are reserved for the default/Spraypaint materials, see
 // VulkanRaymarchShader::ensure_default_sculpt_material()) with a base
 // colour, a dielectric roughness (0 = mirror-sharp, 1 = fully diffuse),
 // metallic (0 = dielectric, 1 = metal -- tints the specular reflection by
 // `colour` and removes the diffuse substrate, see Builtin.DeferredShade.
-// comp.glsl's final combine), `waxy` (adds a second, fixed-low-roughness
-// specular highlight on top -- see the shader's WAXY_LOBE_* constants),
-// and a Fleck: `fleck_pattern` (0-18, one of Square/Circle/Triangle/
-// Hexagon/Dots/Straight/Heavy/Hatching/Streaky/Scribble/Veins/Splat/
-// Cubist/Impressionist/Expressive/Baroque/Impasto/Clay/Fuzzy, in that order
-// -- see Builtin.FleckPattern.inc.glsl's own header comment for the family
-// each maps to), `fleck_strength` (0 = no Fleck at all, regardless of
-// `fleck_pattern`; clamped to [0, 1] otherwise) and `fleck_scale` (world
-// units per pattern cycle -- larger reads as coarser/bigger features). This
-// is how tools/modelling_software_v2's Finish presets (Default/Plastic/
-// Shiny/Rough/Metal/Wax/Shiny Metal/Shiny Wax/Rough Metal/Rough Wax/Clay)
-// and its Fleck presets (the 19 named above) are both actually realized:
-// ONE freshly allocated slot carries both, via one call here -- not two independent
-// allocation paths. A no-op (logs a warning) if slot is out of
-// [2, kMaxScenePrimitives) -- see VulkanRaymarchShader::set_material()'s
-// own comment for the full packing. Cheap and synchronous (a direct
-// host-visible buffer write, NOT device-stalling like the sculpt-stamp
-// family below) -- call it once per Finish/Fleck/colour pick, before the
-// next renderer_sculpt_stamp_shape() call that references `slot`, not
-// every frame. Pass fleck_strength 0.0f (fleck_pattern/fleck_scale are
-// then ignored -- 0/1.0f is the conventional "don't care" value) for a
-// slot that should carry a Finish with no Fleck, exactly what every M5
-// Finish preset still does.
+// comp.glsl's final combine) and `waxy` (adds a second, fixed-low-roughness
+// specular highlight on top -- see the shader's WAXY_LOBE_* constants).
+// This is how tools/modelling_software_v2's Finish presets are realized. A
+// no-op (logs a warning) if slot is out of [2, kMaxScenePrimitives). Cheap
+// and synchronous (a direct host-visible buffer write, NOT device-stalling
+// like the sculpt-stamp family below) -- fine to call every frame.
 KAPI void renderer_sculpt_set_material(i32 slot, glm::vec3 colour,
                                        f32 roughness, f32 metallic,
-                                       bool waxy, i32 fleck_pattern,
-                                       f32 fleck_strength, f32 fleck_scale);
+                                       bool waxy);
 
 // Registers one standing directional/point light for the raymarch render
 // pass's per-pixel lighting loop -- e.g. renderer_add_directional_light(
@@ -302,7 +284,7 @@ KAPI i32 renderer_sculpt_spray(glm::vec3 center, SculptBrushShape shape_type,
                                glm::vec4 params, f32 opacity_per_pass);
 
 // M7 polish: the live brush-cursor "ghost" preview -- shows the ACTUAL
-// shaded material (colour, roughness/metallic/waxy Finish, Fleck pattern)
+// shaded material (colour, roughness/metallic/waxy Finish)
 // a renderer_sculpt_stamp_shape() call at `center` with these exact
 // parameters would place, replacing the plain wireframe outline tools/
 // modelling_software_v2's scene_viewport.cpp drew before this existed. See
@@ -443,6 +425,62 @@ KAPI bool renderer_sculpt_set_object_material(const i32 *object_ids,
 // Writes up to `capacity` distinct object ids (in first-stamp order) to
 // out_ids (may be null to just count) and returns how many there are.
 KAPI i32 renderer_sculpt_object_ids(i32 *out_ids, i32 capacity);
+
+// One stamp of an object, as renderer_sculpt_stamp_shape() would recreate
+// it (for snapshots: undo/redo).
+struct SculptStampInfo {
+  glm::vec3 center{0.0f};
+  SculptBrushShape shape_type = SculptBrushShape::Sphere;
+  glm::vec4 params{0.0f};
+  f32 smoothness = 0.0f;
+  SculptBrushOp op = SculptBrushOp::Union;
+  i32 material_slot = 0;
+  f32 looseness = 0.0f;
+  glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+};
+// Writes up to `capacity` of object `object_id`'s stamps, in stamp order,
+// to out_stamps (may be null to just count); returns how many it has.
+KAPI i32 renderer_sculpt_object_stamps(i32 object_id, SculptStampInfo *out_stamps,
+                                       i32 capacity);
+
+// Flecks: the surface is drawn as many small splats ("flecks"). Looseness
+// trades them for fewer, bigger ones that show as individual marks: 0 =
+// tight (a smooth surface), 1 = loosest. Sets every stamp of these objects
+// and re-runs their region -- device-stalling, so once per change, not
+// per frame. Clears undo/redo history. False if nothing changed.
+KAPI bool renderer_sculpt_set_object_looseness(const i32 *object_ids,
+                                               i32 count, f32 looseness);
+
+// Fleck settings of material `slot` (objects get their own slot via
+// renderer_sculpt_set_object_material()):
+//   looseness  0 = tight (smooth) .. 1 = loosest (fewer, bigger flecks);
+//              combines with per-stamp looseness, the larger wins
+//   style      fleck shape, 0-15: Square, Circle, Triangle, Hexagon, Dots,
+//              Scribble, Veins, Splat, Straight, Heavy, Hatching, Cubist,
+//              Impressionist, Expressive, Baroque, Streaky (-1 = Circle)
+//   comb       0 = each fleck turned at random .. 1 = all aligned
+//   ruffle     0 = flecks lie flat .. 1 = tilted at random
+//   impasto    0 = flat paint .. 1 = each fleck's tip lifted off the surface
+//              (its base stays attached)
+//   neatness   0 = flecks scattered at random .. 1 = in neat rows, each
+//              row offset half a fleck from the next
+// Only loose flecks show their shape. Cheap; fine every frame.
+KAPI void renderer_sculpt_set_material_flecks(i32 slot, f32 looseness,
+                                              i32 style, f32 comb, f32 ruffle,
+                                              f32 impasto = 0.0f,
+                                              f32 neatness = 0.0f);
+
+// Effects mode: how strongly material `slot`'s flecks are animated by each
+// effect, 0 = not at all .. 1 = fully:
+//   boil       bubble up and burst, like the surface of boiling water
+//   flow       stream across the surface, like a river
+//   wave       sway and flutter, like grass in the wind
+//   evaporate  soften and lift off the surface, like steam
+//   throb      swell in and out together, like a pulse
+// Cheap; fine every frame.
+KAPI void renderer_sculpt_set_material_effects(i32 slot, f32 boil, f32 flow,
+                                               f32 wave, f32 evaporate,
+                                               f32 throb);
 
 // How strongly material `slot` glows in its own colour: 0 = not at all,
 // 1 = fully (bright enough to bloom). Cheap; fine to call every frame.

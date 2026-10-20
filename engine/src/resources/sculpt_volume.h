@@ -56,10 +56,7 @@ struct SculptStamp {
   // VulkanRaymarchShader::stamp_shape(), which writes it into a new per-
   // BRICK buffer (chunk_brick_looseness_buffer_, parallel to the existing
   // per-brick material buffer, same UNION-only-overwrites rule) alongside
-  // the stamp's material -- Builtin.DeferredShade.comp.glsl reads it back
-  // at the real-surface shading block to scale the hit brick's effective
-  // Fleck strength/scale (see Builtin.FleckPattern.inc.glsl's entry
-  // points). See the plan file's M3/M6 sections.
+  // the stamp's material. Nothing shades with it at the moment.
   f32 looseness = 0.0f;
   // Orientation of the shape about its own center. Identity for anything
   // stamped by a brush; object rotation (VulkanRendererBackend::
@@ -191,6 +188,14 @@ public:
     stamps_[index].params = new_params;
     stamps_[index].smoothness = new_smoothness;
     stamps_[index].cells_touched = cells_touched;
+    return true;
+  }
+
+  bool set_stamp_looseness(size_t index, f32 looseness) {
+    if (index >= stamps_.size()) {
+      return false;
+    }
+    stamps_[index].looseness = looseness;
     return true;
   }
 

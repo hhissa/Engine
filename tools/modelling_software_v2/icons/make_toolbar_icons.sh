@@ -90,6 +90,70 @@ magick -size ${S}x${S} xc:none -fill none -stroke white -strokewidth 16 \
   -draw "arc 56,56 200,200 200,500" -fill white -stroke none \
   -draw "polygon 40,92 92,92 66,140" -resize 128x128 "$OUT/revert.png"
 
+# Exit mode: a door with an arrow leaving it.
+magick -size ${S}x${S} xc:none -fill none -stroke white -strokewidth 14 \
+  -draw "polyline 128,64 128,44 52,44 52,212 128,212 128,192" \
+  -strokewidth 16 -draw "line 92,128 196,128" -fill white -stroke none \
+  -draw "polygon 222,128 182,96 182,160" -resize 128x128 "$OUT/exit.png"
+
+# Style mode tools. Fleck style: three overlapping flecks.
+magick -size ${S}x${S} xc:none -fill white -stroke '#2b313b' -strokewidth 8 \
+  -draw "circle 96,150 96,96" -draw "circle 160,150 160,96" -draw "circle 128,96 128,44" \
+  -resize 128x128 "$OUT/fleckstyle.png"
+# Looseness: flecks growing bigger and sparser.
+magick -size ${S}x${S} xc:none -fill white \
+  -draw "circle 52,184 52,172" -draw "circle 84,150 84,134" -draw "circle 64,112 64,100" \
+  -draw "circle 130,120 130,98" -draw "circle 108,196 108,180" -draw "circle 182,82 182,50" \
+  -draw "circle 186,176 186,148" -resize 128x128 "$OUT/looseness.png"
+# Comb: a comb.
+magick -size ${S}x${S} xc:none -fill white -draw "roundrectangle 36,52 220,96 14,14" \
+  -draw "rectangle 48,92 64,204" -draw "rectangle 84,92 100,204" -draw "rectangle 120,92 136,204" \
+  -draw "rectangle 156,92 172,204" -draw "rectangle 192,92 208,204" -resize 128x128 "$OUT/comb.png"
+# Ruffle: short strokes scattered at random angles.
+magick -size ${S}x${S} xc:none -fill none -stroke white -strokewidth 18 \
+  -draw "line 48,70 96,52" -draw "line 150,40 176,88" -draw "line 60,140 72,190" \
+  -draw "line 112,118 160,136" -draw "line 186,140 210,192" -draw "line 108,196 150,176" \
+  -resize 128x128 "$OUT/ruffle.png"
+# Impasto: a paint stroke attached to the surface at one end, its tip
+# lifted off it, thick.
+magick -size ${S}x${S} xc:none -fill none -stroke white -strokewidth 14 \
+  -draw "line 28,208 228,208" -stroke none -fill white \
+  -draw "path 'M 40,200 C 90,200 140,180 176,124 C 196,92 214,64 226,70 C 240,80 224,124 206,148 C 170,192 110,206 40,206 Z'" \
+  -resize 128x128 "$OUT/impasto.png"
+# Neatness: flecks in neat rows, every other row shifted half along.
+magick -size ${S}x${S} xc:none -fill white \
+  -draw "roundrectangle 34,52 86,84 12,12" -draw "roundrectangle 102,52 154,84 12,12" -draw "roundrectangle 170,52 222,84 12,12" \
+  -draw "roundrectangle 0,112 52,144 12,12" -draw "roundrectangle 68,112 120,144 12,12" -draw "roundrectangle 136,112 188,144 12,12" -draw "roundrectangle 204,112 256,144 12,12" \
+  -draw "roundrectangle 34,172 86,204 12,12" -draw "roundrectangle 102,172 154,204 12,12" -draw "roundrectangle 170,172 222,204 12,12" \
+  -resize 128x128 "$OUT/neatness.png"
+
+# Effects mode tools. Boil: bubbles rising off a surface.
+magick -size ${S}x${S} xc:none -fill none -stroke white -strokewidth 14 \
+  -draw "line 28,212 228,212" -strokewidth 12 \
+  -draw "circle 80,168 80,140" -draw "circle 150,150 150,106" -draw "circle 108,84 108,66" \
+  -draw "circle 186,64 186,52" -resize 128x128 "$OUT/boil.png"
+# Flow: streaming current lines with an arrow.
+magick -size ${S}x${S} xc:none -fill none -stroke white -strokewidth 16 \
+  -draw "path 'M 28,88 C 76,60 116,116 164,88'" -draw "path 'M 28,140 C 76,112 116,168 164,140'" \
+  -draw "path 'M 28,192 C 76,164 116,220 164,192'" -stroke none -fill white \
+  -draw "polygon 234,140 186,104 186,176" -resize 128x128 "$OUT/flow.png"
+# Wave: grass blades bending in the wind.
+magick -size ${S}x${S} xc:none -fill none -stroke white -strokewidth 14 \
+  -draw "line 28,220 228,220" \
+  -draw "path 'M 64,214 C 66,160 84,110 120,74'" -draw "path 'M 116,214 C 118,166 138,124 176,96'" \
+  -draw "path 'M 168,214 C 170,176 188,142 222,124'" -resize 128x128 "$OUT/wave.png"
+# Evaporate: wisps of steam rising from a surface.
+magick -size ${S}x${S} xc:none -fill none -stroke white -strokewidth 14 \
+  -draw "line 28,220 228,220" \
+  -draw "path 'M 80,196 C 56,170 104,146 80,120 C 56,94 104,70 80,44'" \
+  -draw "path 'M 128,196 C 104,170 152,146 128,120 C 104,94 152,70 128,44'" \
+  -draw "path 'M 176,196 C 152,170 200,146 176,120 C 152,94 200,70 176,44'" \
+  -resize 128x128 "$OUT/evaporate.png"
+# Throb: a heartbeat trace.
+magick -size ${S}x${S} xc:none -fill none -stroke white -strokewidth 14 \
+  -draw "polyline 20,136 82,136 104,84 132,192 156,108 172,136 236,136" \
+  -resize 128x128 "$OUT/throb.png"
+
 # Placeholder for buttons that do nothing yet: three dots.
 magick -size ${S}x${S} xc:none -fill white \
   -draw "circle 78,128 78,112" -draw "circle 128,128 128,112" -draw "circle 178,128 178,112" \

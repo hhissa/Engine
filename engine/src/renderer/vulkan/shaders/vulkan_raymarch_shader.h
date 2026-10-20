@@ -471,67 +471,21 @@ public:
   //   material_scalar_buffer_[slot].z   = 1.0 (casts_shadow)
   //   material_scalar_buffer_[slot].w   = roughness
   //   transmission_buffer_[slot].x      = waxy ? 1.0 : 0.0
-  //   transmission_buffer_[slot].y      = M6 (Flecks): fleck_pattern, a
-  //                                        0-18 preset id written as a
-  //                                        rounded float (ignored, along
-  //                                        with .w, whenever .z is 0)
-  //   transmission_buffer_[slot].z      = M6 (Flecks): fleck_strength,
-  //                                        clamped to [0, 1] -- 0 (the
-  //                                        default for every slot this
-  //                                        call never touches, and for
-  //                                        every slot that existed before
-  //                                        M6) means "no Fleck", read by
-  //                                        Builtin.FleckPattern.inc.glsl's
-  //                                        two entry points as the gate
-  //                                        that makes them a no-op
-  //   transmission_buffer_[slot].w      = M6 (Flecks): fleck_scale, world
-  //                                        units per pattern cycle (only
-  //                                        meaningful when .z > 0)
-  // transmission_buffer_ is where both the M5 "waxy" flag and the M6 Fleck
-  // params live because it is otherwise completely dead for every opaque
-  // sculpt material: Builtin.DeferredShade.comp.glsl declares
-  // ScenePrimitiveTransmission (binding 28) but the whole glass/
-  // transmission shading block that used to READ it was deleted in the M0
-  // CSG pass (confirmed -- grep the shader for "transmission[" outside its
-  // own declaration: nothing before M5), so every component of every slot
-  // was free going into M5, which claimed only .x. M6 investigated
-  // reusing tex_transform_buffer_'s own apparently-free components instead
-  // (it packs texture UV offset/rotation, and no sculpt material has ever
-  // set a non-zero one) and found that NOT safe at the time: Builtin.
-  // DeferredShade.comp.glsl unconditionally uses tex_transform_buffer_
-  // [slot] to compute the UV every sculpt material's triplanar diffuse
-  // sample reads, and at that point every sculpt material's scene_textures
-  // [slot] was bound to texture_system->default_texture() -- a genuinely
-  // visible procedural checkerboard, NOT a flat/uniform fallback. Writing
-  // anything non-zero into tex_transform_buffer_ for a Fleck-carrying slot
-  // would have shifted/rotated that checkerboard out from under it, a
-  // visible side effect entirely unrelated to the Fleck itself. A later M5
-  // visual-quality pass rebound every slot set_material() touches to
-  // flat_texture() instead (see this function's own definition for why --
-  // the checkerboard was swamping every Finish's actual roughness/metallic/
-  // waxy look), so tex_colour is spatially uniform for those slots now too
-  // -- but the conclusion is unchanged, since a UV offset/rotation still
-  // has no reader-visible effect on a spatially uniform texture.
-  // transmission_buffer_'s .y/.z/.w have no such reader anywhere (the glass
-  // block that used to read any component of it is gone), so they remain
-  // the simplest home regardless.
+  //   transmission_buffer_[slot].yzw    = 0 (unused)
+  // transmission_buffer_ holds the "waxy" flag because it is otherwise
+  // dead for every opaque sculpt material (the glass block that read it
+  // was deleted in the M0 CSG pass).
   //
   // No-op (logs a warning, touches nothing) if slot < 2 or
   // slot >= kMaxScenePrimitives -- the caller (tools/modelling_software_v2)
-  // is expected to allocate slots itself starting from 2, since this is a
-  // hand-authored sculpting session, not thousands of auto-generated
-  // materials, and a fixed cap needs no fancier allocator. Host-visible
-  // direct load_data() writes, same as ensure_default_sculpt_material() --
-  // no staging buffer, no device-idle wait, cheap enough to call once per
-  // Finish/Fleck/colour pick in the tool (not per-stamp). fleck_pattern is
-  // only meaningful when fleck_strength > 0 (pass 0/0.0f/1.0f for "no
-  // Fleck", what every Finish preset did before this milestone existed).
+  // allocates slots itself starting from 2. Host-visible direct load_data()
+  // writes, same as ensure_default_sculpt_material() -- no staging buffer,
+  // no device-idle wait; cheap enough to call every frame.
   void set_material(i32 slot, glm::vec3 colour, f32 roughness, f32 metallic,
-                    bool waxy, i32 fleck_pattern, f32 fleck_strength,
-                    f32 fleck_scale);
+                    bool waxy);
 
   // M7 polish: live brush-cursor "ghost" preview -- shows the ACTUAL
-  // shaded material (colour/roughness/metallic/waxy Finish, Fleck pattern)
+  // shaded material (colour/roughness/metallic/waxy Finish)
   // the next stamp_shape() call at `center` would place, not just the
   // wireframe outline tools/modelling_software_v2's scene_viewport.cpp drew
   // before this existed. `shape_type`/`params`/`op`/`material_slot` use the
@@ -562,6 +516,21 @@ public:
   // How strongly material `slot` glows in its own colour (0 = not at all,
   // 1 = fully). Cheap host-visible write; fine to call every frame.
   void set_material_glow(i32 slot, f32 glow);
+  // Fleck settings of material `slot`: looseness (0 tight .. 1 loosest --
+  // fewer, bigger flecks; combines with per-stamp looseness, the larger
+  // wins), style (0-15, see Builtin.ChunkPointSplat.comp.glsl's
+  // fleck_mask(); -1 = default circle), comb (0 = each fleck turned at
+  // random .. 1 = all aligned) and ruffle (0 = flecks lie flat .. 1 =
+  // tilted at random) and impasto (0 = flat .. 1 = each fleck's tip lifted
+  // off the surface) and neatness (0 = scattered .. 1 = staggered rows).
+  // Cheap host-visible write; fine every frame.
+  void set_material_flecks(i32 slot, f32 looseness, i32 style, f32 comb,
+                           f32 ruffle, f32 impasto, f32 neatness);
+  // Effects mode: how strongly material `slot`'s flecks boil, flow, wave,
+  // evaporate and throb (each 0 = not at all .. 1 = fully). Animated by the
+  // splat pass. Cheap host-visible write; fine every frame.
+  void set_material_effects(i32 slot, f32 boil, f32 flow, f32 wave,
+                            f32 evaporate, f32 throb);
 
   static constexpr u32 kMaxOutlineObjects = 16;
   static constexpr u32 kMaxOutlineStamps = 512;
@@ -1778,10 +1747,9 @@ private:
   // material write (Builtin.SculptStamp.comp.glsl's `looseness` push-
   // constant field), same UNION-only-overwrites rule (a Subtraction stamp
   // leaves a brick's existing looseness untouched, exactly like it leaves
-  // material untouched -- see that shader's own comment on why). Read back
-  // in Builtin.DeferredShade.comp.glsl (paint_read_set_'s new binding 3) to
-  // scale a hit surface's effective Fleck strength/scale -- see that
-  // shader's own comment at the real-surface Fleck call site. Also
+  // material untouched -- see that shader's own comment on why). Nothing
+  // shades with it at the moment (the Fleck shading that read it was
+  // removed). Also
   // captured/restored by undo_stamp() alongside chunk_brick_primitive_
   // buffer_'s own identical snapshot, for the same reason: it is authored
   // alongside material at stamp time and represents the same "what this
@@ -1824,6 +1792,12 @@ private:
   std::optional<VulkanBuffer> selection_outline_buffer_;
   // Per-material-slot extras (x = glow), paint_read_set_ binding 6.
   std::optional<VulkanBuffer> material_extra_buffer_;
+  // Per-material-slot fleck settings (set_material_flecks()), bound to the
+  // splat pass (chunk_point_splat_set_ binding 9).
+  std::optional<VulkanBuffer> fleck_params_buffer_;
+  // Per-material-slot fleck effects (set_material_effects()), splat pass
+  // binding 11: two vec4s per slot.
+  std::optional<VulkanBuffer> fleck_effects_buffer_;
   std::vector<u8> last_selection_outline_;
   bool outline_overflow_warned_ = false;
   // M7 polish FIX (TAA-ghosting): render-target-sized (same lifetime as

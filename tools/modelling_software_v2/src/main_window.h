@@ -62,14 +62,6 @@ private slots:
   void on_finish_changed(int index);
   void on_pick_material_colour_clicked();
 
-  // M6 (Flecks) -- see build_brush_panel()/fleck_combo_/fleck_strength_
-  // spin_'s own comments. Same "funnel into apply_finish_and_colour()"
-  // shape as the Finish handlers directly above: a material slot now
-  // carries its Finish AND its Fleck together, allocated by the one
-  // shared call, not two independent paths.
-  void on_fleck_changed(int index);
-  void on_fleck_strength_changed(double value);
-
   // M3b (Clone).
   void on_clone_mode_toggled(bool checked);
   void on_set_clone_source_clicked();
@@ -120,21 +112,13 @@ private:
   // Called once from the constructor.
   void build_brush_panel();
 
-  // M5 (Finishes) + M6 (Flecks): allocates a FRESH material slot (next_
-  // material_slot_, post-incremented -- see its own comment) and
-  // configures it via viewport_->configure_material() from whatever
-  // finish_combo_/current_material_colour_ AND fleck_combo_/fleck_
-  // strength_spin_ currently hold, then points viewport_'s brush_
+  // M5 (Finishes): allocates a FRESH material slot (next_material_slot_,
+  // post-incremented -- see its own comment) and configures it via
+  // viewport_->configure_material() from whatever finish_combo_/current_
+  // material_colour_ currently hold, then points viewport_'s brush_
   // material_slot_ at it (set_brush_material_slot()) so the NEXT stamp/
-  // clone-capture picks it up. Called from the Finish handlers AND the
-  // Fleck handlers below -- any one of the four controls changing is "a
-  // new material", in this tool's model, and ALL FOUR always go into the
-  // same fresh slot together (one slot carries both a Finish and a Fleck,
-  // never two independent allocation paths). Also refreshes material_
-  // colour_button_'s background swatch so the button itself shows the
-  // active colour. fleck_strength_spin_ at its startup default of 0 means
-  // a session that never touches the Fleck controls allocates slots
-  // exactly as M5 did -- see fleck_strength_spin_'s own comment.
+  // clone-capture picks it up. Also refreshes material_colour_button_'s
+  // background swatch so the button itself shows the active colour.
   void apply_finish_and_colour();
 
   // M3b: refreshes clone_source_label_'s text from viewport_'s current
@@ -198,14 +182,8 @@ private:
   QDoubleSpinBox *size_spin_ = nullptr;
   QDoubleSpinBox *smoothness_spin_ = nullptr;
   // M3 (Looseness): 0 (clean/uniform, the default) to 1 (maximally loose).
-  // Still purely authored/recorded, not wired to anything -- M6 (Flecks)
-  // landed its own independent fleck_strength_spin_ below instead of
-  // reading this: Looseness is stored PER-STAMP (SculptStamp::looseness,
-  // CPU-side only, never uploaded to the GPU), while Fleck params are
-  // PER-MATERIAL-SLOT (multiple stamps can share one slot) -- a real
-  // granularity mismatch, not an oversight. Documented as a known gap
-  // (same "shipped without X, noted why" precedent Spraypaint's missing
-  // undo support already set), not blocking this milestone.
+  // Authored and recorded per stamp (and stored per brick on the GPU), but
+  // nothing shades with it at the moment.
   QDoubleSpinBox *looseness_spin_ = nullptr;
 
   // M4a (Stretch): three independent multipliers (default 1.0, see
@@ -223,23 +201,6 @@ private:
   // is load-bearing" convention shape_combo_/kBrushShapeNames already use.
   QComboBox *finish_combo_ = nullptr;
   QPushButton *material_colour_button_ = nullptr;
-
-  // M6 (Flecks) panel widgets -- see build_brush_panel()'s own additions
-  // and apply_finish_and_colour(). fleck_combo_'s row index maps 1:1 onto
-  // kFleckPresets (main_window.cpp) by position, and in turn onto Builtin.
-  // FleckPattern.inc.glsl's 0-18 pattern id by the SAME position -- same
-  // "enum/array order is load-bearing" convention shape_combo_/
-  // kBrushShapeNames and finish_combo_/kFinishPresets already use.
-  QComboBox *fleck_combo_ = nullptr;
-
-  // M6 (Flecks): 0 (the startup default) means "no Fleck at all" --
-  // whatever fleck_combo_ has selected is ignored engine-side the moment
-  // this is 0 (see VulkanRaymarchShader::set_material()'s own fleck_
-  // strength gating comment), which is exactly what makes a session that
-  // never touches this slider allocate material slots identical to every
-  // one M5 (Finishes) could already allocate -- the zero-regression
-  // guarantee this milestone's own verification checks for.
-  QDoubleSpinBox *fleck_strength_spin_ = nullptr;
 
   // M5 (Finishes): the base colour the NEXT allocated material slot gets
   // -- white matches ensure_default_sculpt_material()'s own slot-0

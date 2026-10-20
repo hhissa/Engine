@@ -234,9 +234,8 @@ layout(std430, binding = 8) buffer ChunkBrickPaintBuffer {
 // M3 (Looseness): one f32 per brick slot, same size/indexing as
 // ChunkBrickPrimitiveBuffer above -- written right alongside the material
 // write below (same UNION-only-overwrites rule: a Subtraction stamp leaves
-// a brick's existing looseness untouched, exactly like material). Read back
-// in Builtin.DeferredShade.comp.glsl to scale a hit surface's effective
-// Fleck strength/scale. Also bound (same layout) by Builtin.
+// a brick's existing looseness untouched, exactly like material). Nothing
+// shades with it at the moment. Also bound (same layout) by Builtin.
 // SculptCheckpointRestore.comp.glsl, which restores it the same way it
 // restores chunk_brick_primitive.
 layout(std430, binding = 9) buffer ChunkBrickLoosenessBuffer {

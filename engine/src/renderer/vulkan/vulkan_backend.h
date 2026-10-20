@@ -45,8 +45,7 @@ public:
   void set_ao_enabled(b8 enabled) override;
   void debug_probe_field(glm::vec3 world_pos) override;
   void set_material(i32 slot, glm::vec3 colour, f32 roughness, f32 metallic,
-                    bool waxy, i32 fleck_pattern, f32 fleck_strength,
-                    f32 fleck_scale) override;
+                    bool waxy) override;
   i32 add_directional_light(glm::vec3 direction, glm::vec3 colour,
                             f32 intensity) override;
   void set_point_light(i32 index, glm::vec3 position, glm::vec3 colour,
@@ -91,7 +90,15 @@ public:
   bool set_object_material(const i32 *object_ids, i32 count,
                            i32 slot) override;
   void set_material_glow(i32 slot, f32 glow) override;
+  void set_material_effects(i32 slot, f32 boil, f32 flow, f32 wave,
+                            f32 evaporate, f32 throb) override;
+  void set_material_flecks(i32 slot, f32 looseness, i32 style, f32 comb,
+                           f32 ruffle, f32 impasto, f32 neatness) override;
+  bool set_object_looseness(const i32 *object_ids, i32 count,
+                            f32 looseness) override;
   i32 object_ids(i32 *out_ids, i32 capacity) const override;
+  i32 object_stamps(i32 object_id, SculptStampInfo *out_stamps,
+                    i32 capacity) const override;
   i32 raycast_objects(glm::vec3 origin, glm::vec3 direction, f32 max_t,
                       const i32 *object_ids, i32 count,
                       f32 *out_t) const override;
