@@ -102,34 +102,9 @@ const int OP_SUBTRACTION = 1;
 //   Link:            params.x = half_length, params.y = r1, params.z = r2
 //   Ellipsoid:       params.xyz = radii
 float eval_brush_shape(vec3 p, int shape_type, vec4 params) {
-    switch (shape_type) {
-        case SHAPE_SPHERE:         return sphere_sdf(p, params.x);
-        case SHAPE_BOX:            return box_sdf(p, params.xyz);
-        case SHAPE_PLANE:          return plane_sdf(p, params.x);
-        case SHAPE_TORUS:          return torus_sdf(p, params.x, params.y);
-        case SHAPE_CAPPED_CYLINDER:
-            return capped_cylinder_sdf(p, params.x, params.y);
-        case SHAPE_CAPPED_CONE:
-            return capped_cone_sdf(p, params.x, params.y, params.z);
-        case SHAPE_ROUND_BOX:
-            return round_box_sdf(p, params.xyz, params.w);
-        case SHAPE_BOX_FRAME:
-            return box_frame_sdf(p, params.xyz, params.w);
-        case SHAPE_OCTAHEDRON:     return octahedron_sdf(p, params.x);
-        case SHAPE_PYRAMID:        return pyramid_sdf(p, params.x, params.y);
-        case SHAPE_HEX_PRISM:      return hex_prism_sdf(p, params.x, params.y);
-        case SHAPE_ROUND_CONE:
-            return round_cone_sdf(p, params.x, params.y, params.z);
-        case SHAPE_CAPSULE:        return capsule_sdf(p, params.x, params.y);
-        case SHAPE_LINK:
-            return link_sdf(p, params.x, params.y, params.z);
-        case SHAPE_ELLIPSOID:      return ellipsoid_sdf(p, params.xyz);
-        default:
-            // Unreachable as long as the CPU side only ever sends a valid
-            // SculptBrushShape value -- fall back to a sphere rather than
-            // undefined behaviour if it ever isn't.
-            return sphere_sdf(p, params.x);
-    }
+    // Shared with every sculpt shader, modifiers included -- see
+    // brush_shape_sdf(), Builtin.BrushShapes.inc.glsl.
+    return brush_shape_sdf(p, shape_type, params);
 }
 
 // One entry per touched coarse cell, written host-side by
@@ -293,12 +268,19 @@ layout(push_constant) uniform PushConstants {
     float rot_y;
     float rot_z;
     float rot_w;
+    int object_id;      // the stamp's object: each voxel records its owner
                         // looseness[] alongside material_slot below, same
                         // UNION-only-overwrites rule. Added at the END of
                         // this block -- see SculptStampPushConstants'
                         // engine-side comment for why appending keeps
                         // every earlier member's offset unchanged.
 } pc;
+
+// The paint buffer's per-voxel owner code (see Builtin.SculptChunkRecompute.
+// comp.glsl's owner_code()): this stamp's material slot and object.
+float voxel_owner_code() {
+    return float((max(pc.object_id, 0) + 1) * 1024 + clamp(pc.material_slot, 0, 1023));
+}
 
 void main() {
     uint idx = gl_GlobalInvocationID.x;
@@ -447,7 +429,9 @@ void main() {
                     // long-gone earlier occupant of this brick index last
                     // sprayed there (see ChunkBrickPaintBuffer's own
                     // comment).
-                    chunk_brick_paint[voxel_index] = 0.0;
+                    // Per-voxel material (see Builtin.SculptChunkRecompute.
+                    // comp.glsl): this stamp owns every voxel of a new brick.
+                    chunk_brick_paint[voxel_index] = voxel_owner_code();
                 } else {
                     float old_dist = chunk_bricks[voxel_index];
                     if (capture_allowed) {
@@ -463,6 +447,10 @@ void main() {
                     if (pc.op == OP_UNION) {
                         out_dist = smooth_union(new_dist, old_dist,
                                                 pc.smoothness, unused_h);
+                        // ...and the voxels where it is the nearer surface.
+                        if (unused_h >= 0.5) {
+                            chunk_brick_paint[voxel_index] = voxel_owner_code();
+                        }
                     } else { // OP_SUBTRACTION
                         out_dist = smooth_subtraction(new_dist, old_dist,
                                                       pc.smoothness, unused_h);

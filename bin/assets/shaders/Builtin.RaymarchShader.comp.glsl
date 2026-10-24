@@ -514,7 +514,13 @@ const float PI = 3.14159265359;
 // tracing on abs(dist) would march deeper in, not out), the very first
 // sample is checked: clearly negative means the prime overshot through a
 // surface, and the ray restarts from 0 as if never primed.
-float raymarch(vec3 ray_origin, vec3 ray_dir, float start_t,
+//
+// pixel_cone: half a pixel's width per unit of distance. A ray counts as
+// having hit once it is within that of a surface -- closer than the eye can
+// tell apart. A fixed SURF_DIST alone made every ray that grazed a
+// silhouette creep past it in tiny steps, which in a busy scene was most of
+// this pass's cost.
+float raymarch(vec3 ray_origin, vec3 ray_dir, float start_t, float pixel_cone,
                out int hit_material) {
     float travelled = start_t;
     hit_material = -1;
@@ -535,7 +541,8 @@ float raymarch(vec3 ray_origin, vec3 ray_dir, float start_t,
             }
         }
 
-        if (static_valid && abs(static_dist) < SURF_DIST) {
+        if (static_valid &&
+            abs(static_dist) < max(SURF_DIST, travelled * pixel_cone)) {
             hit_material = static_material;
             break;
         }
@@ -838,7 +845,8 @@ void main() {
     } else {
         float start_t = have_splat ? max(splat_dist - splat_spacing * 2.0, 0.0)
                                    : 0.0;
-        travelled = raymarch(ray_origin, ray_dir, start_t, hit_material);
+        travelled = raymarch(ray_origin, ray_dir, start_t,
+                             0.5 / float(image_size.y), hit_material);
         p = ray_origin + ray_dir * travelled;
     }
 

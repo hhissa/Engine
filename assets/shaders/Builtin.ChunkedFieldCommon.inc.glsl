@@ -98,6 +98,9 @@ int chunk_table_slot_at(vec3 p, int level) {
 // Variant taking a slot the caller has ALREADY resolved via chunk_table_
 // slot_at(), so sample_clipmap_field()'s residency test doesn't have to
 // pay for the same table read twice on the raymarcher's hottest path.
+// How many further brickless cells one sample may skip -- see below.
+const int EMPTY_CELL_WALK = 4;
+
 void sample_chunked_field_at_level_slot(vec3 p, vec3 ray_dir, int level, int slot,
                                         out float dist, out float skip_dist,
                                         out int material_index) {
@@ -159,6 +162,43 @@ void sample_chunked_field_at_level_slot(vec3 p, vec3 ray_dir, int level, int slo
         vec3 safe_ray_dir = mix(ray_dir, vec3(1.0), stationary);
         vec3 t_exit = mix((boundary - p) / safe_ray_dir, vec3(1e30), stationary);
         float exit_dist = min(min(t_exit.x, t_exit.y), t_exit.z);
+
+        // Keep walking (a 3D DDA over this chunk's own indirection entries)
+        // through every further brickless cell the ray crosses, stopping at
+        // the first cell with a brick or at the chunk's edge. Each of those
+        // cells is exactly as skippable as this one, and walking them here
+        // costs one table read each instead of a whole field sample and
+        // march iteration per 0.25-unit cell -- most of a shadow ray's
+        // steps inside a sculpted chunk. Capped at a few cells: longer
+        // walks measured slower in busy scenes (lanes diverge on their walk
+        // lengths), and four already takes most of the saving.
+        vec3 t_delta = mix(abs(vec3(cell_size) / safe_ray_dir), vec3(1e30),
+                           stationary);
+        ivec3 cell_step = ivec3(sign(ray_dir)) * ivec3(not(stationary));
+        ivec3 walk = cell;
+        vec3 t_next = t_exit;
+        for (int n = 0; n < EMPTY_CELL_WALK; ++n) {
+            if (t_next.x <= t_next.y && t_next.x <= t_next.z) {
+                walk.x += cell_step.x;
+                t_next.x += t_delta.x;
+            } else if (t_next.y <= t_next.z) {
+                walk.y += cell_step.y;
+                t_next.y += t_delta.y;
+            } else {
+                walk.z += cell_step.z;
+                t_next.z += t_delta.z;
+            }
+            if (any(lessThan(walk, ivec3(0))) ||
+                any(greaterThanEqual(walk, ivec3(CHUNK_COARSE_DIM)))) {
+                break; // exit_dist is now the chunk's exit
+            }
+            int walk_index = walk.x + walk.y * CHUNK_COARSE_DIM +
+                walk.z * CHUNK_COARSE_DIM * CHUNK_COARSE_DIM;
+            if (chunk_indirection[slot * CHUNK_CELL_COUNT + walk_index] >= 0) {
+                break; // exit_dist is now that brick cell's entry
+            }
+            exit_dist = min(min(t_next.x, t_next.y), t_next.z);
+        }
 
         dist = cell_size;
         skip_dist = max(exit_dist, SURF_DIST) + 0.0001;
@@ -303,7 +343,7 @@ void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
         ivec3 delta = chunk_coord - camera_chunk;
         ivec3 abs_delta = abs(delta);
         int chebyshev = max(abs_delta.x, max(abs_delta.y, abs_delta.z));
-        if (chebyshev > STREAM_RADIUS_CHUNKS) {
+        if (chebyshev > stream_radius_chunks(level)) {
             continue;
         }
         if (windowed_level < 0) {
@@ -334,7 +374,7 @@ void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
             continue;
         }
 
-        if (LOD_BLEND_FRACTION > 0.0 && chebyshev == STREAM_RADIUS_CHUNKS &&
+        if (LOD_BLEND_FRACTION > 0.0 && chebyshev == stream_radius_chunks(level) &&
             level + 1 < NUM_CHUNK_LEVELS) {
             // p's chunk is this level's outermost ring -- how far along the
             // axis (or axes) actually AT that ring's limit (abs_delta ==
@@ -439,6 +479,22 @@ void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
     if (windowed_level >= 0) {
         sample_chunked_field_at_level(p, ray_dir, windowed_level, dist, skip_dist,
                                       material_index);
+        // Sculpting only fills level 0; levels above it hold occupancy
+        // instead (-2: some level-0 chunk inside is in use, -1: none is --
+        // see coarse_occupancy_ engine-side). Where level 0 has nothing
+        // here, cross the largest coarse chunk around p that is known
+        // empty rather than one 4-unit chunk at a time.
+        if (windowed_level == 0 && skip_dist > 0.0 &&
+            chunk_table_slot_at(p, 0) < 0) {
+            for (int level = NUM_CHUNK_LEVELS - 1; level >= 1; --level) {
+                if (chunk_table_slot_at(p, level) == -1) {
+                    sample_chunked_field_at_level_slot(p, ray_dir, level, -1,
+                                                       dist, skip_dist,
+                                                       material_index);
+                    break;
+                }
+            }
+        }
         return;
     }
 
@@ -474,6 +530,9 @@ void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
 #define SHADOW_CASTER_TEST(material) true
 #endif
 
+const float SHADOW_MIN_STEP = 0.01;
+const float SHADOW_MIN_STEP_GROWTH = 0.004;
+
 float chunked_shadow_march(vec3 origin, vec3 dir, vec3 camera_pos, float max_dist,
                            float k, int max_steps, int exclude_material) {
     const float SELF_SKIP_STEP = 0.1;
@@ -488,7 +547,11 @@ float chunked_shadow_march(vec3 origin, vec3 dir, vec3 camera_pos, float max_dis
         sample_clipmap_field(p, dir, camera_pos, dist, skip_dist, material);
         bool valid = (skip_dist == 0.0);
 
-        if (valid && abs(dist) < SURF_DIST) {
+        // Inside a surface counts as a hit too, not just on it: that is what
+        // lets the step below have a floor -- a step that overshoots into a
+        // surface still finds it instead of reading its interior distance
+        // as clearance.
+        if (valid && dist < SURF_DIST) {
             // Same two pass-through cases as shadow_march() -- see there.
             if (material == exclude_material ||
                 !SHADOW_CASTER_TEST(material)) {
@@ -498,11 +561,17 @@ float chunked_shadow_march(vec3 origin, vec3 dir, vec3 camera_pos, float max_dis
             return 0.0;
         }
 
-        float step = valid ? abs(dist) : skip_dist;
+        float step = valid ? dist : skip_dist;
         if (valid) {
             shadow = min(shadow, k * step / max(travelled, SURF_DIST));
         }
-        travelled += max(step, SURF_DIST);
+        // A ray grazing a surface sees a tiny distance at every sample and
+        // used to creep along it a fraction of a voxel at a time -- most of
+        // a shadow's cost in a dense scene. The floor (a voxel or so near
+        // the origin, growing with distance, where a miss of that size is
+        // invisible) bounds that; the penumbra above still sees the small
+        // distances.
+        travelled += max(step, SHADOW_MIN_STEP + SHADOW_MIN_STEP_GROWTH * travelled);
 
         if (travelled > max_dist || shadow < 0.005) {
             break;

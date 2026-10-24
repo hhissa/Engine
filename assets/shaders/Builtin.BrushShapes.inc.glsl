@@ -206,3 +206,70 @@ float smooth_subtraction(float cutter, float base, float k, out float h) {
     h = clamp(0.5 - 0.5 * (base + cutter) / k, 0.0, 1.0);
     return mix(base, -cutter, h) + k * h * (1.0 - h);
 }
+
+// --- Shape modifiers ---------------------------------------------------------
+//
+// A section rides in a param the round shapes don't otherwise use, so it
+// travels everywhere params already go (the GPU stamp list, undo, .stamps
+// files) with no new plumbing. Shape ids are SculptBrushShape's.
+//
+// SECTION (keep only part of the shape): params.w, as 0 = whole, 1 = half,
+//   2 = quarter, 3 = eighth, on the shapes brush_shape_sectionable() lists.
+//   Each step cuts with one more plane through the shape's own centre --
+//   for the round-all-over shapes first across Y (keeping local +Y, which
+//   sculpt mode's default brush turn puts up on screen, so a half sphere is
+//   a dome), then X, then Z;
+//   for the rest X, then Z, then Y (so a half cylinder is a half pipe and
+//   a quarter one a rounded corner). Engine-side mirror:
+//   crop_cpu::eval_brush_shape() in vulkan_raymarch_shader.cpp.
+
+bool brush_shape_sectionable(int shape) {
+    // Sphere, Torus, CappedCylinder, CappedCone, Octahedron, Pyramid,
+    // HexPrism, RoundCone, Capsule, Link, Ellipsoid.
+    return shape == 0 || shape == 3 || shape == 4 || shape == 5 ||
+           (shape >= 8 && shape <= 14);
+}
+
+float brush_shape_section(float d, vec3 p, int shape, float code) {
+    int cuts = clamp(int(round(code)), 0, 3);
+    if (cuts == 0) {
+        return d;
+    }
+    bool round_all_over = shape == 0 || shape == 14 || shape == 8;
+    // Distance into each removed half-space, in cut order.
+    vec3 cut = round_all_over ? vec3(-p.y, -p.x, -p.z) : vec3(-p.x, -p.z, -p.y);
+    d = max(d, cut.x);
+    if (cuts >= 2) {
+        d = max(d, cut.y);
+    }
+    if (cuts >= 3) {
+        d = max(d, cut.z);
+    }
+    return d;
+}
+
+// The full shape: base distance, then section. p is in the
+// stamp's own local frame.
+float brush_shape_sdf(vec3 p, int shape, vec4 params) {
+    float d;
+    switch (shape) {
+        case 0:  d = sphere_sdf(p, params.x); break;
+        case 1:  d = box_sdf(p, params.xyz); break;
+        case 2:  d = plane_sdf(p, params.x); break;
+        case 3:  d = torus_sdf(p, params.x, params.y); break;
+        case 4:  d = capped_cylinder_sdf(p, params.x, params.y); break;
+        case 5:  d = capped_cone_sdf(p, params.x, params.y, params.z); break;
+        case 6:  d = round_box_sdf(p, params.xyz, params.w); break;
+        case 7:  d = box_frame_sdf(p, params.xyz, params.w); break;
+        case 8:  d = octahedron_sdf(p, params.x); break;
+        case 9:  d = pyramid_sdf(p, params.x, params.y); break;
+        case 10: d = hex_prism_sdf(p, params.x, params.y); break;
+        case 11: d = round_cone_sdf(p, params.x, params.y, params.z); break;
+        case 12: d = capsule_sdf(p, params.x, params.y); break;
+        case 13: d = link_sdf(p, params.x, params.y, params.z); break;
+        case 14: d = ellipsoid_sdf(p, params.xyz); break;
+        default: d = sphere_sdf(p, params.x); break;
+    }
+    return brush_shape_sectionable(shape) ? brush_shape_section(d, p, shape, params.w)
+                                          : d;
+}

@@ -2,6 +2,8 @@
 #include "../core/logger.h"
 #include "../resources/image_loader.h"
 
+#include <filesystem>
+
 namespace {
 constexpr u32 kDefaultTextureSize = 256;
 constexpr u32 kDefaultTextureTile = 32;
@@ -19,6 +21,11 @@ constexpr u32 kFlatTextureSize = 16;
 // images that aren't textures in that sense and don't live with them, such
 // as the photos renderer_draw_image() shows.
 std::string texture_path(std::string_view name) {
+  // An absolute path is used as is (an image found elsewhere on disk, such as
+  // a sculpture thumbnail next to its .sculpt file).
+  if (std::filesystem::path(name).is_absolute()) {
+    return std::string(name);
+  }
   const size_t slash = name.find_last_of('/');
   const size_t dot = name.find_last_of('.');
   if (dot != std::string_view::npos &&

@@ -180,6 +180,10 @@ public:
   enum class BrushOp : i32 {
     Union = 0,
     Subtraction = 1,
+    ObjectUnion = 2,
+    ObjectSubtraction = 3,
+    ObjectIntersection = 4,
+    ObjectPaint = 5,
   };
 
 
@@ -504,8 +508,13 @@ public:
   // sculpt-stamp family, this IS meant to be called every frame the
   // preview is visible (scene_viewport.cpp's tick()), not just on an
   // authoring-time action.
+  // The smoothness the brush preview blends into the scene with (an
+  // adding brush; 0 = shown as the bare shape). Taken by the next
+  // set_brush_preview().
+  void set_brush_preview_smoothness(f32 k) { brush_preview_smoothness_ = k; }
   void set_brush_preview(bool enabled, glm::vec3 center, BrushShape shape_type,
-                         glm::vec4 params, BrushOp op, i32 material_slot);
+                         glm::vec4 params, BrushOp op, i32 material_slot,
+                         glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
 
   // Selection outline: a dotted outline drawn around each of `objects`
   // (each a list of that object's stamps, in stamp-list order) by the
@@ -542,6 +551,7 @@ public:
     glm::quat rotation;
     BrushOp op;
     f32 bounding_radius;
+    i32 object_id = 0; // object-scoped ops (BrushOp::Object*) act per object
   };
   // One outline: an object's (or a whole group's) stamps. scope_mask
   // instead marks the stamps as the scoped-in set: not outlined, but
@@ -550,8 +560,11 @@ public:
     std::vector<OutlineStamp> stamps;
     bool scope_mask = false;
   };
+  // scope_ids: the scoped-in objects (empty: taken from the scope set's
+  // stamps, which are capped).
   void set_selection_outline(const std::vector<OutlineObject> &objects,
-                             glm::vec4 colour, glm::vec4 style);
+                             glm::vec4 colour, glm::vec4 style,
+                             const std::vector<i32> &scope_ids = {});
 
   // Minimal standing-light registration -- fills the next free slot of
   // light_buffer_ and bumps light_count_, the same "direct host-visible
@@ -645,7 +658,8 @@ public:
   i32 stamp_shape(glm::vec3 center, BrushShape shape_type, glm::vec4 params,
                   f32 smoothness, BrushOp op, i32 material_slot = 0,
                   f32 looseness = 0.0f,
-                  glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+                  glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+                  i32 object_id = 0);
 
   // M2b: reverts the most recent still-undoable stamp_shape() call -- see
   // undo_stack_'s own comment for how far back "still-undoable" reaches.
@@ -697,16 +711,29 @@ public:
   // once gpu_stamp_mirror_count() has hit kMaxGpuSculptStamps -- see that
   // method's own comment for the documented, non-silent degrade this
   // implies for delete_edit()/move_edit() on any index at or past the cap.
+  // object_id: which object the stamp belongs to -- the recompute pass
+  // builds each object's object-scoped stamps (BrushOp::Object*) on their
+  // own before merging them.
   void sculpt_stamp_list_append(glm::vec3 center, BrushShape shape_type,
                                 glm::vec4 params, f32 smoothness, BrushOp op,
                                 i32 material_slot, f32 looseness,
-                                glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+                                glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+                                i32 object_id = 0);
   void sculpt_stamp_list_update(i32 index, glm::vec3 center,
                                 BrushShape shape_type, glm::vec4 params,
                                 f32 smoothness, BrushOp op, i32 material_slot,
                                 f32 looseness,
-                                glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+                                glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+                                i32 object_id = 0);
   void sculpt_stamp_list_erase(i32 index);
+
+  // Welding: objects that share a key > 0 (the strokes of one sculpture)
+  // blend into each other with their adding shapes' smoothness, instead
+  // of meeting with a hard edge. The recompute folds each key's objects
+  // together (in object id order) and merges them with a smooth union;
+  // other objects still merge hard. Replaces the whole map; objects not in
+  // it don't weld. The caller re-runs the cells that changed.
+  void set_object_weld_keys(const std::unordered_map<i32, i32> &keys);
 
   // M5: delete_edit()/move_edit()'s own recompute can free a brick back
   // onto the shared pool and later hand that SAME index back out to a
@@ -1443,6 +1470,26 @@ private:
   // Only ever logs the kMaxGpuSculptStamps-exceeded KERROR once per session
   // -- see sculpt_stamp_list_append()'s own .cpp comment.
   b8 gpu_stamp_mirror_overflow_warned_ = false;
+  // CPU copy of the same entries (4 vec4s each, the buffer's layout), so a
+  // recompute can pick the stamps near its cells without reading the GPU.
+  std::vector<glm::vec4> stamp_list_cpu_;
+  // See set_object_weld_keys().
+  std::unordered_map<i32, i32> weld_keys_;
+  f32 brush_preview_smoothness_ = 0.0f;
+  // How much further than its own bounds a welded object's field can
+  // change: the widest smoothness of any welded adding stamp (a weld
+  // fillet reaches that far from the surface it blends into). Cached;
+  // weld_pad_dirty_ is set whenever the stamp list or the keys change.
+  f32 weld_pad_ = 0.0f;
+  bool weld_pad_dirty_ = true;
+  f32 weld_pad();
+  // Per recompute: the stamps that can matter to its cells, as indices
+  // into the stamp list, in fold order -- see build_recompute_candidates().
+  std::optional<VulkanBuffer> chunk_sculpt_candidate_buffer_;
+  std::vector<i32> recompute_candidates_;
+  // Fills recompute_candidates_ for cells spanning [lo, hi]; returns how
+  // many there are.
+  u32 build_recompute_candidates(glm::vec3 lo, glm::vec3 hi);
 
   // M5: shared tail of recompute_region()/recompute_moved_region() --
   // enumerates one shape's touched cells with the IDENTICAL bounding-
@@ -1489,6 +1536,15 @@ private:
   // second rather than silently drawing one chunk's bricks in the other's
   // place.
   std::unordered_map<u64, ChunkKey> sculpt_table_owner_;
+  // Coarse-level occupancy, for skipping empty space: how many live level-0
+  // sculpt chunks lie inside each level 1..4 chunk-table entry. An entry
+  // with any reads -2 in the table ("something here, not a slot"), one
+  // with none -1, so the sampler can jump a ray across a whole empty
+  // coarse chunk (see sample_clipmap_field()). Keyed by the entry's global
+  // table index, so two coarse chunks that wrap onto one entry just make it
+  // read occupied -- a smaller skip, never a wrong one.
+  std::unordered_map<u64, u32> coarse_occupancy_;
+  void mark_coarse_occupancy(const ChunkKey &key, bool occupied);
   bool sculpt_table_alias_warned_ = false;
   static u64 sculpt_table_index(const ChunkKey &key);
 
@@ -2080,6 +2136,9 @@ private:
   // Two per async ring slot (bake begin/end), read when that slot's fence
   // is waited on -- by which point the results are guaranteed available.
   VkQueryPool async_timestamp_pool_ = VK_NULL_HANDLE;
+  // KENGINE_SCULPT_TIMING: GPU time of each sculpt recompute pass, logged
+  // per call (recompute_cells()). Null when the variable isn't set.
+  VkQueryPool sculpt_timestamp_pool_ = VK_NULL_HANDLE;
   // Nanoseconds per timestamp tick, from the device's own limits.
   f32 timestamp_period_ns_ = 0.0f;
   b8 timestamps_supported_ = false;

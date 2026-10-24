@@ -11,6 +11,7 @@
 #include <glm/glm.hpp>
 
 #include <unordered_map>
+#include <vector>
 
 namespace sculpt_shared {
 
@@ -149,9 +150,41 @@ inline void setup_sculpt_environment() {
 // (a load can land on top of an existing session), and the document's
 // records are rewritten to the engine ids so later saves stay consistent.
 // Leaves the engine's current object as it was.
-inline void replay_document(SculptDocument &document) {
+// By default all of the document's stamps go to the engine in one batch,
+// rebuilt once (one renderer_sculpt_stamp_shape() at a time costs a
+// device-stalling dispatch per stamp: ~12ms each, 20s for 5000 stamps).
+// one_by_one keeps the old per-stamp replay, which the Qt editor needs:
+// it lets Ctrl+Z take loaded stamps back one at a time through the
+// engine's incremental undo, which a batch doesn't record.
+// Returns which engine object each file object id became.
+inline std::unordered_map<i32, i32>
+replay_document(SculptDocument &document, bool one_by_one = false) {
+  if (one_by_one) {
+    const i32 previous_object = renderer_sculpt_current_object();
+    std::unordered_map<i32, i32> engine_id_for;
+    for (SculptStampRecord &stamp : document.mutable_stamps()) {
+      auto it = engine_id_for.find(stamp.object_id);
+      if (it == engine_id_for.end()) {
+        it = engine_id_for
+                 .emplace(stamp.object_id, renderer_sculpt_begin_object())
+                 .first;
+      }
+      stamp.object_id = it->second;
+      renderer_sculpt_set_current_object(stamp.object_id);
+      renderer_sculpt_stamp_shape(stamp.center, stamp.shape_type,
+                                  stamp.params, stamp.smoothness, stamp.op,
+                                  stamp.material_slot, stamp.looseness,
+                                  stamp.rotation);
+    }
+    renderer_sculpt_set_current_object(previous_object);
+    return engine_id_for;
+  }
   const i32 previous_object = renderer_sculpt_current_object();
   std::unordered_map<i32, i32> engine_id_for;
+  std::vector<i32> object_ids;
+  std::vector<SculptStampInfo> stamps;
+  object_ids.reserve(document.stamps().size());
+  stamps.reserve(document.stamps().size());
   for (SculptStampRecord &stamp : document.mutable_stamps()) {
     auto it = engine_id_for.find(stamp.object_id);
     if (it == engine_id_for.end()) {
@@ -159,13 +192,24 @@ inline void replay_document(SculptDocument &document) {
                .first;
     }
     stamp.object_id = it->second;
-    renderer_sculpt_set_current_object(stamp.object_id);
-    renderer_sculpt_stamp_shape(stamp.center, stamp.shape_type, stamp.params,
-                                stamp.smoothness, stamp.op,
-                                stamp.material_slot, stamp.looseness,
-                                stamp.rotation);
+    SculptStampInfo info;
+    info.center = stamp.center;
+    info.shape_type = stamp.shape_type;
+    info.params = stamp.params;
+    info.smoothness = stamp.smoothness;
+    info.op = stamp.op;
+    info.material_slot = stamp.material_slot;
+    info.looseness = stamp.looseness;
+    info.rotation = stamp.rotation;
+    object_ids.push_back(stamp.object_id);
+    stamps.push_back(info);
+  }
+  if (!stamps.empty()) {
+    renderer_sculpt_add_stamps_to_objects(object_ids.data(), stamps.data(),
+                                          static_cast<i32>(stamps.size()));
   }
   renderer_sculpt_set_current_object(previous_object);
+  return engine_id_for;
 }
 
 } // namespace sculpt_shared

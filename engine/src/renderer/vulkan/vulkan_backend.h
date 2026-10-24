@@ -62,7 +62,8 @@ public:
                   glm::vec4 params, f32 opacity_per_pass) override;
   void preview_brush(bool enabled, glm::vec3 center,
                      SculptBrushShape shape_type, glm::vec4 params,
-                     SculptBrushOp op, i32 material_slot) override;
+                     SculptBrushOp op, i32 material_slot,
+                     glm::quat rotation) override;
   bool delete_edit(i32 index) override;
   bool move_edit(i32 index, glm::vec3 new_center) override;
   bool sculpt_bounds(glm::vec3 *out_min, glm::vec3 *out_max) const override;
@@ -100,9 +101,21 @@ public:
   i32 object_stamps(i32 object_id, SculptStampInfo *out_stamps,
                     i32 capacity) const override;
   i32 raycast_objects(glm::vec3 origin, glm::vec3 direction, f32 max_t,
-                      const i32 *object_ids, i32 count,
-                      f32 *out_t) const override;
+                      const i32 *object_ids, i32 count, f32 *out_t,
+                      i32 stamp_limit = -1) const override;
+  i32 stamp_count() const override;
+  void set_preview_smoothness(f32 k) override;
+  void set_object_weld_keys(const i32 *object_ids, const i32 *keys,
+                            i32 count) override;
   i32 clone_object(i32 object_id) override;
+  bool add_stamps(i32 object_id, const SculptStampInfo *stamps,
+                  i32 count) override;
+  bool add_stamps_to_objects(const i32 *object_ids,
+                             const SculptStampInfo *stamps,
+                             i32 count) override;
+  bool remap_object_materials(const i32 *object_ids, i32 count,
+                              const i32 *from_slots, const i32 *to_slots,
+                              i32 pairs) override;
   bool object_anchor(i32 object_id, glm::vec3 *out_center,
                      glm::quat *out_rotation) const override;
   i32 crop_volume(glm::vec3 center, SculptBrushShape shape_type,
@@ -182,6 +195,8 @@ private:
   std::vector<i32> outlined_objects_;
   std::vector<i32> outline_keys_; // parallel to outlined_objects_
   std::vector<i32> scope_objects_;
+  // set_object_weld_keys(): object -> weld key (> 0).
+  std::unordered_map<i32, i32> weld_keys_;
   glm::vec4 outline_colour_{1.0f};
   bool collect_object_stamps(const i32 *object_ids, i32 count,
                              const char *caller,

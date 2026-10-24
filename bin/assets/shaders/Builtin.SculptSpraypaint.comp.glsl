@@ -73,31 +73,9 @@ const int SHAPE_LINK = 13;
 const int SHAPE_ELLIPSOID = 14;
 
 float eval_brush_shape(vec3 p, int shape_type, vec4 params) {
-    switch (shape_type) {
-        case SHAPE_SPHERE:         return sphere_sdf(p, params.x);
-        case SHAPE_BOX:            return box_sdf(p, params.xyz);
-        case SHAPE_PLANE:          return plane_sdf(p, params.x);
-        case SHAPE_TORUS:          return torus_sdf(p, params.x, params.y);
-        case SHAPE_CAPPED_CYLINDER:
-            return capped_cylinder_sdf(p, params.x, params.y);
-        case SHAPE_CAPPED_CONE:
-            return capped_cone_sdf(p, params.x, params.y, params.z);
-        case SHAPE_ROUND_BOX:
-            return round_box_sdf(p, params.xyz, params.w);
-        case SHAPE_BOX_FRAME:
-            return box_frame_sdf(p, params.xyz, params.w);
-        case SHAPE_OCTAHEDRON:     return octahedron_sdf(p, params.x);
-        case SHAPE_PYRAMID:        return pyramid_sdf(p, params.x, params.y);
-        case SHAPE_HEX_PRISM:      return hex_prism_sdf(p, params.x, params.y);
-        case SHAPE_ROUND_CONE:
-            return round_cone_sdf(p, params.x, params.y, params.z);
-        case SHAPE_CAPSULE:        return capsule_sdf(p, params.x, params.y);
-        case SHAPE_LINK:
-            return link_sdf(p, params.x, params.y, params.z);
-        case SHAPE_ELLIPSOID:      return ellipsoid_sdf(p, params.xyz);
-        default:
-            return sphere_sdf(p, params.x);
-    }
+    // Shared with every sculpt shader, modifiers included -- see
+    // brush_shape_sdf(), Builtin.BrushShapes.inc.glsl.
+    return brush_shape_sdf(p, shape_type, params);
 }
 
 // Same StampCell layout as Builtin.SculptStamp.comp.glsl -- the CPU driver
@@ -200,8 +178,14 @@ void main() {
                 // build up toward fully opaque instead of overshooting past
                 // 1.0, and a single pass over fresh (0-opacity) voxels never
                 // starts above `add` itself.
-                chunk_brick_paint[voxel_index] =
-                    clamp(chunk_brick_paint[voxel_index] + add, 0.0, 1.0);
+                // Values >= 1.5 are a per-voxel material slot (see
+                // Builtin.SculptChunkRecompute.comp.glsl), not an opacity:
+                // spraying starts that voxel's opacity afresh.
+                float existing = chunk_brick_paint[voxel_index];
+                if (existing >= 1.5) {
+                    existing = 0.0;
+                }
+                chunk_brick_paint[voxel_index] = clamp(existing + add, 0.0, 1.0);
             }
         }
     }

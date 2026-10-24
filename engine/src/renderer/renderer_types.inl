@@ -81,7 +81,33 @@ enum class SculptBrushShape : i32 {
 // Builtin.BrushShapes.inc.glsl. Must match Builtin.SculptStamp.comp.glsl's
 // OP_* constants and VulkanRaymarchShader::BrushOp's mirror exactly (same
 // lockstep note as SculptBrushShape above).
+//
+// Union and Subtraction act on the whole sculpt, in stamp order: a
+// Subtraction carves everything stamped before it, whichever object that
+// belongs to. The Object* ops are scoped to their own object instead (the
+// controller's sculpt mode builds each sculpture from them): an object made
+// of them is built up on its own and only then merged with the rest (a hard
+// union), so its carves and crops never touch anything else.
+//   ObjectUnion         adds the shape to the object
+//   ObjectSubtraction   carves the shape out of the object
+//   ObjectIntersection  keeps only the part of the object inside the shape
+//                       (everything stamped into it before this)
+//   ObjectPaint         no geometry: the object's surface inside the shape
+//                       takes this stamp's material. Its looseness is
+//                       its opacity instead: floor() a per-stroke seed,
+//                       fract() 1 - opacity (0 = opaque); see
+//                       paint_covers() in Builtin.SculptChunkRecompute
+// An object's Object* stamps must be contiguous in the stamp list.
 enum class SculptBrushOp : i32 {
   Union = 0,
   Subtraction = 1,
+  ObjectUnion = 2,
+  ObjectSubtraction = 3,
+  ObjectIntersection = 4,
+  ObjectPaint = 5,
 };
+
+// Whether a stamp with this op adds geometry.
+inline bool sculpt_op_adds(SculptBrushOp op) {
+  return op == SculptBrushOp::Union || op == SculptBrushOp::ObjectUnion;
+}

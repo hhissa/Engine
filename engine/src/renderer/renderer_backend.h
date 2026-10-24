@@ -220,7 +220,8 @@ public:
   // drag started, etc.) so the ghost never sticks around a stale frame.
   virtual void preview_brush(bool enabled, glm::vec3 center,
                              SculptBrushShape shape_type, glm::vec4 params,
-                             SculptBrushOp op, i32 material_slot) = 0;
+                             SculptBrushOp op, i32 material_slot,
+                             glm::quat rotation) = 0;
 
   // M4b: deletes the stamp at `index` (0 = oldest, matching SculptVolume::
   // stamps()'s own order) WITHOUT discarding anything stamped before or
@@ -334,14 +335,36 @@ public:
   // Glow strength of material `slot` (0 = none, 1 = full) in its colour.
   virtual void set_material_glow(i32 slot, f32 glow) = 0;
   // raycast_object() that only sees the given objects.
+  // stamp_limit >= 0: only the first stamp_limit stamps of the stamp list
+  // count (the scene as it was when stamp_count() returned that).
   virtual i32 raycast_objects(glm::vec3 origin, glm::vec3 direction,
                               f32 max_t, const i32 *object_ids, i32 count,
-                              f32 *out_t) const = 0;
+                              f32 *out_t, i32 stamp_limit = -1) const = 0;
+  // How many stamps the scene holds (all objects).
+  virtual i32 stamp_count() const = 0;
+  // Welding: objects sharing a key > 0 blend into each other (see
+  // renderer_sculpt_set_weld_keys()). Replaces the whole map.
+  // Smoothness the brush preview blends into the scene with (see
+  // renderer_sculpt_set_preview_smoothness()).
+  virtual void set_preview_smoothness(f32 k) = 0;
+  virtual void set_object_weld_keys(const i32 *object_ids, const i32 *keys,
+                                    i32 count) = 0;
   // Copies every stamp of an object, in order, into a brand-new object at
   // the same place (appended to the end of the stamp list). Returns the
   // new object's id, or -1 if the source has no stamps. Leaves the current
   // object unchanged.
   virtual i32 clone_object(i32 object_id) = 0;
+  // See renderer_sculpt_remap_object_materials().
+  virtual bool remap_object_materials(const i32 *object_ids, i32 count,
+                                      const i32 *from_slots,
+                                      const i32 *to_slots, i32 pairs) = 0;
+  // See renderer_sculpt_add_stamps().
+  virtual bool add_stamps(i32 object_id, const SculptStampInfo *stamps,
+                          i32 count) = 0;
+  // See renderer_sculpt_add_stamps_to_objects().
+  virtual bool add_stamps_to_objects(const i32 *object_ids,
+                                     const SculptStampInfo *stamps,
+                                     i32 count) = 0;
   // The object's anchor: its first stamp's center and rotation -- a fixed
   // reference point for snapping (bounds shift as an object rotates; the
   // anchor doesn't). False if the object has no stamps.

@@ -238,7 +238,7 @@ struct ChunkCluster {
 // each holding either -1 (no resident chunk) or the gpu_slot of whichever
 // chunk currently owns that wrapped coordinate. Must match kChunkTableDim in
 // vulkan_raymarch_shader.cpp exactly.
-const int CHUNK_TABLE_DIM = 16;
+const int CHUNK_TABLE_DIM = 64; // kChunkTableDim engine-side
 
 // Phase 4 (clipmap LOD): how many nested chunk levels the streamed field
 // keeps resident around the camera, and how many chunks out (Chebyshev
@@ -259,6 +259,14 @@ const int NUM_CHUNK_LEVELS = 5;
 // table can address without two chunks aliasing one entry, so level 0 now
 // covers ~28-32 units around the camera.
 const int STREAM_RADIUS_CHUNKS = 7;
+// Level 0 -- the only level sculpting writes -- is drawn out to the
+// raymarcher's MAX_DIST (31 chunks x 4 units = 124), the widest window the
+// chunk table can hold without wrapping onto itself. With the shared 7 it
+// stopped at ~28 units and anything sculpted further away vanished.
+const int LEVEL0_STREAM_RADIUS_CHUNKS = CHUNK_TABLE_DIM / 2 - 1;
+int stream_radius_chunks(int level) {
+    return level == 0 ? LEVEL0_STREAM_RADIUS_CHUNKS : STREAM_RADIUS_CHUNKS;
+}
 
 float chunk_level_world_size(int level) {
     return CHUNK_WORLD_SIZE * pow(2.0, float(level));

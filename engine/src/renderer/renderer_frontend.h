@@ -305,10 +305,12 @@ KAPI i32 renderer_sculpt_spray(glm::vec3 center, SculptBrushShape shape_type,
 // params/op/material_slot are then ignored, and the shader's own first
 // read of the uniform skips the trace entirely, so the false path costs
 // one float compare per pixel, not a wasted march.
+// rotation turns the shape about its center, as a stamp's does.
 KAPI void renderer_sculpt_preview_brush(bool enabled, glm::vec3 center,
                                         SculptBrushShape shape_type,
                                         glm::vec4 params, SculptBrushOp op,
-                                        i32 material_slot);
+                                        i32 material_slot,
+                                        glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
 
 // M4b: deletes the stamp at `index` (0 = oldest, matching the order
 // renderer_sculpt_stamp_shape() calls landed in) WITHOUT discarding
@@ -422,6 +424,16 @@ KAPI void renderer_sculpt_set_outlined_objects(
 KAPI bool renderer_sculpt_set_object_material(const i32 *object_ids,
                                               i32 count, i32 slot);
 
+// renderer_sculpt_set_object_material() for objects whose stamps use
+// several materials: every stamp of these objects on from_slots[i] moves to
+// to_slots[i] (for each of `pairs` pairs), with one re-run of their region.
+// False if nothing changed.
+KAPI bool renderer_sculpt_remap_object_materials(const i32 *object_ids,
+                                                 i32 count,
+                                                 const i32 *from_slots,
+                                                 const i32 *to_slots,
+                                                 i32 pairs);
+
 // Writes up to `capacity` distinct object ids (in first-stamp order) to
 // out_ids (may be null to just count) and returns how many there are.
 KAPI i32 renderer_sculpt_object_ids(i32 *out_ids, i32 capacity);
@@ -442,6 +454,21 @@ struct SculptStampInfo {
 // to out_stamps (may be null to just count); returns how many it has.
 KAPI i32 renderer_sculpt_object_stamps(i32 object_id, SculptStampInfo *out_stamps,
                                        i32 capacity);
+
+// Appends `count` stamps, in order, to object `object_id` (an existing one,
+// or a fresh id from renderer_sculpt_begin_object()) and re-runs the region
+// they cover once. Unlike renderer_sculpt_stamp_shape(), which blends a
+// Union/Subtraction straight into the field, this rebuilds the region from
+// the stamp list, so it is the way to add object-scoped stamps
+// (SculptBrushOp::Object*) -- and the exact way to add anything. Device-
+// stalling; clears the engine's own undo/redo. False if nothing was added.
+KAPI bool renderer_sculpt_add_stamps(i32 object_id, const SculptStampInfo *stamps,
+                                     i32 count);
+// renderer_sculpt_add_stamps() with an object per stamp (object_ids[i] owns
+// stamps[i]) -- one rebuild for all of them, e.g. a whole file on load.
+KAPI bool renderer_sculpt_add_stamps_to_objects(const i32 *object_ids,
+                                                const SculptStampInfo *stamps,
+                                                i32 count);
 
 // Flecks: the surface is drawn as many small splats ("flecks"). Looseness
 // trades them for fewer, bigger ones that show as individual marks: 0 =
@@ -494,6 +521,30 @@ KAPI void renderer_sculpt_set_scope_objects(const i32 *object_ids, i32 count);
 KAPI i32 renderer_sculpt_raycast_objects(glm::vec3 origin, glm::vec3 direction,
                                          f32 max_t, const i32 *object_ids,
                                          i32 count, f32 *out_t);
+// renderer_sculpt_raycast_objects() against the scene as it was when
+// renderer_sculpt_stamp_count() returned stamp_limit: stamps added since
+// don't count (e.g. a stroke snapping to the surface it started on, not to
+// the shapes it is laying down).
+KAPI i32 renderer_sculpt_raycast_objects_before(glm::vec3 origin,
+                                                glm::vec3 direction, f32 max_t,
+                                                const i32 *object_ids, i32 count,
+                                                i32 stamp_limit, f32 *out_t);
+// How many stamps the scene holds, over every object.
+KAPI i32 renderer_sculpt_stamp_count();
+
+// The smoothness the brush preview (renderer_sculpt_preview_brush())
+// blends into the scene with, so an adding brush shows the fillet a stamp
+// would make before it lands. 0 = the bare shape. Takes effect with the
+// next renderer_sculpt_preview_brush() call.
+KAPI void renderer_sculpt_set_preview_smoothness(f32 k);
+
+// Welding: objects given the same key > 0 (e.g. the strokes of one
+// sculpture) blend into each other where they meet, each adding shape with
+// its own smoothness, instead of meeting with a hard edge; objects with
+// different keys (or none) still meet hard. Replaces the whole map (an
+// object left out has no key). Cells whose blending changes are rebuilt.
+KAPI void renderer_sculpt_set_weld_keys(const i32 *object_ids, const i32 *keys,
+                                        i32 count);
 
 // Copies an object into a new one at the same place and returns the new
 // id (-1 if the source has no stamps).

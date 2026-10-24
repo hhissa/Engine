@@ -322,14 +322,14 @@ i32 renderer_sculpt_spray(glm::vec3 center, SculptBrushShape shape_type,
 void renderer_sculpt_preview_brush(bool enabled, glm::vec3 center,
                                    SculptBrushShape shape_type,
                                    glm::vec4 params, SculptBrushOp op,
-                                   i32 material_slot) {
+                                   i32 material_slot, glm::quat rotation) {
   if (!backend) {
     KWARN("renderer backend does not exist to accept a brush-preview "
          "request.");
     return;
   }
   backend->preview_brush(enabled, center, shape_type, params, op,
-                         material_slot);
+                         material_slot, rotation);
 }
 
 bool renderer_sculpt_delete_edit(i32 index) {
@@ -486,8 +486,61 @@ i32 renderer_sculpt_raycast_objects(glm::vec3 origin, glm::vec3 direction,
                                   out_t);
 }
 
+i32 renderer_sculpt_raycast_objects_before(glm::vec3 origin,
+                                           glm::vec3 direction, f32 max_t,
+                                           const i32 *object_ids, i32 count,
+                                           i32 stamp_limit, f32 *out_t) {
+  if (!backend || !object_ids || count <= 0) {
+    return -1;
+  }
+  return backend->raycast_objects(origin, direction, max_t, object_ids, count,
+                                  out_t, stamp_limit);
+}
+
+i32 renderer_sculpt_stamp_count() {
+  return backend ? backend->stamp_count() : 0;
+}
+
+void renderer_sculpt_set_preview_smoothness(f32 k) {
+  if (backend) {
+    backend->set_preview_smoothness(k);
+  }
+}
+
+void renderer_sculpt_set_weld_keys(const i32 *object_ids, const i32 *keys,
+                                   i32 count) {
+  if (backend) {
+    backend->set_object_weld_keys(object_ids, keys, count);
+  }
+}
+
 i32 renderer_sculpt_clone_object(i32 object_id) {
   return backend ? backend->clone_object(object_id) : -1;
+}
+
+bool renderer_sculpt_remap_object_materials(const i32 *object_ids, i32 count,
+                                            const i32 *from_slots,
+                                            const i32 *to_slots, i32 pairs) {
+  return backend && object_ids && from_slots && to_slots && count > 0 &&
+                 pairs > 0
+             ? backend->remap_object_materials(object_ids, count, from_slots,
+                                               to_slots, pairs)
+             : false;
+}
+
+bool renderer_sculpt_add_stamps(i32 object_id, const SculptStampInfo *stamps,
+                                i32 count) {
+  return backend && stamps && count > 0
+             ? backend->add_stamps(object_id, stamps, count)
+             : false;
+}
+
+bool renderer_sculpt_add_stamps_to_objects(const i32 *object_ids,
+                                           const SculptStampInfo *stamps,
+                                           i32 count) {
+  return backend && object_ids && stamps && count > 0
+             ? backend->add_stamps_to_objects(object_ids, stamps, count)
+             : false;
 }
 
 bool renderer_sculpt_object_anchor(i32 object_id, glm::vec3 *out_center,

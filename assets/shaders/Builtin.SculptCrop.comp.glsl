@@ -78,31 +78,9 @@ const int SHAPE_LINK = 13;
 const int SHAPE_ELLIPSOID = 14;
 
 float eval_brush_shape(vec3 p, int shape_type, vec4 params) {
-    switch (shape_type) {
-        case SHAPE_SPHERE:         return sphere_sdf(p, params.x);
-        case SHAPE_BOX:            return box_sdf(p, params.xyz);
-        case SHAPE_PLANE:          return plane_sdf(p, params.x);
-        case SHAPE_TORUS:          return torus_sdf(p, params.x, params.y);
-        case SHAPE_CAPPED_CYLINDER:
-            return capped_cylinder_sdf(p, params.x, params.y);
-        case SHAPE_CAPPED_CONE:
-            return capped_cone_sdf(p, params.x, params.y, params.z);
-        case SHAPE_ROUND_BOX:
-            return round_box_sdf(p, params.xyz, params.w);
-        case SHAPE_BOX_FRAME:
-            return box_frame_sdf(p, params.xyz, params.w);
-        case SHAPE_OCTAHEDRON:     return octahedron_sdf(p, params.x);
-        case SHAPE_PYRAMID:        return pyramid_sdf(p, params.x, params.y);
-        case SHAPE_HEX_PRISM:      return hex_prism_sdf(p, params.x, params.y);
-        case SHAPE_ROUND_CONE:
-            return round_cone_sdf(p, params.x, params.y, params.z);
-        case SHAPE_CAPSULE:        return capsule_sdf(p, params.x, params.y);
-        case SHAPE_LINK:
-            return link_sdf(p, params.x, params.y, params.z);
-        case SHAPE_ELLIPSOID:      return ellipsoid_sdf(p, params.xyz);
-        default:
-            return sphere_sdf(p, params.x);
-    }
+    // Shared with every sculpt shader, modifiers included -- see
+    // brush_shape_sdf(), Builtin.BrushShapes.inc.glsl.
+    return brush_shape_sdf(p, shape_type, params);
 }
 
 // Identical layout to Builtin.SculptStamp.comp.glsl's StampCell -- see its

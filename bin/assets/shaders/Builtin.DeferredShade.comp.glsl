@@ -333,6 +333,7 @@ layout(set = 1, binding = 1) uniform BrushPreviewBuffer {
                          // colours/material_scalars/transmission, same
                          // arrays every real sculpt material reads), w =
                          // unused padding.
+    vec4 rotation;        // the shape's orientation, quaternion xyzw
 } brush_preview;
 
 // TAA-ghosting fix: the preview used to be blended directly into `colour`
@@ -360,6 +361,7 @@ layout(set = 1, binding = 2, rgba8) uniform writeonly image2D preview_overlay_im
 // matches GpuSelectionOutline (vulkan_raymarch_shader.cpp) exactly.
 const int OUTLINE_MAX_OBJECTS = 16;
 const int OUTLINE_MAX_STAMPS = 512;
+const int SCOPE_BIT_COUNT = 65536; // = kScopeBitCount engine-side
 struct OutlineObject {
     vec4 center_radius; // bounding sphere of the whole object
     ivec4 range;        // x = first stamp, y = stamp count, z = 1 for
@@ -369,10 +371,11 @@ struct OutlineStamp {
     vec4 center_radius; // xyz = center, w = bounding radius
     vec4 params;        // same per-shape params as a stamp
     vec4 rotation;      // quaternion xyzw
-    vec4 smooth_shape_op; // x = smoothness, y = shape, z = op
+    vec4 smooth_shape_op; // x = smoothness, y = shape, z = op,
+                          // w = object id (object-scoped ops)
 };
 layout(set = 1, binding = 4) readonly buffer SelectionOutlineBuffer {
-    ivec4 outline_counts; // x = object count (0 = no outline)
+    ivec4 outline_counts; // x = object count (0 = no outline), y = scope ids
     vec4 outline_colour;
     vec4 outline_style;   // x = dot spacing (px), y = fraction of each
                           // spacing that is dot, z = line width (px),
@@ -381,7 +384,15 @@ layout(set = 1, binding = 4) readonly buffer SelectionOutlineBuffer {
                           // silhouette so it never sits on the object.
     OutlineObject outline_objects[OUTLINE_MAX_OBJECTS];
     OutlineStamp outline_stamps[OUTLINE_MAX_STAMPS];
+    // The scoped-in objects, one bit per object id; outline_counts.y is how
+    // many (0: none, -1: an id past SCOPE_BIT_COUNT, so unknown).
+    uint scope_bits[SCOPE_BIT_COUNT / 32];
 };
+
+bool owner_in_scope(int owner) {
+    return owner >= 0 && owner < SCOPE_BIT_COUNT &&
+           (scope_bits[owner >> 5] & (1u << uint(owner & 31))) != 0u;
+}
 
 // Scope-in mask: 1 where a scoped-in object is what this pixel shows, else
 // 0 (1 everywhere when nothing is scoped). Builtin.PostComposite.comp.glsl
@@ -424,6 +435,10 @@ const int PREVIEW_SHAPE_LINK = 13;
 const int PREVIEW_SHAPE_ELLIPSOID = 14;
 const int PREVIEW_OP_UNION = 0;
 const int PREVIEW_OP_SUBTRACTION = 1;
+const int PREVIEW_OP_OBJECT_UNION = 2;
+const int PREVIEW_OP_OBJECT_SUBTRACTION = 3;
+const int PREVIEW_OP_OBJECT_INTERSECTION = 4;
+const int PREVIEW_OP_OBJECT_PAINT = 5;
 
 // Evaluates the selected brush shape at world point p against a brush
 // centered at `center`, in world space -- deliberately NOT pre-translated
@@ -440,65 +455,78 @@ const int PREVIEW_OP_SUBTRACTION = 1;
 // HexPrism = params.xy; CappedCone/RoundCone/Link = params.xyz;
 // Octahedron/Pyramid = params.xy.
 float eval_brush_preview_sdf(vec3 p, int shape_type, vec4 params, vec3 center) {
-    vec3 lp = p - center;
-    switch (shape_type) {
-        case PREVIEW_SHAPE_SPHERE:         return sphere_sdf(lp, params.x);
-        case PREVIEW_SHAPE_BOX:            return box_sdf(lp, params.xyz);
-        case PREVIEW_SHAPE_PLANE:          return plane_sdf(lp, params.x);
-        case PREVIEW_SHAPE_TORUS:          return torus_sdf(lp, params.x, params.y);
-        case PREVIEW_SHAPE_CAPPED_CYLINDER:
-            return capped_cylinder_sdf(lp, params.x, params.y);
-        case PREVIEW_SHAPE_CAPPED_CONE:
-            return capped_cone_sdf(lp, params.x, params.y, params.z);
-        case PREVIEW_SHAPE_ROUND_BOX:
-            return round_box_sdf(lp, params.xyz, params.w);
-        case PREVIEW_SHAPE_BOX_FRAME:
-            return box_frame_sdf(lp, params.xyz, params.w);
-        case PREVIEW_SHAPE_OCTAHEDRON:     return octahedron_sdf(lp, params.x);
-        case PREVIEW_SHAPE_PYRAMID:        return pyramid_sdf(lp, params.x, params.y);
-        case PREVIEW_SHAPE_HEX_PRISM:      return hex_prism_sdf(lp, params.x, params.y);
-        case PREVIEW_SHAPE_ROUND_CONE:
-            return round_cone_sdf(lp, params.x, params.y, params.z);
-        case PREVIEW_SHAPE_CAPSULE:        return capsule_sdf(lp, params.x, params.y);
-        case PREVIEW_SHAPE_LINK:
-            return link_sdf(lp, params.x, params.y, params.z);
-        case PREVIEW_SHAPE_ELLIPSOID:      return ellipsoid_sdf(lp, params.xyz);
-        default:
-            // Unreachable as long as the CPU side only ever sends a valid
-            // SculptBrushShape value -- see eval_brush_shape()'s identical
-            // fallback, Builtin.SculptStamp.comp.glsl.
-            return sphere_sdf(lp, params.x);
-    }
+    return brush_shape_sdf(p - center, shape_type, params);
 }
 
 const float OUTLINE_GAP_PX = 1.0;
 
-// One outlined object's distance at p: its stamps combined in list order,
-// exactly as the sculpt combines them (smooth union / smooth subtraction).
-// A stamp whose bounding sphere is further than the running distance plus
-// its blend radius can't change the result, so it is skipped unevaluated.
+// One outlined object's (or group's) distance at p: its stamps combined in
+// list order, exactly as the sculpt combines them -- global ops on the
+// running field, object-scoped ops (op >= PREVIEW_OP_OBJECT_UNION) on
+// their own object's field, merged with a hard min when its run ends (see
+// Builtin.SculptChunkRecompute.comp.glsl). Bounding spheres stand in for
+// stamps that can't change the result (or for a conservative, never
+// overshooting, step).
 float outline_object_sdf(vec3 p, int first, int count) {
     float d = 1e10;
+    float obj = 1e10;
+    bool in_run = false;
+    int run_object = -1;
     float h;
     for (int i = first; i < first + count; ++i) {
         OutlineStamp stamp = outline_stamps[i];
         float k = stamp.smooth_shape_op.x;
-        bool subtract = int(stamp.smooth_shape_op.z) == PREVIEW_OP_SUBTRACTION;
+        int op = int(stamp.smooth_shape_op.z);
+        int object = int(stamp.smooth_shape_op.w);
+        bool scoped = op >= PREVIEW_OP_OBJECT_UNION;
+        if (in_run && (!scoped || object != run_object)) {
+            d = min(d, obj);
+            in_run = false;
+        }
+        if (scoped && !in_run) {
+            in_run = true;
+            run_object = object;
+            obj = 1e10;
+        }
+        if (op == PREVIEW_OP_OBJECT_PAINT) {
+            continue; // no geometry
+        }
         float bound = length(p - stamp.center_radius.xyz) - stamp.center_radius.w;
-        if (!subtract && bound > d + k) {
+        bool adds = op == PREVIEW_OP_UNION || op == PREVIEW_OP_OBJECT_UNION;
+        bool cuts = op == PREVIEW_OP_SUBTRACTION || op == PREVIEW_OP_OBJECT_SUBTRACTION;
+        float target = scoped ? obj : d;
+        if (adds && bound > target + k) {
             continue;
         }
-        if (subtract && bound > 0.0 + k) {
+        if (cuts && (bound > 0.0 + k || target >= 1e9)) {
             continue; // p is outside the cutter: nothing carved here
+        }
+        if (op == PREVIEW_OP_OBJECT_INTERSECTION) {
+            if (obj >= 1e9) {
+                continue;
+            }
+            if (bound > k + 0.05) {
+                obj = max(obj, bound - k); // a safe under-estimate
+                continue;
+            }
         }
         vec3 local = quat_rotate_inverse(stamp.rotation, p - stamp.center_radius.xyz);
         float sd = eval_brush_preview_sdf(local, int(stamp.smooth_shape_op.y),
                                           stamp.params, vec3(0.0));
-        if (subtract) {
-            d = smooth_subtraction(sd, d, k, h);
-        } else {
+        if (op == PREVIEW_OP_UNION) {
             d = d >= 1e9 ? sd : smooth_union(sd, d, k, h);
+        } else if (op == PREVIEW_OP_SUBTRACTION) {
+            d = smooth_subtraction(sd, d, k, h);
+        } else if (op == PREVIEW_OP_OBJECT_UNION) {
+            obj = obj >= 1e9 ? sd : smooth_union(sd, obj, k, h);
+        } else if (op == PREVIEW_OP_OBJECT_SUBTRACTION) {
+            obj = smooth_subtraction(sd, obj, k, h);
+        } else { // PREVIEW_OP_OBJECT_INTERSECTION
+            obj = -smooth_union(-sd, -obj, k, h);
         }
+    }
+    if (in_run) {
+        d = min(d, obj);
     }
     return d;
 }
@@ -640,74 +668,162 @@ float scope_mask(vec3 ray_origin, vec3 ray_dir, vec2 image_size,
     return any_scope ? 0.0 : 1.0;
 }
 
-// Resolves the paint accumulator at world point p, LEVEL 0 ONLY -- every
-// sculpt brush (Stamp/Smear/Clone/Spraypaint) only ever touches level 0 of
-// the chunked field (see VulkanRaymarchShader::spray_paint()'s own comment),
-// so there is no multi-level clipmap fallback to replicate here the way
-// sample_clipmap_field() has for distance. Reuses chunk_table_slot_at()/
-// chunk_indirection[]/CHUNK_* constants already in scope from Builtin.
-// ChunkedFieldCommon.inc.glsl's #include above (set 0, bindings 15/16,
-// always bound) -- only the final trilinear sample reads the new set-1
-// buffer, so no chunk-table/indirection duplication is needed beyond the
-// address math itself, which otherwise exactly mirrors sample_chunked_field_
-// at_level_slot()'s own brick-resolve + trilinear block (see its comment
-// for the i0/s0/t derivation). Returns 0.0 (unpainted) wherever no chunk or
-// no brick is resident -- the same "nothing here" default every other
-// chunked-field query uses -- so a hit on ordinary, never-sprayed geometry,
-// or a game/testbed scene that never sprays at all, is completely
-// unaffected.
-float sample_chunk_paint_at_point(vec3 p) {
+// Level-0 brick addressing below mirrors sample_chunked_field_at_level_
+// slot()'s brick-resolve + trilinear block (every sculpt brush only touches
+// level 0 of the chunked field).
+// The paint buffer holds two things (see Builtin.SculptChunkRecompute.
+// comp.glsl): a value >= 1.5 is a per-voxel owner code -- the material slot
+// of the stamp owning the surface there (which can differ within one
+// brick) and its object (out_owner, -1 if unknown) -- and a
+// value in (0, 1] is the Qt tool's spray-paint opacity of
+// PAINT_MATERIAL_SLOT. Resolves both at world point p: out_slot is the slot
+// covering the most of p's trilinear neighbourhood (-1 if none; smooth
+// boundaries, since the switch happens where the weights cross), and
+// out_opacity the interpolated spray opacity. Level 0 only, as above.
+void sample_chunk_material_at_point(vec3 p, out int out_slot,
+                                    out float out_opacity, out int out_owner) {
+    out_slot = -1;
+    out_opacity = 0.0;
+    out_owner = -1;
     const int level = 0;
     float chunk_world_size = chunk_level_world_size(level);
     float cell_size = chunk_world_size / float(CHUNK_COARSE_DIM);
-
     int slot = chunk_table_slot_at(p, level);
     if (slot < 0) {
-        return 0.0;
+        return;
     }
-
     ivec3 chunk_coord = ivec3(floor(p / chunk_world_size));
     vec3 chunk_world_min = vec3(chunk_coord) * chunk_world_size;
     vec3 local = (p - chunk_world_min) / cell_size;
     ivec3 cell = clamp(ivec3(floor(local)), ivec3(0), ivec3(CHUNK_COARSE_DIM - 1));
-
     int local_cell_index = cell.x + cell.y * CHUNK_COARSE_DIM +
         cell.z * CHUNK_COARSE_DIM * CHUNK_COARSE_DIM;
     int brick_index = chunk_indirection[slot * CHUNK_CELL_COUNT + local_cell_index];
     if (brick_index < 0) {
-        return 0.0;
+        return;
     }
-
     vec3 cell_min = chunk_world_min + vec3(cell) * cell_size;
     float voxel_size = cell_size / float(CHUNK_BRICK_DIM);
     vec3 f = (p - cell_min) / voxel_size - 0.5;
     ivec3 i0 = clamp(ivec3(floor(f)), ivec3(-1), ivec3(CHUNK_BRICK_DIM));
     ivec3 i1 = clamp(i0 + ivec3(1), ivec3(-1), ivec3(CHUNK_BRICK_DIM));
     vec3 t = clamp(f - vec3(i0), 0.0, 1.0);
-
     ivec3 s0 = i0 + ivec3(1);
     ivec3 s1 = i1 + ivec3(1);
-
     int base = brick_index * CHUNK_BRICK_VOXEL_COUNT;
-    float c000 = chunk_brick_paint[base + s0.x + s0.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
-    float c100 = chunk_brick_paint[base + s1.x + s0.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
-    float c010 = chunk_brick_paint[base + s0.x + s1.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
-    float c110 = chunk_brick_paint[base + s1.x + s1.y * CHUNK_BRICK_APRON_DIM + s0.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
-    float c001 = chunk_brick_paint[base + s0.x + s0.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
-    float c101 = chunk_brick_paint[base + s1.x + s0.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
-    float c011 = chunk_brick_paint[base + s0.x + s1.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
-    float c111 = chunk_brick_paint[base + s1.x + s1.y * CHUNK_BRICK_APRON_DIM + s1.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
 
-    float c00 = mix(c000, c100, t.x);
-    float c10 = mix(c010, c110, t.x);
-    float c01 = mix(c001, c101, t.x);
-    float c11 = mix(c011, c111, t.x);
-
-    float c0 = mix(c00, c10, t.y);
-    float c1 = mix(c01, c11, t.y);
-
-    return clamp(mix(c0, c1, t.z), 0.0, 1.0);
+    int slots[8];
+    float weights[8];
+    int distinct = 0;
+    float best_weight = 0.0;
+    for (int c = 0; c < 8; ++c) {
+        ivec3 corner = ivec3((c & 1) != 0 ? s1.x : s0.x,
+                             (c & 2) != 0 ? s1.y : s0.y,
+                             (c & 4) != 0 ? s1.z : s0.z);
+        float w = ((c & 1) != 0 ? t.x : 1.0 - t.x) *
+                  ((c & 2) != 0 ? t.y : 1.0 - t.y) *
+                  ((c & 4) != 0 ? t.z : 1.0 - t.z);
+        float v = chunk_brick_paint[base + corner.x +
+                                    corner.y * CHUNK_BRICK_APRON_DIM +
+                                    corner.z * CHUNK_BRICK_APRON_DIM * CHUNK_BRICK_APRON_DIM];
+        if (v < 1.5) {
+            out_opacity += w * clamp(v, 0.0, 1.0);
+            continue;
+        }
+        int corner_slot = int(round(v)); // the owner code, decoded below
+        int found = -1;
+        for (int k = 0; k < distinct; ++k) {
+            if (slots[k] == corner_slot) {
+                found = k;
+            }
+        }
+        if (found < 0) {
+            found = distinct++;
+            slots[found] = corner_slot;
+            weights[found] = 0.0;
+        }
+        weights[found] += w;
+        if (weights[found] > best_weight) {
+            best_weight = weights[found];
+            out_slot = corner_slot;
+        }
+    }
+    // out_slot holds the winning owner code, (owner + 1) * 1024 + slot (see
+    // Builtin.SculptChunkRecompute.comp.glsl's owner_code()); older
+    // bricks may still hold a bare slot.
+    if (out_slot >= 1024) {
+        out_owner = out_slot / 1024 - 1;
+        out_slot = out_slot % 1024;
+    }
+    if (out_slot < 2 || out_slot >= MAX_SCENE_PRIMITIVES) {
+        out_slot = -1; // the engine defaults: keep the brick's material
+    }
 }
+
+// The brush blended into what's there (an adding brush with smoothness,
+// brush_preview.shape_op_slot.w as float bits): the surface a stamp here
+// would leave, fillet included. Only the sculpture being edited (the
+// scoped-in objects, in sculpt mode) blends -- strokes weld only within
+// their sculpture -- so field that belongs to anything else counts as
+// empty here, and the brush meets it hard, as the stamp will.
+float preview_blend_sdf(vec3 p, float k) {
+    vec3 local = quat_rotate_inverse(brush_preview.rotation,
+                                     p - brush_preview.center_enabled.xyz);
+    float brush = eval_brush_preview_sdf(local, brush_preview.shape_op_slot.x,
+                                         brush_preview.params, vec3(0.0));
+    float dist, skip_dist;
+    int material;
+    sample_active_field(p, vec3(0.0, 0.0, 1.0), dist, skip_dist, material);
+    float scene = skip_dist > 0.0 ? max(skip_dist, k) : dist;
+    if (scene < k && outline_counts.y > 0) {
+        int slot_unused;
+        float opacity_unused;
+        int owner;
+        sample_chunk_material_at_point(p, slot_unused, opacity_unused, owner);
+        if (owner >= 0 && !owner_in_scope(owner)) {
+            return brush; // another object's (unknown: count it in)
+        }
+    }
+    float h;
+    return smooth_union(brush, scene, k, h);
+}
+
+// The scene with a carving brush taken out of the sculpture being edited
+// (other objects are left as they are, as the stamp will leave them): the
+// surface a carve here would leave, live. The field only holds bricks near
+// surfaces, so a cell with none is empty space OR deep inside a solid:
+// `inside` carries which, from the last brick the ray passed through.
+float preview_carve_sdf(vec3 p, float k, inout bool inside) {
+    vec3 local = quat_rotate_inverse(brush_preview.rotation,
+                                     p - brush_preview.center_enabled.xyz);
+    float brush = eval_brush_preview_sdf(local, brush_preview.shape_op_slot.x,
+                                         brush_preview.params, vec3(0.0));
+    float dist, skip_dist;
+    int material;
+    sample_active_field(p, vec3(0.0, 0.0, 1.0), dist, skip_dist, material);
+    float scene;
+    if (skip_dist > 0.0) {
+        scene = inside ? -skip_dist : skip_dist;
+    } else {
+        scene = dist;
+        inside = dist < 0.0;
+    }
+    if (brush > k) {
+        return scene; // out of the brush's reach
+    }
+    if (outline_counts.y > 0) {
+        int slot_unused;
+        float opacity_unused;
+        int owner;
+        sample_chunk_material_at_point(p, slot_unused, opacity_unused, owner);
+        if (owner >= 0 && !owner_in_scope(owner)) {
+            return scene;
+        }
+    }
+    float h;
+    return smooth_subtraction(brush, scene, k, h);
+}
+
 
 // Baked indirect-light probe grid -- a dense regular grid of GI samples
 // covering the same world volume as the voxel field (BOUNDS), computed by
@@ -1519,6 +1635,12 @@ vec3 shade_brush_preview(vec3 p, vec3 normal, vec3 view_dir, int slot) {
         int light_type = int(light.vector_type.w);
         vec3 light_colour = light.colour_intensity.rgb;
         float intensity = light.colour_intensity.a;
+        // A switched-off light (e.g. a released glow light, kept in the
+        // list for reuse) adds exactly nothing -- skip it before its
+        // shadow ray, which is most of a light's cost.
+        if (intensity <= 0.0) {
+            continue;
+        }
 
         vec3 light_dir;
         float attenuation;
@@ -1621,6 +1743,20 @@ void main() {
     float exempt_flag = 0.0;
     float metallic = 0.0;
 
+    // Per-voxel material and spray paint at the hit (see
+    // sample_chunk_material_at_point()): a surface built from several
+    // stamps shows each one's own material, not just its brick's.
+    float paint_opacity = 0.0;
+    if (travelled < MAX_DIST) {
+        int voxel_material;
+        int voxel_owner;
+        sample_chunk_material_at_point(p, voxel_material, paint_opacity,
+                                       voxel_owner);
+        if (voxel_material >= 0) {
+            hit_material = voxel_material;
+        }
+    }
+
     if (travelled < MAX_DIST) {
         // The normal comes from the G-buffer, not from six more field
         // lookups here: for a splat it is the normal baked into the point
@@ -1670,7 +1806,7 @@ void main() {
         vec3 tint = scene_diffuse_colours[hit_material].rgb;
 
         // M3c (Spraypaint): blend in whatever opacity has accumulated at
-        // this exact hit point -- see sample_chunk_paint_at_point()'s own
+        // this exact hit point -- see sample_chunk_material_at_point()'s own
         // comment for the chunk-table/brick resolve this does, and Builtin.
         // SculptSpraypaint.comp.glsl for how that opacity got there. mix(),
         // not an overwrite: 0 opacity (every surface that's never been
@@ -1679,7 +1815,6 @@ void main() {
         // colour rather than hard-cutting between "painted"/"not" -- which
         // is what lets repeated passes read as the colour visibly building
         // up instead of only ever being fully on or fully off.
-        float paint_opacity = sample_chunk_paint_at_point(p);
         tint = mix(tint, scene_diffuse_colours[PAINT_MATERIAL_SLOT].rgb,
                   paint_opacity);
 
@@ -1786,6 +1921,9 @@ void main() {
             int light_type = int(light.vector_type.w);
             vec3 light_colour = light.colour_intensity.rgb;
             float intensity = light.colour_intensity.a;
+            if (intensity <= 0.0) {
+                continue; // switched off -- see the loop above
+            }
 
             vec3 light_dir;
             float attenuation;
@@ -1988,12 +2126,43 @@ void main() {
                      1.0 - exp(-halo));
     }
 
+    // Scope-in mask (unjittered pixel-centre ray, like the outline below,
+    // since it's applied after TAA). Kept as scope_here: the brush preview
+    // below is only hidden by surfaces in scope.
+    float scope_here = 1.0;
+    {
+        float mask = 1.0;
+        if (outline_counts.x > 0) {
+            vec2 mask_uv = (vec2(pixel_coord) + 0.5 - 0.5 * vec2(image_size)) /
+                           float(image_size.y);
+            vec3 mask_dir = normalize(mask_uv.x * push.camera_right.xyz +
+                                      mask_uv.y * push.camera_up.xyz +
+                                      push.camera_forward.xyz);
+            mask = scope_mask(ray_origin, mask_dir, vec2(image_size), depth);
+            // Where the surface records its object, focus is exactly "is it
+            // one of the scoped-in objects" -- nothing touching or near them
+            // comes into focus with them, and their loose flecks do.
+            if (depth >= 0.0 && outline_counts.y >= 0) {
+                int slot_unused;
+                float opacity_unused;
+                int owner;
+                sample_chunk_material_at_point(ray_origin + mask_dir * depth,
+                                               slot_unused, opacity_unused, owner);
+                if (owner >= 0) {
+                    mask = owner_in_scope(owner) ? 1.0 : 0.0;
+                }
+            }
+        }
+        imageStore(scope_mask_image, pixel_coord, vec4(mask));
+        scope_here = mask;
+    }
+
     // M7 polish: live brush-cursor "ghost" preview -- sphere-traces ONE
     // analytic shape (brush_preview, set = 1 binding = 1 above) against
     // THIS pixel's exact same ray_origin/ray_dir, shades any hit through
     // shade_brush_preview() (the same lighting building blocks the real-
     // surface block just above used), and writes it to preview_overlay_
-    // image as a translucent ghost -- Dreams' own "about to place this"
+    // image as a solid shape -- Dreams' own "about to place this"
     // cue, not a committed edit. Runs unconditionally (not just when
     // travelled < MAX_DIST above) so the preview still shows over open
     // background/sky, which is the common case when sculpting into empty
@@ -2018,6 +2187,11 @@ void main() {
         int preview_op = brush_preview.shape_op_slot.y;
         int preview_slot = brush_preview.shape_op_slot.z;
         vec4 preview_params = brush_preview.params;
+        // The shape is traced in its own frame (rotated about its centre).
+        vec4 preview_rotation = brush_preview.rotation;
+        vec3 preview_origin = quat_rotate_inverse(preview_rotation,
+                                                  ray_origin - preview_center);
+        vec3 preview_dir = quat_rotate_inverse(preview_rotation, ray_dir);
 
         // March bound: must cover the distance from THIS pixel's ray
         // origin (the camera) to the shape, not just the shape's own
@@ -2040,6 +2214,9 @@ void main() {
 
         float preview_t = 0.0;
         bool preview_hit = false;
+        // Closest the ray came to the shape, in pixels (the wireframe's
+        // silhouette line).
+        float preview_closest_px = 1e10;
         const int PREVIEW_MAX_STEPS = 64; // a handful of steps is enough
                                           // for one analytic shape -- see
                                           // this block's own header comment.
@@ -2047,57 +2224,263 @@ void main() {
             if (preview_t >= preview_bound) {
                 break;
             }
-            vec3 sample_p = ray_origin + ray_dir * preview_t;
+            vec3 sample_p = preview_origin + preview_dir * preview_t;
             float d = eval_brush_preview_sdf(sample_p, preview_shape,
-                                             preview_params, preview_center);
+                                             preview_params, vec3(0.0));
             if (d < SURF_DIST) {
                 preview_hit = true;
                 break;
             }
+            if (preview_t > 0.01) {
+                preview_closest_px = min(preview_closest_px,
+                                         d / preview_t * float(image_size.y));
+            }
             preview_t += d;
+        }
+
+        // Hidden behind what's already there: the scene surface at this
+        // pixel is nearer than the preview's (when scoped in -- sculpt
+        // mode's sculpture included -- only a surface in scope hides it,
+        // the rest being greyed out anyway). The slack covers the baked
+        // field sitting a voxel or so off the analytic shape, so a shape
+        // just stamped doesn't flicker through the preview at the same
+        // spot.
+        // (A carving brush is drawn as a see-through wireframe below
+        // instead, so a hollow can be carved inside a shape.)
+        const float PREVIEW_DEPTH_SLACK = 0.02;
+        bool preview_carving = preview_op == PREVIEW_OP_SUBTRACTION ||
+                               preview_op == PREVIEW_OP_OBJECT_SUBTRACTION;
+        if (preview_hit && !preview_carving && depth >= 0.0 && scope_here > 0.5 &&
+            depth < preview_t - (PREVIEW_DEPTH_SLACK + 0.002 * preview_t)) {
+            preview_hit = false;
+        }
+
+        // Smoothness: trace the brush blended into the scene instead, so
+        // the fillet it would make shows before the stamp lands. Only what
+        // stands in front of the existing surface is drawn (the brush and
+        // the fillet), with the same slack as above.
+        float preview_k = intBitsToFloat(brush_preview.shape_op_slot.w);
+        bool preview_blended = false;
+        vec3 preview_blend_normal = vec3(0.0);
+        if ((preview_op == PREVIEW_OP_UNION || preview_op == PREVIEW_OP_OBJECT_UNION) &&
+            preview_k > 0.0001 && !(preview_k > 1e6)) {
+            float extent = max(max(preview_params.x, preview_params.y),
+                               max(preview_params.z, preview_params.w));
+            float reach = extent * 1.75 + preview_k;
+            vec3 oc = preview_center - ray_origin;
+            float tc = dot(oc, ray_dir);
+            float miss2 = dot(oc, oc) - tc * tc;
+            bool found = false;
+            float t = 0.0;
+            if (miss2 < reach * reach) {
+                float half_chord = sqrt(reach * reach - miss2);
+                t = max(tc - half_chord, 0.0);
+                float t_end = tc + half_chord;
+                if (depth >= 0.0) {
+                    t_end = min(t_end, depth + 0.05);
+                }
+                for (int i = 0; i < 96 && t < t_end; ++i) {
+                    float f = preview_blend_sdf(ray_origin + ray_dir * t, preview_k);
+                    if (f < max(0.003, 0.001 * t)) { // the field is a voxel grid
+                        found = true;
+                        break;
+                    }
+                    t += max(f, 0.002);
+                }
+            }
+            preview_hit = found &&
+                (depth < 0.0 || scope_here <= 0.5 ||
+                 t < depth - (PREVIEW_DEPTH_SLACK + 0.002 * t));
+            if (preview_hit) {
+                preview_t = t;
+                preview_blended = true;
+                vec3 hp = ray_origin + ray_dir * t;
+                const float E = 0.01;
+                preview_blend_normal = normalize(vec3(
+                    preview_blend_sdf(hp + vec3(E, 0.0, 0.0), preview_k) -
+                    preview_blend_sdf(hp - vec3(E, 0.0, 0.0), preview_k),
+                    preview_blend_sdf(hp + vec3(0.0, E, 0.0), preview_k) -
+                    preview_blend_sdf(hp - vec3(0.0, E, 0.0), preview_k),
+                    preview_blend_sdf(hp + vec3(0.0, 0.0, E), preview_k) -
+                    preview_blend_sdf(hp - vec3(0.0, 0.0, E), preview_k)));
+            }
+        }
+
+        // Carving: only a wireframe of the shape -- its silhouette, and a
+        // lattice of lines across it (half-size steps of its extents in its
+        // own frame, so a box's edges are lines), front and back, seen
+        // through everything.
+        // Carving, live: where the brush reaches the surface this pixel
+        // shows, trace the scene with the brush carved out instead -- the
+        // hollow's walls in the sculpture's own material, or what's behind
+        // where it cuts right through.
+        vec3 carve_colour = vec3(0.0);
+        float carve_alpha = 0.0;
+        if (preview_carving && depth >= 0.0) {
+            float k = max(intBitsToFloat(brush_preview.shape_op_slot.w), 0.0);
+            if (!(k < 1e6)) {
+                k = 0.0;
+            }
+            float extent = max(max(preview_params.x, preview_params.y),
+                               max(preview_params.z, preview_params.w));
+            float reach = extent * 1.75 + k;
+            vec3 oc = preview_center - ray_origin;
+            float tc = dot(oc, ray_dir);
+            float miss2 = dot(oc, oc) - tc * tc;
+            if (miss2 < reach * reach) {
+                float half_chord = sqrt(reach * reach - miss2);
+                float t0 = max(tc - half_chord, 0.0);
+                float t1 = tc + half_chord;
+                if (depth >= t0 && depth <= t1) {
+                    float t = t0;
+                    bool found = false;
+                    bool inside = false; // t0 is in front of the first surface
+                    float t_max = t1 + MAX_DIST;
+                    for (int i = 0; i < 192 && t < t_max; ++i) {
+                        float f = preview_carve_sdf(ray_origin + ray_dir * t, k, inside);
+                        if (f < max(0.003, 0.001 * t)) {
+                            found = true;
+                            break;
+                        }
+                        // Short steps through the brush, so the ray can't
+                        // jump over the band of bricks at a surface (and
+                        // lose track of being inside).
+                        t += t < t1 ? clamp(f, 0.002, 0.08) : max(f, 0.002);
+                    }
+                    if (!found) {
+                        carve_colour = (push.flags & RENDER_FLAG_SKYBOX) != 0
+                            ? sample_skybox(ray_dir)
+                            : mix(vec3(0.02, 0.02, 0.05), vec3(0.05, 0.05, 0.12),
+                                  uv.y + 0.5);
+                        carve_alpha = 1.0;
+                    } else if (abs(t - depth) > PREVIEW_DEPTH_SLACK + 0.002 * t) {
+                        vec3 hp = ray_origin + ray_dir * t;
+                        const float E = 0.01;
+                        bool i0 = inside, i1 = inside, i2 = inside,
+                             i3 = inside, i4 = inside, i5 = inside;
+                        vec3 n = normalize(vec3(
+                            preview_carve_sdf(hp + vec3(E, 0.0, 0.0), k, i0) -
+                            preview_carve_sdf(hp - vec3(E, 0.0, 0.0), k, i1),
+                            preview_carve_sdf(hp + vec3(0.0, E, 0.0), k, i2) -
+                            preview_carve_sdf(hp - vec3(0.0, E, 0.0), k, i3),
+                            preview_carve_sdf(hp + vec3(0.0, 0.0, E), k, i4) -
+                            preview_carve_sdf(hp - vec3(0.0, 0.0, E), k, i5)));
+                        float dist, skip_dist;
+                        int material;
+                        sample_active_field(hp, ray_dir, dist, skip_dist, material);
+                        int slot;
+                        float opacity_unused;
+                        int owner_unused;
+                        sample_chunk_material_at_point(hp, slot, opacity_unused, owner_unused);
+                        if (slot < 0) {
+                            slot = clamp(material, 0, MAX_SCENE_PRIMITIVES - 1);
+                        }
+                        carve_colour = shade_brush_preview(hp, n, -ray_dir, slot);
+                        carve_alpha = 1.0;
+                    }
+                }
+            }
+        }
+
+        if (preview_carving) {
+            const float WIRE_PX = 1.25;
+            float px_per_unit = float(image_size.y);
+            vec3 wire_e = (preview_params.y == 0.0 && preview_params.z == 0.0)
+                              ? vec3(abs(preview_params.x))
+                              : max(abs(preview_params.xyz), vec3(1e-3));
+            float wire = 0.0;
+            if (!preview_hit) {
+                wire = clamp(1.0 - (preview_closest_px - WIRE_PX) / WIRE_PX, 0.0, 1.0);
+            } else {
+                float t_front = preview_t;
+                // The far side: step through the inside to where it leaves.
+                float t_back = t_front + 0.002;
+                bool back = false;
+                for (int i = 0; i < 48; ++i) {
+                    float d = eval_brush_preview_sdf(preview_origin + preview_dir * t_back,
+                                                     preview_shape, preview_params, vec3(0.0));
+                    if (d >= 0.0) {
+                        back = true;
+                        break;
+                    }
+                    t_back += max(-d, 0.002);
+                }
+                for (int side = 0; side < 2; ++side) {
+                    if (side == 1 && !back) {
+                        break;
+                    }
+                    float t = side == 0 ? t_front : t_back;
+                    vec3 q = preview_origin + preview_dir * t;
+                    const float E = 0.0005;
+                    vec3 n = normalize(vec3(
+                        eval_brush_preview_sdf(q + vec3(E, 0, 0), preview_shape, preview_params, vec3(0.0)) -
+                        eval_brush_preview_sdf(q - vec3(E, 0, 0), preview_shape, preview_params, vec3(0.0)),
+                        eval_brush_preview_sdf(q + vec3(0, E, 0), preview_shape, preview_params, vec3(0.0)) -
+                        eval_brush_preview_sdf(q - vec3(0, E, 0), preview_shape, preview_params, vec3(0.0)),
+                        eval_brush_preview_sdf(q + vec3(0, 0, E), preview_shape, preview_params, vec3(0.0)) -
+                        eval_brush_preview_sdf(q - vec3(0, 0, E), preview_shape, preview_params, vec3(0.0))));
+                    float line_w = WIRE_PX * t / px_per_unit; // a line's width here
+                    float on = 0.0;
+                    for (int a = 0; a < 3; ++a) {
+                        if (abs(n[a]) > 0.75) {
+                            continue; // the face across this axis: no lines on it
+                        }
+                        float step_a = 0.5 * wire_e[a];
+                        float x = q[a] / step_a;
+                        float off = abs(x - round(x)) * step_a;
+                        on = max(on, clamp(1.0 - (off - line_w) / line_w, 0.0, 1.0));
+                    }
+                    // The rim, where the surface turns away.
+                    float facing = abs(dot(n, preview_dir));
+                    on = max(on, clamp(1.0 - facing / 0.12, 0.0, 1.0));
+                    wire = max(wire, on * (side == 0 ? 1.0 : 0.55));
+                }
+            }
+            preview_hit = false; // no fill
+            if (wire > 0.0 || carve_alpha > 0.0) {
+                vec3 wire_colour = vec3(1.0, 0.55, 0.15);
+                preview_overlay_colour = carve_alpha > 0.0
+                    ? mix(carve_colour, wire_colour, wire) : wire_colour;
+                preview_overlay_alpha = max(wire, carve_alpha);
+            }
         }
 
         if (preview_hit) {
             vec3 preview_p = ray_origin + ray_dir * preview_t;
+            vec3 preview_local = preview_origin + preview_dir * preview_t;
             // Central-difference gradient of the same analytic function --
             // 6 extra SDF evals, cheap for one shape (no field/brick
             // lookups involved, unlike calc_static_normal()'s equivalent
-            // for a real marched hit).
+            // for a real marched hit) -- in the shape's frame, then turned
+            // back into the world's.
             const float PREVIEW_NORMAL_EPS = 0.001;
-            vec3 preview_normal = normalize(vec3(
-                eval_brush_preview_sdf(preview_p + vec3(PREVIEW_NORMAL_EPS, 0.0, 0.0),
-                                       preview_shape, preview_params, preview_center) -
-                eval_brush_preview_sdf(preview_p - vec3(PREVIEW_NORMAL_EPS, 0.0, 0.0),
-                                       preview_shape, preview_params, preview_center),
-                eval_brush_preview_sdf(preview_p + vec3(0.0, PREVIEW_NORMAL_EPS, 0.0),
-                                       preview_shape, preview_params, preview_center) -
-                eval_brush_preview_sdf(preview_p - vec3(0.0, PREVIEW_NORMAL_EPS, 0.0),
-                                       preview_shape, preview_params, preview_center),
-                eval_brush_preview_sdf(preview_p + vec3(0.0, 0.0, PREVIEW_NORMAL_EPS),
-                                       preview_shape, preview_params, preview_center) -
-                eval_brush_preview_sdf(preview_p - vec3(0.0, 0.0, PREVIEW_NORMAL_EPS),
-                                       preview_shape, preview_params, preview_center)));
+            vec3 local_normal = normalize(vec3(
+                eval_brush_preview_sdf(preview_local + vec3(PREVIEW_NORMAL_EPS, 0.0, 0.0),
+                                       preview_shape, preview_params, vec3(0.0)) -
+                eval_brush_preview_sdf(preview_local - vec3(PREVIEW_NORMAL_EPS, 0.0, 0.0),
+                                       preview_shape, preview_params, vec3(0.0)),
+                eval_brush_preview_sdf(preview_local + vec3(0.0, PREVIEW_NORMAL_EPS, 0.0),
+                                       preview_shape, preview_params, vec3(0.0)) -
+                eval_brush_preview_sdf(preview_local - vec3(0.0, PREVIEW_NORMAL_EPS, 0.0),
+                                       preview_shape, preview_params, vec3(0.0)),
+                eval_brush_preview_sdf(preview_local + vec3(0.0, 0.0, PREVIEW_NORMAL_EPS),
+                                       preview_shape, preview_params, vec3(0.0)) -
+                eval_brush_preview_sdf(preview_local - vec3(0.0, 0.0, PREVIEW_NORMAL_EPS),
+                                       preview_shape, preview_params, vec3(0.0))));
+            vec3 preview_normal = quat_rotate_inverse(
+                vec4(-preview_rotation.xyz, preview_rotation.w), local_normal);
+            if (preview_blended) {
+                preview_normal = preview_blend_normal;
+            }
 
             vec3 preview_colour = shade_brush_preview(preview_p, preview_normal,
                                                        -ray_dir, preview_slot);
 
-            // No occlusion-based dimming: a constant alpha regardless of
-            // preview_t vs. travelled. A dimmed-when-behind-the-surface
-            // heuristic sounds right for "ghost poking into a wall" but is
-            // wrong for a sculpt-brush preview specifically -- the brush is
-            // normally centered AT or very near the existing surface (the
-            // whole point of sculpting onto/into it), so for a normal,
-            // unstretched, modestly-sized brush most of its silhouette sits
-            // almost exactly at the same depth as the real surface it's
-            // touching, and that near-tie resolved to "occluded" far more
-            // often than not -- making an ordinary brush look faint/patchy
-            // (only a heavily stretched shape, poking well out in front,
-            // read clearly). It's also backwards for Subtraction: that op
-            // is meant to CARVE INTO existing geometry, so most of its
-            // volume is by design behind/inside the current surface --
-            // dimming it fights the one case where showing what's about to
-            // be carved away matters most.
-            const float PREVIEW_ALPHA = 0.65;
+            // Solid where it shows -- it reads as the shape about to be
+            // placed, not a ghost; the parts behind existing geometry are
+            // hidden above (with slack for the near-ties a brush resting on
+            // the surface makes).
+            const float PREVIEW_ALPHA = 1.0;
             float preview_alpha = PREVIEW_ALPHA;
 
             // A thin Union(cyan)/Subtraction(orange) rim tint ON TOP of
@@ -2107,29 +2490,22 @@ void main() {
             // flat shaded fill alone reads most ambiguously against a
             // similarly-lit background), via the same (1 - n.v) Fresnel-
             // like falloff fresnel_schlick() uses elsewhere in this file.
-            vec3 preview_op_tint = preview_op == PREVIEW_OP_SUBTRACTION
-                ? vec3(1.0, 0.55, 0.15)
+            // Carving orange, adding cyan, cropping violet, painting none
+            // (the fill already shows the paint).
+            bool preview_carves = preview_op == PREVIEW_OP_SUBTRACTION ||
+                                  preview_op == PREVIEW_OP_OBJECT_SUBTRACTION;
+            vec3 preview_op_tint = preview_carves ? vec3(1.0, 0.55, 0.15)
+                : preview_op == PREVIEW_OP_OBJECT_INTERSECTION ? vec3(0.75, 0.45, 1.0)
                 : vec3(0.2, 0.95, 1.0);
+            if (preview_op == PREVIEW_OP_OBJECT_PAINT) {
+                preview_op_tint = preview_colour;
+            }
             float preview_rim = pow(1.0 - max(dot(preview_normal, -ray_dir), 0.0), 2.0);
             preview_colour = mix(preview_colour, preview_op_tint, preview_rim * 0.35);
 
             preview_overlay_colour = preview_colour;
             preview_overlay_alpha = preview_alpha;
         }
-    }
-    // Scope-in mask (unjittered pixel-centre ray, like the outline below,
-    // since it's applied after TAA).
-    {
-        float mask = 1.0;
-        if (outline_counts.x > 0) {
-            vec2 mask_uv = (vec2(pixel_coord) + 0.5 - 0.5 * vec2(image_size)) /
-                           float(image_size.y);
-            vec3 mask_dir = normalize(mask_uv.x * push.camera_right.xyz +
-                                      mask_uv.y * push.camera_up.xyz +
-                                      push.camera_forward.xyz);
-            mask = scope_mask(ray_origin, mask_dir, vec2(image_size), depth);
-        }
-        imageStore(scope_mask_image, pixel_coord, vec4(mask));
     }
 
     // Selection outline, layered over the brush preview in the same

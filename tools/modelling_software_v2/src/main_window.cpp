@@ -1084,7 +1084,7 @@ void ModellingWindow::on_load_triggered() {
   // See on_save_triggered()'s comment -- same DontUseNativeDialog reasoning
   // applies symmetrically here.
   QString path = QFileDialog::getOpenFileName(
-      this, "Load Sculpt Stamps", current_path_, "Sculpt stamps (*.stamps)",
+      this, "Load Sculpt Stamps", current_path_, "Sculpt stamps (*.stamps *.sculpt)",
       nullptr, QFileDialog::DontUseNativeDialog);
   if (path.isEmpty()) {
     return;
@@ -1110,7 +1110,7 @@ void ModellingWindow::on_load_triggered() {
   // session will show both sets of stamps together.
   // Replays every stamp with its rotation and object grouping (and remaps
   // the file's object ids onto the engine's) -- see sculpt_shared.h.
-  sculpt_shared::replay_document(loaded);
+  sculpt_shared::replay_document(loaded, /*one_by_one=*/true);
   for (size_t i = 0; i < loaded.stamps().size(); ++i) {
     // M3a: replay does NOT emit stamp_placed() (see its own
     // comment), so on_stroke_ended() never fires for it either --

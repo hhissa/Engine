@@ -42,7 +42,7 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 const int MAX_CLUSTERS = 131072;
 // Must match kNumLevels * kMaxResidentChunks engine-side -- the size of
 // chunk_slot_published[] below.
-const int CHUNK_MAX_SLOTS = NUM_CHUNK_LEVELS * 64;
+const int CHUNK_MAX_SLOTS = NUM_CHUNK_LEVELS * 512;
 
 // Must match kMaxShadowPairs engine-side -- the cap on how many (cluster,
 // light) pairs one frame can cast. Overflowing it drops shadow casters
