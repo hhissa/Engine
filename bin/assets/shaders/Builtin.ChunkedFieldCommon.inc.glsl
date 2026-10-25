@@ -51,6 +51,12 @@ layout(binding = CHUNKED_FIELD_BRICKPRIMITIVE_BINDING) readonly buffer ChunkBric
     int chunk_brick_primitive[];
 };
 
+// The drag instance's block sits right after the table's own entries (see
+// Builtin.SculptInstance.inc.glsl).
+#define SCULPT_INSTANCE_WORD(i) \
+    chunk_table[NUM_CHUNK_LEVELS * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM * CHUNK_TABLE_DIM + (i)]
+#include "Builtin.SculptInstance.inc.glsl"
+
 // floor-based modulo for ivec3, result always in [0, m) per component --
 // GLSL's `%` (and C's) takes the dividend's sign instead, which would give
 // a negative result for a negative chunk coordinate and break the table
@@ -330,8 +336,9 @@ const float LOD_BLEND_FRACTION = 0.0;
 // (STREAM_RADIUS_CHUNKS+1)*2*level_world_size) -- so level L+1 is
 // guaranteed already resident everywhere this blend could possibly sample
 // it, with no extra streaming radius needed.
-void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
-                          out float skip_dist, out int material_index) {
+void sample_clipmap_field_world(vec3 p, vec3 ray_dir, vec3 camera_pos,
+                                out float dist, out float skip_dist,
+                                out int material_index) {
     // The finest level whose WINDOW contains p, resident or not -- what
     // this function used to commit to unconditionally. Kept only as the
     // last resort below.
@@ -504,6 +511,76 @@ void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
     dist = MAX_DIST;
     skip_dist = chunk_level_world_size(NUM_CHUNK_LEVELS - 1);
     material_index = -1;
+}
+
+// The drag instance's own field at world point p (see Builtin.Sculpt
+// Instance.inc.glsl), in world units, same contract as above. Outside its
+// box, the distance to the box stands in as a skip: nothing of it is
+// nearer than that.
+void sample_instance_field(vec3 p, vec3 ray_dir, out float dist,
+                           out float skip_dist, out int material_index) {
+    vec3 lo = sculpt_instance_box_min();
+    vec3 hi = sculpt_instance_box_max();
+    float box_dist = length(max(max(lo - p, p - hi), vec3(0.0)));
+    material_index = -1;
+    if (box_dist > 0.0) {
+        // A floor on the step, so a ray can't creep up on the box forever;
+        // the box has a voxel of margin round the surface inside it.
+        skip_dist = max(box_dist, 0.01);
+        dist = skip_dist;
+        return;
+    }
+    vec3 q = sculpt_instance_to_local(p);
+    int slot = sculpt_instance_slot_at(q);
+    float s = sculpt_instance_scale();
+    if (slot == -2) { // rounding at the box's edge
+        skip_dist = 0.01;
+        dist = skip_dist;
+        return;
+    }
+    sample_chunked_field_at_level_slot(q, sculpt_instance_dir_to_local(ray_dir), 0,
+                                       slot, dist, skip_dist, material_index);
+    dist *= s;
+    skip_dist *= s;
+}
+
+// The field: the world's, plus the drag instance's where it has one. Two
+// skips give the shorter; a real distance wins only if it's nearer than
+// the other side's skip (else that skip, which a real distance can't
+// overstep, is the safe answer).
+void sample_clipmap_field(vec3 p, vec3 ray_dir, vec3 camera_pos, out float dist,
+                          out float skip_dist, out int material_index) {
+    sample_clipmap_field_world(p, ray_dir, camera_pos, dist, skip_dist,
+                               material_index);
+    if (!sculpt_instance_active()) {
+        return;
+    }
+    float inst_dist, inst_skip;
+    int inst_material;
+    sample_instance_field(p, ray_dir, inst_dist, inst_skip, inst_material);
+    bool world_real = skip_dist == 0.0;
+    bool inst_real = inst_skip == 0.0;
+    if (world_real && inst_real) {
+        if (inst_dist < dist) {
+            dist = inst_dist;
+            material_index = inst_material;
+        }
+    } else if (world_real) {
+        if (dist > inst_skip) {
+            skip_dist = inst_skip;
+            dist = inst_skip;
+            material_index = -1;
+        }
+    } else if (inst_real) {
+        if (inst_dist <= skip_dist) {
+            dist = inst_dist;
+            skip_dist = 0.0;
+            material_index = inst_material;
+        }
+    } else if (inst_skip < skip_dist) {
+        skip_dist = inst_skip;
+        dist = inst_skip;
+    }
 }
 
 // Soft shadow ray march against the CHUNKED field -- a deliberate near-

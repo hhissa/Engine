@@ -124,6 +124,9 @@ layout(binding = 7) buffer ResidentArgsBuffer {
 layout(binding = 8) readonly buffer ChunkSlotPublishedBuffer {
     uint chunk_slot_published[];
 };
+// The drag instance (Builtin.SculptInstance.inc.glsl), after the flags.
+#define SCULPT_INSTANCE_WORD(i) int(chunk_slot_published[CHUNK_MAX_SLOTS + (i)])
+#include "Builtin.SculptInstance.inc.glsl"
 
 layout(push_constant) uniform PushConstants {
     vec4 camera_position; // xyz + pad
@@ -147,7 +150,75 @@ layout(push_constant) uniform PushConstants {
                        // exactly as they were.
     int pad0;
     int pad1;
+    // Occlusion culling: the camera and render size of the last frame,
+    // whose farthest depth per 16x16 tile is in occlusion_tiles.
+    // occlusion_size.z = 0 = off (no valid tiles).
+    vec4 occlusion_position;
+    vec4 occlusion_forward;
+    vec4 occlusion_right;
+    vec4 occlusion_up;
+    ivec4 occlusion_size;
 } push;
+
+layout(binding = 9) readonly buffer OcclusionTileBuffer {
+    uint occlusion_tiles[];
+};
+
+// True when the box was entirely hidden behind last frame's surfaces: its
+// nearest point is farther from that frame's camera than the farthest
+// surface in every tile its projection covers (one tile of margin all
+// round, for TAA jitter and a frame's camera motion). A tile with any sky
+// in it reads infinitely far, so silhouettes never hide anything, and a box
+// reaching past the edge of that frame's screen is never culled (it may be
+// in view now). Moved or deleted occluders cost one frame of lag at most:
+// the next frame's tiles show what was uncovered.
+bool occluded(vec3 box_min, vec3 box_max) {
+    if (push.occlusion_size.z == 0) {
+        return false;
+    }
+    vec3 cam = push.occlusion_position.xyz;
+    vec3 fwd = push.occlusion_forward.xyz;
+    vec3 right = push.occlusion_right.xyz;
+    vec3 up = push.occlusion_up.xyz;
+    vec2 size = vec2(push.occlusion_size.xy);
+    vec2 lo = vec2(1e30);
+    vec2 hi = vec2(-1e30);
+    for (int i = 0; i < 8; ++i) {
+        vec3 corner = vec3((i & 1) != 0 ? box_max.x : box_min.x,
+                           (i & 2) != 0 ? box_max.y : box_min.y,
+                           (i & 4) != 0 ? box_max.z : box_min.z);
+        vec3 v = corner - cam;
+        float z = dot(v, fwd);
+        if (z < 0.05) {
+            return false; // reaches the camera plane
+        }
+        // Same mapping as the splat pass (pixel = uv * height + size / 2).
+        vec2 pixel = vec2(dot(v, right), dot(v, up)) / z * size.y + 0.5 * size;
+        lo = min(lo, pixel);
+        hi = max(hi, pixel);
+    }
+    if (any(lessThan(lo, vec2(0.0))) || any(greaterThan(hi, size))) {
+        return false;
+    }
+    ivec2 tiles = (push.occlusion_size.xy + 15) / 16;
+    ivec2 t0 = max(ivec2(floor(lo / 16.0)) - 1, ivec2(0));
+    ivec2 t1 = min(ivec2(floor(hi / 16.0)) + 1, tiles - 1);
+    ivec2 span = t1 - t0 + 1;
+    if (span.x * span.y > 64) {
+        return false; // too big on screen to be worth the reads
+    }
+    vec3 outside = max(max(box_min - cam, cam - box_max), vec3(0.0));
+    float nearest = length(outside);
+    float threshold = nearest / 1.01 - 0.02;
+    for (int ty = t0.y; ty <= t1.y; ++ty) {
+        for (int tx = t0.x; tx <= t1.x; ++tx) {
+            if (uintBitsToFloat(occlusion_tiles[ty * tiles.x + tx]) >= threshold) {
+                return false; // something in this tile is as far as the box
+            }
+        }
+    }
+    return true;
+}
 
 // Distance past which a point light of this intensity contributes less than
 // roughly 1/256 of a unit -- its inverse-square falloff means there is
@@ -215,11 +286,21 @@ void main() {
 
     vec3 box_min = cluster.bbox_min_cell.xyz;
     vec3 box_max = box_min + vec3(cluster.bbox_min_cell.w);
+    vec4 normal_cone = cluster.normal_cone;
+    // A drag instance's cluster is in its drag-start pose: tested where it
+    // is now. It stays out of the resident list (GI) and the shadow maps
+    // for the drag -- both would show it where it was; the marched shadows
+    // see it where it is.
+    bool instance = sculpt_instance_owns_cluster(cluster.meta.w);
+    if (instance) {
+        sculpt_instance_box_to_world(box_min, box_max, box_min, box_max);
+        normal_cone.xyz = sculpt_instance_dir_to_world(normal_cone.xyz);
+    }
     vec3 box_centre = (box_min + box_max) * 0.5;
     float box_radius_all = length(box_max - box_min) * 0.5;
 
     // Resident list: no test at all beyond "this page holds points".
-    {
+    if (!instance) {
         uint slot = atomicAdd(resident_args[3], 1u);
         if (slot < uint(MAX_CLUSTERS)) {
             resident_clusters[slot] = uint(cluster_index);
@@ -235,7 +316,7 @@ void main() {
     // cluster the camera cannot see still casts a shadow into a light's
     // map, and dropping it here is exactly how off-screen geometry stops
     // shadowing on-screen geometry. ---
-    if (push.shadow_enabled != 0) {
+    if (push.shadow_enabled != 0 && !instance) {
         int pairable = min(push.light_count, push.ism_count);
         for (int li = 0; li < pairable; ++li) {
             Light light = lights[li];
@@ -292,13 +373,17 @@ void main() {
     float box_radius = box_radius_all;
     if (dist > box_radius * 2.0) {
         vec3 view_dir = to_cluster / dist;
-        float cone_cos = clamp(cluster.normal_cone.w, -1.0, 1.0);
+        float cone_cos = clamp(normal_cone.w, -1.0, 1.0);
         float slack = acos(cone_cos) + asin(clamp(box_radius / dist, 0.0, 1.0));
         const float HALF_PI = 1.5707963;
         if (slack < HALF_PI &&
-            dot(cluster.normal_cone.xyz, view_dir) > sin(slack)) {
+            dot(normal_cone.xyz, view_dir) > sin(slack)) {
             return; // whole cone faces away from the camera
         }
+    }
+
+    if (occluded(box_min, box_max)) {
+        return; // hidden behind what last frame drew
     }
 
     uint slot = atomicAdd(cull_args[3], 1u);

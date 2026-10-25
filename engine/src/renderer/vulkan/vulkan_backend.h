@@ -12,6 +12,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 class PlatformLayer;
 
@@ -104,7 +105,11 @@ public:
                       const i32 *object_ids, i32 count, f32 *out_t,
                       i32 stamp_limit = -1) const override;
   i32 stamp_count() const override;
+  bool sculpt_brick_pool_usage(u32 *out_used, u32 *out_total) const override;
+  i32 all_stamps(SculptStampInfo *out_stamps, i32 *out_objects,
+                 i32 capacity) const override;
   void set_preview_smoothness(f32 k) override;
+  void set_drag_preview(bool on) override;
   void set_object_weld_keys(const i32 *object_ids, const i32 *keys,
                             i32 count) override;
   i32 clone_object(i32 object_id) override;
@@ -224,6 +229,40 @@ private:
   // one call site that needs it; promote it if a later milestone's tool
   // needs to reach it from somewhere else.
   SculptSystem sculpt_system_;
+  // Drag preview (set_drag_preview()): on, and the objects moved at half
+  // resolution since it came on (re-sculpted in full when it goes off).
+  bool drag_preview_ = false;
+  std::unordered_set<i32> coarse_objects_;
+  // Drag instance (VulkanRaymarchShader::begin_drag_instance()): while a
+  // drag moves whole sculptures, they're drawn through this transform from
+  // where the drag began instead of re-sculpted each move.
+  glm::mat3 drag_instance_m_{1.0f};
+  glm::vec3 drag_instance_t_{0.0f};
+  f32 drag_instance_scale_ = 1.0f;
+  // Puts the drag instance's objects back into the world (re-sculpted where
+  // they are). Every edit other than moving them calls this first, which
+  // waits for it; a released drag lets it settle over a few frames.
+  void end_drag_instance(bool gradual = false);
+  // The same, only if one of `object_ids` is in it.
+  void end_drag_instance_for(const i32 *object_ids, i32 count);
+
+  // raycast_objects()'s view of the stamps, rebuilt only when they (or the
+  // weld keys) change: each run -- an object's scoped stamps, a weld
+  // block's, or one scene-wide stamp -- in fold order, with a box round
+  // them all, so a ray skips every run it misses without looking at its
+  // stamps. It used to scan (and hash) every stamp per ray, and the
+  // reticle alone casts a dozen rays a frame: a 64-rock scene ran at 6 fps.
+  struct RaycastRun {
+    glm::vec3 lo{0.0f};
+    glm::vec3 hi{0.0f};
+    std::vector<u32> stamps;
+    bool scoped = true;
+  };
+  mutable std::vector<RaycastRun> raycast_runs_;
+  mutable u64 raycast_runs_generation_ = ~0ull;
+  mutable u64 raycast_runs_weld_generation_ = ~0ull;
+  u64 weld_generation_ = 0; // bumped whenever weld_keys_ changes
+  void build_raycast_runs() const;
   // The object new stamps are recorded under -- see begin_object().
   i32 current_object_id_ = 0;
   i32 next_object_id_ = 1;

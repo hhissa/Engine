@@ -105,9 +105,22 @@ enum class SculptBrushOp : i32 {
   ObjectSubtraction = 3,
   ObjectIntersection = 4,
   ObjectPaint = 5,
+  // A free-floating fleck of paint (paint mode): no field at all -- drawn
+  // straight into the splat visibility buffer as one fleck. center = its
+  // centre; params.x = its radius, params.w = its fleck style (0-15);
+  // rotation turns local +Z to the fleck's facing and local +X to its
+  // direction; material_slot = its colour; looseness = its random seed.
+  // Shape type Sphere (so transforms scale the radius and keep the style).
+  Fleck = 6,
 };
 
 // Whether a stamp with this op adds geometry.
 inline bool sculpt_op_adds(SculptBrushOp op) {
   return op == SculptBrushOp::Union || op == SculptBrushOp::ObjectUnion;
+}
+
+// Whether a stamp with this op is something there (an adding shape, or a
+// fleck): what bounds, picking and outlines go by.
+inline bool sculpt_op_visible(SculptBrushOp op) {
+  return sculpt_op_adds(op) || op == SculptBrushOp::Fleck;
 }

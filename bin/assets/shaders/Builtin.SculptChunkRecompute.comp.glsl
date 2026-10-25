@@ -218,9 +218,9 @@ layout(std430, binding = 12) readonly buffer StampListBuffer {
 // list order, except that each object's scoped stamps are moved together
 // (to where its last one is), so an object is always folded as one piece
 // even when another object's stamps were made in between. Each entry is
-// stamp index | (weld block << 18): the objects of one weld block (the
-// strokes of one sculpture) come one after another and blend into each
-// other (see fold_voxel()); block 0 = not welded.
+// stamp index | (weld block << 18): a weld block's stamps (the strokes of
+// one sculpture and its carves) come in stamp order and fold as one run
+// (see fold_voxel()); block 0 = not welded.
 layout(std430, binding = 13) readonly buffer CandidateBuffer {
     int candidates[];
 };
@@ -262,6 +262,11 @@ layout(push_constant) uniform PushConstants {
     // How far past its own bounds a welded stamp still counts (the widest
     // weld smoothness -- VulkanRaymarchShader::weld_pad()).
     float weld_pad;
+    // 1 = DRAG PREVIEW: fold only every DRAG_STRIDE-th voxel along each
+    // axis and fill the rest in by interpolation -- for a big sculpture
+    // being dragged; it is refolded in full when the drag ends
+    // (VulkanRendererBackend::set_drag_preview()).
+    int coarse;
 } pc;
 
 // Whether any Union stamp's bounding cube overlaps the cell -- exactly the
@@ -294,7 +299,7 @@ bool stamp_overlaps(int s, vec3 cell_min, vec3 cell_max) {
 
 // --- Shared state ---------------------------------------------------------
 // The cell's stamps, decoded once into shared memory by the gather (up to
-// CELL_CAP; past that every voxel streams the candidate list instead).
+// CELL_CAP; past that each voxel streams the rest of the candidate list).
 const int CELL_CAP = 256;
 shared vec4 s_center_smooth[CELL_CAP]; // xyz center, w smoothness
 shared vec4 s_params[CELL_CAP];
@@ -302,8 +307,26 @@ shared vec4 s_rotation[CELL_CAP];
 shared ivec4 s_meta[CELL_CAP];         // op, material slot, object, shape
 shared float s_loose[CELL_CAP];
 shared int s_weld[CELL_CAP];
+shared float s_radius[CELL_CAP];
+// How far past its bounds a welded adding stamp still counts in this cell:
+// the widest smoothness of the welded adding stamps that reach the cell
+// (only they can blend a fillet into it). Never more than pc.weld_pad.
+shared uint s_pad_bits;
+// Drag preview (pc.coarse): the folded samples, at apron voxels 0, 4, 8,
+// 12, 16 and 17 along each axis. Meta = (owner + 1) << 11 | (slot + 1); a
+// sample's looseness goes straight into s_vote_loose[slot]. Kept small:
+// past ~32KB of shared memory a GPU core fits only one cell at a time.
+const int DRAG_STRIDE = 4;
+const int DRAG_DIM = CHUNK_BRICK_DIM / DRAG_STRIDE + 2;
+const int DRAG_COUNT = DRAG_DIM * DRAG_DIM * DRAG_DIM; // < WG_SIZE: one per thread
+shared float s_cdist[DRAG_COUNT];
+shared int s_cmeta[DRAG_COUNT];
 shared uint s_scan[WG_SIZE];
 shared int s_count;
+// When more than CELL_CAP stamps are kept: the candidate index of the
+// first one that didn't fit. The fold takes the first CELL_CAP from shared
+// memory and streams only the rest, from here on.
+shared int s_overflow;
 shared bool s_any_add;
 shared bool s_keep;
 shared int s_brick;
@@ -327,6 +350,7 @@ struct Stamp {
     int shape;
     float looseness;
     int weld; // weld block (0 = none)
+    float radius; // bounding cube half-size, smoothness included
 };
 
 Stamp decode_stamp(int s) {
@@ -345,6 +369,7 @@ Stamp decode_stamp(int s) {
     st.object = stamp_object(s);
     st.shape = stamp_shape(s);
     st.weld = 0;
+    st.radius = stamps[s].bounding_radius_pad.x;
     return st;
 }
 
@@ -360,6 +385,7 @@ Stamp shared_stamp(int k) {
     st.shape = s_meta[k].w;
     st.looseness = s_loose[k];
     st.weld = s_weld[k];
+    st.radius = s_radius[k];
     return st;
 }
 
@@ -368,18 +394,20 @@ Stamp shared_stamp(int k) {
 // outside it, near or not -- the CPU only sends crops of objects that
 // matter here). Carves and paint with nothing to act on are harmless: the
 // fold ignores them.
-// A welded stamp reaches pc.weld_pad further: a neighbour in its block
-// can blend into its surface that far out.
+// A welded adding stamp reaches s_pad_bits further: a neighbour in its
+// block can blend into its surface that far out. A carve or paint acts only
+// inside its own bounds (which include its smoothness).
 bool stamp_kept(int c, vec3 cell_min, vec3 cell_max) {
     int s = candidate_stamp(c);
-    if (stamp_op(s) == OP_OBJECT_INTERSECTION) {
+    int op = stamp_op(s);
+    if (op == OP_OBJECT_INTERSECTION) {
         return true;
     }
-    if (candidate_weld(c) == 0) {
+    if (candidate_weld(c) == 0 || op != OP_OBJECT_UNION) {
         return stamp_overlaps(s, cell_min, cell_max);
     }
     vec3 center = stamps[s].center_shape.xyz;
-    float radius = stamps[s].bounding_radius_pad.x + pc.weld_pad;
+    float radius = stamps[s].bounding_radius_pad.x + uintBitsToFloat(s_pad_bits);
     return all(lessThanEqual(center - vec3(radius), cell_max)) &&
            all(greaterThanEqual(center + vec3(radius), cell_min));
 }
@@ -392,8 +420,27 @@ void gather_cell_stamps(uint tid, vec3 cell_min, vec3 cell_max) {
     if (tid == 0u) {
         s_count = 0;
         s_any_add = false;
+        s_pad_bits = 0u;
+        s_overflow = pc.candidate_count;
     }
     barrier();
+    // This cell's weld pad (see s_pad_bits). Smoothness is >= 0, so its
+    // float bits order like the floats.
+    if (pc.weld_pad > 0.0) {
+        uint pad_bits = 0u;
+        for (int i = int(tid); i < pc.candidate_count; i += WG_SIZE) {
+            int c = candidates[i];
+            int s = candidate_stamp(c);
+            if (candidate_weld(c) != 0 && stamp_op(s) == OP_OBJECT_UNION &&
+                stamp_overlaps(s, cell_min, cell_max)) {
+                float k = clamp(stamps[s].smoothness_op_material_looseness.x,
+                                0.0, pc.weld_pad);
+                pad_bits = max(pad_bits, floatBitsToUint(k));
+            }
+        }
+        atomicMax(s_pad_bits, pad_bits);
+        barrier();
+    }
     for (int start = 0; start < pc.candidate_count; start += WG_SIZE) {
         int i = start + int(tid);
         int s = -1;
@@ -419,6 +466,9 @@ void gather_cell_stamps(uint tid, vec3 cell_min, vec3 cell_max) {
         }
         int base = s_count;
         int pos = base + int(s_scan[tid]) - 1;
+        if (keep && pos == CELL_CAP) {
+            s_overflow = i;
+        }
         if (keep && pos < CELL_CAP) {
             Stamp st = decode_stamp(s);
             s_center_smooth[pos] = vec4(st.center, st.smoothness);
@@ -427,6 +477,7 @@ void gather_cell_stamps(uint tid, vec3 cell_min, vec3 cell_max) {
             s_meta[pos] = ivec4(st.op, st.slot, st.object, st.shape);
             s_loose[pos] = st.looseness;
             s_weld[pos] = candidate_weld(c);
+            s_radius[pos] = st.radius;
         }
         barrier();
         if (tid == 0u) {
@@ -482,23 +533,26 @@ float owner_code(int owner, int slot) {
                                  : float((owner + 1) * 1024 + min(slot, 1023));
 }
 
-// Merges an object's finished field into a running one (scene, or its
-// weld block's): a smooth union of width k (0 = hard min), the nearer side
-// keeping its material and owner.
+// Merges an object's finished field into the scene: a hard min, the
+// nearer side keeping its material and owner.
 void merge_into(inout float field, inout int slot, inout float loose,
                 inout int owner, float obj, int obj_slot, float obj_loose,
-                int obj_owner, float k) {
-    if (obj >= 1e9) {
-        return;
-    }
-    float h;
-    float merged = field >= 1e9 ? obj : smooth_union(obj, field, k, h);
-    if (field >= 1e9 || h >= 0.5) {
+                int obj_owner) {
+    if (obj < field) {
+        field = obj;
         slot = obj_slot;
         loose = obj_loose;
         owner = obj_owner;
     }
-    field = merged;
+}
+
+// A run: one object's scoped stamps, or a whole weld block's (the strokes
+// of one sculpture and its carves), folded as one field in stamp order --
+// each adding shape blending into everything of the run before it with
+// its own smoothness, each carve cutting everything before it. The owner
+// of a surface is the object of the adding stamp that won there.
+int run_id(Stamp st) {
+    return st.weld != 0 ? -st.weld : st.object;
 }
 
 VoxelResult fold_voxel(vec3 world_pos, bool streaming, vec3 cell_min,
@@ -508,24 +562,16 @@ VoxelResult fold_voxel(vec3 world_pos, bool streaming, vec3 cell_min,
     float scene_loose = 0.0;
     int scene_owner = -1;
     bool in_run = false;
-    int run_object = -1;
-    int run_weld = 0;
+    int run = 0;
     float obj = 1e10;
     int obj_slot = -1;
     float obj_loose = 0.0;
-    float obj_k = 0.0; // smoothness of the adding stamp that owns obj here
-    // The open weld block: its objects merged smoothly into `block`, which
-    // merges into the scene (hard) when the block ends.
-    int block_weld = 0;
-    float block = 1e10;
-    int block_slot = -1;
-    float block_loose = 0.0;
-    int block_owner = -1;
-    int n = streaming ? pc.candidate_count : s_count;
+    int obj_owner = -1;
+    int n = streaming ? CELL_CAP + (pc.candidate_count - s_overflow) : s_count;
     for (int k = 0; k < n; ++k) {
         Stamp st;
-        if (streaming) {
-            int c = candidates[k];
+        if (k >= CELL_CAP) {
+            int c = candidates[s_overflow + (k - CELL_CAP)];
             if (!stamp_kept(c, cell_min, cell_max)) {
                 continue;
             }
@@ -536,35 +582,38 @@ VoxelResult fold_voxel(vec3 world_pos, bool streaming, vec3 cell_min,
         }
         int op = st.op;
         bool scoped = op >= OP_OBJECT_UNION;
-        if (in_run && (!scoped || st.object != run_object)) {
-            if (run_weld != 0) {
-                merge_into(block, block_slot, block_loose, block_owner, obj,
-                           obj_slot, obj_loose, run_object, obj_k);
-            } else {
-                merge_into(scene, scene_slot, scene_loose, scene_owner, obj,
-                           obj_slot, obj_loose, run_object, 0.0);
-            }
+        if (in_run && (!scoped || run_id(st) != run)) {
+            merge_into(scene, scene_slot, scene_loose, scene_owner, obj,
+                       obj_slot, obj_loose, obj_owner);
             in_run = false;
-        }
-        if (block_weld != 0 && (!scoped || st.weld != block_weld)) {
-            merge_into(scene, scene_slot, scene_loose, scene_owner, block,
-                       block_slot, block_loose, block_owner, 0.0);
-            block_weld = 0;
         }
         if (scoped && !in_run) {
             in_run = true;
-            run_object = st.object;
-            run_weld = st.weld;
+            run = run_id(st);
             obj = 1e10;
             obj_slot = -1;
             obj_loose = 0.0;
-            obj_k = 0.0;
-            if (st.weld != 0 && block_weld == 0) {
-                block_weld = st.weld;
-                block = 1e10;
-                block_slot = -1;
-                block_loose = 0.0;
-                block_owner = -1;
+            obj_owner = st.object;
+        }
+
+        // Skip a stamp too far away to change anything here. Its shape lies
+        // inside its bounding cube, so the distance to the cube is a lower
+        // bound on its own: a union that can't come within its blend band
+        // of the field, a carve that can't reach the field's surface plus
+        // its band, or paint outside its shape leaves everything as it is.
+        // (Not a plane, whose field runs on past its cube.)
+        if (st.shape != SHAPE_PLANE && op != OP_OBJECT_INTERSECTION) {
+            vec3 q = abs(world_pos - st.center) - vec3(st.radius);
+            float box = length(max(q, vec3(0.0)));
+            if (box > 0.0) {
+                float k = max(st.smoothness, 0.0);
+                if (op == OP_OBJECT_PAINT) {
+                    continue;
+                }
+                float field = op == OP_UNION || op == OP_SUBTRACTION ? scene : obj;
+                if (op_adds(op) ? box >= field + k : box >= k - field) {
+                    continue;
+                }
             }
         }
 
@@ -589,7 +638,7 @@ VoxelResult fold_voxel(vec3 world_pos, bool streaming, vec3 cell_min,
             if (h >= 0.5) {
                 obj_slot = st.slot;
                 obj_loose = st.looseness;
-                obj_k = st.smoothness;
+                obj_owner = st.object;
             }
             obj = nd;
         } else if (op == OP_OBJECT_SUBTRACTION) {
@@ -607,19 +656,61 @@ VoxelResult fold_voxel(vec3 world_pos, bool streaming, vec3 cell_min,
         }
     }
     if (in_run) {
-        if (run_weld != 0) {
-            merge_into(block, block_slot, block_loose, block_owner, obj,
-                       obj_slot, obj_loose, run_object, obj_k);
-        } else {
-            merge_into(scene, scene_slot, scene_loose, scene_owner, obj,
-                       obj_slot, obj_loose, run_object, 0.0);
-        }
-    }
-    if (block_weld != 0) {
-        merge_into(scene, scene_slot, scene_loose, scene_owner, block,
-                   block_slot, block_loose, block_owner, 0.0);
+        merge_into(scene, scene_slot, scene_loose, scene_owner, obj, obj_slot,
+                   obj_loose, obj_owner);
     }
     return VoxelResult(scene, scene_slot, scene_loose, scene_owner);
+}
+
+// Drag preview: the apron voxel a coarse sample sits at, and how a voxel
+// lies between two samples along one axis.
+int coarse_to_apron(int c) {
+    return c < DRAG_DIM - 1 ? DRAG_STRIDE * c : CHUNK_BRICK_APRON_DIM - 1;
+}
+void coarse_axis(int i, out int c0, out int c1, out float t) {
+    if (i >= CHUNK_BRICK_APRON_DIM - 1) {
+        c0 = DRAG_DIM - 1;
+        c1 = c0;
+        t = 0.0;
+    } else {
+        c0 = i / DRAG_STRIDE;
+        c1 = min(c0 + 1, DRAG_DIM - 1);
+        t = float(i - c0 * DRAG_STRIDE) / float(DRAG_STRIDE);
+    }
+}
+// A voxel's distance interpolated from the coarse samples around it, its
+// material and owner from whichever of them is nearest the surface.
+VoxelResult coarse_voxel(ivec3 p) {
+    ivec3 c0, c1;
+    vec3 t;
+    coarse_axis(p.x, c0.x, c1.x, t.x);
+    coarse_axis(p.y, c0.y, c1.y, t.y);
+    coarse_axis(p.z, c0.z, c1.z, t.z);
+    float dist = 0.0;
+    float nearest = 1e30;
+    int meta = 0;
+    for (int k = 0; k < 8; ++k) {
+        bvec3 hi = bvec3((k & 1) != 0, (k & 2) != 0, (k & 4) != 0);
+        vec3 w3 = mix(vec3(1.0) - t, t, hi);
+        float w = w3.x * w3.y * w3.z;
+        if (w <= 0.0) {
+            continue;
+        }
+        ivec3 c = ivec3(hi.x ? c1.x : c0.x, hi.y ? c1.y : c0.y,
+                        hi.z ? c1.z : c0.z);
+        int index = c.x + DRAG_DIM * (c.y + DRAG_DIM * c.z);
+        float d = s_cdist[index];
+        // An empty sample (1e10) would swamp the blend; anything this far
+        // out reads the same.
+        dist += w * clamp(d, -1e3, 1e3);
+        if (abs(d) < nearest) {
+            nearest = abs(d);
+            meta = s_cmeta[index];
+        }
+    }
+    int slot = (meta & 2047) - 1;
+    float loose = slot >= 0 ? s_vote_loose[min(slot, SLOT_COUNT - 1)] : 0.0;
+    return VoxelResult(dist, slot, loose, (meta >> 11) - 1);
 }
 
 void free_cell_brick(int indirection_index, int existing_brick) {
@@ -741,12 +832,31 @@ void main() {
     int my_nearest_slot = -1;
     float my_nearest_loose = 0.0;
     const int apron = CHUNK_BRICK_APRON_DIM;
+    bool coarse = pc.coarse != 0;
+    if (coarse) {
+        if (int(tid) < DRAG_COUNT) {
+            int v = int(tid);
+            ivec3 c = ivec3(v % DRAG_DIM, (v / DRAG_DIM) % DRAG_DIM,
+                            v / (DRAG_DIM * DRAG_DIM));
+            ivec3 p = ivec3(coarse_to_apron(c.x), coarse_to_apron(c.y),
+                            coarse_to_apron(c.z));
+            vec3 world_pos = cell_min + (vec3(p) - 0.5) * pc.voxel_size;
+            VoxelResult r = fold_voxel(world_pos, streaming, cell_min, cell_max);
+            s_cdist[v] = r.dist;
+            s_cmeta[v] = ((max(r.owner, -1) + 1) << 11) | (clamp(r.slot, -1, 2046) + 1);
+            if (r.slot >= 0) {
+                s_vote_loose[min(r.slot, SLOT_COUNT - 1)] = r.looseness;
+            }
+        }
+        barrier();
+    }
     for (int v = int(tid); v < apron * apron * apron; v += WG_SIZE) {
         int px = v % apron;
         int py = (v / apron) % apron;
         int pz = v / (apron * apron);
         vec3 world_pos = cell_min + (vec3(px, py, pz) - 0.5) * pc.voxel_size;
-        VoxelResult r = fold_voxel(world_pos, streaming, cell_min, cell_max);
+        VoxelResult r = coarse ? coarse_voxel(ivec3(px, py, pz))
+                               : fold_voxel(world_pos, streaming, cell_min, cell_max);
         chunk_bricks[base + v] = r.dist;
         // Per-voxel material and owner (the deferred pass reads them, see
         // sample_chunk_material_at_point()).

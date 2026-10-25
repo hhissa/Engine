@@ -361,6 +361,11 @@ i32 renderer_sculpt_begin_object() {
   return backend ? backend->begin_object() : 0;
 }
 
+b8 renderer_sculpt_brick_pool_usage(u32 *out_used, u32 *out_total) {
+  return backend && out_used && out_total &&
+         backend->sculpt_brick_pool_usage(out_used, out_total);
+}
+
 i32 renderer_sculpt_raycast_object(glm::vec3 origin, glm::vec3 direction,
                                    f32 max_t, f32 *out_t) {
   return backend ? backend->raycast_object(origin, direction, max_t, out_t)
@@ -452,6 +457,11 @@ void renderer_sculpt_set_material_flecks(i32 slot, f32 looseness, i32 style,
   }
 }
 
+i32 renderer_sculpt_all_stamps(SculptStampInfo *out_stamps, i32 *out_objects,
+                               i32 capacity) {
+  return backend ? backend->all_stamps(out_stamps, out_objects, capacity) : 0;
+}
+
 i32 renderer_sculpt_object_stamps(i32 object_id, SculptStampInfo *out_stamps,
                                   i32 capacity) {
   return backend ? backend->object_stamps(object_id, out_stamps, capacity) : 0;
@@ -504,6 +514,12 @@ i32 renderer_sculpt_stamp_count() {
 void renderer_sculpt_set_preview_smoothness(f32 k) {
   if (backend) {
     backend->set_preview_smoothness(k);
+  }
+}
+
+void renderer_sculpt_set_drag_preview(b8 on) {
+  if (backend) {
+    backend->set_drag_preview(on);
   }
 }
 

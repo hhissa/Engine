@@ -4,6 +4,7 @@
 // material id via nonuniformEXT() -- see sample_scene_texture() below for
 // what this replaces, and vulkan_device.cpp for the matching feature enable.
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_ARB_gpu_shader_int64 : require
 
 // Deferred shading -- step 4 of the Dreams-gap work, and the pass that
 // finally separates "what is visible" from "what it looks like".
@@ -384,14 +385,24 @@ layout(set = 1, binding = 4) readonly buffer SelectionOutlineBuffer {
                           // silhouette so it never sits on the object.
     OutlineObject outline_objects[OUTLINE_MAX_OBJECTS];
     OutlineStamp outline_stamps[OUTLINE_MAX_STAMPS];
-    // The scoped-in objects, one bit per object id; outline_counts.y is how
-    // many (0: none, -1: an id past SCOPE_BIT_COUNT, so unknown).
-    uint scope_bits[SCOPE_BIT_COUNT / 32];
+    // One byte per object id, four to a word: bit 7 = scoped in, bits 0-4
+    // = the outline object it is in + 1 (0 = none). outline_counts.y is how
+    // many objects are scoped in (0: none, -1: an id past SCOPE_BIT_COUNT).
+    uint object_marks[SCOPE_BIT_COUNT / 4];
 };
 
+uint object_mark(int owner) {
+    if (owner < 0 || owner >= SCOPE_BIT_COUNT) {
+        return 0u;
+    }
+    return (object_marks[owner >> 2] >> (uint(owner & 3) * 8u)) & 0xFFu;
+}
 bool owner_in_scope(int owner) {
-    return owner >= 0 && owner < SCOPE_BIT_COUNT &&
-           (scope_bits[owner >> 5] & (1u << uint(owner & 31))) != 0u;
+    return (object_mark(owner) & 0x80u) != 0u;
+}
+// Which outline object `owner` is drawn in (-1: none).
+int owner_outline(int owner) {
+    return int(object_mark(owner) & 0x1Fu) - 1;
 }
 
 // Scope-in mask: 1 where a scoped-in object is what this pixel shows, else
@@ -538,134 +549,163 @@ float outline_object_sdf(vec3 p, int first, int count) {
 // spaced by angle around the object's on-screen centre. Parts hidden
 // behind other geometry (scene_depth nearer than the silhouette) draw at
 // outline_style.w alpha.
+void sample_chunk_material_at_point(vec3 p, out int out_slot,
+                                    out float out_opacity, out int out_owner);
+
+// Paint mode's free-floating flecks (Builtin.FleckSplat.comp.glsl) and the
+// splat visibility buffer they were splatted into: a pixel whose surface is
+// one has no field (or the field of something it floats in front of), so
+// its colour and object come from its own record, not the paint buffer.
+struct FreeFleck {
+    vec4 position_radius;
+    vec4 normal_slot;     // w = material slot
+    vec4 direction_style;
+    vec4 object_seed;     // x = object id
+};
+layout(set = 1, binding = 7) readonly buffer FreeFleckBuffer {
+    FreeFleck free_flecks[];
+};
+layout(set = 1, binding = 8) readonly buffer SplatVisibilityBuffer {
+    uint64_t splat_visibility[];
+};
+// The free fleck pixel q shows (its G-buffer depth q_depth), or -1.
+int free_fleck_at(ivec2 q, ivec2 image_size, float q_depth) {
+    if (q_depth < 0.0) {
+        return -1;
+    }
+    uint64_t entry = splat_visibility[q.y * image_size.x + q.x];
+    if (entry == ~uint64_t(0)) {
+        return -1;
+    }
+    uint payload = uint(entry & 0xFFFFFFFFul);
+    if (((payload >> 28) & 3u) != 0u || ((payload >> 30) & 3u) != 3u) {
+        return -1;
+    }
+    float splat_depth = uintBitsToFloat(uint(entry >> 32));
+    if (abs(splat_depth - q_depth) > 0.01 + 0.002 * q_depth) {
+        return -1; // something else won the pixel in the end
+    }
+    return int(payload & 0x01FFFFFFu);
+}
+
+// The object whose surface pixel q shows (-1: none, or not a sculpt
+// object): its G-buffer depth along its own (jittered) ray, then the
+// owner recorded in the paint buffer there.
+int pixel_owner(ivec2 q, ivec2 image_size, out float q_depth) {
+    q_depth = imageLoad(gbuffer_depth, q).r;
+    if (q_depth < 0.0) {
+        return -1;
+    }
+    int fleck = free_fleck_at(q, image_size, q_depth);
+    if (fleck >= 0) {
+        return int(round(free_flecks[fleck].object_seed.x));
+    }
+    vec2 uv = (vec2(q) + vec2(push.taa_jitter_x, push.taa_jitter_y) -
+               0.5 * vec2(image_size)) / float(image_size.y);
+    vec3 dir = normalize(uv.x * push.camera_right.xyz + uv.y * push.camera_up.xyz +
+                         push.camera_forward.xyz);
+    int slot_unused;
+    float opacity_unused;
+    int owner;
+    sample_chunk_material_at_point(push.camera_position.xyz + dir * q_depth,
+                                   slot_unused, opacity_unused, owner);
+    return owner;
+}
+
+// The selection outline for this pixel: rgb + alpha (0 = none). A pixel
+// that isn't an outlined object's own but lies within outline_style.z
+// pixels (past a gap of OUTLINE_GAP_PX) of one that is, is on its
+// outline -- found from the neighbours' owning objects (G-buffer depth +
+// paint-buffer owner), a fixed handful of taps whatever the object's size.
+// Dots are spaced by angle around the object's on-screen centre. Where
+// this pixel's own surface is nearer than the outlined one's, the outline
+// is drawn at outline_style.w alpha (it runs behind something).
 vec4 selection_outline(vec3 ray_origin, vec3 ray_dir, vec2 pixel,
-                       vec2 image_size, float scene_depth) {
-    float best_alpha = 0.0;
-    float pixel_angle = 1.0 / image_size.y; // world size of a pixel per unit distance
+                       vec2 image_size, float scene_depth, int own_owner) {
+    if (owner_outline(own_owner) >= 0) {
+        return vec4(0.0); // on the object itself
+    }
+    float pixel_angle = 1.0 / image_size.y;
     float outer = OUTLINE_GAP_PX + outline_style.z; // band's outer edge, px
+    // Cheap cull: only near an outlined object's bounding sphere.
+    bool near_any = false;
     for (int o = 0; o < outline_counts.x; ++o) {
         OutlineObject object = outline_objects[o];
         if (object.range.z != 0) {
             continue; // the scoped-in set: masked, not outlined
         }
-        // Ray vs the object's bounding sphere, widened by the line width.
         vec3 oc = object.center_radius.xyz - ray_origin;
         float tc = dot(oc, ray_dir);
         if (tc <= 0.0) {
             continue;
         }
         float radius = object.center_radius.w + (outer + 1.0) * pixel_angle * tc;
-        float miss2 = dot(oc, oc) - tc * tc;
-        if (miss2 > radius * radius) {
-            continue;
-        }
-        float half_chord = sqrt(radius * radius - miss2);
-        float t = max(tc - half_chord, 0.0);
-        float t_end = tc + half_chord;
-
-        // Sphere trace, keeping the closest approach in pixels.
-        float closest_px = 1e10;
-        float closest_t = t;
-        bool hit = false;
-        for (int step = 0; step < 96 && t < t_end; ++step) {
-            float d = outline_object_sdf(ray_origin + ray_dir * t,
-                                         object.range.x, object.range.y);
-            // A tenth of a pixel: anything nearer is inside the shape.
-            if (d < 0.1 * pixel_angle * t) {
-                hit = true;
-                break;
-            }
-            float px = d / (t * pixel_angle);
-            if (px < closest_px) {
-                closest_px = px;
-                closest_t = t;
-            }
-            t += max(d, 1e-4);
-        }
-        if (hit || closest_px > outer + 0.5) {
-            continue;
-        }
-
-        // Dot pattern: angle around the object's on-screen centre.
-        vec3 rel = object.center_radius.xyz - push.camera_position.xyz;
-        float cz = dot(rel, push.camera_forward.xyz);
-        if (cz <= 0.0) {
-            continue;
-        }
-        vec2 centre_px = vec2(dot(rel, push.camera_right.xyz),
-                              dot(rel, push.camera_up.xyz)) / cz * image_size.y +
-                         0.5 * image_size;
-        float ring_px = object.center_radius.w / cz * image_size.y * 0.6;
-        float dots = max(8.0, floor(6.2831853 * ring_px / outline_style.x));
-        vec2 rel_px = pixel - centre_px;
-        float phase = fract((atan(rel_px.y, rel_px.x) / 6.2831853 + 0.5) * dots);
-        if (phase > outline_style.y) {
-            continue;
-        }
-
-        // The band [gap, outer] px outside the silhouette, with soft
-        // (anti-aliased) edges; dimmed where hidden.
-        float alpha = smoothstep(OUTLINE_GAP_PX - 0.5, OUTLINE_GAP_PX + 0.5, closest_px) *
-                      (1.0 - smoothstep(outer - 0.5, outer + 0.5, closest_px));
-        if (scene_depth >= 0.0 && scene_depth < closest_t * 0.98) {
-            alpha *= outline_style.w;
-        }
-        best_alpha = max(best_alpha, alpha);
-    }
-    return vec4(outline_colour.rgb, best_alpha * outline_colour.a);
-}
-
-// The scope-in mask for this pixel (see scope_mask_image): 1 if a scoped
-// object is hit and nothing nearer covers it (the G-buffer surface is at
-// about the same depth -- the baked field differs from the analytic one by
-// a voxel or so), or if the ray grazes one within a pixel where the
-// G-buffer surface sits right there (the rendered edge). 1 everywhere when
-// nothing is scoped.
-float scope_mask(vec3 ray_origin, vec3 ray_dir, vec2 image_size,
-                 float scene_depth) {
-    float pixel_angle = 1.0 / image_size.y;
-    bool any_scope = false;
-    for (int o = 0; o < outline_counts.x; ++o) {
-        OutlineObject object = outline_objects[o];
-        if (object.range.z == 0) {
-            continue;
-        }
-        any_scope = true;
-        vec3 oc = object.center_radius.xyz - ray_origin;
-        float tc = dot(oc, ray_dir);
-        float radius = object.center_radius.w;
-        float miss2 = dot(oc, oc) - tc * tc;
-        if (tc + radius <= 0.0 || miss2 > radius * radius) {
-            continue;
-        }
-        float half_chord = sqrt(radius * radius - miss2);
-        float t = max(tc - half_chord, 0.0);
-        float t_end = tc + half_chord;
-        float closest_px = 1e10;
-        float closest_t = t;
-        for (int step = 0; step < 128 && t < t_end; ++step) {
-            float d = outline_object_sdf(ray_origin + ray_dir * t,
-                                         object.range.x, object.range.y);
-            if (d < 0.1 * pixel_angle * max(t, 0.01)) {
-                float tolerance = 0.05 + 0.02 * t;
-                if (scene_depth < 0.0 || scene_depth > t - tolerance) {
-                    return 1.0;
-                }
-                break;
-            }
-            float px = d / (max(t, 0.01) * pixel_angle);
-            if (px < closest_px) {
-                closest_px = px;
-                closest_t = t;
-            }
-            t += max(d, 1e-4);
-        }
-        if (closest_px < 1.5 && scene_depth >= 0.0 &&
-            abs(scene_depth - closest_t) < 0.05 + 0.02 * closest_t) {
-            return 1.0;
+        if (dot(oc, oc) - tc * tc <= radius * radius) {
+            near_any = true;
         }
     }
-    return any_scope ? 0.0 : 1.0;
+    if (!near_any) {
+        return vec4(0.0);
+    }
+
+    // Nearest neighbour (ring by ring) that is an outlined object's.
+    ivec2 centre = ivec2(pixel);
+    ivec2 size = ivec2(image_size);
+    float best_px = 1e10;
+    float best_depth = 0.0;
+    int best_o = -1;
+    int rings = int(ceil(outer));
+    for (int r = 1; r <= rings && best_o < 0; ++r) {
+        for (int k = 0; k < 8; ++k) {
+            float a = float(k) * 0.78539816;
+            ivec2 q = centre + ivec2(round(vec2(cos(a), sin(a)) * float(r)));
+            if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size))) {
+                continue;
+            }
+            float q_depth;
+            int o = owner_outline(pixel_owner(q, size, q_depth));
+            if (o < 0) {
+                continue;
+            }
+            float d = length(vec2(q - centre));
+            if (d < best_px) {
+                best_px = d;
+                best_depth = q_depth;
+                best_o = o;
+            }
+        }
+    }
+    if (best_o < 0) {
+        return vec4(0.0);
+    }
+
+    // Dot pattern: angle around the object's on-screen centre.
+    OutlineObject object = outline_objects[best_o];
+    vec3 rel = object.center_radius.xyz - push.camera_position.xyz;
+    float cz = dot(rel, push.camera_forward.xyz);
+    if (cz <= 0.0) {
+        return vec4(0.0);
+    }
+    vec2 centre_px = vec2(dot(rel, push.camera_right.xyz),
+                          dot(rel, push.camera_up.xyz)) / cz * image_size.y +
+                     0.5 * image_size;
+    float ring_px = object.center_radius.w / cz * image_size.y * 0.6;
+    float dots = max(8.0, floor(6.2831853 * ring_px / outline_style.x));
+    vec2 rel_px = pixel - centre_px;
+    float phase = fract((atan(rel_px.y, rel_px.x) / 6.2831853 + 0.5) * dots);
+    if (phase > outline_style.y) {
+        return vec4(0.0);
+    }
+
+    // The band [gap, outer] px outside the silhouette (the silhouette lies
+    // about half a pixel short of the nearest pixel that is the object's).
+    float edge_px = best_px - 0.5;
+    float alpha = smoothstep(OUTLINE_GAP_PX - 0.5, OUTLINE_GAP_PX + 0.5, edge_px) *
+                  (1.0 - smoothstep(outer - 0.5, outer + 0.5, edge_px));
+    if (scene_depth >= 0.0 && scene_depth < best_depth * 0.98) {
+        alpha *= outline_style.w;
+    }
+    return vec4(outline_colour.rgb, alpha * outline_colour.a);
 }
 
 // Level-0 brick addressing below mirrors sample_chunked_field_at_level_
@@ -680,15 +720,44 @@ float scope_mask(vec3 ray_origin, vec3 ray_dir, vec2 image_size,
 // covering the most of p's trilinear neighbourhood (-1 if none; smooth
 // boundaries, since the switch happens where the weights cross), and
 // out_opacity the interpolated spray opacity. Level 0 only, as above.
+void sample_chunk_material_in_slot(vec3 p, int slot, out int out_slot,
+                                   out float out_opacity, out int out_owner);
+
 void sample_chunk_material_at_point(vec3 p, out int out_slot,
                                     out float out_opacity, out int out_owner) {
+    // The drag instance, where its surface is the nearer one here (its
+    // bricks are in its drag-start pose: looked up at p taken back there).
+    if (sculpt_instance_active()) {
+        float inst_dist, inst_skip;
+        int inst_material;
+        sample_instance_field(p, vec3(0.0, 0.0, 1.0), inst_dist, inst_skip,
+                              inst_material);
+        if (inst_skip == 0.0) {
+            float dist, skip;
+            int material;
+            sample_clipmap_field_world(p, vec3(0.0, 0.0, 1.0),
+                                       push.camera_position.xyz, dist, skip,
+                                       material);
+            if (skip != 0.0 || inst_dist < dist) {
+                vec3 q = sculpt_instance_to_local(p);
+                sample_chunk_material_in_slot(q, sculpt_instance_slot_at(q),
+                                              out_slot, out_opacity, out_owner);
+                return;
+            }
+        }
+    }
+    sample_chunk_material_in_slot(p, chunk_table_slot_at(p, 0), out_slot,
+                                  out_opacity, out_owner);
+}
+
+void sample_chunk_material_in_slot(vec3 p, int slot, out int out_slot,
+                                   out float out_opacity, out int out_owner) {
     out_slot = -1;
     out_opacity = 0.0;
     out_owner = -1;
     const int level = 0;
     float chunk_world_size = chunk_level_world_size(level);
     float cell_size = chunk_world_size / float(CHUNK_COARSE_DIM);
-    int slot = chunk_table_slot_at(p, level);
     if (slot < 0) {
         return;
     }
@@ -822,6 +891,41 @@ float preview_carve_sdf(vec3 p, float k, inout bool inside) {
     }
     float h;
     return smooth_subtraction(brush, scene, k, h);
+}
+
+// The scene with the sculpture being edited cropped to a brush (smoothly,
+// by k): what Crop here would keep, live. Other objects are left whole, as
+// the stamp leaves them; field with no known owner (empty space, or deep
+// inside a solid, which the ray only reaches through the sculpture) is
+// cropped. `inside` as in preview_carve_sdf(); `scene_out` is the uncropped
+// field (a safe step past everything else).
+float preview_crop_sdf(vec3 p, float k, inout bool inside, out float scene_out) {
+    vec3 local = quat_rotate_inverse(brush_preview.rotation,
+                                     p - brush_preview.center_enabled.xyz);
+    float brush = eval_brush_preview_sdf(local, brush_preview.shape_op_slot.x,
+                                         brush_preview.params, vec3(0.0));
+    float dist, skip_dist;
+    int material;
+    sample_active_field(p, vec3(0.0, 0.0, 1.0), dist, skip_dist, material);
+    float scene;
+    if (skip_dist > 0.0) {
+        scene = inside ? -skip_dist : skip_dist;
+    } else {
+        scene = dist;
+        inside = dist < 0.0;
+    }
+    scene_out = scene;
+    if (skip_dist <= 0.0 && outline_counts.y > 0) {
+        int slot_unused;
+        float opacity_unused;
+        int owner;
+        sample_chunk_material_at_point(p, slot_unused, opacity_unused, owner);
+        if (owner >= 0 && !owner_in_scope(owner)) {
+            return scene;
+        }
+    }
+    float h;
+    return -smooth_union(-brush, -scene, k, h); // smooth max
 }
 
 
@@ -1747,7 +1851,7 @@ void main() {
     // sample_chunk_material_at_point()): a surface built from several
     // stamps shows each one's own material, not just its brick's.
     float paint_opacity = 0.0;
-    if (travelled < MAX_DIST) {
+    if (travelled < MAX_DIST && free_fleck_at(pixel_coord, image_size, depth) < 0) {
         int voxel_material;
         int voxel_owner;
         sample_chunk_material_at_point(p, voxel_material, paint_opacity,
@@ -2130,27 +2234,25 @@ void main() {
     // since it's applied after TAA). Kept as scope_here: the brush preview
     // below is only hidden by surfaces in scope.
     float scope_here = 1.0;
+    // The object this pixel's surface belongs to (-1: none): the scope mask
+    // and the selection outline both go by it.
+    int here_owner = -1;
+    if (outline_counts.x > 0) {
+        float depth_unused;
+        here_owner = pixel_owner(pixel_coord, image_size, depth_unused);
+    }
     {
         float mask = 1.0;
         if (outline_counts.x > 0) {
-            vec2 mask_uv = (vec2(pixel_coord) + 0.5 - 0.5 * vec2(image_size)) /
-                           float(image_size.y);
-            vec3 mask_dir = normalize(mask_uv.x * push.camera_right.xyz +
-                                      mask_uv.y * push.camera_up.xyz +
-                                      push.camera_forward.xyz);
-            mask = scope_mask(ray_origin, mask_dir, vec2(image_size), depth);
-            // Where the surface records its object, focus is exactly "is it
-            // one of the scoped-in objects" -- nothing touching or near them
-            // comes into focus with them, and their loose flecks do.
-            if (depth >= 0.0 && outline_counts.y >= 0) {
-                int slot_unused;
-                float opacity_unused;
-                int owner;
-                sample_chunk_material_at_point(ray_origin + mask_dir * depth,
-                                               slot_unused, opacity_unused, owner);
-                if (owner >= 0) {
-                    mask = owner_in_scope(owner) ? 1.0 : 0.0;
-                }
+            // Focus is exactly "is the surface here one of the scoped-in
+            // objects" -- nothing touching or near them comes into focus.
+            bool any_scope = false;
+            for (int o = 0; o < outline_counts.x; ++o) {
+                any_scope = any_scope || outline_objects[o].range.z != 0;
+            }
+            if (any_scope) {
+                mask = outline_counts.y < 0 ? 1.0 // too many ids: unknown
+                     : owner_in_scope(here_owner) ? 1.0 : 0.0;
             }
         }
         imageStore(scope_mask_image, pixel_coord, vec4(mask));
@@ -2250,7 +2352,11 @@ void main() {
         const float PREVIEW_DEPTH_SLACK = 0.02;
         bool preview_carving = preview_op == PREVIEW_OP_SUBTRACTION ||
                                preview_op == PREVIEW_OP_OBJECT_SUBTRACTION;
-        if (preview_hit && !preview_carving && depth >= 0.0 && scope_here > 0.5 &&
+        bool preview_cropping = preview_op == PREVIEW_OP_OBJECT_INTERSECTION;
+        // Carving and cropping draw the shape as a see-through wireframe
+        // over the live result.
+        bool preview_wired = preview_carving || preview_cropping;
+        if (preview_hit && !preview_wired && depth >= 0.0 && scope_here > 0.5 &&
             depth < preview_t - (PREVIEW_DEPTH_SLACK + 0.002 * preview_t)) {
             preview_hit = false;
         }
@@ -2382,7 +2488,69 @@ void main() {
             }
         }
 
-        if (preview_carving) {
+        // Cropping, live: a pixel showing the sculpture being edited is
+        // traced again with the sculpture cropped to the brush -- the part
+        // kept (its cut faces in its own material), or whatever is behind
+        // the part cut away. Crop only removes, so nothing nearer than the
+        // surface here can appear.
+        if (preview_cropping && depth >= 0.0 && scope_here > 0.5) {
+            float k = max(intBitsToFloat(brush_preview.shape_op_slot.w), 0.0);
+            if (!(k < 1e6)) {
+                k = 0.0;
+            }
+            float t = max(depth - 0.05, 0.0);
+            bool found = false;
+            bool inside = false; // just in front of the surface here
+            float t_max = depth + MAX_DIST;
+            float scene_step;
+            for (int i = 0; i < 256 && t < t_max; ++i) {
+                float f = preview_crop_sdf(ray_origin + ray_dir * t, k, inside,
+                                           scene_step);
+                if (f < max(0.003, 0.001 * t)) {
+                    found = true;
+                    break;
+                }
+                // Short steps inside a solid, so the ray can't jump over
+                // the band of bricks at its far side (and lose track of
+                // being inside). Outside, no further than the uncropped
+                // field: the crop's own distance can step past other objects.
+                t += inside ? clamp(f, 0.002, 0.08)
+                            : max(min(f, scene_step), 0.002);
+            }
+            if (!found) {
+                carve_colour = (push.flags & RENDER_FLAG_SKYBOX) != 0
+                    ? sample_skybox(ray_dir)
+                    : mix(vec3(0.02, 0.02, 0.05), vec3(0.05, 0.05, 0.12),
+                          uv.y + 0.5);
+                carve_alpha = 1.0;
+            } else if (abs(t - depth) > PREVIEW_DEPTH_SLACK + 0.002 * t) {
+                vec3 hp = ray_origin + ray_dir * t;
+                const float E = 0.01;
+                bool i0 = inside, i1 = inside, i2 = inside,
+                     i3 = inside, i4 = inside, i5 = inside;
+                vec3 n = normalize(vec3(
+                    preview_crop_sdf(hp + vec3(E, 0.0, 0.0), k, i0, scene_step) -
+                    preview_crop_sdf(hp - vec3(E, 0.0, 0.0), k, i1, scene_step),
+                    preview_crop_sdf(hp + vec3(0.0, E, 0.0), k, i2, scene_step) -
+                    preview_crop_sdf(hp - vec3(0.0, E, 0.0), k, i3, scene_step),
+                    preview_crop_sdf(hp + vec3(0.0, 0.0, E), k, i4, scene_step) -
+                    preview_crop_sdf(hp - vec3(0.0, 0.0, E), k, i5, scene_step)));
+                float dist, skip_dist;
+                int material;
+                sample_active_field(hp, ray_dir, dist, skip_dist, material);
+                int slot;
+                float opacity_unused;
+                int owner_unused;
+                sample_chunk_material_at_point(hp, slot, opacity_unused, owner_unused);
+                if (slot < 0) {
+                    slot = clamp(material, 0, MAX_SCENE_PRIMITIVES - 1);
+                }
+                carve_colour = shade_brush_preview(hp, n, -ray_dir, slot);
+                carve_alpha = 1.0;
+            }
+        }
+
+        if (preview_wired) {
             const float WIRE_PX = 1.25;
             float px_per_unit = float(image_size.y);
             vec3 wire_e = (preview_params.y == 0.0 && preview_params.z == 0.0)
@@ -2438,7 +2606,8 @@ void main() {
             }
             preview_hit = false; // no fill
             if (wire > 0.0 || carve_alpha > 0.0) {
-                vec3 wire_colour = vec3(1.0, 0.55, 0.15);
+                vec3 wire_colour = preview_cropping ? vec3(0.75, 0.45, 1.0)
+                                                    : vec3(1.0, 0.55, 0.15);
                 preview_overlay_colour = carve_alpha > 0.0
                     ? mix(carve_colour, wire_colour, wire) : wire_colour;
                 preview_overlay_alpha = max(wire, carve_alpha);
@@ -2519,7 +2688,7 @@ void main() {
                                     push.camera_forward.xyz);
         vec4 outline = selection_outline(ray_origin, centre_dir,
                                          vec2(pixel_coord) + 0.5,
-                                         vec2(image_size), depth);
+                                         vec2(image_size), depth, here_owner);
         if (outline.a > 0.0) {
             float out_alpha = outline.a + preview_overlay_alpha * (1.0 - outline.a);
             preview_overlay_colour =

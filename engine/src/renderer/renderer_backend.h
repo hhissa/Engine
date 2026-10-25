@@ -342,11 +342,24 @@ public:
                               f32 *out_t, i32 stamp_limit = -1) const = 0;
   // How many stamps the scene holds (all objects).
   virtual i32 stamp_count() const = 0;
+  // The sculpt brick pool: bricks in use and in all, as of a few frames
+  // ago. False when unknown.
+  virtual bool sculpt_brick_pool_usage(u32 *out_used, u32 *out_total) const {
+    (void)out_used;
+    (void)out_total;
+    return false;
+  }
+  // Every stamp in list order with its object (see renderer_sculpt_all_stamps()).
+  virtual i32 all_stamps(SculptStampInfo *out_stamps, i32 *out_objects,
+                         i32 capacity) const = 0;
   // Welding: objects sharing a key > 0 blend into each other (see
   // renderer_sculpt_set_weld_keys()). Replaces the whole map.
   // Smoothness the brush preview blends into the scene with (see
   // renderer_sculpt_set_preview_smoothness()).
   virtual void set_preview_smoothness(f32 k) = 0;
+  // Half-resolution re-sculpting of moved objects while dragging (see
+  // renderer_sculpt_set_drag_preview()).
+  virtual void set_drag_preview(bool on) = 0;
   virtual void set_object_weld_keys(const i32 *object_ids, const i32 *keys,
                                     i32 count) = 0;
   // Copies every stamp of an object, in order, into a brand-new object at

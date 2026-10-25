@@ -391,6 +391,11 @@ b8 VulkanRendererBackend::begin_frame(f32 delta_time) {
     context_.raymarch_shader->rebake();
     scene_dirty_ = false;
   }
+  // A released drag settling back into the world, a slice per frame.
+  if (context_.raymarch_shader &&
+      context_.raymarch_shader->step_drag_instance_settle()) {
+    release_unused_sculpt_chunks();
+  }
 
   // Check if recreating swap chain and boot out.
   if (context_.recreating_swapchain) {
@@ -647,7 +652,9 @@ static_assert(
     static_cast<i32>(SculptBrushOp::ObjectIntersection) ==
         static_cast<i32>(VulkanRaymarchShader::BrushOp::ObjectIntersection) &&
     static_cast<i32>(SculptBrushOp::ObjectPaint) ==
-        static_cast<i32>(VulkanRaymarchShader::BrushOp::ObjectPaint),
+        static_cast<i32>(VulkanRaymarchShader::BrushOp::ObjectPaint) &&
+    static_cast<i32>(SculptBrushOp::Fleck) ==
+        static_cast<i32>(VulkanRaymarchShader::BrushOp::Fleck),
     "SculptBrushOp and VulkanRaymarchShader::BrushOp must stay in "
     "lockstep.");
 
@@ -739,21 +746,29 @@ void VulkanRendererBackend::apply_stamp_and_record(
 
 namespace {
 // The cells a recompute must cover for stamps[indices]: each one's own
-// footprint, and for an object crop the whole of its object, since it
-// removes everything outside it.
+// footprint, and for an object crop the whole of what it crops -- its
+// object and every object welded to it (a sculpture's crops live in its
+// carrier, which has no shapes of its own, and act on all its strokes) --
+// since it removes everything outside it (and putting one back or taking
+// it away changes all of that).
 std::vector<VulkanRaymarchShader::RecomputeShape>
 stamp_footprints(const std::vector<SculptStamp> &stamps,
-                 const std::vector<size_t> &indices) {
+                 const std::vector<size_t> &indices,
+                 const std::unordered_map<i32, i32> &weld_keys) {
   std::vector<VulkanRaymarchShader::RecomputeShape> footprints;
   std::vector<i32> cropped; // objects whose whole extent must re-run
   auto footprint = [](const SculptStamp &stamp) {
     return VulkanRaymarchShader::RecomputeShape{
         stamp.center,
         static_cast<VulkanRaymarchShader::BrushShape>(stamp.shape_type),
-        stamp.params, stamp.smoothness, stamp.rotation};
+        stamp.params, stamp.smoothness, stamp.rotation,
+        sculpt_op_adds(stamp.op)};
   };
   for (size_t i : indices) {
     const SculptStamp &stamp = stamps[i];
+    if (stamp.op == SculptBrushOp::Fleck) {
+      continue; // no field: nothing to re-run
+    }
     footprints.push_back(footprint(stamp));
     if (stamp.op == SculptBrushOp::ObjectIntersection &&
         std::find(cropped.begin(), cropped.end(), stamp.object_id) ==
@@ -761,10 +776,25 @@ stamp_footprints(const std::vector<SculptStamp> &stamps,
       cropped.push_back(stamp.object_id);
     }
   }
+  if (cropped.empty()) {
+    return footprints;
+  }
+  // The crops' weld keys: every object under one of them is cropped too.
+  std::unordered_set<i32> cropped_keys;
+  for (i32 object : cropped) {
+    if (auto key = weld_keys.find(object); key != weld_keys.end()) {
+      cropped_keys.insert(key->second);
+    }
+  }
+  auto is_cropped = [&](i32 object) {
+    if (std::find(cropped.begin(), cropped.end(), object) != cropped.end()) {
+      return true;
+    }
+    auto key = weld_keys.find(object);
+    return key != weld_keys.end() && cropped_keys.count(key->second) != 0;
+  };
   for (const SculptStamp &stamp : stamps) {
-    if (sculpt_op_adds(stamp.op) &&
-        std::find(cropped.begin(), cropped.end(), stamp.object_id) !=
-            cropped.end()) {
+    if (sculpt_op_adds(stamp.op) && is_cropped(stamp.object_id)) {
       footprints.push_back(footprint(stamp));
     }
   }
@@ -775,6 +805,7 @@ stamp_footprints(const std::vector<SculptStamp> &stamps,
 bool VulkanRendererBackend::add_stamps(i32 object_id,
                                        const SculptStampInfo *infos,
                                        i32 count) {
+  end_drag_instance_for(&object_id, 1);
   if (!infos || count <= 0) {
     return false;
   }
@@ -785,6 +816,7 @@ bool VulkanRendererBackend::add_stamps(i32 object_id,
 bool VulkanRendererBackend::add_stamps_to_objects(const i32 *object_ids,
                                                   const SculptStampInfo *infos,
                                                   i32 count) {
+  end_drag_instance_for(object_ids, count);
   if (!object_ids || !infos || count <= 0) {
     return false;
   }
@@ -805,7 +837,7 @@ bool VulkanRendererBackend::add_stamps_to_objects(const i32 *object_ids,
         stamp.material_slot, stamp.looseness, stamp.rotation, object_id);
   }
   context_.raymarch_shader->recompute_shapes(
-      stamp_footprints(sculpt_system_.volume().stamps(), added));
+      stamp_footprints(sculpt_system_.volume().stamps(), added, weld_keys_));
   // Same reasons as transform_objects(): the incremental undo snapshots no
   // longer describe the field.
   context_.raymarch_shader->invalidate_undo_history();
@@ -819,6 +851,7 @@ void VulkanRendererBackend::stamp_shape(glm::vec3 center,
                                         SculptBrushOp shape_op,
                                         i32 material_slot, f32 looseness,
                                         glm::quat rotation) {
+  end_drag_instance(); // see end_drag_instance()
   apply_stamp_and_record(center, shape_type, params, smoothness, shape_op,
                          material_slot, looseness, rotation,
                          current_object_id_);
@@ -828,6 +861,7 @@ void VulkanRendererBackend::stamp_shape(glm::vec3 center,
 }
 
 bool VulkanRendererBackend::undo_stamp() {
+  end_drag_instance(); // see end_drag_instance()
   // GPU first: only drop the CPU-side bookkeeping record (and make it
   // available to Redo) if VulkanRaymarchShader confirms an undo actually
   // happened -- the same "never claim more than actually occurred"
@@ -854,6 +888,7 @@ i32 VulkanRendererBackend::spray_paint(glm::vec3 center,
                                        SculptBrushShape shape_type,
                                        glm::vec4 params,
                                        f32 opacity_per_pass) {
+  end_drag_instance(); // see end_drag_instance()
   // Straight pass-through, same shape-enum cast stamp_shape() uses (the
   // static_assert pinning SculptBrushShape/VulkanRaymarchShader::BrushShape
   // together, above, covers this call too) -- see VulkanRaymarchShader::
@@ -885,6 +920,7 @@ void VulkanRendererBackend::preview_brush(bool enabled, glm::vec3 center,
 }
 
 bool VulkanRendererBackend::redo_stamp() {
+  end_drag_instance(); // see end_drag_instance()
   if (redo_stack_.empty()) {
     return false;
   }
@@ -904,6 +940,7 @@ bool VulkanRendererBackend::redo_stamp() {
 }
 
 bool VulkanRendererBackend::delete_edit(i32 index) {
+  end_drag_instance(); // see end_drag_instance()
   // M5 (checkpoint-removal redesign -- see /home/h-i/.claude/plans/joyful-
   // skipping-giraffe.md's M4 section for the ORIGINAL checkpoint/replay
   // design this REPLACES). The GPU voxel/brick field is now a pure,
@@ -975,8 +1012,23 @@ namespace {
 // reach sqrt(3) times further along an axis, and smoothness can bulge a
 // smooth union past the shape itself.
 f32 approximate_stamp_radius(const SculptStamp &stamp) {
-  f32 radius = std::max({std::fabs(stamp.params.x), std::fabs(stamp.params.y),
-                         std::fabs(stamp.params.z)});
+  const f32 p0 = std::fabs(stamp.params.x);
+  const f32 p1 = std::fabs(stamp.params.y);
+  const f32 p2 = std::fabs(stamp.params.z);
+  f32 radius = std::max({p0, p1, p2});
+  switch (stamp.shape_type) {
+  // Shapes whose reach adds up -- already a sphere about the centre, which
+  // turning can't widen.
+  case SculptBrushShape::Torus:
+  case SculptBrushShape::Capsule:
+    return p0 + p1 + std::max(stamp.smoothness, 0.0f);
+  case SculptBrushShape::Link:
+    return p0 + p1 + p2 + std::max(stamp.smoothness, 0.0f);
+  case SculptBrushShape::Sphere:
+    return p0 + std::max(stamp.smoothness, 0.0f);
+  default:
+    break;
+  }
   if (std::fabs(stamp.rotation.w) < 0.999999f) {
     radius *= 1.7320508f;
   }
@@ -991,7 +1043,7 @@ bool VulkanRendererBackend::union_stamp_bounds(Filter include,
   bool any = false;
   glm::vec3 lo(0.0f), hi(0.0f);
   for (const SculptStamp &stamp : sculpt_system_.volume().stamps()) {
-    if (!sculpt_op_adds(stamp.op) || !include(stamp)) {
+    if (!sculpt_op_visible(stamp.op) || !include(stamp)) {
       continue;
     }
     const f32 radius = approximate_stamp_radius(stamp);
@@ -1051,7 +1103,7 @@ i32 VulkanRendererBackend::pick_object(glm::vec3 point,
   i32 best_object = -1;
   f32 best_distance = max_distance;
   for (const SculptStamp &stamp : sculpt_system_.volume().stamps()) {
-    if (!sculpt_op_adds(stamp.op)) {
+    if (!sculpt_op_visible(stamp.op)) {
       continue;
     }
     // Cheap reject before the exact shape distance.
@@ -1078,8 +1130,102 @@ i32 VulkanRendererBackend::raycast_object(glm::vec3 origin,
   return raycast_objects(origin, direction, max_t, nullptr, 0, out_t);
 }
 
+bool VulkanRendererBackend::sculpt_brick_pool_usage(u32 *out_used,
+                                                    u32 *out_total) const {
+  u32 free = 0, total = 0;
+  if (!context_.raymarch_shader ||
+      !context_.raymarch_shader->sculpt_brick_pool(&free, &total) || total == 0) {
+    return false;
+  }
+  *out_used = total - free;
+  *out_total = total;
+  return true;
+}
+
 i32 VulkanRendererBackend::stamp_count() const {
   return static_cast<i32>(sculpt_system_.volume().stamps().size());
+}
+
+namespace {
+// The adding stamps of `objects`, as they are now (their surface lies inside
+// these; carves, crops and paint only act within them).
+std::vector<VulkanRaymarchShader::RecomputeShape>
+surface_footprints(const std::vector<SculptStamp> &stamps,
+                   const std::unordered_set<i32> &objects) {
+  std::vector<VulkanRaymarchShader::RecomputeShape> footprints;
+  for (const SculptStamp &stamp : stamps) {
+    if (sculpt_op_adds(stamp.op) && objects.count(stamp.object_id)) {
+      footprints.push_back(
+          {stamp.center,
+           static_cast<VulkanRaymarchShader::BrushShape>(stamp.shape_type),
+           stamp.params, stamp.smoothness, stamp.rotation, false});
+    }
+  }
+  return footprints;
+}
+} // namespace
+
+void VulkanRendererBackend::end_drag_instance(bool gradual) {
+  VulkanRaymarchShader *shader = context_.raymarch_shader.get();
+  if (!shader) {
+    return;
+  }
+  if (shader->drag_instance_active()) {
+    shader->end_drag_instance(
+        surface_footprints(sculpt_system_.volume().stamps(),
+                           shader->drag_instance_objects()));
+    drag_instance_m_ = glm::mat3(1.0f);
+    drag_instance_t_ = glm::vec3(0.0f);
+    drag_instance_scale_ = 1.0f;
+    shader->invalidate_undo_history();
+    redo_stack_.clear();
+  }
+  if (shader->drag_instance_settling() && !gradual) {
+    shader->finish_drag_instance();
+  }
+  if (!shader->drag_instance_settling()) {
+    release_unused_sculpt_chunks();
+  }
+}
+
+void VulkanRendererBackend::end_drag_instance_for(const i32 *object_ids,
+                                                  i32 count) {
+  VulkanRaymarchShader *shader = context_.raymarch_shader.get();
+  if (!shader || !object_ids ||
+      (!shader->drag_instance_active() && !shader->drag_instance_settling())) {
+    return;
+  }
+  for (i32 i = 0; i < count; ++i) {
+    if (shader->drag_instance_objects().count(object_ids[i])) {
+      end_drag_instance();
+      return;
+    }
+  }
+}
+
+void VulkanRendererBackend::set_drag_preview(bool on) {
+  if (on == drag_preview_) {
+    return;
+  }
+  drag_preview_ = on;
+  if (!on) {
+    end_drag_instance(/*gradual=*/true);
+  }
+  if (on || coarse_objects_.empty()) {
+    return;
+  }
+  // The drag is over: re-sculpt what it moved in full.
+  const std::vector<SculptStamp> &stamps = sculpt_system_.volume().stamps();
+  std::vector<size_t> moved;
+  for (size_t i = 0; i < stamps.size(); ++i) {
+    if (coarse_objects_.count(stamps[i].object_id)) {
+      moved.push_back(i);
+    }
+  }
+  coarse_objects_.clear();
+  if (!moved.empty()) {
+    context_.raymarch_shader->recompute_shapes(stamp_footprints(stamps, moved, weld_keys_));
+  }
 }
 
 void VulkanRendererBackend::set_preview_smoothness(f32 k) {
@@ -1108,6 +1254,10 @@ void VulkanRendererBackend::set_object_weld_keys(const i32 *object_ids,
       changed.insert(object);
     }
   }
+  if (!changed.empty()) {
+    end_drag_instance(); // the instance was folded with the old keys
+    ++weld_generation_;
+  }
   weld_keys_ = std::move(next);
   context_.raymarch_shader->set_object_weld_keys(weld_keys_);
   if (changed.empty()) {
@@ -1123,10 +1273,58 @@ void VulkanRendererBackend::set_object_weld_keys(const i32 *object_ids,
   if (touched.empty()) {
     return; // e.g. a new, still empty stroke object
   }
-  context_.raymarch_shader->recompute_shapes(stamp_footprints(stamps, touched));
+  context_.raymarch_shader->recompute_shapes(stamp_footprints(stamps, touched, weld_keys_));
   // Same reasons as transform_objects().
   context_.raymarch_shader->invalidate_undo_history();
   redo_stack_.clear();
+}
+
+void VulkanRendererBackend::build_raycast_runs() const {
+  const SculptVolume &volume = sculpt_system_.volume();
+  if (raycast_runs_generation_ == volume.generation() &&
+      raycast_runs_weld_generation_ == weld_generation_) {
+    return;
+  }
+  raycast_runs_generation_ = volume.generation();
+  raycast_runs_weld_generation_ = weld_generation_;
+  raycast_runs_.clear();
+  const std::vector<SculptStamp> &stamps = volume.stamps();
+  // A run per object, or per weld block (keys offset past every object id).
+  std::unordered_map<i64, size_t> run_index;
+  constexpr i64 kBlockRun = i64(1) << 32;
+  for (size_t i = 0; i < stamps.size(); ++i) {
+    const SculptStamp &stamp = stamps[i];
+    if (stamp.op == SculptBrushOp::ObjectPaint) {
+      continue; // no geometry
+    }
+    const bool scoped = stamp.op != SculptBrushOp::Union &&
+                        stamp.op != SculptBrushOp::Subtraction;
+    size_t r;
+    if (!scoped) {
+      r = raycast_runs_.size();
+      raycast_runs_.push_back({});
+      raycast_runs_[r].scoped = false;
+    } else {
+      auto key = weld_keys_.find(stamp.object_id);
+      const i64 id = key == weld_keys_.end() ? i64(stamp.object_id)
+                                             : kBlockRun + key->second;
+      auto [it, added] = run_index.try_emplace(id, raycast_runs_.size());
+      if (added) {
+        raycast_runs_.push_back({});
+      }
+      r = it->second;
+    }
+    RaycastRun &run = raycast_runs_[r];
+    const glm::vec3 reach(approximate_stamp_radius(stamp) + 0.01f);
+    if (run.stamps.empty()) {
+      run.lo = stamp.center - reach;
+      run.hi = stamp.center + reach;
+    } else {
+      run.lo = glm::min(run.lo, stamp.center - reach);
+      run.hi = glm::max(run.hi, stamp.center + reach);
+    }
+    run.stamps.push_back(static_cast<u32>(i));
+  }
 }
 
 i32 VulkanRendererBackend::raycast_objects(glm::vec3 origin,
@@ -1147,7 +1345,8 @@ i32 VulkanRendererBackend::raycast_objects(glm::vec3 origin,
   auto stamp_distance = [](const SculptStamp &stamp, glm::vec3 p) {
     const f32 to_bound =
         glm::length(p - stamp.center) - approximate_stamp_radius(stamp);
-    if (to_bound > 0.05f) {
+    // Exact within its blend's reach, so a smooth blend below is right.
+    if (to_bound > 0.05f + std::max(stamp.smoothness, 0.0f)) {
       return to_bound;
     }
     return VulkanRaymarchShader::eval_shape_sdf_cpu(
@@ -1155,9 +1354,27 @@ i32 VulkanRendererBackend::raycast_objects(glm::vec3 origin,
         glm::conjugate(stamp.rotation) * (p - stamp.center));
   };
   // Sphere tracing against the stamps folded as the sculpt folds them
-  // (Builtin.SculptChunkRecompute.comp.glsl), with hard blends: adds,
-  // object-scoped carves and crops count; plain Subtraction carves are
-  // ignored (their holes still read as solid), as before.
+  // (Builtin.SculptChunkRecompute.comp.glsl): object-scoped adds and
+  // carves with their smoothness (so a snap lands on a soft blend's bulge,
+  // not inside it), crops; plain Union is a hard min and plain Subtraction
+  // carves are ignored (their holes still read as solid), as before.
+  // Polynomial smooth min / subtraction, as Builtin.BrushShapes.inc.glsl.
+  auto smooth_min = [](f32 a, f32 b, f32 k, bool *a_wins) {
+    if (k <= 0.0001f || std::fabs(a - b) >= k) {
+      *a_wins = a < b;
+      return std::min(a, b);
+    }
+    const f32 h = std::clamp(0.5f + 0.5f * (b - a) / k, 0.0f, 1.0f);
+    *a_wins = h >= 0.5f;
+    return b + (a - b) * h - k * h * (1.0f - h);
+  };
+  auto smooth_cut = [](f32 cutter, f32 base, f32 k) {
+    if (k <= 0.0001f || std::fabs(base + cutter) >= k) {
+      return std::max(-cutter, base);
+    }
+    const f32 h = std::clamp(0.5f - 0.5f * (base + cutter) / k, 0.0f, 1.0f);
+    return base + (-cutter - base) * h + k * h * (1.0f - h);
+  };
   constexpr int kMaxSteps = 256;
   constexpr f32 kHitEpsilon = 0.005f;
   constexpr f32 kEmpty = std::numeric_limits<f32>::max();
@@ -1171,54 +1388,68 @@ i32 VulkanRendererBackend::raycast_objects(glm::vec3 origin,
   // it). Tracing just those, rather than every stamp at every step, is
   // what keeps this cheap enough to run every frame in a big scene --
   // dropping a stamp the ray never reaches can't make a step overshoot
-  // anything it does reach. They are put in fold order the way the
-  // recompute does it (build_recompute_candidates()): each object's
-  // scoped stamps together, at its last one, so another object's stamps
-  // made in between don't split it.
+  // anything it does reach. They come in runs (build_raycast_runs()), in
+  // fold order: each object's scoped stamps together, a weld block's (a
+  // sculpture's strokes and its carves) together -- as the recompute folds
+  // them -- and a ray only looks inside the runs whose box it crosses.
   // stamp_limit: the stamps made since don't count (they're appended).
   const size_t stamp_end =
       stamp_limit < 0 ? stamps.size()
                       : std::min(stamps.size(), static_cast<size_t>(stamp_limit));
-  std::vector<u8> on_ray(stamp_end, 0);
-  std::unordered_map<i32, size_t> last_scoped;
-  std::unordered_set<i32> objects_on_ray;
-  for (size_t i = 0; i < stamp_end; ++i) {
-    const SculptStamp &stamp = stamps[i];
-    if (is_scoped(stamp)) {
-      last_scoped[stamp.object_id] = i;
-    }
-    if (!included(stamp.object_id)) {
+  build_raycast_runs();
+  struct Traced {
+    const SculptStamp *stamp;
+    i32 run;
+  };
+  std::vector<Traced> traced;
+  const glm::vec3 inv_dir(
+      std::fabs(direction.x) > 1e-12f ? 1.0f / direction.x : 1e12f,
+      std::fabs(direction.y) > 1e-12f ? 1.0f / direction.y : 1e12f,
+      std::fabs(direction.z) > 1e-12f ? 1.0f / direction.z : 1e12f);
+  for (size_t r = 0; r < raycast_runs_.size(); ++r) {
+    const RaycastRun &run = raycast_runs_[r];
+    // Slab test of the ray segment [0, max_t] against the run's box.
+    const glm::vec3 t0 = (run.lo - origin) * inv_dir;
+    const glm::vec3 t1 = (run.hi - origin) * inv_dir;
+    const glm::vec3 near = glm::min(t0, t1);
+    const glm::vec3 far = glm::max(t0, t1);
+    const f32 enter = std::max({near.x, near.y, near.z, 0.0f});
+    const f32 leave = std::min({far.x, far.y, far.z, max_t});
+    if (enter > leave) {
       continue;
     }
-    const f32 along = std::clamp(glm::dot(stamp.center - origin, direction),
-                                 0.0f, max_t);
-    const f32 radius = approximate_stamp_radius(stamp) + kHitEpsilon;
-    const glm::vec3 offset = origin + direction * along - stamp.center;
-    if (glm::dot(offset, offset) <= radius * radius) {
-      on_ray[i] = 1;
-      objects_on_ray.insert(stamp.object_id);
-    }
-  }
-  std::vector<const SculptStamp *> traced;
-  std::unordered_map<i32, std::vector<const SculptStamp *>> held;
-  for (size_t i = 0; i < stamp_end; ++i) {
-    const SculptStamp &stamp = stamps[i];
-    if (!is_scoped(stamp)) {
-      if (on_ray[i]) {
-        traced.push_back(&stamp);
+    const size_t first = traced.size();
+    bool any_visible = false;
+    for (u32 i : run.stamps) {
+      if (i >= stamp_end) {
+        continue;
       }
-      continue;
+      const SculptStamp &stamp = stamps[i];
+      // An object left out still has its carves cut the rest of its
+      // sculpture; only its own shapes go.
+      const bool counts =
+          included(stamp.object_id) ||
+          (run.scoped && !sculpt_op_visible(stamp.op) &&
+           weld_keys_.count(stamp.object_id));
+      bool on_ray = false;
+      if (counts) {
+        const f32 along = std::clamp(glm::dot(stamp.center - origin, direction),
+                                     0.0f, max_t);
+        const f32 radius = approximate_stamp_radius(stamp) + kHitEpsilon;
+        const glm::vec3 offset = origin + direction * along - stamp.center;
+        on_ray = glm::dot(offset, offset) <= radius * radius;
+      }
+      if (on_ray && (sculpt_op_visible(stamp.op) || !run.scoped)) {
+        any_visible = true;
+      }
+      if (on_ray || (run.scoped && stamp.op == SculptBrushOp::ObjectIntersection &&
+                     (included(stamp.object_id) ||
+                      weld_keys_.count(stamp.object_id)))) {
+        traced.push_back({&stamp, static_cast<i32>(r)});
+      }
     }
-    if (!objects_on_ray.count(stamp.object_id)) {
-      continue;
-    }
-    std::vector<const SculptStamp *> &run = held[stamp.object_id];
-    if (on_ray[i] || stamp.op == SculptBrushOp::ObjectIntersection) {
-      run.push_back(&stamp);
-    }
-    if (last_scoped[stamp.object_id] == i) {
-      traced.insert(traced.end(), run.begin(), run.end());
-      run.clear();
+    if (!any_visible) {
+      traced.resize(first); // nothing of this run on the ray to hit
     }
   }
   if (traced.empty()) {
@@ -1231,7 +1462,8 @@ i32 VulkanRendererBackend::raycast_objects(glm::vec3 origin,
     f32 nearest = kEmpty;
     i32 nearest_object = -1;
     bool in_run = false;
-    i32 run_object = -1;
+    i32 run_id = -1;
+    i32 run_object = -1; // the object whose shape is nearest in the run
     f32 run = kEmpty;
     auto end_run = [&] {
       if (in_run && run < nearest) {
@@ -1240,15 +1472,16 @@ i32 VulkanRendererBackend::raycast_objects(glm::vec3 origin,
       }
       in_run = false;
     };
-    for (const SculptStamp *stamp_ptr : traced) {
-      const SculptStamp &stamp = *stamp_ptr;
+    for (const Traced &entry : traced) {
+      const SculptStamp &stamp = *entry.stamp;
       const bool scoped = is_scoped(stamp);
-      if (in_run && (!scoped || stamp.object_id != run_object)) {
+      if (in_run && (!scoped || entry.run != run_id)) {
         end_run();
       }
       if (scoped && !in_run) {
         in_run = true;
-        run_object = stamp.object_id;
+        run_id = entry.run;
+        run_object = -1;
         run = kEmpty;
       }
       switch (stamp.op) {
@@ -1260,15 +1493,33 @@ i32 VulkanRendererBackend::raycast_objects(glm::vec3 origin,
         }
         break;
       }
-      case SculptBrushOp::ObjectUnion:
-        run = std::min(run, stamp_distance(stamp, p));
+      case SculptBrushOp::ObjectUnion: {
+        const f32 d = stamp_distance(stamp, p);
+        if (run == kEmpty) {
+          run = d;
+          run_object = stamp.object_id;
+        } else {
+          bool wins = false;
+          run = smooth_min(d, run, stamp.smoothness, &wins);
+          if (wins) {
+            run_object = stamp.object_id;
+          }
+        }
         break;
+      }
+      case SculptBrushOp::Fleck: { // a small sphere, hard
+        const f32 d = stamp_distance(stamp, p);
+        if (d < run) {
+          run = d;
+          run_object = stamp.object_id;
+        }
+        break;
+      }
       case SculptBrushOp::ObjectSubtraction:
-        // Only carves where p is inside the cutter (d < 0); outside it the
-        // bound is a fine stand-in, since max(-d, run) is then just run
-        // for any p outside the object.
+        // Only carves where p is inside the cutter (d < 0) or within its
+        // rounding; further out the bound is a fine stand-in.
         if (run != kEmpty) {
-          run = std::max(run, -stamp_distance(stamp, p));
+          run = smooth_cut(stamp_distance(stamp, p), run, stamp.smoothness);
         }
         break;
       case SculptBrushOp::ObjectIntersection:
@@ -1350,6 +1601,60 @@ bool VulkanRendererBackend::transform_objects(const i32 *object_ids,
   using Op = VulkanRaymarchShader::BrushOp;
   std::vector<VulkanRaymarchShader::RecomputeShape> footprints;
   footprints.reserve(members.size() * 2);
+
+  // Which moved objects need their cells padded for welded fillets. A
+  // fillet lies inside the bounds of the stroke that makes it, so when a
+  // sculpture's welded pieces all move together their own footprints
+  // already cover every fillet; only a piece moved away from welded
+  // neighbours that stay put needs the pad (their fillets onto it change).
+  const std::unordered_set<i32> moved(object_ids, object_ids + count);
+  std::unordered_set<i32> split_keys; // weld keys with a piece left behind
+  for (const auto &[object, key] : weld_keys_) {
+    if (!moved.count(object)) {
+      split_keys.insert(key);
+    }
+  }
+  auto needs_weld_pad = [&](i32 object) {
+    auto it = weld_keys_.find(object);
+    return it != weld_keys_.end() && split_keys.count(it->second) != 0;
+  };
+
+  // A drag of whole sculptures (nothing welded to them left behind, no
+  // scene-wide ops among them) goes through the drag instance: built once,
+  // then only its transform changes. Anything else re-sculpts as it moves.
+  VulkanRaymarchShader &shader = *context_.raymarch_shader;
+  if (shader.drag_instance_settling()) {
+    end_drag_instance(); // the last drag's objects back in the world first
+  }
+  bool instanced = false;
+  if (drag_preview_) {
+    bool eligible = true;
+    for (i32 object : moved) {
+      if (needs_weld_pad(object)) {
+        eligible = false;
+      }
+    }
+    for (size_t i : members) {
+      const SculptBrushOp op = stamps[i].op;
+      if (op == SculptBrushOp::Union || op == SculptBrushOp::Subtraction) {
+        eligible = false;
+      }
+    }
+    if (shader.drag_instance_active() &&
+        (!eligible || shader.drag_instance_objects() != moved)) {
+      end_drag_instance();
+    }
+    if (eligible && !shader.drag_instance_active() &&
+        shader.begin_drag_instance(
+            moved, surface_footprints(sculpt_system_.volume().stamps(), moved))) {
+      drag_instance_m_ = glm::mat3(1.0f);
+      drag_instance_t_ = glm::vec3(0.0f);
+      drag_instance_scale_ = 1.0f;
+    }
+    instanced = eligible && shader.drag_instance_active();
+  } else {
+    end_drag_instance();
+  }
   for (size_t i : members) {
     const SculptStamp &stamp = stamps[i];
     const glm::vec3 new_center =
@@ -1378,14 +1683,38 @@ bool VulkanRendererBackend::transform_objects(const i32 *object_ids,
                                           stamp.cells_touched);
 
     // Both poses: the old one so the cells it vacated are cleared, the new
-    // one so its new cells are filled.
-    footprints.push_back(
-        {stamp.center, shape, stamp.params, stamp.smoothness, stamp.rotation});
-    footprints.push_back(
-        {new_center, shape, new_params, new_smoothness, new_rotation});
+    // one so its new cells are filled. (A fleck has no cells.)
+    if (stamp.op != SculptBrushOp::Fleck && !instanced) {
+      const bool adds =
+          sculpt_op_adds(stamp.op) && needs_weld_pad(stamp.object_id);
+      footprints.push_back({stamp.center, shape, stamp.params,
+                            stamp.smoothness, stamp.rotation, adds});
+      footprints.push_back(
+          {new_center, shape, new_params, new_smoothness, new_rotation, adds});
+    }
   }
 
+  if (instanced) {
+    // Drawn moved: this move after the ones before it.
+    const glm::mat3 a = scale * glm::mat3_cast(rotation);
+    const glm::vec3 b = pivot - a * pivot + translation;
+    drag_instance_m_ = a * drag_instance_m_;
+    drag_instance_t_ = a * drag_instance_t_ + b;
+    drag_instance_scale_ *= scale;
+    shader.set_drag_instance_transform(drag_instance_m_, drag_instance_t_,
+                                       drag_instance_scale_);
+    shader.invalidate_undo_history();
+    redo_stack_.clear();
+    return true;
+  }
+
+  // Mid-drag: half resolution, redone in full when the drag ends.
+  if (drag_preview_) {
+    coarse_objects_.insert(object_ids, object_ids + count);
+  }
+  context_.raymarch_shader->set_coarse_recompute(drag_preview_);
   context_.raymarch_shader->recompute_shapes(footprints);
+  context_.raymarch_shader->set_coarse_recompute(false);
 
   // Same as move_edit(): undo snapshots captured before this no longer
   // describe the field, and redo entries would replay stale poses.
@@ -1397,6 +1726,7 @@ bool VulkanRendererBackend::transform_objects(const i32 *object_ids,
 
 bool VulkanRendererBackend::delete_objects(const i32 *object_ids,
                                            i32 count) {
+  end_drag_instance_for(object_ids, count);
   if (!object_ids || count <= 0) {
     return false;
   }
@@ -1406,16 +1736,10 @@ bool VulkanRendererBackend::delete_objects(const i32 *object_ids,
       members.empty()) {
     return false;
   }
-  const std::vector<SculptStamp> &stamps = sculpt_system_.volume().stamps();
-  std::vector<VulkanRaymarchShader::RecomputeShape> footprints;
-  footprints.reserve(members.size());
-  for (size_t i : members) {
-    const SculptStamp &stamp = stamps[i];
-    footprints.push_back(
-        {stamp.center,
-         static_cast<VulkanRaymarchShader::BrushShape>(stamp.shape_type),
-         stamp.params, stamp.smoothness, stamp.rotation});
-  }
+  // Taken before the erase: a deleted crop gives back what it removed, so
+  // the whole of what it cropped is re-run (see stamp_footprints()).
+  const std::vector<VulkanRaymarchShader::RecomputeShape> footprints =
+      stamp_footprints(sculpt_system_.volume().stamps(), members, weld_keys_);
   // Same order as delete_edit(): both lists first (recompute reads the GPU
   // mirror as ground truth), back to front so earlier indices stay valid.
   for (auto it = members.rbegin(); it != members.rend(); ++it) {
@@ -1453,6 +1777,7 @@ void VulkanRendererBackend::set_scope_objects(const i32 *object_ids,
 
 bool VulkanRendererBackend::set_object_material(const i32 *object_ids,
                                                 i32 count, i32 slot) {
+  end_drag_instance_for(object_ids, count);
   std::vector<size_t> members;
   if (!object_ids || count <= 0 ||
       !collect_object_stamps(object_ids, count, "set_object_material()",
@@ -1461,6 +1786,7 @@ bool VulkanRendererBackend::set_object_material(const i32 *object_ids,
   }
   const std::vector<SculptStamp> &stamps = sculpt_system_.volume().stamps();
   std::vector<VulkanRaymarchShader::RecomputeShape> footprints;
+  bool changed_any = false;
   for (size_t i : members) {
     const SculptStamp &stamp = stamps[i];
     if (stamp.material_slot == slot) {
@@ -1472,11 +1798,14 @@ bool VulkanRendererBackend::set_object_material(const i32 *object_ids,
         static_cast<i32>(i), stamp.center, shape, stamp.params,
         stamp.smoothness, static_cast<VulkanRaymarchShader::BrushOp>(stamp.op),
         slot, stamp.looseness, stamp.rotation, stamp.object_id);
-    footprints.push_back(
-        {stamp.center, shape, stamp.params, stamp.smoothness, stamp.rotation});
+    if (stamp.op != SculptBrushOp::Fleck) { // a fleck has no cells
+      footprints.push_back(
+          {stamp.center, shape, stamp.params, stamp.smoothness, stamp.rotation});
+    }
     sculpt_system_.set_stamp_material(i, slot);
+    changed_any = true;
   }
-  if (footprints.empty()) {
+  if (!changed_any) {
     return false;
   }
   context_.raymarch_shader->recompute_shapes(footprints);
@@ -1491,6 +1820,7 @@ bool VulkanRendererBackend::remap_object_materials(const i32 *object_ids,
                                                    const i32 *from_slots,
                                                    const i32 *to_slots,
                                                    i32 pairs) {
+  end_drag_instance_for(object_ids, count);
   std::vector<size_t> members;
   if (!collect_object_stamps(object_ids, count, "remap_object_materials()",
                              &members)) {
@@ -1521,7 +1851,7 @@ bool VulkanRendererBackend::remap_object_materials(const i32 *object_ids,
   if (changed.empty()) {
     return false;
   }
-  context_.raymarch_shader->recompute_shapes(stamp_footprints(stamps, changed));
+  context_.raymarch_shader->recompute_shapes(stamp_footprints(stamps, changed, weld_keys_));
   // Same reasons as transform_object().
   context_.raymarch_shader->invalidate_undo_history();
   redo_stack_.clear();
@@ -1552,6 +1882,29 @@ i32 VulkanRendererBackend::object_stamps(i32 object_id,
   return count;
 }
 
+i32 VulkanRendererBackend::all_stamps(SculptStampInfo *out_stamps,
+                                      i32 *out_objects, i32 capacity) const {
+  const std::vector<SculptStamp> &stamps = sculpt_system_.volume().stamps();
+  for (i32 i = 0; i < capacity && i < static_cast<i32>(stamps.size()); ++i) {
+    const SculptStamp &stamp = stamps[static_cast<size_t>(i)];
+    if (out_stamps) {
+      SculptStampInfo &info = out_stamps[i];
+      info.center = stamp.center;
+      info.shape_type = stamp.shape_type;
+      info.params = stamp.params;
+      info.smoothness = stamp.smoothness;
+      info.op = stamp.op;
+      info.material_slot = stamp.material_slot;
+      info.looseness = stamp.looseness;
+      info.rotation = stamp.rotation;
+    }
+    if (out_objects) {
+      out_objects[i] = stamp.object_id;
+    }
+  }
+  return static_cast<i32>(stamps.size());
+}
+
 i32 VulkanRendererBackend::object_ids(i32 *out_ids, i32 capacity) const {
   std::vector<i32> ids;
   for (const SculptStamp &stamp : sculpt_system_.volume().stamps()) {
@@ -1568,6 +1921,7 @@ i32 VulkanRendererBackend::object_ids(i32 *out_ids, i32 capacity) const {
 
 bool VulkanRendererBackend::set_object_looseness(const i32 *object_ids,
                                                  i32 count, f32 looseness) {
+  end_drag_instance_for(object_ids, count);
   std::vector<size_t> members;
   if (!object_ids || count <= 0 ||
       !collect_object_stamps(object_ids, count, "set_object_looseness()",
@@ -1580,7 +1934,8 @@ bool VulkanRendererBackend::set_object_looseness(const i32 *object_ids,
   for (size_t i : members) {
     const SculptStamp &stamp = stamps[i];
     // A paint stamp's looseness is its opacity (see ObjectPaint).
-    if (stamp.looseness == looseness || stamp.op == SculptBrushOp::ObjectPaint) {
+    if (stamp.looseness == looseness || stamp.op == SculptBrushOp::ObjectPaint ||
+        stamp.op == SculptBrushOp::Fleck) {
       continue;
     }
     const auto shape =
@@ -1707,6 +2062,7 @@ bool VulkanRendererBackend::object_anchor(i32 object_id, glm::vec3 *out_center,
 }
 
 bool VulkanRendererBackend::move_edit(i32 index, glm::vec3 new_center) {
+  end_drag_instance(); // see end_drag_instance()
   // M5 (checkpoint-removal redesign) -- see delete_edit()'s own comment
   // for the full picture. Only the UNION of the stamp's OLD and NEW AABBs
   // can possibly change: nothing outside the old position ever held this
@@ -1778,6 +2134,7 @@ bool VulkanRendererBackend::move_edit(i32 index, glm::vec3 new_center) {
 i32 VulkanRendererBackend::crop_volume(glm::vec3 center,
                                        SculptBrushShape shape_type,
                                        glm::vec4 params, f32 smoothness) {
+  end_drag_instance(); // see end_drag_instance()
   // Straight pass-through, same shape-enum cast stamp_shape() uses --
   // deliberately does NOT go through sculpt_system_/redo_stack_ (Crop is
   // not a brush stamp and is not undoable/redoable this pass -- see
@@ -1810,6 +2167,7 @@ bool VulkanRendererBackend::cutout_volume(glm::vec3 center,
 }
 
 bool VulkanRendererBackend::load_cutout_file(const std::string &path) {
+  end_drag_instance(); // see end_drag_instance()
   return context_.raymarch_shader->load_crop_outside_file(path);
 }
 

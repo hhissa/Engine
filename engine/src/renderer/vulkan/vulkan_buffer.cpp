@@ -86,7 +86,9 @@ VulkanBuffer::VulkanBuffer(VulkanBuffer &&other) noexcept
     : context_(other.context_), total_size_(other.total_size_),
       handle_(other.handle_), usage_(other.usage_), memory_(other.memory_),
       memory_index_(other.memory_index_),
-      memory_property_flags_(other.memory_property_flags_) {
+      memory_property_flags_(other.memory_property_flags_),
+      mapped_(other.mapped_) {
+  other.mapped_ = nullptr;
   other.handle_ = VK_NULL_HANDLE;
   other.memory_ = VK_NULL_HANDLE;
   other.total_size_ = 0;
@@ -111,7 +113,9 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&other) noexcept {
     memory_ = other.memory_;
     memory_index_ = other.memory_index_;
     memory_property_flags_ = other.memory_property_flags_;
+    mapped_ = other.mapped_;
 
+    other.mapped_ = nullptr;
     other.handle_ = VK_NULL_HANDLE;
     other.memory_ = VK_NULL_HANDLE;
     other.total_size_ = 0;
@@ -159,6 +163,8 @@ bool VulkanBuffer::resize(u64 new_size, VkQueue queue, VkCommandPool pool) {
 
   // Make sure anything potentially using the old buffer is finished.
   vkDeviceWaitIdle(context_->device.logical_device);
+  const bool was_mapped = mapped_ != nullptr;
+  mapped_ = nullptr; // freeing the memory unmaps it
 
   if (memory_ != VK_NULL_HANDLE) {
     vkFreeMemory(context_->device.logical_device, memory_, context_->allocator);
@@ -171,8 +177,23 @@ bool VulkanBuffer::resize(u64 new_size, VkQueue queue, VkCommandPool pool) {
   total_size_ = new_size;
   memory_ = new_memory;
   handle_ = new_handle;
+  if (was_mapped) {
+    keep_mapped();
+  }
 
   return true;
+}
+
+bool VulkanBuffer::keep_mapped() {
+  if (mapped_) {
+    return true;
+  }
+  if ((memory_property_flags_ & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0 ||
+      memory_ == VK_NULL_HANDLE) {
+    return false;
+  }
+  return vkMapMemory(context_->device.logical_device, memory_, 0, VK_WHOLE_SIZE,
+                     0, &mapped_) == VK_SUCCESS;
 }
 
 void VulkanBuffer::bind(u64 offset) {
@@ -181,6 +202,9 @@ void VulkanBuffer::bind(u64 offset) {
 }
 
 void *VulkanBuffer::lock(u64 offset, u64 size, VkMemoryMapFlags flags) {
+  if (mapped_) {
+    return static_cast<u8 *>(mapped_) + offset;
+  }
   void *data;
   VK_CHECK(vkMapMemory(context_->device.logical_device, memory_, offset, size,
                        flags, &data));
@@ -188,6 +212,9 @@ void *VulkanBuffer::lock(u64 offset, u64 size, VkMemoryMapFlags flags) {
 }
 
 void VulkanBuffer::unlock() {
+  if (mapped_) {
+    return;
+  }
   vkUnmapMemory(context_->device.logical_device, memory_);
 }
 

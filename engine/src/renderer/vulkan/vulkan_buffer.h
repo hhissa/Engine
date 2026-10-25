@@ -32,6 +32,12 @@ public:
   void *lock(u64 offset, u64 size, VkMemoryMapFlags flags);
   void unlock();
 
+  // Maps the whole buffer once and keeps it mapped: lock() then just
+  // returns a pointer into it and unlock() does nothing. For host-coherent
+  // memory the CPU writes many small pieces of -- a map/unmap of device-
+  // local (BAR) memory can cost the best part of a millisecond each.
+  bool keep_mapped();
+
   // Maps, copies size bytes from data in, then unmaps.
   void load_data(u64 offset, u64 size, VkMemoryMapFlags flags,
                 const void *data);
@@ -67,4 +73,5 @@ private:
   VkDeviceMemory memory_ = VK_NULL_HANDLE;
   i32 memory_index_ = -1;
   VkMemoryPropertyFlags memory_property_flags_ = 0;
+  void *mapped_ = nullptr; // keep_mapped()'s whole-buffer mapping
 };

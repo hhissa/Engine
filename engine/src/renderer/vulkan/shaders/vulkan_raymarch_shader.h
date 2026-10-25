@@ -12,6 +12,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -184,6 +185,7 @@ public:
     ObjectSubtraction = 3,
     ObjectIntersection = 4,
     ObjectPaint = 5,
+    Fleck = 6,
   };
 
 
@@ -512,6 +514,9 @@ public:
   // adding brush; 0 = shown as the bare shape). Taken by the next
   // set_brush_preview().
   void set_brush_preview_smoothness(f32 k) { brush_preview_smoothness_ = k; }
+  // Drag preview: heavy recomputes fold every 4th voxel and interpolate the
+  // rest until switched off again.
+  void set_coarse_recompute(bool on) { coarse_recompute_ = on; }
   void set_brush_preview(bool enabled, glm::vec3 center, BrushShape shape_type,
                          glm::vec4 params, BrushOp op, i32 material_slot,
                          glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
@@ -813,6 +818,10 @@ public:
     glm::vec4 params;
     f32 smoothness;
     glm::quat rotation;
+    // Whether its cells must reach weld_pad() further: an adding shape a
+    // welded neighbour's fillet may blend into, where that neighbour isn't
+    // itself being re-run.
+    bool adds = true;
   };
   // Re-runs every coarse cell any of `shapes` overlaps, in ONE dispatch --
   // the multi-stamp generalisation of recompute_moved_region(), used for
@@ -829,6 +838,43 @@ public:
   // Without this, slots are never returned: a moving object eventually
   // exhausts them, and wraps the chunk table onto itself.
   void release_unused_sculpt_chunks(const std::vector<RecomputeShape> &live_stamps);
+
+  // DRAG INSTANCE: a sculpture being dragged, turned or placed is built once
+  // into chunk slots of its own (outside the chunk table) and drawn through
+  // a transform, so moving it re-sculpts nothing -- see Builtin.Sculpt
+  // Instance.inc.glsl for what the shaders do with it.
+  //
+  // begin_drag_instance(): re-runs the world's cells under `footprints`
+  // (the objects' stamps, in their current pose) without `objects`, then
+  // builds `objects` alone into the instance. From then on every recompute
+  // leaves `objects` out of the world. False (and nothing changed) if the
+  // instance can't hold them; the caller re-sculpts as before.
+  bool begin_drag_instance(const std::unordered_set<i32> &objects,
+                           const std::vector<RecomputeShape> &footprints);
+  // Where the instance is drawn: world = m * (drag-start pose) + t, with m
+  // a rotation times uniform scale `scale`.
+  void set_drag_instance_transform(const glm::mat3 &m, glm::vec3 t, f32 scale);
+  // Puts the objects back in the world at `footprints` (their stamps, in
+  // their final pose): re-run over the next frames by
+  // step_drag_instance_settle() (true once done), the instance -- which
+  // looks the same -- on show meanwhile. finish_drag_instance() completes
+  // it now (any other edit needs the world whole first).
+  void end_drag_instance(const std::vector<RecomputeShape> &footprints);
+  bool step_drag_instance_settle();
+  void finish_drag_instance();
+  // Live: being dragged (not settling).
+  bool drag_instance_active() const {
+    return drag_instance_active_ && !drag_instance_settling_;
+  }
+  bool drag_instance_settling() const { return drag_instance_settling_; }
+
+  // How many of the brick pool's bricks are free, and how many there are
+  // -- as of a few frames ago (read back without waiting). False until the
+  // first readback lands.
+  bool sculpt_brick_pool(u32 *out_free, u32 *out_total) const;
+  const std::unordered_set<i32> &drag_instance_objects() const {
+    return drag_instance_objects_;
+  }
 
   // Diagnostic: with KENGINE_SCULPT_POOL_LOG set, reads back and logs how
   // many bricks and splat cluster pages are free. A number that keeps
@@ -1313,6 +1359,27 @@ private:
   VkDescriptorSet chunk_cluster_cull_set_ = VK_NULL_HANDLE;
   std::optional<VulkanComputePipeline> chunk_cluster_cull_pipeline_;
   VulkanShaderModule chunk_point_splat_stage_;
+  // Paint mode's free-floating flecks (BrushOp::Fleck stamps): one record
+  // each in free_fleck_buffer_, rebuilt from the stamp list whenever it
+  // changes (upload_free_flecks()), splatted by Builtin.FleckSplat.comp.
+  // glsl into the same visibility buffer as the surface points.
+  VulkanShaderModule fleck_splat_stage_;
+  std::optional<VulkanComputePipeline> fleck_splat_pipeline_;
+  std::optional<VulkanBuffer> free_fleck_buffer_;
+  // Occlusion culling: the farthest depth of each 16x16-pixel tile of the
+  // last frame, written by the visibility pass (paint_read_set_ binding 9)
+  // and read by the next frame's cluster cull (its binding 9), with the
+  // camera and size that frame used. Clusters entirely behind it are not
+  // splatted. Invalid until a frame has written it at the current size.
+  std::optional<VulkanBuffer> occlusion_tile_buffer_;
+  struct OcclusionView {
+    bool valid = false;
+    glm::vec3 position{0.0f}, forward{0.0f}, right{0.0f}, up{0.0f};
+    u32 width = 0, height = 0;
+  } occlusion_view_;
+  u32 free_fleck_count_ = 0;
+  bool free_flecks_dirty_ = true;
+  void upload_free_flecks();
   VkDescriptorSetLayout chunk_point_splat_set_layout_ = VK_NULL_HANDLE;
   VkDescriptorSet chunk_point_splat_set_ = VK_NULL_HANDLE;
   std::optional<VulkanComputePipeline> chunk_point_splat_pipeline_;
@@ -1476,6 +1543,32 @@ private:
   // See set_object_weld_keys().
   std::unordered_map<i32, i32> weld_keys_;
   f32 brush_preview_smoothness_ = 0.0f;
+  bool coarse_recompute_ = false;
+  // Drag instance state (begin_drag_instance()). While active, recomputes
+  // leave drag_instance_objects_ out (candidate_filter_ = Hide); building
+  // the instance takes only them (Only), and freeing it nothing (None).
+  enum class CandidateFilter { All, Hide, Only, None };
+  CandidateFilter candidate_filter_ = CandidateFilter::All;
+  bool drag_instance_active_ = false;
+  std::unordered_set<i32> drag_instance_objects_;
+  bool drag_instance_settling_ = false;
+  std::vector<GpuSculptStampCell> drag_instance_settle_; // still to re-run
+  void free_drag_instance();
+  std::vector<GpuSculptStampCell> drag_instance_cells_;
+  std::vector<u32> drag_instance_slots_;
+  glm::ivec3 drag_instance_origin_{0};
+  glm::ivec3 drag_instance_dims_{0};
+  std::vector<i32> drag_instance_chunk_slots_;
+  // Its stamps' cell ranges, and which of its chunks it took over from the
+  // world (their cells are listed only when it's freed).
+  std::vector<std::pair<glm::ivec3, glm::ivec3>> drag_instance_ranges_;
+  std::vector<u8> drag_instance_taken_;
+  glm::vec3 drag_instance_box_lo_{0.0f}; // local (drag-start pose)
+  glm::vec3 drag_instance_box_hi_{0.0f};
+  // Writes words [first, first + count) of the instance block to both
+  // buffers that carry it.
+  void write_drag_instance_words(u32 first, const u32 *words, u32 count);
+  void clear_drag_instance_block();
   // How much further than its own bounds a welded object's field can
   // change: the widest smoothness of any welded adding stamp (a weld
   // fillet reaches that far from the surface it blends into). Cached;
@@ -1504,12 +1597,15 @@ private:
   // wasted work). Newly-claimed chunk slots are appended to `new_slots` so
   // the caller can fill their indirection sub-block to -1 before dispatch,
   // same as stamp_shape()'s own new_slots handling.
+  // Cells already listed, per chunk slot: a bit per cell.
+  using RecomputeSeen = std::unordered_map<u32, std::array<u64, 64>>;
   void collect_recompute_cells(glm::vec3 center, BrushShape shape_type,
                                glm::vec4 params, f32 smoothness,
                                glm::quat rotation,
-                               std::unordered_set<u64> &seen,
+                               RecomputeSeen &seen,
                                std::vector<GpuSculptStampCell> &out_cells,
-                               std::vector<u32> &new_slots);
+                               std::vector<u32> &new_slots,
+                               bool adds = true);
 
   // M5: the shared GPU dispatch tail of recompute_region()/recompute_
   // moved_region() -- uploads `cells` into chunk_sculpt_cell_buffer_, fills
@@ -2139,6 +2235,15 @@ private:
   // KENGINE_SCULPT_TIMING: GPU time of each sculpt recompute pass, logged
   // per call (recompute_cells()). Null when the variable isn't set.
   VkQueryPool sculpt_timestamp_pool_ = VK_NULL_HANDLE;
+  // The last recompute_cells() submission, not waited for: the CPU carries
+  // on (and the frame keeps rendering) while it runs. Waited on only before
+  // the next one reuses its host-visible inputs (wait_recompute()).
+  VkFence recompute_fence_ = VK_NULL_HANDLE;
+  f64 worst_frame_ms_ = 0.0; // see collect_frame_timings()
+  mutable std::optional<VulkanBuffer> brick_pool_readback_; // see sculpt_brick_pool()
+  u64 brick_pool_frame_ = 0;
+  std::unique_ptr<VulkanCommandBuffer> recompute_pending_;
+  void wait_recompute();
   // Nanoseconds per timestamp tick, from the device's own limits.
   f32 timestamp_period_ns_ = 0.0f;
   b8 timestamps_supported_ = false;

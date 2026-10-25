@@ -373,6 +373,11 @@ KAPI i32 renderer_sculpt_pick_object(glm::vec3 point, f32 max_distance);
 // The first object a ray hits (direction must be unit length), within
 // max_t; writes the hit distance to *out_t (may be null). -1 if nothing is
 // hit. Only Union stamps count; carved holes still read as solid.
+// The sculpt brick pool -- the GPU memory every sculpted surface is stored
+// in: bricks in use and in all, as of a few frames ago. False when unknown
+// (e.g. the first frames).
+KAPI b8 renderer_sculpt_brick_pool_usage(u32 *out_used, u32 *out_total);
+
 KAPI i32 renderer_sculpt_raycast_object(glm::vec3 origin, glm::vec3 direction,
                                         f32 max_t, f32 *out_t);
 
@@ -454,6 +459,12 @@ struct SculptStampInfo {
 // to out_stamps (may be null to just count); returns how many it has.
 KAPI i32 renderer_sculpt_object_stamps(i32 object_id, SculptStampInfo *out_stamps,
                                        i32 capacity);
+// Every stamp of every object, in list (creation) order: up to `capacity`
+// to out_stamps and their objects to out_objects (either may be null);
+// returns how many there are. The order matters for welded objects, which
+// fold together in it (see renderer_sculpt_set_weld_keys()).
+KAPI i32 renderer_sculpt_all_stamps(SculptStampInfo *out_stamps, i32 *out_objects,
+                                    i32 capacity);
 
 // Appends `count` stamps, in order, to object `object_id` (an existing one,
 // or a fresh id from renderer_sculpt_begin_object()) and re-runs the region
@@ -538,10 +549,19 @@ KAPI i32 renderer_sculpt_stamp_count();
 // next renderer_sculpt_preview_brush() call.
 KAPI void renderer_sculpt_set_preview_smoothness(f32 k);
 
+// Drag preview: while on, objects moved by renderer_sculpt_transform_
+// objects() are re-sculpted at half resolution (much cheaper, a little
+// softer), so dragging a big sculpture stays smooth. Switching it off
+// re-sculpts everything moved meanwhile in full. Call it every frame with
+// whether a drag is in progress; only changes do anything.
+KAPI void renderer_sculpt_set_drag_preview(b8 on);
+
 // Welding: objects given the same key > 0 (e.g. the strokes of one
-// sculpture) blend into each other where they meet, each adding shape with
-// its own smoothness, instead of meeting with a hard edge; objects with
-// different keys (or none) still meet hard. Replaces the whole map (an
+// sculpture, and an object holding its carves) fold as ONE field in stamp
+// order -- each adding shape blends into what came before it with its own
+// smoothness, each carve / paint / crop acts on everything of the key made
+// before it -- while each surface still records the object whose shape
+// made it. Objects with different keys (or none) still meet hard. Replaces the whole map (an
 // object left out has no key). Cells whose blending changes are rebuilt.
 KAPI void renderer_sculpt_set_weld_keys(const i32 *object_ids, const i32 *keys,
                                         i32 count);

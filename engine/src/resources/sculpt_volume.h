@@ -118,6 +118,7 @@ public:
     stamps_.push_back(SculptStamp{center, shape_type, params, smoothness, op,
                                   material_slot, cells_touched, looseness,
                                   rotation, object_id});
+    ++generation_;
     return stamps_.back();
   }
 
@@ -130,6 +131,7 @@ public:
     }
     SculptStamp last = stamps_.back();
     stamps_.pop_back();
+    ++generation_;
     return last;
   }
 
@@ -150,6 +152,7 @@ public:
     }
     SculptStamp removed = stamps_[index];
     stamps_.erase(stamps_.begin() + static_cast<std::ptrdiff_t>(index));
+    ++generation_;
     return removed;
   }
 
@@ -172,6 +175,7 @@ public:
     }
     stamps_[index].center = new_center;
     stamps_[index].cells_touched = cells_touched;
+    ++generation_;
     return true;
   }
 
@@ -188,6 +192,7 @@ public:
     stamps_[index].params = new_params;
     stamps_[index].smoothness = new_smoothness;
     stamps_[index].cells_touched = cells_touched;
+    ++generation_;
     return true;
   }
 
@@ -211,6 +216,12 @@ public:
 
   bool empty() const noexcept { return stamps_.empty(); }
 
+  // Changes whenever a stamp is added, removed, moved or reshaped -- for
+  // caches of the stamps' geometry (material/looseness changes don't
+  // count).
+  u64 generation() const noexcept { return generation_; }
+
 private:
   std::vector<SculptStamp> stamps_;
+  u64 generation_ = 0;
 };

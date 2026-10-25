@@ -181,6 +181,17 @@
 //   R2         uses the current tool at the brush point
 //   Y          switches between adding and subtracting
 //   L1 + Y     switches between the Stamp and Smear tools
+//
+// PAINT MODE (Modes -> Paint) paints free-floating flecks, Dreams-style:
+// held R2 lays a stroke of them along the brush's path, at its depth (or
+// on a surface, with Surface Snap) -- each one a single fleck of the picked
+// fleck style, colour (Colour Variation too) and finish, facing the camera
+// with a little lean, running along the stroke. D-pad up/down sizes them.
+// Each stroke is an object of its own in the painting's group, so scoped
+// in, strokes move one by one; the guides (mirror, kaleidoscope, snaps)
+// work as in sculpt mode. Top bar: Tools (Move | Paint) | Colour | Fleck |
+// Finish | Guides. A fleck is a SculptBrushOp::Fleck stamp -- no field;
+// the renderer splats it straight into the image.
 //   L2 (hold)  turns the brush shape with the sticks, as L2 turns an object
 //   L3 + left stick direction  tips the brush shape 90 degrees that way
 //   D-pad up/down  grows / shrinks the brush
@@ -418,6 +429,8 @@ constexpr f32 kBrushLoosenessLevels[kBrushLoosenessCount] = {0.0f, 0.25f, 0.5f,
 constexpr const char *kBrushLoosenessNames[kBrushLoosenessCount] = {
     "0%", "25%", "50%", "75%", "100%"};
 
+// The widest a carve's rounding goes, in brush sizes (see sculpt_stamp()).
+constexpr f32 kMaxCarveSmoothness = 0.5f;
 constexpr const char *kSmoothnessNames[kSmoothnessCount] = {
     "Sharp", "Slight", "Normal", "Soft", "Softer", "Softest"};
 constexpr int kDefaultSmoothness = 2; // Normal
@@ -473,6 +486,13 @@ constexpr f32 kSculptDefaultSize = 0.3f;
 constexpr f32 kSculptMinSize = 0.03f;
 constexpr f32 kSculptMaxSize = 3.0f;
 constexpr f32 kSculptStrokeSpacing = 0.3f;
+// Paint mode: a fleck's radius, in brush sizes; how far apart a stroke's
+// flecks are, in fleck radii; how far each fleck's facing leans at random
+// from the camera; and how far it turns from the stroke (radians).
+constexpr f32 kPaintFleckOfBrush = 0.5f;
+constexpr f32 kPaintFleckSpacing = 0.7f;
+constexpr f32 kPaintFleckTilt = 0.6f;
+constexpr f32 kPaintFleckTurn = 0.6f;
 // Colour Variation: how far along a smear or spray stroke, in brush sizes,
 // one colour lasts (Switch) or fades into the next (Blend); how many steps
 // a fade takes (each step is its own material slot); and how many colours
@@ -929,7 +949,7 @@ public:
         press_button(static_cast<ToolbarButton>(hovered_button_));
       } else if (hovered_top_ >= 0) {
         press_top_bar(hovered_top_);
-      } else if ((mode_ != EditMode::Sculpt || move_tool_) && !placing()) {
+      } else if ((!brush_mode() || move_tool_) && !placing()) {
         toggle_selection();
       }
     }
@@ -946,7 +966,7 @@ public:
         side_sub_open_ = false;
       } else if (side_open_) {
         close_side_panel();
-      } else if (scoped() && mode_ != EditMode::Sculpt) {
+      } else if (scoped() && !brush_mode()) {
         scope_out();
       }
     }
@@ -960,7 +980,8 @@ public:
       toggle_stamp_smear(); // L1 + Y: Stamp <-> Smear
     } else if (pressed(GamepadButton::Y) && placing()) {
       end_placing();
-    } else if (pressed(GamepadButton::Y) && !modeless()) {
+    } else if (pressed(GamepadButton::Y) && !modeless() &&
+               mode_ != EditMode::Paint) { // (paint only adds)
       toggle_coat_subtract();
     } else if (pressed(GamepadButton::Y)) {
       if (grabbed_object_ >= 0 || rotating_object_ >= 0) {
@@ -1025,6 +1046,10 @@ public:
 
     update_chain(); // after this frame's moves of the held copy
     update_placing(dt, r2_pressed);
+    // Held or floating objects re-sculpt at half resolution while they
+    // move, and in full once let go.
+    renderer_sculpt_set_drag_preview(grabbed_object_ >= 0 ||
+                                     rotating_object_ >= 0 || placing());
     poll_library_scan();
     renderer_set_camera(camera_);
     return true;
@@ -1039,6 +1064,7 @@ public:
     draw_selection();
     draw_toolbar();
     draw_top_bar();
+    draw_brick_gauge();
     draw_grid_guide();
     draw_symmetry_guide();
     draw_precise_move();
@@ -1067,9 +1093,25 @@ private:
       KERROR("Could not read stamps file '{}'.", path);
       return;
     }
+    FileWelds welds = read_file_welds(path);
+    convert_copied_carves(document, welds);
     const std::unordered_map<i32, i32> engine_id_for =
         sculpt_shared::replay_document(document);
-    adopt_file_welds(path, engine_id_for);
+    adopt_file_welds(welds, engine_id_for);
+    // A sculpture's welded strokes move as one, as an import from the
+    // library does (otherwise a grab pulls out a single stroke).
+    std::unordered_map<i32, std::vector<i32>> sculptures; // weld key -> its objects
+    for (const auto &[file_id, engine_id] : engine_id_for) {
+      if (auto weld = welds_.find(engine_id); weld != welds_.end()) {
+        sculptures[weld->second].push_back(engine_id);
+      }
+    }
+    for (auto &[key, objects] : sculptures) {
+      if (objects.size() > 1) {
+        std::sort(objects.begin(), objects.end());
+        groups_.push_back({next_group_id_++, objects});
+      }
+    }
     // The file's look lines (see the library format, "Search" below),
     // applied by adopt_loaded_coats() once the engine side is set up.
     for (auto &[file_id, coat] : read_file_coats(path)) {
@@ -1080,8 +1122,8 @@ private:
     // Per object: the lowest and highest looseness its shapes carry.
     std::unordered_map<i32, std::pair<f32, f32>> range;
     for (const SculptStampRecord &stamp : document.stamps()) {
-      // (A paint stamp's looseness is its opacity, not looseness.)
-      if (stamp.op == SculptBrushOp::ObjectPaint) {
+      // (A paint stamp's looseness is its opacity, a fleck's its seed.)
+      if (stamp.op == SculptBrushOp::ObjectPaint || stamp.op == SculptBrushOp::Fleck) {
         continue;
       }
       auto [it, fresh] = range.try_emplace(
@@ -1320,10 +1362,11 @@ private:
   // Guides row open, D-pad left/right sets how many copies.
 
   bool symmetry_on() const {
-    return (mirror_ || kaleidoscope_) && mode_ == EditMode::Sculpt &&
-           !move_tool_ &&
-           (sculpt_tool_ == SculptTool::Stamp || sculpt_tool_ == SculptTool::Smear ||
-            sculpt_tool_ == SculptTool::Spray);
+    return (mirror_ || kaleidoscope_) && !move_tool_ &&
+           (mode_ == EditMode::Paint ||
+            (mode_ == EditMode::Sculpt &&
+             (sculpt_tool_ == SculptTool::Stamp || sculpt_tool_ == SculptTool::Smear ||
+              sculpt_tool_ == SculptTool::Spray)));
   }
 
   glm::vec3 symmetry_point(glm::vec3 fallback) const {
@@ -1641,7 +1684,7 @@ private:
     const glm::vec2 right = stick(GamepadAxis::RightX, GamepadAxis::RightY);
     const f32 x = right.x;
     const f32 y = right.y;
-    if (mode_ == EditMode::Sculpt && stroke_active_) {
+    if (brush_mode() && stroke_active_) {
       const f32 speed = kBrushScreenSpeed * brush_.z * dt;
       camera_.move(camera_.right() * (x * speed) + screen_up() * (y * speed));
       return;
@@ -2071,7 +2114,7 @@ private:
   // outside sculpt mode, with something selected (or scoped in), the object
   // buttons above it.
   std::vector<ToolbarButton> side_buttons() const {
-    if (mode_ != EditMode::Sculpt && (!selection_.empty() || scoped())) {
+    if (!brush_mode() && (!selection_.empty() || scoped())) {
       return {ToolbarButton::Group, ToolbarButton::Scope, ToolbarButton::Delete,
               ToolbarButton::Placeholder, ToolbarButton::ShapeOptions};
     }
@@ -2384,7 +2427,7 @@ private:
       return;
     }
     const std::vector<i32> group = group_for(object);
-    if (mode_ == EditMode::Sculpt &&
+    if (brush_mode() &&
         std::find(group.begin(), group.end(), sculpture_) != group.end()) {
       KINFO("Delete: that's the sculpture being worked on (leave sculpt mode "
             "to delete it; scoped in, its other strokes can go).");
@@ -2404,14 +2447,27 @@ private:
     history_dirty_ = true;
     std::vector<i32> clones;
     std::vector<std::pair<i32, i32>> copies; // original -> copy
+    // Every original's stamps in the order they were made, copied in one
+    // go (see ordered_stamps()).
+    std::vector<SculptStampInfo> stamps;
+    std::vector<i32> owners;
+    ordered_stamps(originals, &stamps, &owners);
+    std::unordered_map<i32, i32> copy_of;
     for (i32 original : originals) {
-      const i32 copy = renderer_sculpt_clone_object(original);
+      if (std::find(owners.begin(), owners.end(), original) == owners.end()) {
+        continue; // no stamps
+      }
+      const i32 copy = renderer_sculpt_begin_object();
       if (copy < 0) {
         continue;
       }
       KINFO("Cloned object {} -> {}.", original, copy);
+      copy_of[original] = copy;
       clones.push_back(copy);
       copies.emplace_back(original, copy);
+      if (carriers_.count(original)) {
+        carriers_.insert(copy);
+      }
       // The copy shares the original's material slot (and so its look);
       // it gets its own the first time it is coated.
       if (auto coat = coats_.find(original); coat != coats_.end()) {
@@ -2419,9 +2475,8 @@ private:
         coats_[copy].light = -1; // gets its own glow light
       }
     }
-    if (Group *scoped = find_group(scoped_group_)) {
-      scoped->members.insert(scoped->members.end(), clones.begin(),
-                             clones.end());
+    const bool in_scoped = find_group(scoped_group_) != nullptr;
+    if (in_scoped) {
       // Copied inside a sculpture: they weld into it, as the originals do.
       for (const auto &[original, copy] : copies) {
         if (auto it = welds_.find(original); it != welds_.end()) {
@@ -2430,6 +2485,24 @@ private:
       }
     } else {
       copy_welds(copies);
+    }
+    sync_welds(); // before the stamps land
+    std::vector<i32> copy_owners;
+    std::vector<SculptStampInfo> copy_stamps;
+    for (size_t i = 0; i < stamps.size(); ++i) {
+      if (auto it = copy_of.find(owners[i]); it != copy_of.end()) {
+        copy_owners.push_back(it->second);
+        copy_stamps.push_back(stamps[i]);
+      }
+    }
+    if (!copy_stamps.empty()) {
+      renderer_sculpt_add_stamps_to_objects(copy_owners.data(), copy_stamps.data(),
+                                            static_cast<i32>(copy_stamps.size()));
+    }
+    if (Group *scoped = find_group(scoped_group_)) {
+      scoped->members.insert(scoped->members.end(), clones.begin(),
+                             clones.end());
+    } else {
       const std::vector<Group> before = groups_;
       for (const Group &group : before) {
         std::vector<i32> copied;
@@ -2802,7 +2875,7 @@ private:
     renderer_sculpt_set_outlined_objects(selection_.data(),
                                          static_cast<i32>(selection_.size()),
                                          kSelectionOutline, keys.data());
-    if (mode_ == EditMode::Sculpt) {
+    if (brush_mode()) {
       // Sculpting: only the sculpture (all its strokes) is in focus.
       renderer_sculpt_set_scope_objects(sculpture_members_.data(),
                                         static_cast<i32>(sculpture_members_.size()));
@@ -2818,6 +2891,89 @@ private:
   // shows its name beside it.
   // One round button: background by state (active ring > hover > plain),
   // icon dimmed when disabled; `alpha` fades the whole button.
+  // --- Brick gauge ---------------------------------------------------------------
+  //
+  // A thermometer in the top-left corner: how much of the brick pool -- the
+  // GPU memory every sculpted surface is stored in -- is in use. Green,
+  // then amber past 60%, red past 85%; once it's full, new surfaces come
+  // out with patches missing.
+  void draw_brick_gauge() {
+    u32 used = 0, total = 0;
+    if (!renderer_sculpt_brick_pool_usage(&used, &total) || total == 0) {
+      return;
+    }
+    const f32 level = std::clamp(static_cast<f32>(used) / static_cast<f32>(total),
+                                 0.0f, 1.0f);
+    // Eased, so the mercury glides rather than jumping as bricks come and go.
+    brick_gauge_level_ += (level - brick_gauge_level_) * 0.2f;
+    const f32 shown = brick_gauge_level_;
+
+    const glm::vec4 kGlass(0.06f, 0.08f, 0.12f, 0.55f);
+    const glm::vec4 kRim(0.85f, 0.9f, 1.0f, 0.35f);
+    const glm::vec4 kGreen(0.35f, 0.85f, 0.45f, 0.95f);
+    const glm::vec4 kAmber(1.0f, 0.72f, 0.2f, 0.95f);
+    const glm::vec4 kRed(0.95f, 0.28f, 0.22f, 0.95f);
+    const glm::vec4 mercury =
+        shown < 0.6f    ? glm::mix(kGreen, kAmber, std::max(shown - 0.45f, 0.0f) / 0.15f)
+        : shown < 0.85f ? glm::mix(kAmber, kRed, std::max(shown - 0.75f, 0.0f) / 0.1f)
+                        : kRed;
+
+    constexpr f32 kTubeWidth = 12.0f;
+    constexpr f32 kTubeHeight = 150.0f;
+    constexpr f32 kBulbRadius = 14.0f;
+    constexpr f32 kRimWidth = 2.0f;
+    const glm::vec2 tube_top(32.0f, 28.0f); // the tube's top-left corner
+    const f32 tube_bottom = tube_top.y + kTubeHeight;
+    const glm::vec2 bulb_centre(tube_top.x + 0.5f * kTubeWidth,
+                                tube_bottom + kBulbRadius * 0.7f);
+
+    // A filled disc, as rows of thin quads.
+    auto disc = [](glm::vec2 centre, f32 radius, glm::vec4 colour) {
+      constexpr f32 kRow = 2.0f;
+      for (f32 y = -radius; y < radius; y += kRow) {
+        const f32 mid = y + 0.5f * kRow;
+        const f32 half = std::sqrt(std::max(radius * radius - mid * mid, 0.0f));
+        renderer_draw_backdrop_quad(glm::vec2(centre.x - half, centre.y + y),
+                                    glm::vec2(2.0f * half, kRow), colour);
+      }
+    };
+
+    // The glass: a rim, then the dark inside.
+    renderer_draw_backdrop_quad(tube_top - glm::vec2(kRimWidth),
+                                glm::vec2(kTubeWidth, kTubeHeight) +
+                                    glm::vec2(2.0f * kRimWidth),
+                                kRim);
+    disc(bulb_centre, kBulbRadius + kRimWidth, kRim);
+    renderer_draw_backdrop_quad(tube_top, glm::vec2(kTubeWidth, kTubeHeight), kGlass);
+    disc(bulb_centre, kBulbRadius, kGlass);
+
+    // The mercury: the bulb always full, the column up to the level.
+    disc(bulb_centre, kBulbRadius - 3.0f, mercury);
+    const f32 column = shown * kTubeHeight;
+    const f32 inset = 3.0f;
+    renderer_draw_backdrop_quad(
+        glm::vec2(tube_top.x + inset, tube_bottom - column),
+        glm::vec2(kTubeWidth - 2.0f * inset, column + kBulbRadius * 0.4f), mercury);
+
+    // Ticks at each quarter.
+    for (int i = 1; i <= 3; ++i) {
+      const f32 y = tube_bottom - kTubeHeight * 0.25f * static_cast<f32>(i);
+      renderer_draw_backdrop_quad(glm::vec2(tube_top.x + kTubeWidth + kRimWidth, y - 1.0f),
+                                  glm::vec2(6.0f, 2.0f), kRim);
+    }
+
+    // The reading beside the bulb.
+    const std::string percent = std::to_string(static_cast<int>(std::round(level * 100.0f))) + "%";
+    const std::string detail = std::to_string(used) + " / " + std::to_string(total) + " bricks";
+    const glm::vec2 at(tube_top.x + kTubeWidth + 14.0f, bulb_centre.y + 6.0f);
+    const glm::vec4 shadow(0.0f, 0.0f, 0.0f, 0.6f);
+    renderer_draw_text(percent, at + glm::vec2(kTipShadowOffset), shadow, 0.9f);
+    renderer_draw_text(percent, at, glm::vec4(1.0f), 0.9f);
+    const glm::vec2 below = at + glm::vec2(0.0f, 20.0f);
+    renderer_draw_text(detail, below + glm::vec2(kTipShadowOffset), shadow, 0.55f);
+    renderer_draw_text(detail, below, glm::vec4(1.0f, 1.0f, 1.0f, 0.8f), 0.55f);
+  }
+
   static void draw_round_button(glm::vec2 centre, const char *icon,
                                 bool hovered, bool active, bool enabled,
                                 f32 alpha) {
@@ -2847,9 +3003,15 @@ private:
 
   enum class Menu {
     None, Tools, Modes, CoatTools, Colour, Finishes, StyleTools, FleckStyles,
-    EffectsTools, SculptTools, Shapes, Guides, Search, Opacity, Looseness
+    EffectsTools, SculptTools, Shapes, Guides, Search, Opacity, Looseness,
+    PaintTools
   };
-  enum class EditMode { Default, Coat, Style, Effects, Sculpt };
+  enum class EditMode { Default, Coat, Style, Effects, Sculpt, Paint };
+  // Sculpt and paint mode share the brush: its size, depth, guides, strokes
+  // and the object they go into (see enter_brush_mode()).
+  bool brush_mode() const {
+    return mode_ == EditMode::Sculpt || mode_ == EditMode::Paint;
+  }
   // Sculpt mode's tools (see the header comment).
   // (Looseness isn't a tool: it's a setting of the brush, on the top bar.)
   enum class SculptTool { Stamp, Smear, Spray, Crop, CutOut };
@@ -3055,6 +3217,25 @@ private:
             std::string("Looseness: ") + kBrushLoosenessNames[brush_looseness_index_],
             brush_looseness_icon(brush_looseness_index_)));
       }
+    } else if (mode_ == EditMode::Paint) {
+      items.push_back(menu_button(
+          Menu::PaintTools,
+          std::string("Tools: ") + (move_tool_ ? kMoveToolName : "Paint"),
+          move_tool_ ? kMoveToolIcon : "ui/toolbar/paint.png"));
+      UiItem colour = menu_button(Menu::Colour, "Colour", "");
+      colour.swatch = true;
+      colour.colour = coat_colour();
+      items.push_back(colour);
+      items.push_back(menu_button(
+          Menu::FleckStyles,
+          std::string("Fleck: ") + kFleckStyleNames[fleck_style_index_],
+          fleck_style_icon(fleck_style_index_)));
+      UiItem finishes = menu_button(
+          Menu::Finishes, std::string("Finish: ") + kCoatFinishes[finish_index_].name,
+          "");
+      finishes.finish = finish_index_;
+      finishes.colour = coat_colour();
+      items.push_back(finishes);
     } else if (mode_ == EditMode::Effects) {
       const int tool = static_cast<int>(effects_tool_);
       items.push_back(menu_button(
@@ -3114,6 +3295,7 @@ private:
         item.label = kModeNames[i];
         item.icon = kModeIcons[i];
         item.active = (i == 0 && mode_ == EditMode::Sculpt) ||
+                      (i == 1 && mode_ == EditMode::Paint) ||
                       (i == 2 && mode_ == EditMode::Coat) ||
                       (i == 3 && mode_ == EditMode::Style) ||
                       (i == 4 && mode_ == EditMode::Effects);
@@ -3121,6 +3303,19 @@ private:
         items.push_back(item);
       }
       break;
+    case Menu::PaintTools: {
+      items.push_back(move_tool_item());
+      UiItem paint;
+      paint.label = "Paint";
+      paint.icon = "ui/toolbar/paint.png";
+      paint.active = !move_tool_;
+      paint.press = [this] {
+        move_tool_ = false;
+        KINFO("Paint tool: Paint.");
+      };
+      items.push_back(paint);
+      break;
+    }
     case Menu::CoatTools:
       items.push_back(move_tool_item());
       for (int i = 0; i < kCoatToolCount; ++i) {
@@ -3418,8 +3613,8 @@ private:
   }
 
   void select_mode(int index) {
-    if (index == 0) {
-      enter_sculpt();
+    if (index == 0 || index == 1) {
+      enter_brush_mode(index == 0 ? EditMode::Sculpt : EditMode::Paint);
       return;
     }
     if (index >= 2 && index <= 4) { // Coat, Style, Effects
@@ -3441,7 +3636,7 @@ private:
       return;
     }
     KINFO("Left {} mode.", mode_name());
-    if (mode_ == EditMode::Sculpt) {
+    if (brush_mode()) {
       leave_sculpt();
     }
     mode_ = EditMode::Default;
@@ -3456,6 +3651,7 @@ private:
     case EditMode::Style: return "style";
     case EditMode::Effects: return "effects";
     case EditMode::Sculpt: return "sculpt";
+    case EditMode::Paint: return "paint";
     default: return "";
     }
   }
@@ -3899,21 +4095,139 @@ private:
   };
 
   // The look lines of a stamps file, by file object id.
-  // A file's weld lines ("#weld file_id key"), given fresh keys here.
-  void adopt_file_welds(const std::string &path,
-                        const std::unordered_map<i32, i32> &engine_id_for) {
+  // A file's welds: "#weld file_id key" and "#carrier file_id" lines.
+  struct FileWelds {
+    std::unordered_map<i32, i32> key_of; // file object -> file key
+    std::unordered_set<i32> carriers;
+  };
+  static FileWelds read_file_welds(const std::string &path) {
+    FileWelds welds;
     std::ifstream in(path);
     std::string line;
-    std::unordered_map<i32, i32> fresh; // file key -> key here
     while (std::getline(in, line)) {
-      if (line.rfind("#weld ", 0) != 0) {
-        continue;
-      }
-      std::istringstream fields(line.substr(6));
+      std::istringstream fields;
       i32 file_id = -1, key = 0;
-      if (!(fields >> file_id >> key)) {
+      if (line.rfind("#weld ", 0) == 0) {
+        fields.str(line.substr(6));
+        if (fields >> file_id >> key) {
+          welds.key_of[file_id] = key;
+        }
+      } else if (line.rfind("#carrier ", 0) == 0) {
+        fields.str(line.substr(9));
+        if (fields >> file_id) {
+          welds.carriers.insert(file_id);
+        }
+      }
+    }
+    return welds;
+  }
+
+  // Files saved before a sculpture had a carve object hold every carve
+  // copied onto each stroke it reached, object by object. A weld without a
+  // carrier gets one: each carve, paint or crop kept once (exact copies
+  // dropped) and moved to it, just after the adding shapes of the newest
+  // stroke that had it -- the order it was made in, as near as the file
+  // tells.
+  static void convert_copied_carves(SculptDocument &document, FileWelds &welds) {
+    std::unordered_map<i32, bool> key_has_carrier;
+    for (const auto &[file_id, key] : welds.key_of) {
+      key_has_carrier[key] = key_has_carrier[key] || welds.carriers.count(file_id);
+    }
+    std::vector<SculptStampRecord> &stamps = document.mutable_stamps();
+    i32 next_file_id = 1;
+    for (const SculptStampRecord &stamp : stamps) {
+      next_file_id = std::max(next_file_id, stamp.object_id + 1);
+    }
+    auto adds = [](SculptBrushOp op) { // (a stroke's own content)
+      return op == SculptBrushOp::Union || op == SculptBrushOp::ObjectUnion ||
+             op == SculptBrushOp::Fleck;
+    };
+    auto same = [](const SculptStampRecord &a, const SculptStampRecord &b) {
+      return a.center == b.center && a.shape_type == b.shape_type &&
+             a.params == b.params && a.smoothness == b.smoothness &&
+             a.op == b.op && a.material_slot == b.material_slot &&
+             a.looseness == b.looseness && a.rotation == b.rotation;
+    };
+    for (auto &[key, has_carrier] : key_has_carrier) {
+      if (has_carrier) {
         continue;
       }
+      // Sort keys: (stroke, 0, n) for a stroke's adds; (newest stroke
+      // that had it, 1, n) for a carve. Everything else keeps its place.
+      struct Item {
+        SculptStampRecord stamp;
+        i32 stroke;
+        int kind;
+        size_t n;
+      };
+      std::vector<Item> items;
+      std::vector<size_t> positions; // where this weld's stamps were
+      bool any_carve = false;
+      for (size_t i = 0; i < stamps.size(); ++i) {
+        auto it = welds.key_of.find(stamps[i].object_id);
+        if (it == welds.key_of.end() || it->second != key) {
+          continue;
+        }
+        positions.push_back(i);
+        if (adds(stamps[i].op)) {
+          items.push_back({stamps[i], stamps[i].object_id, 0, i});
+          continue;
+        }
+        any_carve = true;
+        bool copy = false;
+        for (Item &item : items) {
+          if (item.kind == 1 && same(item.stamp, stamps[i])) {
+            item.stroke = std::max(item.stroke, stamps[i].object_id);
+            copy = true;
+            break;
+          }
+        }
+        if (!copy) {
+          items.push_back({stamps[i], stamps[i].object_id, 1, i});
+        }
+      }
+      if (!any_carve) {
+        continue;
+      }
+      const i32 carrier = next_file_id++;
+      welds.key_of[carrier] = key;
+      welds.carriers.insert(carrier);
+      std::stable_sort(items.begin(), items.end(), [](const Item &a, const Item &b) {
+        if (a.stroke != b.stroke) return a.stroke < b.stroke;
+        if (a.kind != b.kind) return a.kind < b.kind;
+        return a.n < b.n;
+      });
+      std::vector<SculptStampRecord> rebuilt;
+      for (Item &item : items) {
+        if (item.kind == 1) {
+          item.stamp.object_id = carrier;
+        }
+        rebuilt.push_back(item.stamp);
+      }
+      // Back in, where the weld's stamps were (fewer now: copies gone).
+      std::vector<SculptStampRecord> out;
+      size_t p = 0;
+      for (size_t i = 0; i < stamps.size(); ++i) {
+        if (p < positions.size() && positions[p] == i) {
+          if (p == 0) {
+            out.insert(out.end(), rebuilt.begin(), rebuilt.end());
+          }
+          ++p;
+          continue;
+        }
+        out.push_back(stamps[i]);
+      }
+      KINFO("Load: weld {} -- {} stamps became {} (carves kept once).",
+            key, positions.size(), rebuilt.size());
+      stamps = std::move(out);
+    }
+  }
+
+  // A file's welds, given fresh keys here.
+  void adopt_file_welds(const FileWelds &welds,
+                        const std::unordered_map<i32, i32> &engine_id_for) {
+    std::unordered_map<i32, i32> fresh; // file key -> key here
+    for (const auto &[file_id, key] : welds.key_of) {
       auto object = engine_id_for.find(file_id);
       if (object == engine_id_for.end()) {
         continue;
@@ -3923,6 +4237,9 @@ private:
         ++next_weld_key_;
       }
       welds_[object->second] = it->second;
+      if (welds.carriers.count(file_id)) {
+        carriers_.insert(object->second);
+      }
     }
   }
 
@@ -4178,30 +4495,38 @@ private:
               << look.roughness << ' ' << look.metallic << ' ' << look.waxy
               << ' ' << look.fleck_style << '\n';
         });
-        if (auto weld = welds_.find(objects[i]); weld != welds_.end()) {
-          out << "#weld " << file_id << ' ' << weld->second << '\n';
-        }
         out << "#style " << file_id << ' ' << coat.glow << ' ' << coat.looseness
             << ' ' << coat.comb << ' ' << coat.ruffle << ' ' << coat.impasto
             << ' ' << coat.neatness << ' ' << coat.boil << ' ' << coat.flow
             << ' ' << coat.wave << ' ' << coat.evaporate << ' ' << coat.throb
             << '\n';
       }
-      std::vector<SculptStampInfo> stamps(static_cast<size_t>(
-          std::max(renderer_sculpt_object_stamps(objects[i], nullptr, 0), 0)));
-      renderer_sculpt_object_stamps(objects[i], stamps.data(),
-                                    static_cast<i32>(stamps.size()));
-      for (const SculptStampInfo &s : stamps) {
-        out << s.center.x << ' ' << s.center.y << ' ' << s.center.z << ' '
-            << static_cast<int>(s.shape_type) << ' ' << s.params.x << ' '
-            << s.params.y << ' ' << s.params.z << ' ' << s.params.w << ' '
-            << s.smoothness << ' ' << static_cast<int>(s.op) << ' '
-            << s.material_slot << ' ' << s.looseness << ' ' << s.rotation.x
-            << ' ' << s.rotation.y << ' ' << s.rotation.z << ' '
-            << s.rotation.w << ' ' << file_id << '\n';
+      if (auto weld = welds_.find(objects[i]); weld != welds_.end()) {
+        out << "#weld " << file_id << ' ' << weld->second << '\n';
       }
-      stamp_count += stamps.size();
+      if (carriers_.count(objects[i])) {
+        out << "#carrier " << file_id << '\n';
+      }
     }
+    // The stamps in the order they were made (welded objects fold in it).
+    std::unordered_map<i32, i32> file_id_of;
+    for (size_t i = 0; i < objects.size(); ++i) {
+      file_id_of[objects[i]] = static_cast<i32>(i) + 1;
+    }
+    std::vector<SculptStampInfo> stamps;
+    std::vector<i32> owners;
+    ordered_stamps(objects, &stamps, &owners);
+    for (size_t k = 0; k < stamps.size(); ++k) {
+      const SculptStampInfo &s = stamps[k];
+      out << s.center.x << ' ' << s.center.y << ' ' << s.center.z << ' '
+          << static_cast<int>(s.shape_type) << ' ' << s.params.x << ' '
+          << s.params.y << ' ' << s.params.z << ' ' << s.params.w << ' '
+          << s.smoothness << ' ' << static_cast<int>(s.op) << ' '
+          << s.material_slot << ' ' << s.looseness << ' ' << s.rotation.x
+          << ' ' << s.rotation.y << ' ' << s.rotation.z << ' '
+          << s.rotation.w << ' ' << file_id_of[owners[k]] << '\n';
+    }
+    stamp_count = stamps.size();
     out.close();
     render_thumbnail(objects, base + ".png");
     LibraryEntry saved;
@@ -4326,9 +4651,11 @@ private:
       KERROR("Import: could not read '{}'.", entry.stamps_path);
       return;
     }
+    FileWelds welds = read_file_welds(entry.stamps_path);
+    convert_copied_carves(document, welds);
     const std::unordered_map<i32, i32> engine_id_for =
         sculpt_shared::replay_document(document);
-    adopt_file_welds(entry.stamps_path, engine_id_for);
+    adopt_file_welds(welds, engine_id_for);
     const std::unordered_map<i32, FileCoat> coats = read_file_coats(entry.stamps_path);
     std::vector<i32> objects;
     for (const auto &[file_id, engine_id] : engine_id_for) {
@@ -4587,7 +4914,8 @@ private:
       renderer_sculpt_object_stamps(id, stamps.data(), static_cast<i32>(stamps.size()));
       f32 loosest = 0.0f;
       for (const SculptStampInfo &stamp : stamps) {
-        if (stamp.op != SculptBrushOp::ObjectPaint) { // paint: opacity
+        if (stamp.op != SculptBrushOp::ObjectPaint && // paint: opacity,
+            stamp.op != SculptBrushOp::Fleck) {        // fleck: its seed
           loosest = std::max(loosest, stamp.looseness);
         }
       }
@@ -4793,7 +5121,9 @@ private:
   // material that's there -- carving, Spray Paint, Crop -- works on every
   // stroke of the sculpture. The strokes share the sculpture's materials
   // (sync_stroke_coats()) until one is coated on its own.
-  void enter_sculpt() {
+  // Sculpt or paint mode: the scoped-in object or group to work on (or a
+  // new one), each stroke an object of its own in its group.
+  void enter_brush_mode(EditMode mode) {
     selection_.clear();
     if (scoped_object_ >= 0) {
       sculpture_ = scoped_object_;
@@ -4810,12 +5140,18 @@ private:
       KINFO("Entered sculpt mode: new sculpture {}.", sculpture_);
     }
     stroke_object_ = -1;
-    mode_ = EditMode::Sculpt;
+    mode_ = mode;
     move_tool_ = false;
     sculpt_tool_ = SculptTool::Smear;
     stroke_active_ = false;
     open_menu_ = Menu::None;
-    toggle_menu(Menu::Shapes);
+    if (mode == EditMode::Paint) {
+      coat_subtract_ = false; // paint only ever adds
+      KINFO("Paint mode: R2 paints flecks.");
+      toggle_menu(Menu::Colour);
+    } else {
+      toggle_menu(Menu::Shapes);
+    }
   }
 
   void leave_sculpt() {
@@ -4890,6 +5226,7 @@ private:
       key = welds_.emplace(sculpture_, next_weld_key_++).first;
     }
     welds_[stroke] = key->second;
+    sync_welds(); // before its first stamps, so they fold with the sculpture
     if (Group *group = sculpture_group()) {
       group->members.push_back(stroke);
     } else {
@@ -5356,6 +5693,9 @@ private:
     if (move_tool_) {
       return false;
     }
+    if (mode_ == EditMode::Paint) {
+      return true;
+    }
     if (mode_ == EditMode::Sculpt) {
       return sculpt_tool_ == SculptTool::Stamp ||
              sculpt_tool_ == SculptTool::Smear ||
@@ -5580,9 +5920,18 @@ private:
     stamp.shape_type = kSculptShapes[shape_index_].shape;
     stamp.params = shaped_params();
     stamp.smoothness = op == SculptBrushOp::ObjectUnion ||
-                               op == SculptBrushOp::ObjectSubtraction
+                               op == SculptBrushOp::ObjectSubtraction ||
+                               op == SculptBrushOp::ObjectIntersection
                            ? kSmoothnessLevels[smoothness_index_] * brush_size_
                            : 0.0f;
+    if (op == SculptBrushOp::ObjectSubtraction ||
+        op == SculptBrushOp::ObjectIntersection) {
+      // A carve's or crop's rounding can't be much wider than the cutter: a
+      // smooth subtraction (or intersection) lifts the surface by up to a
+      // quarter of its width everywhere that near, so a very soft one wears
+      // whole shapes away instead of cutting.
+      stamp.smoothness = std::min(stamp.smoothness, kMaxCarveSmoothness * brush_size_);
+    }
     stamp.op = op;
     stamp.material_slot = slot;
     stamp.rotation = brush_rotation_;
@@ -5625,7 +5974,7 @@ private:
 
   // One frame of sculpt mode: brush size, the preview, and R2's tool.
   void update_sculpt(f32 dt, bool r2_pressed) {
-    if (mode_ != EditMode::Sculpt) {
+    if (!brush_mode()) {
       return;
     }
     if (move_tool_) { // no brush: the controls are base mode's
@@ -5650,6 +5999,10 @@ private:
     // The preview: the shape as it would be placed, in the picked look
     // (it has its own material slot, so it never touches a real one).
     const bool over_ui = hovered_button_ >= 0 || hovered_top_ >= 0;
+    if (mode_ == EditMode::Paint) {
+      update_paint(r2_pressed, over_ui);
+      return;
+    }
     SculptBrushOp preview_op = SculptBrushOp::ObjectUnion;
     switch (sculpt_tool_) {
     case SculptTool::Spray: preview_op = SculptBrushOp::ObjectPaint; break;
@@ -5677,10 +6030,12 @@ private:
         precise_scale_ ? pinned_center_ : placement_point(), preview_op,
         kPreviewSlot);
     // An adding brush shows the blend it would make with what's there, a
-    // carving one the hollow it would make (with the same smoothness).
+    // carving one the hollow it would make, a crop what it would keep (with
+    // the same smoothness).
     renderer_sculpt_set_preview_smoothness(
         preview.op == SculptBrushOp::ObjectUnion ||
-                preview.op == SculptBrushOp::ObjectSubtraction
+                preview.op == SculptBrushOp::ObjectSubtraction ||
+                preview.op == SculptBrushOp::ObjectIntersection
             ? preview.smoothness
             : 0.0f);
     renderer_sculpt_preview_brush(precise_scale_ ||
@@ -5742,7 +6097,9 @@ private:
       place_sculpt_stamps({at});
       return;
     }
-    const f32 spacing = kSculptStrokeSpacing * brush_size_;
+    const f32 spacing = mode_ == EditMode::Paint
+                            ? kPaintFleckSpacing * paint_fleck_radius()
+                            : kSculptStrokeSpacing * brush_size_;
     const glm::vec3 delta = at - stroke_last_;
     const f32 distance = glm::length(delta);
     if (distance < spacing) {
@@ -5765,7 +6122,99 @@ private:
   }
 
   // The current tool's shape at each of `points`, into the sculpture.
+  // --- Paint mode -------------------------------------------------------------
+  // R2 lays a stroke of free-floating flecks (SculptBrushOp::Fleck) along the
+  // brush's path -- one every kPaintFleckSpacing fleck radii -- each in the
+  // picked colour (or Colour Variation's) and fleck style, facing the camera
+  // with a little random tilt and running along the stroke. Each stroke is
+  // an object of its own in the painting's group, like a sculpt stroke.
+  f32 paint_fleck_radius() const { return kPaintFleckOfBrush * brush_size_; }
+
+  void update_paint(bool r2_pressed, bool over_ui) {
+    SlotLook look = picked_look(false);
+    if (sculpt_varies()) {
+      look.colour = variation_colour(stroke_active_ ? stroke_travel_ : 0.0f);
+    }
+    renderer_sculpt_set_material(kPreviewSlot, look.colour, look.roughness,
+                                 look.metallic, look.waxy > 0.5f);
+    renderer_sculpt_set_preview_smoothness(0.0f);
+    // The preview: a ball the size of a fleck, in the paint's colour.
+    renderer_sculpt_preview_brush(!over_ui && !framing_ && brush_.z > 0.01f,
+                                  placement_point(), SculptBrushShape::Sphere,
+                                  glm::vec4(paint_fleck_radius(), 0.0f, 0.0f, 0.0f),
+                                  SculptBrushOp::ObjectPaint, kPreviewSlot);
+    if (!r2_.down) {
+      stroke_active_ = false;
+      return;
+    }
+    if (over_ui && !stroke_active_) {
+      return;
+    }
+    update_stroke(r2_pressed);
+  }
+
+  void place_paint_flecks(const std::vector<glm::vec3> &points) {
+    std::vector<SculptStampInfo> stamps;
+    const glm::vec3 facing = -camera_.forward();
+    for (glm::vec3 point : points) {
+      // Along the stroke (or across the screen for its first fleck).
+      glm::vec3 along = stroke_first_stamp_ ? camera_.right() : point - paint_last_point_;
+      paint_last_point_ = point;
+      i32 slot = sculpture_slot(picked_look(false));
+      if (sculpt_varies()) {
+        SlotLook look = picked_look(false);
+        if (stroke_first_stamp_) {
+          stroke_first_stamp_ = false;
+        } else {
+          stroke_travel_ += kPaintFleckSpacing * paint_fleck_radius();
+        }
+        look.colour = variation_colour(stroke_travel_);
+        slot = sculpture_slot(look);
+      }
+      stroke_first_stamp_ = false;
+      auto random = [this] { return paint_random_.uniform(); };
+      glm::vec3 n = glm::normalize(facing + kPaintFleckTilt *
+                                                (glm::vec3(random(), random(), random()) -
+                                                 glm::vec3(0.5f)));
+      along -= n * glm::dot(along, n);
+      if (glm::dot(along, along) < 1e-10f) {
+        along = camera_.right() - n * glm::dot(camera_.right(), n);
+      }
+      along = glm::normalize(along);
+      const f32 turn = (random() - 0.5f) * kPaintFleckTurn;
+      along = glm::normalize(along * std::cos(turn) + glm::cross(n, along) * std::sin(turn));
+      const glm::vec3 up = glm::cross(n, along);
+      SculptStampInfo fleck;
+      fleck.center = point + n * ((random() - 0.5f) * 0.3f * paint_fleck_radius());
+      fleck.shape_type = SculptBrushShape::Sphere;
+      fleck.params = glm::vec4(paint_fleck_radius() * (0.8f + 0.4f * random()), 0.0f,
+                               0.0f, static_cast<f32>(fleck_style_index_));
+      fleck.smoothness = 0.0f;
+      fleck.op = SculptBrushOp::Fleck;
+      fleck.material_slot = slot;
+      fleck.looseness = random(); // its seed
+      fleck.rotation = glm::normalize(glm::quat_cast(glm::mat3(along, up, n)));
+      stamps.push_back(fleck);
+    }
+    if (symmetry_on() && !stamps.empty()) {
+      stamps = with_symmetry(stamps, symmetry_point(stamps.front().center));
+    }
+    if (stroke_object_ < 0 ||
+        std::find(sculpture_members_.begin(), sculpture_members_.end(),
+                  stroke_object_) == sculpture_members_.end()) {
+      stroke_object_ = begin_addition();
+    }
+    if (renderer_sculpt_add_stamps(stroke_object_, stamps.data(),
+                                   static_cast<i32>(stamps.size()))) {
+      history_dirty_ = true;
+    }
+  }
+
   void place_sculpt_stamps(const std::vector<glm::vec3> &points) {
+    if (mode_ == EditMode::Paint) {
+      place_paint_flecks(points);
+      return;
+    }
     // Only adding makes something from nothing; carving, cropping or
     // painting nothing changes nothing.
     const bool adds = (sculpt_tool_ == SculptTool::Stamp ||
@@ -5816,30 +6265,73 @@ private:
       }
       return;
     }
-    // Carving, painting: every stroke of the sculpture the shape reaches
-    // (its bounds against the shape's, a sphere round it). Cropping: every
-    // stroke, since it takes away all of it outside the shape.
-    const bool crops = op == SculptBrushOp::ObjectIntersection;
-    std::vector<i32> owners;
-    std::vector<SculptStampInfo> all;
-    for (i32 member : sculpture_shaped_members()) {
-      glm::vec3 lo, hi;
-      renderer_sculpt_object_bounds(member, &lo, &hi);
-      for (const SculptStampInfo &stamp : stamps) {
-        const f32 reach = 2.0f * brush_size_ * std::max(
-            shape_scale_.x, std::max(shape_scale_.y, shape_scale_.z));
-        const glm::vec3 nearest = glm::clamp(stamp.center, lo, hi);
-        if (!crops && glm::length(stamp.center - nearest) > reach) {
-          continue;
-        }
-        owners.push_back(member);
-        all.push_back(stamp);
-      }
-    }
-    if (!all.empty() &&
-        renderer_sculpt_add_stamps_to_objects(owners.data(), all.data(),
-                                              static_cast<i32>(all.size()))) {
+    // Carving, painting, cropping: once, into the sculpture's carve object.
+    // The sculpture folds as one field in stamp order (see sync_welds()), so
+    // it acts on every stroke made before it -- and on none made after.
+    const i32 carrier = sculpture_carrier();
+    if (carrier >= 0 && renderer_sculpt_add_stamps(carrier, stamps.data(),
+                                                   static_cast<i32>(stamps.size()))) {
       history_dirty_ = true;
+    }
+  }
+
+  // The object holding the sculpture's carves, paint and crops -- made the
+  // first time one is needed, welded to the sculpture and in its group.
+  // It has no shape of its own (so it is never picked or outlined); it
+  // goes wherever the group goes.
+  i32 sculpture_carrier() {
+    auto key = welds_.find(sculpture_);
+    if (key != welds_.end()) {
+      for (const auto &[object, object_key] : welds_) {
+        if (object_key == key->second && carriers_.count(object) &&
+            object_exists_or_new(object)) {
+          return object;
+        }
+      }
+    } else {
+      key = welds_.emplace(sculpture_, next_weld_key_++).first;
+    }
+    const i32 carrier = renderer_sculpt_begin_object();
+    if (carrier < 0) {
+      return -1;
+    }
+    welds_[carrier] = key->second;
+    carriers_.insert(carrier);
+    sculpture_members_.push_back(carrier);
+    if (Group *group = sculpture_group()) {
+      group->members.push_back(carrier);
+    } else {
+      groups_.push_back({next_group_id_++, {sculpture_, carrier}});
+    }
+    sync_welds(); // before its first stamps, so they fold with the sculpture
+    return carrier;
+  }
+
+  // A carrier made this session may still be empty (no stamps, so not yet
+  // in the engine's object list).
+  bool object_exists_or_new(i32 object) const {
+    return object_exists(object) ||
+           std::find(sculpture_members_.begin(), sculpture_members_.end(),
+                     object) != sculpture_members_.end();
+  }
+
+  // The stamps of `objects`, all in the order they were made, with the
+  // object of each. Welded objects fold together in that order, so copying
+  // or saving them object by object would put every carve after every
+  // stroke.
+  static void ordered_stamps(const std::vector<i32> &objects,
+                             std::vector<SculptStampInfo> *out,
+                             std::vector<i32> *owners) {
+    const i32 count = renderer_sculpt_all_stamps(nullptr, nullptr, 0);
+    std::vector<SculptStampInfo> all(static_cast<size_t>(std::max(count, 0)));
+    std::vector<i32> all_owners(all.size());
+    renderer_sculpt_all_stamps(all.data(), all_owners.data(), count);
+    const std::unordered_set<i32> wanted(objects.begin(), objects.end());
+    for (size_t i = 0; i < all.size(); ++i) {
+      if (wanted.count(all_owners[i])) {
+        out->push_back(all[i]);
+        owners->push_back(all_owners[i]);
+      }
     }
   }
 
@@ -5854,42 +6346,31 @@ private:
     }
     const SculptStampInfo crop =
         sculpt_stamp(placement_point(), SculptBrushOp::ObjectIntersection, kPlainSlot);
-    std::vector<i32> pieces;
-    for (i32 member : sculpture_shaped_members()) {
-      std::vector<SculptStampInfo> stamps(
-          static_cast<size_t>(renderer_sculpt_object_stamps(member, nullptr, 0)));
-      renderer_sculpt_object_stamps(member, stamps.data(),
-                                    static_cast<i32>(stamps.size()));
-      stamps.push_back(crop);
-      const i32 piece = renderer_sculpt_begin_object();
-      renderer_sculpt_add_stamps(piece, stamps.data(), static_cast<i32>(stamps.size()));
-      glm::vec3 lo, hi;
-      if (!renderer_sculpt_object_bounds(piece, &lo, &hi)) {
-        renderer_sculpt_delete_objects(&piece, 1); // the shape missed it
-        continue;
-      }
-      SculptStampInfo cutter = crop;
-      cutter.op = SculptBrushOp::ObjectSubtraction;
-      renderer_sculpt_add_stamps(member, &cutter, 1);
-      if (auto coat = coats_.find(member); coat != coats_.end()) {
-        coats_[piece] = coat->second; // shares its slots until either is coated
-        coats_[piece].light = -1;
-      }
-      pieces.push_back(piece);
-    }
-    if (pieces.empty()) {
+    // The piece: the whole sculpture -- its strokes and carves, in the order
+    // they were made -- as one object, cropped to the shape.
+    std::vector<SculptStampInfo> stamps;
+    std::vector<i32> owners;
+    ordered_stamps(sculpture_members_, &stamps, &owners);
+    stamps.push_back(crop);
+    const i32 piece = renderer_sculpt_begin_object();
+    renderer_sculpt_add_stamps(piece, stamps.data(), static_cast<i32>(stamps.size()));
+    glm::vec3 lo, hi;
+    if (!renderer_sculpt_object_bounds(piece, &lo, &hi)) {
+      renderer_sculpt_delete_objects(&piece, 1);
       KINFO("Cut out: the shape isn't on the sculpture.");
       return;
     }
-    if (pieces.size() >= 2) {
-      groups_.push_back({next_group_id_++, pieces});
-      const i32 key = next_weld_key_++;
-      for (i32 piece : pieces) {
-        welds_[piece] = key; // blended like the strokes they came from
-      }
+    SculptStampInfo cutter = crop;
+    cutter.op = SculptBrushOp::ObjectSubtraction;
+    if (const i32 carrier = sculpture_carrier(); carrier >= 0) {
+      renderer_sculpt_add_stamps(carrier, &cutter, 1);
+    }
+    if (auto coat = coats_.find(sculpture_); coat != coats_.end()) {
+      coats_[piece] = coat->second; // shares its slots until either is coated
+      coats_[piece].light = -1;
     }
     history_dirty_ = true;
-    KINFO("Cut {} piece(s) out of sculpture {}.", pieces.size(), sculpture_);
+    KINFO("Cut a piece ({}) out of sculpture {}.", piece, sculpture_);
   }
 
   // L2 held in sculpt mode: turn the brush shape, with the same stick
@@ -5993,7 +6474,7 @@ private:
   std::vector<i32> reticle_occluders(bool *everything) const {
     *everything = false;
     std::vector<i32> objects;
-    if (mode_ == EditMode::Sculpt) {
+    if (brush_mode()) {
       objects = sculpture_members_;
     } else if (scoped()) {
       objects = scope_members();
@@ -6140,6 +6621,16 @@ private:
       rows.push_back({{"dpad_updown", nullptr}, "Size"});
       rows.push_back({{"l2", nullptr}, "Turn shape"});
       return rows;
+    }
+    if (mode_ == EditMode::Paint && !move_tool_) {
+      return {
+          {{"r2", nullptr}, "Paint"},
+          {{"dpad_updown", nullptr}, "Size"},
+          {{"ls", nullptr}, "Move"},
+          {{"rs", nullptr}, "Look"},
+          {{"r1", nullptr}, "Orbit"},
+          {{"l1", "b"}, "Exit"},
+      };
     }
     if (mode_ == EditMode::Sculpt && !move_tool_) {
       if (l2_.down) {
@@ -6378,6 +6869,9 @@ private:
     std::unordered_map<i32, ObjectCoat> coats;
     std::vector<i32> selection;
     std::unordered_map<i32, i32> welds;
+    std::unordered_set<i32> carriers;
+    // The object of every stamp, in list order (see ordered_stamps()).
+    std::vector<i32> order;
   };
   static constexpr size_t kMaxUndoSteps = 64;
 
@@ -6395,18 +6889,19 @@ private:
 
   SceneSnapshot capture_scene() const {
     SceneSnapshot snap;
-    const i32 count = renderer_sculpt_object_ids(nullptr, 0);
-    std::vector<i32> ids(static_cast<size_t>(std::max(count, 0)));
-    renderer_sculpt_object_ids(ids.data(), count);
-    for (i32 id : ids) {
-      ObjectSnapshot object;
-      object.id = id;
-      object.stamps.resize(
-          static_cast<size_t>(renderer_sculpt_object_stamps(id, nullptr, 0)));
-      renderer_sculpt_object_stamps(id, object.stamps.data(),
-                                    static_cast<i32>(object.stamps.size()));
-      snap.objects.push_back(std::move(object));
+    const i32 count = renderer_sculpt_all_stamps(nullptr, nullptr, 0);
+    std::vector<SculptStampInfo> stamps(static_cast<size_t>(std::max(count, 0)));
+    snap.order.resize(stamps.size());
+    renderer_sculpt_all_stamps(stamps.data(), snap.order.data(), count);
+    std::unordered_map<i32, size_t> slot;
+    for (size_t i = 0; i < stamps.size(); ++i) {
+      auto [it, added] = slot.try_emplace(snap.order[i], snap.objects.size());
+      if (added) {
+        snap.objects.push_back({snap.order[i], {}});
+      }
+      snap.objects[it->second].stamps.push_back(stamps[i]);
     }
+    snap.carriers = carriers_;
     snap.groups = groups_;
     snap.welds = welds_;
     snap.coats = coats_;
@@ -6460,17 +6955,39 @@ private:
   void restore_scene(SceneSnapshot &target) {
     const SceneSnapshot current = capture_scene();
     // Objects already exactly as the target has them stay untouched.
-    std::vector<i32> remove;
     std::vector<bool> kept(target.objects.size(), false);
     for (const ObjectSnapshot &now : current.objects) {
-      bool keep = false;
       for (size_t i = 0; i < target.objects.size(); ++i) {
         if (target.objects[i].id == now.id && same_object(target.objects[i], now)) {
-          kept[i] = keep = true;
+          kept[i] = true;
           break;
         }
       }
-      if (!keep) {
+    }
+    // Welded objects fold together in stamp order: if one of them has to be
+    // re-stamped, they all are, in their order.
+    std::unordered_set<i32> redo_keys;
+    for (size_t i = 0; i < target.objects.size(); ++i) {
+      if (auto key = target.welds.find(target.objects[i].id);
+          !kept[i] && key != target.welds.end()) {
+        redo_keys.insert(key->second);
+      }
+    }
+    for (size_t i = 0; i < target.objects.size(); ++i) {
+      if (auto key = target.welds.find(target.objects[i].id);
+          kept[i] && key != target.welds.end() && redo_keys.count(key->second)) {
+        kept[i] = false;
+      }
+    }
+    std::unordered_set<i32> kept_ids;
+    for (size_t i = 0; i < target.objects.size(); ++i) {
+      if (kept[i]) {
+        kept_ids.insert(target.objects[i].id);
+      }
+    }
+    std::vector<i32> remove;
+    for (const ObjectSnapshot &now : current.objects) {
+      if (!kept_ids.count(now.id)) {
         remove.push_back(now.id);
       }
     }
@@ -6480,15 +6997,43 @@ private:
     // Everything else is re-stamped as the target had it.
     std::unordered_map<i32, i32> new_id;
     const i32 previous_object = renderer_sculpt_current_object();
+    std::unordered_map<i32, size_t> slot_of;
     for (size_t i = 0; i < target.objects.size(); ++i) {
       if (kept[i]) {
         continue;
       }
-      const i32 id = renderer_sculpt_begin_object();
-      // Rebuilt from the list in one go (exact for object-scoped stamps).
-      const std::vector<SculptStampInfo> &stamps = target.objects[i].stamps;
-      renderer_sculpt_add_stamps(id, stamps.data(), static_cast<i32>(stamps.size()));
-      new_id[target.objects[i].id] = id;
+      new_id[target.objects[i].id] = renderer_sculpt_begin_object();
+      slot_of[target.objects[i].id] = i;
+    }
+    // Their welds first, so the stamps fold with their sculpture as they
+    // land; then every stamp in the target's order, in one go.
+    {
+      std::unordered_map<i32, i32> welds;
+      for (const auto &[id, key] : target.welds) {
+        auto it = new_id.find(id);
+        welds[it != new_id.end() ? it->second : id] = key;
+      }
+      welds_ = std::move(welds);
+      sync_welds();
+      std::unordered_map<i32, size_t> cursor;
+      std::vector<i32> owners;
+      std::vector<SculptStampInfo> stamps;
+      for (i32 owner : target.order) {
+        auto id = new_id.find(owner);
+        if (id == new_id.end()) {
+          continue;
+        }
+        const std::vector<SculptStampInfo> &list = target.objects[slot_of[owner]].stamps;
+        size_t &at = cursor[owner];
+        if (at < list.size()) {
+          owners.push_back(id->second);
+          stamps.push_back(list[at++]);
+        }
+      }
+      if (!stamps.empty()) {
+        renderer_sculpt_add_stamps_to_objects(owners.data(), stamps.data(),
+                                              static_cast<i32>(stamps.size()));
+      }
     }
     renderer_sculpt_set_current_object(previous_object);
     // Re-stamped objects have new ids: follow them through all of history.
@@ -6524,6 +7069,7 @@ private:
       next_group_id_ = std::max(next_group_id_, group.id + 1);
     }
     welds_ = target.welds;
+    carriers_ = target.carriers;
     for (auto &[id, coat] : coats_) {
       release_glow_light(coat);
     }
@@ -6538,7 +7084,7 @@ private:
       apply_coat_material(coat);
     }
     selection_ = target.selection;
-    if (mode_ == EditMode::Sculpt) {
+    if (brush_mode()) {
       // Strokes undone are gone; the first object stays (it may be empty).
       std::erase_if(sculpture_members_, [&](i32 member) {
         return member != sculpture_ && !object_exists(member);
@@ -6582,6 +7128,14 @@ private:
       welds[map(id)] = key;
     }
     snap.welds = std::move(welds);
+    std::unordered_set<i32> carriers;
+    for (i32 id : snap.carriers) {
+      carriers.insert(map(id));
+    }
+    snap.carriers = std::move(carriers);
+    for (i32 &id : snap.order) {
+      id = map(id);
+    }
   }
 
   std::string stamps_path_;
@@ -6605,6 +7159,21 @@ private:
   // has.
   std::unordered_map<i32, i32> welds_;
   std::unordered_map<i32, i32> sent_welds_;
+  // Objects that hold a sculpture's carves, paint and crops (see
+  // sculpture_carrier()).
+  std::unordered_set<i32> carriers_;
+  f32 brick_gauge_level_ = 0.0f; // the gauge's eased reading
+  // Paint mode (place_paint_flecks()).
+  glm::vec3 paint_last_point_{0.0f};
+  struct PaintRandom {
+    u32 state = 0x2545F491u;
+    f32 uniform() {
+      state ^= state << 13;
+      state ^= state >> 17;
+      state ^= state << 5;
+      return static_cast<f32>(state >> 8) * (1.0f / 16777216.0f);
+    }
+  } paint_random_;
   i32 next_weld_key_ = 1;
 
   // The clone chain being built (see clone_held_group()). Each link is a

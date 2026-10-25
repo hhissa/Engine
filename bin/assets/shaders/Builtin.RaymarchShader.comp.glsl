@@ -1,4 +1,6 @@
 #version 450
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 #extension GL_GOOGLE_include_directive : require
 // 64-bit integers only -- this shader READS the splat visibility buffer
 // (see binding 20 below), it never atomically updates it, so unlike
@@ -363,6 +365,29 @@ layout(binding = 23) readonly buffer SplatTileBoundBuffer {
     uint splat_tile_bound[];
 };
 
+// Paint mode's free-floating flecks (see Builtin.FleckSplat.comp.glsl): a
+// winning splat may be one of these instead of a surface point -- marked in
+// its payload by looseness bits 0 with ruffle bits 3, its id the index here.
+struct FreeFleck {
+    vec4 position_radius; // xyz, w = radius
+    vec4 normal_slot;     // xyz = facing, w = material slot
+    vec4 direction_style; // xyz = direction, w = style
+    vec4 object_seed;     // x = object id, y = seed
+};
+// Occlusion tiles (VulkanRaymarchShader::occlusion_tile_buffer_): written
+// at the end of main(), read by the next frame's Builtin.ChunkClusterCull.
+layout(set = 1, binding = 9) buffer OcclusionTileBuffer {
+    uint occlusion_tiles[];
+};
+layout(set = 1, binding = 7) readonly buffer FreeFleckBuffer {
+    FreeFleck free_flecks[];
+};
+bool payload_is_free_fleck(uint payload) {
+    return ((payload >> 28) & 3u) == 0u && ((payload >> 30) & 3u) == 3u;
+}
+// Set by read_splat(): this pixel's splat is a free fleck.
+bool g_splat_free = false;
+
 // Must match SPLAT_TILE_SIZE in Builtin.ChunkPointSplat.comp.glsl (and
 // kSplatTileSize engine-side, which sizes the buffer) exactly.
 const int SPLAT_TILE_SIZE = 16;
@@ -420,6 +445,19 @@ bool read_splat(ivec2 pixel_coord, ivec2 image_size, out float out_dist,
     // glsl -- carrying it avoids recomputing that pass's whole LOD selection
     // and its stochastic thinning here).
     uint payload = uint(entry & 0xFFFFFFFFul);
+    if (payload_is_free_fleck(payload)) {
+        FreeFleck f = free_flecks[payload & 0x01FFFFFFu];
+        g_splat_free = true;
+        out_looseness = 1.0;
+        out_pos = f.position_radius.xyz;
+        vec3 n = normalize(f.normal_slot.xyz);
+        // Two-sided: the face toward the camera.
+        out_normal = dot(n, push.camera_position.xyz - out_pos) < 0.0 ? -n : n;
+        out_base_normal = out_normal;
+        out_spacing = max(f.position_radius.w, 1e-3);
+        out_material = int(round(f.normal_slot.w));
+        return true;
+    }
     uint spacing_code = (payload >> 25) & 7u;
     // FLECKS: the brick's looseness (see Builtin.ChunkPointSplat.comp.glsl).
     // Bits 28-29: looseness level (0 = ordinary splat), 30-31: ruffle.
@@ -435,11 +473,20 @@ bool read_splat(ivec2 pixel_coord, ivec2 image_size, out float out_dist,
     vec3 frac = vec3(float(packed.x & 1023u), float((packed.x >> 10) & 1023u),
                      float((packed.x >> 20) & 1023u)) * (1.0 / 1023.0);
     out_pos = cluster.bbox_min_cell.xyz + frac * cluster.bbox_min_cell.w;
+    // A drag instance's points are in its drag-start pose: moved to where
+    // it is now (see Builtin.SculptInstance.inc.glsl).
+    bool instance = sculpt_instance_owns_cluster(cluster.meta.w);
+    if (instance) {
+        out_pos = sculpt_instance_to_world(out_pos);
+    }
     // The baked surface normal. Cheaper AND better than re-deriving it with
     // calc_static_normal() at the splat point: that costs six field lookups
     // per shaded pixel, and it is the normal of the field, not of the point,
     // which drift apart exactly where the field is coarsest.
     out_normal = unpack_point_normal(packed.y);
+    if (instance) {
+        out_normal = sculpt_instance_dir_to_world(out_normal);
+    }
     out_base_normal = out_normal; // before ruffle's tilt
     // FLECKS: ruffle -- each loose fleck leans a little its own way (a fixed
     // tilt hashed from its id, growing with ruffle), so neighbouring flecks
@@ -454,6 +501,9 @@ bool read_splat(ivec2 pixel_coord, ivec2 image_size, out float out_dist,
     }
     out_spacing = (cluster.bbox_min_cell.w / float(CHUNK_BRICK_DIM)) *
         float(1u << spacing_code);
+    if (instance) {
+        out_spacing *= sculpt_instance_scale();
+    }
     // The baked per-brick material, exactly the provenance a raymarch hit in
     // this brick would have reported; main() re-derives it analytically at
     // the hit point afterward either way (see its own comment there).
@@ -722,7 +772,8 @@ void main() {
     // Clip it there: drop any fleck pixel that sits further outside the
     // object than the fleck's own lift (impasto tilt, dome) accounts for.
     // The pixel then takes the ordinary path, showing whatever is behind.
-    if (fleck) {
+    // (A free fleck floats on its own: never clipped.)
+    if (fleck && !g_splat_free) {
         vec3 card_p = ray_origin + ray_dir * splat_dist;
         float height = dot(card_p - splat_pos, splat_base_normal);
         float slack = FLECK_OVERHANG * splat_spacing;
@@ -874,12 +925,15 @@ void main() {
     // footprint.
     vec3 out_normal = vec3(0.0, 1.0, 0.0);
     if (travelled < MAX_DIST) {
-        out_normal = calc_static_normal(p);
+        out_normal = g_splat_free ? splat_normal : calc_static_normal(p);
+        if (g_splat_free) {
+            out_normal = normalize(splat_normal + fleck_shape_tilt);
+        }
         // FLECKS: the looser, the more each fleck is lit by its own baked
         // normal -- which is constant across the fleck, so each one reads as
         // a separate flat mark (the facet look the comment above avoids for
         // ordinary splats is exactly what a loose fleck should show).
-        if (fleck) {
+        if (fleck && !g_splat_free) {
             // A fleck overhanging its object's edge sits over empty space,
             // where the field has no gradient (a NaN that TAA then smears
             // into a block): use the fleck's own normal there.
@@ -900,6 +954,17 @@ void main() {
     // hit position as origin + dir * depth.
     imageStore(out_depth, pixel_coord,
                vec4(travelled < MAX_DIST ? travelled : -1.0, 0.0, 0.0, 0.0));
+    // Occlusion tiles: the farthest depth in this 16x16 tile (a workgroup
+    // is exactly one), nothing hit counting as infinitely far. Distances
+    // are >= 0, so their float bits order like the floats.
+    {
+        float far_depth = travelled < MAX_DIST ? max(travelled, 0.0) : 1e30;
+        uint far_bits = subgroupMax(floatBitsToUint(far_depth));
+        if (subgroupElect()) {
+            atomicMax(occlusion_tiles[gl_WorkGroupID.y * gl_NumWorkGroups.x +
+                                      gl_WorkGroupID.x], far_bits);
+        }
+    }
     // Material is the provenance the visibility path had -- a splat's baked
     // per-brick primitive, or the brick the march ended in. The shading pass
     // refines it analytically at the exact hit point; this is its fallback
